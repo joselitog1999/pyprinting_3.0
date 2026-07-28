@@ -164,19 +164,44 @@ LASER_532_CHANNEL = "Dev1/ao2" # Canal de modulación analógica del láser 532 
 
 ---
 
-## 📦 Instalación y Ejecución
+## 📦 Instalación y Ejecución Rápida (Post Git Pull / Clone)
 
-### 1. Instalación de Dependencias
+### 1. Clonar o Actualizar Repositorio
 ```powershell
+git pull origin main
+```
+
+### 2. Crear y Activar Entorno Virtual
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 3. Instalar o Actualizar Dependencias
+```powershell
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Ejecución con Hardware Real (Laboratorio)
-```powershell
-python app.py
-```
+### 4. Modos de Ejecución Disponibles
 
-### 3. Ejecución en Modo Seguro (Desarrollo / Demostración)
-```powershell
-$env:PYPRINTING_SAFE="1"; python app.py
-```
+* **🚀 Programa Principal (PyPrinting 3.0 completo)**:
+  * **Modo Seguro / Simulación (Sin Hardware)**:
+    ```powershell
+    $env:PYPRINTING_SAFE="1"; python app.py
+    ```
+  * **Modo Laboratorio (Con hardware PI / NI-DAQmx / Cámara)**:
+    ```powershell
+    python app.py
+    ```
+
+* **📷 Suite de Pruebas Nativa Canon EOS 500D (EDSDK 64-bit)**:
+  ```powershell
+  python canon_test.py
+  ```
+
+* **🖼️ Analizador de Imágenes Independiente**:
+  ```powershell
+  python image_analyzer.py
+  ```
+

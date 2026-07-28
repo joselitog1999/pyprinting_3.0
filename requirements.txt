@@ -1,31 +1,48 @@
-# PyPrinting — UNSAM Nanofotónica
-# Python >= 3.12
+# ==============================================================================
+# PyPrinting 3.0 — UNSAM Nanofotónica
+# Requerimientos de Dependencias (Python >= 3.10)
+# ==============================================================================
 #
-# Instalación:
-#   pip install -r requirements.txt
+# INSTRUCCIONES DE INSTALACIÓN RÁPIDA (Luego de git pull / git clone):
 #
-# Modo seguro (sin hardware):
-# PYPRINTING_SAFE=1 python app.py
+# 1. Crear entorno virtual:
+#    python -m venv .venv
 #
-# Nota: nidaqmx y pipython requieren drivers de hardware instalados.
-# En SAFE_MODE pueden omitirse si no están disponibles.
+# 2. Activar entorno virtual (PowerShell en Windows):
+#    .\.venv\Scripts\Activate.ps1
+#
+# 3. Actualizar pip e instalar dependencias:
+#    python -m pip install --upgrade pip
+#    pip install -r requirements.txt
+#
+# 4. Ejecutar PyPrinting 3.0 en Modo Seguro / Simulación:
+#    $env:PYPRINTING_SAFE="1"; python app.py
+#
+# 5. Ejecutar la Suite de Pruebas Nativas Canon EOS 500D (EDSDK):
+#    python canon_test.py
+#
+# 6. Ejecutar el Analizador de Imágenes Independiente:
+#    python image_analyzer.py
+# ==============================================================================
 
-# ── GUI ───────────────────────────────────────────────────────────────────────
+# ── Interfaz Gráfica y Gráficos en Tiempo Real ────────────────────────────────
 PyQt6>=6.6.0
 pyqtgraph>=0.13.4
 
-# ── Cámara ────────────────────────────────────────────────────────────────────
+# ── Visión por Computadora y Procesamiento de Imágenes ────────────────────────
 opencv-python>=4.9.0
+Pillow>=10.2.0
+scikit-image>=0.22.0
+trackpy>=0.6.0
+pandas>=2.0.0
 
-# ── Análisis numérico ─────────────────────────────────────────────────────────
+# ── Análisis Numérico y Ajustes Espectroscópicos ─────────────────────────────
 numpy>=1.26.0
 scipy>=1.12.0
-scikit-image>=0.22.0
-Pillow>=10.2.0
+matplotlib>=3.8.0
 
-# ── Instrumentos (requieren drivers físicos) ──────────────────────────────────
-nidaqmx>=1.0.0          # NI-DAQmx Python API  — pip install nidaqmx
-pipython>=2.11.0         # PI GCS Python        — pip install pipython
-
-# ── Utilidades ────────────────────────────────────────────────────────────────
-# (tkinter viene con Python estándar, no necesita instalación separada)
+# ── Abstracción de Hardware (HAL) ──────────────────────────────────────────────
+nidaqmx>=1.0.0          # API de NI-DAQmx para tarjetas National Instruments
+pipython>=2.11.0         # API GCS para platinas piezoeléctricas Physik Instrumente
+pyserial>=3.5            # Comunicación Serie RS-232 / USB
+pyusb>=1.2.1             # Control USB de bajo nivel
