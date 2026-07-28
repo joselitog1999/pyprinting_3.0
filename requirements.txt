@@ -1,0 +1,31 @@
+# PyPrinting — UNSAM Nanofotónica
+# Python >= 3.12
+#
+# Instalación:
+#   pip install -r requirements.txt
+#
+# Modo seguro (sin hardware):
+# PYPRINTING_SAFE=1 python app.py
+#
+# Nota: nidaqmx y pipython requieren drivers de hardware instalados.
+# En SAFE_MODE pueden omitirse si no están disponibles.
+
+# ── GUI ───────────────────────────────────────────────────────────────────────
+PyQt6>=6.6.0
+pyqtgraph>=0.13.4
+
+# ── Cámara ────────────────────────────────────────────────────────────────────
+opencv-python>=4.9.0
+
+# ── Análisis numérico ─────────────────────────────────────────────────────────
+numpy>=1.26.0
+scipy>=1.12.0
+scikit-image>=0.22.0
+Pillow>=10.2.0
+
+# ── Instrumentos (requieren drivers físicos) ──────────────────────────────────
+nidaqmx>=1.0.0          # NI-DAQmx Python API  — pip install nidaqmx
+pipython>=2.11.0         # PI GCS Python        — pip install pipython
+
+# ── Utilidades ────────────────────────────────────────────────────────────────
+# (tkinter viene con Python estándar, no necesita instalación separada)

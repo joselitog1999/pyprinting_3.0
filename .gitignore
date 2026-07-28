@@ -1,0 +1,19 @@
+# Python / Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE & System Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs & Temporary Files
+*.log
+graphify-out/
+.system_generated/
