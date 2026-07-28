@@ -59,8 +59,19 @@ PD_CHANS_LIST = [0, 1, 2, 3, PD_CHAN_BS]
 TRIGGER_CHANNELS = {"X": 4, "Y": 5, "Z": 3}
 
 # ── Rutas ─────────────────────────────────────────────────────────────────────
-DEFAULT_DATA_PATH = Path("C:/Users/PRINTING/Documents/Data_Printing")
-LAST_POS_FILE     = Path("C:/Users/PRINTING/Desktop/PyPrinting/Last_position.txt")
+_default_base = Path("C:/Users/PRINTING/Documents/Data_Printing")
+_fallback_base = Path(os.path.expanduser("~/Documents/Data_Printing"))
+if _default_base.exists():
+    DEFAULT_DATA_PATH = _default_base
+else:
+    _fallback_base.mkdir(parents=True, exist_ok=True)
+    DEFAULT_DATA_PATH = _fallback_base
+
+_last_pos_default = Path("C:/Users/PRINTING/Desktop/PyPrinting/Last_position.txt")
+if _last_pos_default.parent.exists():
+    LAST_POS_FILE = _last_pos_default
+else:
+    LAST_POS_FILE = DEFAULT_DATA_PATH / "Last_position.txt"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

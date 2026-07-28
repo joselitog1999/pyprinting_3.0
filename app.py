@@ -57,7 +57,8 @@ class Frontend(QMainWindow):
         self.setWindowTitle(title)
         self._cwidget = QWidget()
         self.setCentralWidget(self._cwidget)
-        self.setGeometry(30, 30, 1440, 980)
+        self.setMinimumSize(1000, 600)
+        self.resize(1440, 900)
         self._setup_menu()
         self._setup_docks()
 

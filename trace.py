@@ -235,7 +235,7 @@ class Backend(QObject):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.file_path = str(DEFAULT_DATA_PATH)
-        self.pointtimer = QTimer()
+        self.pointtimer = QTimer(self)
         self.pointtimer.timeout.connect(self._trace_update)
         self._init_params()
         self.steps_after  = 10
@@ -354,6 +354,7 @@ class Backend(QObject):
     @pyqtSlot()
     def save_trace(self):
         timestr = time.strftime("%Y%m%d-%H%M%S")
+        os.makedirs(self.file_path, exist_ok=True)
         name    = os.path.join(self.file_path, f"timetrace-{timestr}.txt")
         n       = self.ptr
         t_real  = list(np.linspace(0.01, self.timer_real, n))
@@ -364,6 +365,7 @@ class Backend(QObject):
     @pyqtSlot(float, float)
     def save_calibration_BS(self, slope: float, intercept: float):
         timestr = time.strftime("%Y%m%d-%H%M%S")
+        os.makedirs(self.file_path, exist_ok=True)
         name    = os.path.join(self.file_path, f"Calibration_Power-{timestr}.txt")
         np.savetxt(name, [[self.laser, str(slope), str(intercept)]],
                    fmt="%s", header="Laser, Slope (mW/V), Intercept (mW)")

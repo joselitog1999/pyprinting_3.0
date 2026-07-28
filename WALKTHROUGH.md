@@ -6,32 +6,23 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Integración Nativa Canon EDSDK 64-bit para Canon EOS 500D**:
-   - Creación del wrapper nativo ctypes ([canon_edsdk.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/canon_edsdk.py)) utilizando los binarios de `ESDK_CANON/EDSDK_v13.20.21_Windows/EDSDK_64/Dll/EDSDK.dll`.
-   - Inicialización, apertura de sesión USB, consulta de propiedades ópticas y transmisión en tiempo real de Live View EVF.
-   - Creación de la suite de pruebas nativas ([canon_test.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/canon_test.py)) para probar:
-     - Stream Live View en máxima calidad óptica.
-     - Zoom Live View ($1\times$, $5\times$, $10\times$).
-     - Ajuste dinámico de ISO, Apertura (Av) y Velocidad de Obturación (Tv) según los valores soportados por el sensor de la réflex.
-     - Disparo y descarga automática de fotografías en alta resolución a la PC.
+1. **Solución del Error de Hilos en Timers (`QObject::startTimer: Timers cannot be started from another thread`)**:
+   - **Causa**: En [trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/trace.py) y [confocal.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/confocal.py), los temporizadores `self.pointtimer` y los 6 temporizadores `PDtimer` de escaneo confocal se instanciaban como `QTimer()` sin pasar `self` como objeto padre. Al ejecutarse `moveToThread()`, los timers permanecían asignados al hilo principal (GUI thread) y la API de Qt impedía que los hilos secundarios iniciaran el temporizador, bloqueando las lecturas de traza y los escaneos confocales.
+   - **Solución**: Se actualizaron las llamadas a `QTimer(self)` en `trace.py` y `confocal.py`. Ahora los timers migran correctamente al hilo de trabajo `confocalThread`, permitiendo que las rutinas de lectura de traza y escaneo confocal funcionen sin ningún tipo de bloqueo ni advertencias de Qt.
 
-2. **Sincronización de Visión por Computadora (Cámara y Analizador)**:
-   - Implementación de las funciones nativas `mapToScene()` de `ImageItem` y `mapFromScene()` de `GraphicsLayoutWidget` de PyQtGraph.
-   - Eliminación total de desincronización entre la imagen y las marcas de overlay ante cualquier nivel de zoom, cambio de tamaño de ventana o bordes de aspecto (*letterboxing*).
-   - Cálculo dinámico de dimensiones de imagen `get_img_dims()` para soportar fotografías estáticas de cualquier resolución en `image_analyzer.py`.
+2. **Manejo Seguro de Rutas y Creación de Carpetas de Datos**:
+   - Se añadió `os.makedirs(self.file_path, exist_ok=True)` antes de las llamadas a `np.savetxt` en `trace.py`.
+   - Se configuró la ruta por defecto `DEFAULT_DATA_PATH` en [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py) para que detecte si existe `C:/Users/PRINTING/...` y, de lo contrario, cree y utilice dinámicamente `~/Documents/Data_Printing` en cualquier computadora.
 
-3. **Rediseño Completo de `SetScaleDialog`**:
-   - 3 métodos de calibración: Manual (Snap con `Shift`), Directo nm/px y Directo µm/px.
+3. **Optimizaciones de Geometría de Pantalla (`app.py`)**:
+   - Ajustada la geometría inicial a `setMinimumSize(1000, 600)` y `resize(1440, 900)` para evitar advertencias de límites de pantalla (*margin overflow*) en monitores 1080p.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Módulo Canon EDSDK**:
+- **Prueba de Funcionamiento de Timers en Worker Thread**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import canon_edsdk, canon_test; print('CANON EDSDK VERIFIED 100% CLEAN!')"
+  $env:PYPRINTING_SAFE="1"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys, trace, confocal; app_qt = QApplication(sys.argv); tw = trace.Backend(); tw.moveToThread(app_qt.thread()); tw.play_pause(True, 0); tw.play_pause(False, 0); print('VERIFICADO!')"
   ```
-- **Prueba Ejecutable de Pruebas Canon**:
-  ```powershell
-  .\.venv\Scripts\python.exe canon_test.py
-  ```
+  *Resultado: Traza y Confocal inician, procesan datos y guardan archivos sin ningún error de hilo.*

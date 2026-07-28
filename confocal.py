@@ -344,12 +344,12 @@ class Backend(QObject):
         self.number_scan       = "none"
         self.signal_scan_stop  = False
 
-        self.PDtimer_stepxy = QTimer(); self.PDtimer_stepxy.timeout.connect(self._scan_step_xy)
-        self.PDtimer_rampxy = QTimer(); self.PDtimer_rampxy.timeout.connect(self._scan_ramp_xy)
-        self.PDtimer_rampxz = QTimer(); self.PDtimer_rampxz.timeout.connect(self._scan_ramp_xz)
-        self.PDtimer_rampyx = QTimer(); self.PDtimer_rampyx.timeout.connect(self._scan_ramp_yx)
-        self.PDtimer_rampyz = QTimer(); self.PDtimer_rampyz.timeout.connect(self._scan_ramp_yz)
-        self.drifttimer     = QTimer(); self.drifttimer.timeout.connect(self._drift_tick)
+        self.PDtimer_stepxy = QTimer(self); self.PDtimer_stepxy.timeout.connect(self._scan_step_xy)
+        self.PDtimer_rampxy = QTimer(self); self.PDtimer_rampxy.timeout.connect(self._scan_ramp_xy)
+        self.PDtimer_rampxz = QTimer(self); self.PDtimer_rampxz.timeout.connect(self._scan_ramp_xz)
+        self.PDtimer_rampyx = QTimer(self); self.PDtimer_rampyx.timeout.connect(self._scan_ramp_yx)
+        self.PDtimer_rampyz = QTimer(self); self.PDtimer_rampyz.timeout.connect(self._scan_ramp_yz)
+        self.drifttimer     = QTimer(self); self.drifttimer.timeout.connect(self._drift_tick)
 
         self._scan_ramp_parameters([2, 2, 34, 34])
         # Inicializar posición para evitar AttributeError en stop_scan
