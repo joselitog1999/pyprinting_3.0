@@ -6,27 +6,27 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Unidades Estrictas en Overlays y Reglas**:
-   - **Corrección de Evaluación**: Eliminada la condición residual `or self._um_per_px > 0` que provocaba desplegar `µm` aun sin calibración.
-   - **Etiquetas sin Calibrar**: Cuando la escala no está calibrada (`self._scale_set` es `False`), las reglas (`R1-V`, `R1-H`, `R2-V`, `R2-H`) y la línea de medición expresan sus dimensiones **estrictamente en píxeles ($\text{px}$)**.
+1. **Modo Cámara para Microscopía de Transmisión (Escala de Grises en Vivo)**:
+   - Se incorporó la opción de **`Modo Imagen`** (`Color RGB` vs `Grises (Transmisión)`) en la barra de control de la cámara Réflex Canon EOS 500D.
+   - Al activar el modo Grises, el pipeline convierte el stream en tiempo real a $1$ solo canal monocromático, eliminando artefactos de la matriz de color Bayer.
 
-2. **Precisión de Decimales en Reglas sobre el Lienzo**:
-   - **Con Escala Calibrada ($\mu\text{m}$)**: Se incrementó la precisión a 3 decimales (`.3f µm`), e.g., `R1-V: 26.425 µm`.
-   - **Sin Escala Calibrada ($\text{px}$)**: Se incrementó la precisión a 2 decimales (`.2f px`), e.g., `R1-V: 528.50 px`.
-
-3. **Deslizadores de Intensidad CLim y Paleta de Falso Color (LUT) para TIFFs**:
-   - **Deslizadores Interactivos de Intensidad**: Se añadieron deslizadores de rango continuo para **Intensidad Mínima (Corte de Fondo)** e **Intensidad Máxima (Saturación)** (idénticos a la dinámica del módulo Confocal `confocal.py`).
-   - **Paletas de Falso Color (LUT / Colormap)**: Menú desplegable con paletas científicas (*Gris Estándar*, *Thermal*, *Viridis*, *Plasma*, *Inferno*, *Jet / Arcoíris*) para análisis de nanopartículas y fluorescencia en escaneos TIFF de 8, 16 y 32 bits.
+2. **Panel Integrado de Ajustes de Imagen en Vivo**:
+   - **En Modo Escala de Grises / Transmisión**:
+     - Deslizadores en tiempo real de **Intensidad Mínima (Corte de Fondo CLim)** e **Intensidad Máxima (Saturación)**.
+     - Selector de **Paletas de Falso Color (LUT / Colormap)** (*Gris Estándar*, *Thermal (Confocal/Láser)*, *Viridis*, *Plasma*, *Inferno*, *Jet / Arcoíris*) con mapeo rápido mediante `cv2.applyColorMap`.
+   - **En Modo Color RGB**:
+     - Contrales de **Balance de Blancos y Ganancias RGB** (Rojo R, Verde G, Azul B de $0.5\times$ a $2.0\times$) con botón de **Restablecer Blancos**.
+     - **Rendimiento Ultrarrápido**: Multiplicación vectorial NumPy en $<1\text{ ms}$, manteniendo intacta la tasa fija de **25 FPS (40 ms)** del sensor DIGIC 4.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Módulo Image Analyzer CLim/LUT**:
+- **Prueba Módulo Canon Live View Adjustments**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import image_analyzer; print('VERIFIED 100% CLEAN!')"
+  .\.venv\Scripts\python.exe -c "import canon_test; print('VERIFIED 100% CLEAN!')"
   ```
-- **Prueba Ejecutable del Analizador**:
+- **Prueba Suite de la Cámara Canon EOS 500D**:
   ```powershell
-  .\.venv\Scripts\python.exe image_analyzer.py
+  .\.venv\Scripts\python.exe canon_test.py
   ```

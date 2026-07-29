@@ -113,6 +113,14 @@ class CanonWorker(QObject):
         self.statusSignal.emit("Cámara desconectada.")
         self._emit_log("Cámara desconectada y recursos liberados.")
 
+        self._mode_color = "Color RGB"
+        self._clim_min   = 0
+        self._clim_max   = 255
+        self._lut_idx    = 0
+        self._r_gain     = 1.0
+        self._g_gain     = 1.0
+        self._b_gain     = 1.0
+
     def _fetch_frame(self):
         if not self._running: return
         if self._cam._is_session_open and self._cam._evf_enabled:
@@ -122,8 +130,11 @@ class CanonWorker(QObject):
                 frame_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if frame_bgr is not None:
                     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    # Procesar rotación 90° + espejo + zoom de alta calidad
-                    processed = self._cam.process_frame_zoom_and_orientation(frame_rgb)
+                    # Procesar rotación 90° + espejo + zoom + ajustes en vivo (Grises/CLim/LUT/RGB)
+                    processed = self._cam.process_frame_live_adjustments(
+                        frame_rgb, mode=self._mode_color, clim_min=self._clim_min,
+                        clim_max=self._clim_max, lut_idx=self._lut_idx,
+                        r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain)
                     self._last_valid_frame = processed
                     self.frameSignal.emit(processed)
                     return
@@ -142,9 +153,22 @@ class CanonWorker(QObject):
         cv2.circle(frame, (cx, cy), 45, (74, 158, 255), 2)
         cv2.putText(frame, "CANON EOS 500D MOCK STREAM (1056x704)", (30, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (245, 166, 35), 2)
-        processed = self._cam.process_frame_zoom_and_orientation(frame)
+        processed = self._cam.process_frame_live_adjustments(
+            frame, mode=self._mode_color, clim_min=self._clim_min,
+            clim_max=self._clim_max, lut_idx=self._lut_idx,
+            r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain)
         self._last_valid_frame = processed
         self.frameSignal.emit(processed)
+
+    @pyqtSlot(str, int, int, int, float, float, float)
+    def set_live_adjustments(self, mode: str, cmin: int, cmax: int, lut_idx: int, r_g: float, g_g: float, b_g: float):
+        self._mode_color = mode
+        self._clim_min   = cmin
+        self._clim_max   = cmax
+        self._lut_idx    = lut_idx
+        self._r_gain     = r_g
+        self._g_gain     = g_g
+        self._b_gain     = b_g
 
     @pyqtSlot(int)
     def set_zoom(self, zoom_val: int):
@@ -201,8 +225,35 @@ class CanonTestWindow(QMainWindow):
     setZoomSignal     = pyqtSignal(int)
     setIsoSignal      = pyqtSignal(int)
     setTvSignal       = pyqtSignal(int)
-    takePhotoSignal   = pyqtSignal()
-    setSaveDirSignal  = pyqtSignal(str)
+    setLiveAdjustmentsSignal = pyqtSignal(str, int, int, int, float, float, float)
+
+    def _on_color_mode_changed(self, idx: int):
+        # idx 0: Color RGB, idx 1: Grises (Transmisión)
+        if idx == 1:
+            self._stack_live.setCurrentIndex(0) # Pág Grises
+        else:
+            self._stack_live.setCurrentIndex(1) # Pág RGB
+        self._sync_live_adjustments()
+
+    def _reset_live_rgb(self):
+        for s in (self._slider_live_r, self._slider_live_g, self._slider_live_b):
+            s.blockSignals(True)
+        self._slider_live_r.setValue(10)
+        self._slider_live_g.setValue(10)
+        self._slider_live_b.setValue(10)
+        for s in (self._slider_live_r, self._slider_live_g, self._slider_live_b):
+            s.blockSignals(False)
+        self._sync_live_adjustments()
+
+    def _sync_live_adjustments(self):
+        mode  = self._combo_color_mode.currentText()
+        cmin  = self._slider_live_cmin.value()
+        cmax  = self._slider_live_cmax.value()
+        lut   = self._combo_live_lut.currentIndex()
+        r_g   = self._slider_live_r.value() / 10.0
+        g_g   = self._slider_live_g.value() / 10.0
+        b_g   = self._slider_live_b.value() / 10.0
+        self.setLiveAdjustmentsSignal.emit(mode, cmin, cmax, lut, r_g, g_g, b_g)
 
     def __init__(self):
         super().__init__()
@@ -255,7 +306,62 @@ class CanonTestWindow(QMainWindow):
             self._combo_zoom.addItem(label, userData=val)
         form.addRow("Zoom Live View:", self._combo_zoom)
 
+        # Selector de Modo de Color (RGB vs Grises Transmisión)
+        self._combo_color_mode = QComboBox()
+        self._combo_color_mode.addItems(["Color RGB", "Grises (Transmisión)"])
+        form.addRow("Modo Imagen:", self._combo_color_mode)
+
         p_lo.addLayout(form)
+        p_lo.addSpacing(6)
+
+        # ── Panel Integrado de Ajustes en Vivo ────────────────────────────────
+        box_live = QGroupBox("Ajustes de Imagen en Vivo")
+        b_lo = QVBoxLayout(box_live)
+        b_lo.setContentsMargins(6, 6, 6, 6)
+
+        self._stack_live = QStackedWidget()
+
+        # Pág 0: Modo Grises / Transmisión (CLim + LUT)
+        page_gray = QWidget()
+        pg_lo = QFormLayout(page_gray)
+        pg_lo.setContentsMargins(0, 0, 0, 0)
+        self._slider_live_cmin = QSlider(Qt.Orientation.Horizontal); self._slider_live_cmin.setRange(0, 255); self._slider_live_cmin.setValue(0)
+        self._slider_live_cmax = QSlider(Qt.Orientation.Horizontal); self._slider_live_cmax.setRange(0, 255); self._slider_live_cmax.setValue(255)
+        self._combo_live_lut   = QComboBox()
+        self._combo_live_lut.addItems(["Gris (Original)", "Thermal (Confocal/Láser)", "Viridis", "Plasma", "Inferno", "Jet / Arcoíris"])
+
+        pg_lo.addRow("Intensidad Mín. (Corte):", self._slider_live_cmin)
+        pg_lo.addRow("Intensidad Máx. (Sat.):", self._slider_live_cmax)
+        pg_lo.addRow("Paleta Falso Color (LUT):", self._combo_live_lut)
+        self._stack_live.addWidget(page_gray)
+
+        # Pág 1: Modo Color RGB (Balance de Blancos / Ganancias)
+        page_rgb = QWidget()
+        pr_lo = QFormLayout(page_rgb)
+        pr_lo.setContentsMargins(0, 0, 0, 0)
+        self._slider_live_r = QSlider(Qt.Orientation.Horizontal); self._slider_live_r.setRange(5, 20); self._slider_live_r.setValue(10) # /10 -> 0.5 a 2.0
+        self._slider_live_g = QSlider(Qt.Orientation.Horizontal); self._slider_live_g.setRange(5, 20); self._slider_live_g.setValue(10) # /10 -> 0.5 a 2.0
+        self._slider_live_b = QSlider(Qt.Orientation.Horizontal); self._slider_live_b.setRange(5, 20); self._slider_live_b.setValue(10) # /10 -> 0.5 a 2.0
+        btn_reset_live_rgb  = QPushButton("Restablecer Blancos (RGB)")
+        btn_reset_live_rgb.clicked.connect(self._reset_live_rgb)
+
+        pr_lo.addRow("Ganancia Rojo (R):", self._slider_live_r)
+        pr_lo.addRow("Ganancia Verde (G):", self._slider_live_g)
+        pr_lo.addRow("Ganancia Azul (B):", self._slider_live_b)
+        pr_lo.addRow(btn_reset_live_rgb)
+        self._stack_live.addWidget(page_rgb)
+
+        # Iniciar en Pág 1 (RGB)
+        self._stack_live.setCurrentIndex(1)
+        b_lo.addWidget(self._stack_live)
+        p_lo.addWidget(box_live)
+
+        # Conectar deslizadores a actualización de señal
+        self._combo_color_mode.currentIndexChanged.connect(self._on_color_mode_changed)
+        for s in (self._slider_live_cmin, self._slider_live_cmax, self._slider_live_r, self._slider_live_g, self._slider_live_b):
+            s.valueChanged.connect(self._sync_live_adjustments)
+        self._combo_live_lut.currentIndexChanged.connect(self._sync_live_adjustments)
+
         p_lo.addSpacing(10)
 
         # Botón Disparar Foto
@@ -323,6 +429,7 @@ class CanonTestWindow(QMainWindow):
         self.setTvSignal.connect(self._worker.set_tv)
         self.takePhotoSignal.connect(self._worker.take_photo)
         self.setSaveDirSignal.connect(self._worker.set_save_dir)
+        self.setLiveAdjustmentsSignal.connect(self._worker.set_live_adjustments)
 
         self._thread.start()
 

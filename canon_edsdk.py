@@ -443,6 +443,50 @@ class CanonCamera:
 
         return corrected
 
+    def process_frame_live_adjustments(
+        self,
+        frame_rgb: np.ndarray,
+        mode: str = "Color RGB",
+        clim_min: int = 0,
+        clim_max: int = 255,
+        lut_idx: int = 0,
+        r_gain: float = 1.0,
+        g_gain: float = 1.0,
+        b_gain: float = 1.0,
+    ) -> np.ndarray:
+        if frame_rgb is None: return frame_rgb
+
+        # 1. Aplicar orientación y zoom nativo
+        proc = self.process_frame_zoom_and_orientation(frame_rgb)
+        if proc is None: return proc
+
+        if mode.startswith("Grises"):
+            # Convertir a 8-bit escala de grises para microscopía de transmisión
+            gray = cv2.cvtColor(proc, cv2.COLOR_RGB2GRAY) if proc.ndim == 3 else proc
+            cmin = float(clim_min)
+            cmax = float(clim_max)
+            if cmax <= cmin: cmax = cmin + 1.0
+            norm = np.clip((gray.astype(float) - cmin) / (cmax - cmin), 0.0, 1.0)
+            u8 = (norm * 255.0).astype(np.uint8)
+
+            if lut_idx == 0:
+                # Gris estandar RGB
+                return np.stack([u8] * 3, axis=-1)
+            else:
+                cv_maps = [None, cv2.COLORMAP_HOT, cv2.COLORMAP_VIRIDIS, cv2.COLORMAP_PLASMA, cv2.COLORMAP_INFERNO, cv2.COLORMAP_JET]
+                idx = min(lut_idx, len(cv_maps) - 1)
+                colored = cv2.applyColorMap(u8, cv_maps[idx])
+                return cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
+        else:
+            # Modo Color (RGB): Ganancias ultrarrápidas R, G, B (<1 ms)
+            if r_gain == 1.0 and g_gain == 1.0 and b_gain == 1.0:
+                return proc
+            f = proc.astype(float)
+            f[:, :, 0] *= r_gain
+            f[:, :, 1] *= g_gain
+            f[:, :, 2] *= b_gain
+            return np.clip(f, 0, 255).astype(np.uint8)
+
     # ── Lectura y Ajuste de Propiedades ───────────────────────────────────────
 
     def get_property_desc(self, prop_id: int) -> List[int]:
