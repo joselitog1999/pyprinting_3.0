@@ -4,10 +4,10 @@ canon_edsdk.py — Wrapper nativo ctypes para Canon EOS Digital SDK (EDSDK) 64-b
 PyPrinting — UNSAM Nanofotónica — PyQt6
 
 Soporta control nativo de Canon EOS 500D:
-  - Conexión y sesión USB con diagnósticos de error detallados.
-  - Stream de Live View (EVF) de alta frecuencia adaptativo al bus USB.
-  - Extensión de temporizador de apagado (ExtendShutDownTimer).
-  - Secuencia robusta de disparo por obturador (PressShutterButton).
+  - Conexión y sesión USB con protección contra colisiones en bus C++.
+  - Pausa inteligente de Live View para captura de foto en alta resolución.
+  - Stream de Live View (EVF) de alta calidad sin cuellos de botella.
+  - Extensión de temporizador de apagado aislada (ExtendShutDownTimer).
   - Descarga de fotografías en alta resolución (JPEG/RAW) a la PC.
   - Corrección geométrica de orientación (rotación 90° e inversión espejo).
 """
@@ -17,6 +17,7 @@ import ctypes
 import os
 import sys
 import time
+import threading
 from typing import Optional, Callable, Tuple, List, Dict
 
 import numpy as np
@@ -41,6 +42,9 @@ def _find_edsdk_dll() -> str:
 _DLL_PATH = _find_edsdk_dll()
 os.add_dll_directory(os.path.dirname(_DLL_PATH))
 edsdk = ctypes.cdll.LoadLibrary(_DLL_PATH)
+
+# Lock de exclusión mutua para llamadas ctypes a la DLL de EDSDK
+_edsdk_lock = threading.Lock()
 
 # ── Tipos y Constantes Canon EDSDK ────────────────────────────────────────────
 
@@ -71,15 +75,15 @@ EDS_ERR_OBJECT_NOTREADY            = 0x0000A102
 
 EDSDK_ERRORS: Dict[int, str] = {
     0x00000000: "EDS_ERR_OK (Éxito)",
-    0x00000001: "EDS_ERR_UNIMPLEMENTED (Función no implementada en este modelo)",
-    0x00000002: "EDS_ERR_INTERNAL_ERROR (Error interno de EDSDK)",
+    0x00000001: "EDS_ERR_UNIMPLEMENTED (Función no implementada)",
+    0x00000002: "EDS_ERR_INTERNAL_ERROR (Error interno EDSDK)",
     0x00000006: "EDS_ERR_HANDLE_INVALID (Referencia de cámara no válida)",
     0x00000007: "EDS_ERR_INVALID_PARAMETER (Parámetro no válido)",
-    0x00000080: "EDS_ERR_DEVICE_BUSY (Cámara ocupada procesando otra operación)",
+    0x00000080: "EDS_ERR_DEVICE_BUSY (Cámara ocupada procesando imagen)",
     0x0000008D: "EDS_ERR_SESSION_NOT_OPEN (Sesión USB no abierta)",
-    0x0000008E: "EDS_ERR_INVALID_TRANSACTION (Transacción USB no válida)",
-    0x000000F0: "EDS_ERR_TAKE_PICTURE_AF_NG (Fallo de enfoque AF al disparar)",
-    0x000000F5: "EDS_ERR_TAKE_PICTURE_NO_CARD_NG (Sin tarjeta o almacenamiento no listo)",
+    0x0000008E: "EDS_ERR_INVALID_TRANSACTION (Transacción USB ocupada)",
+    0x000000F0: "EDS_ERR_TAKE_PICTURE_AF_NG (Fallo de enfoque AF)",
+    0x000000F5: "EDS_ERR_TAKE_PICTURE_NO_CARD_NG (Sin tarjeta de memoria)",
     0x0000A102: "EDS_ERR_OBJECT_NOTREADY (Cuadro EVF en preparación)",
 }
 
@@ -266,7 +270,6 @@ class CanonCamera:
         self._evf_enabled = False
         self._cb_keepalive = None
         self._active_zoom = 1
-        self._last_extend_timer = 0.0
         self._log_cb = log_callback
 
     def log(self, msg: str):
@@ -278,141 +281,137 @@ class CanonCamera:
             except Exception: pass
 
     def initialize_sdk(self) -> bool:
-        if self._is_sdk_init: return True
-        err = edsdk.EdsInitializeSDK()
-        if err == EDS_ERR_OK:
-            self._is_sdk_init = True
-            self.log("SDK inicializado con éxito.")
-            return True
-        self.log(f"⚠ Error al inicializar SDK: {get_edsdk_error_msg(err)}")
-        return False
+        with _edsdk_lock:
+            if self._is_sdk_init: return True
+            err = edsdk.EdsInitializeSDK()
+            if err == EDS_ERR_OK:
+                self._is_sdk_init = True
+                self.log("SDK inicializado con éxito.")
+                return True
+            self.log(f"⚠ Error al inicializar SDK: {get_edsdk_error_msg(err)}")
+            return False
 
     def terminate_sdk(self):
         if self._is_session_open:
             self.close_session()
-        if self._is_sdk_init:
-            edsdk.EdsTerminateSDK()
-            self._is_sdk_init = False
-            self.log("SDK finalizado.")
+        with _edsdk_lock:
+            if self._is_sdk_init:
+                edsdk.EdsTerminateSDK()
+                self._is_sdk_init = False
+                self.log("SDK finalizado.")
 
     def open_session(self) -> bool:
         if not self._is_sdk_init:
             if not self.initialize_sdk(): return False
 
-        cam_list = EdsCameraListRef()
-        err = edsdk.EdsGetCameraList(ctypes.byref(cam_list))
-        if err != EDS_ERR_OK:
-            self.log(f"⚠ Error al obtener lista de cámaras: {get_edsdk_error_msg(err)}")
-            return False
+        with _edsdk_lock:
+            cam_list = EdsCameraListRef()
+            err = edsdk.EdsGetCameraList(ctypes.byref(cam_list))
+            if err != EDS_ERR_OK:
+                self.log(f"⚠ Error al obtener lista de cámaras: {get_edsdk_error_msg(err)}")
+                return False
 
-        count = EdsUInt32(0)
-        edsdk.EdsGetChildCount(cam_list, ctypes.byref(count))
+            count = EdsUInt32(0)
+            edsdk.EdsGetChildCount(cam_list, ctypes.byref(count))
 
-        if count.value == 0:
-            self.log("⚠ No se detectó ninguna cámara Canon EOS conectada por USB.")
+            if count.value == 0:
+                self.log("⚠ No se detectó ninguna cámara Canon EOS conectada por USB.")
+                if cam_list: edsdk.EdsRelease(cam_list)
+                return False
+
+            cam = EdsCameraRef()
+            err = edsdk.EdsGetChildAtIndex(cam_list, 0, ctypes.byref(cam))
             if cam_list: edsdk.EdsRelease(cam_list)
-            return False
 
-        cam = EdsCameraRef()
-        err = edsdk.EdsGetChildAtIndex(cam_list, 0, ctypes.byref(cam))
-        if cam_list: edsdk.EdsRelease(cam_list)
+            if err != EDS_ERR_OK or not cam:
+                self.log(f"⚠ Error al obtener referencia de cámara: {get_edsdk_error_msg(err)}")
+                return False
 
-        if err != EDS_ERR_OK or not cam:
-            self.log(f"⚠ Error al obtener referencia de cámara: {get_edsdk_error_msg(err)}")
-            return False
+            self._camera_ref = cam
+            err = edsdk.EdsOpenSession(self._camera_ref)
+            if err != EDS_ERR_OK:
+                self.log(f"⚠ Error al abrir sesión USB: {get_edsdk_error_msg(err)}")
+                return False
 
-        self._camera_ref = cam
-        err = edsdk.EdsOpenSession(self._camera_ref)
-        if err != EDS_ERR_OK:
-            self.log(f"⚠ Error al abrir sesión USB: {get_edsdk_error_msg(err)}")
-            return False
+            self._is_session_open = True
+            self.log("Sesión USB abierta exitosamente con Canon EOS 500D.")
 
-        self._is_session_open = True
-        self.log("Sesión USB abierta exitosamente con Canon EOS 500D.")
+            # Configurar guardado directo en PC (Host)
+            save_to = EdsUInt32(kEdsSaveTo_Host)
+            edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_SaveTo, 0, ctypes.sizeof(save_to), ctypes.byref(save_to))
 
-        # Configurar guardado directo en PC (Host)
-        save_to = EdsUInt32(kEdsSaveTo_Host)
-        edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_SaveTo, 0, ctypes.sizeof(save_to), ctypes.byref(save_to))
-
-        # Registrar handlers para eventos de fotos creadas o listas para transferencia
-        self._register_photo_handler()
-        return True
+            # Registrar handlers para eventos de fotos creadas o listas para transferencia
+            self._register_photo_handler()
+            return True
 
     def close_session(self):
         if self._is_session_open and self._camera_ref:
             if self._evf_enabled:
                 self.disable_live_view()
-            edsdk.EdsCloseSession(self._camera_ref)
-            edsdk.EdsRelease(self._camera_ref)
-            self._camera_ref = None
-            self._is_session_open = False
-            self.log("Sesión de cámara cerrada.")
+            with _edsdk_lock:
+                edsdk.EdsCloseSession(self._camera_ref)
+                edsdk.EdsRelease(self._camera_ref)
+                self._camera_ref = None
+                self._is_session_open = False
+                self.log("Sesión de cámara cerrada.")
 
     # ── Live View (EVF Stream) ────────────────────────────────────────────────
 
     def enable_live_view(self) -> bool:
         if not self._is_session_open: return False
-        device = EdsUInt32(kEdsEvfOutputDevice_PC)
-        err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
-        if err == EDS_ERR_OK:
-            self._evf_enabled = True
-            self.log("Transmisión PC Live View activada.")
-            return True
-        self.log(f"⚠ Error al activar salida PC Live View: {get_edsdk_error_msg(err)}")
-        return False
+        with _edsdk_lock:
+            device = EdsUInt32(kEdsEvfOutputDevice_PC)
+            err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
+            if err == EDS_ERR_OK:
+                self._evf_enabled = True
+                self.log("Transmisión PC Live View activada.")
+                return True
+            self.log(f"⚠ Error al activar salida PC Live View: {get_edsdk_error_msg(err)}")
+            return False
 
     def disable_live_view(self):
         if not self._is_session_open: return
-        device = EdsUInt32(kEdsEvfOutputDevice_Off)
-        edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
-        self._evf_enabled = False
-        self.log("Transmisión Live View desactivada.")
-
-    def extend_shutdown_timer(self):
-        """Mantiene la cámara activa evitando ahorro de energía."""
-        if not self._is_session_open: return
-        now = time.time()
-        if now - self._last_extend_timer > 8.0:
-            edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_ExtendShutDownTimer, 0)
-            self._last_extend_timer = now
+        with _edsdk_lock:
+            device = EdsUInt32(kEdsEvfOutputDevice_Off)
+            edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
+            self._evf_enabled = False
+            self.log("Transmisión Live View desactivada.")
 
     def get_live_view_frame(self) -> Optional[bytes]:
         """Obtiene un frame JPEG comprimido en memoria desde el sensor Live View."""
         if not self._is_session_open or not self._evf_enabled: return None
 
-        self.extend_shutdown_timer()
+        with _edsdk_lock:
+            stream = EdsStreamRef()
+            err = edsdk.EdsCreateMemoryStream(0, ctypes.byref(stream))
+            if err != EDS_ERR_OK: return None
 
-        stream = EdsStreamRef()
-        err = edsdk.EdsCreateMemoryStream(0, ctypes.byref(stream))
-        if err != EDS_ERR_OK: return None
+            evf_image = EdsEvfImageRef()
+            err = edsdk.EdsCreateEvfImageRef(stream, ctypes.byref(evf_image))
+            if err != EDS_ERR_OK:
+                edsdk.EdsRelease(stream)
+                return None
 
-        evf_image = EdsEvfImageRef()
-        err = edsdk.EdsCreateEvfImageRef(stream, ctypes.byref(evf_image))
-        if err != EDS_ERR_OK:
-            edsdk.EdsRelease(stream)
-            return None
+            err = edsdk.EdsDownloadEvfImage(self._camera_ref, evf_image)
+            if err in (EDS_ERR_DEVICE_BUSY, EDS_ERR_OBJECT_NOTREADY):
+                edsdk.EdsRelease(evf_image)
+                edsdk.EdsRelease(stream)
+                return None
+            elif err != EDS_ERR_OK:
+                edsdk.EdsRelease(evf_image)
+                edsdk.EdsRelease(stream)
+                return None
 
-        err = edsdk.EdsDownloadEvfImage(self._camera_ref, evf_image)
-        if err in (EDS_ERR_DEVICE_BUSY, EDS_ERR_OBJECT_NOTREADY):
+            data_ptr = ctypes.c_void_p()
+            length   = EdsUInt64(0)
+            edsdk.EdsGetPointer(stream, ctypes.byref(data_ptr))
+            edsdk.EdsGetLength(stream, ctypes.byref(length))
+
+            buffer = ctypes.string_at(data_ptr.value, length.value) if (length.value > 0 and data_ptr.value) else None
+
             edsdk.EdsRelease(evf_image)
             edsdk.EdsRelease(stream)
-            return None
-        elif err != EDS_ERR_OK:
-            self.log(f"⚠ Aviso Live View: {get_edsdk_error_msg(err)}")
-            edsdk.EdsRelease(evf_image)
-            edsdk.EdsRelease(stream)
-            return None
-
-        data_ptr = ctypes.c_void_p()
-        length   = EdsUInt64(0)
-        edsdk.EdsGetPointer(stream, ctypes.byref(data_ptr))
-        edsdk.EdsGetLength(stream, ctypes.byref(length))
-
-        buffer = ctypes.string_at(data_ptr.value, length.value) if (length.value > 0 and data_ptr.value) else None
-
-        edsdk.EdsRelease(evf_image)
-        edsdk.EdsRelease(stream)
-        return buffer
+            return buffer
 
     # ── Controles de Zoom y Corrección de Orientación Live View ──────────────
 
@@ -420,10 +419,11 @@ class CanonCamera:
         if not self._is_session_open: return False
         self._active_zoom = zoom_val
 
-        hw_zoom = 1 if zoom_val in (1, 2) else zoom_val
-        val = EdsUInt32(hw_zoom)
-        err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
-        return err == EDS_ERR_OK
+        with _edsdk_lock:
+            hw_zoom = 1 if zoom_val in (1, 2) else zoom_val
+            val = EdsUInt32(hw_zoom)
+            err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
+            return err == EDS_ERR_OK
 
     def process_frame_zoom_and_orientation(self, frame_rgb: np.ndarray) -> np.ndarray:
         if frame_rgb is None: return frame_rgb
@@ -447,65 +447,63 @@ class CanonCamera:
 
     def get_property_desc(self, prop_id: int) -> List[int]:
         if not self._is_session_open: return []
-        desc = EdsPropertyDesc()
-        err = edsdk.EdsGetPropertyDesc(self._camera_ref, prop_id, ctypes.byref(desc))
-        if err != EDS_ERR_OK:
-            self.log(f"⚠ No se pudo consultar lista de propiedad 0x{prop_id:04X}: {get_edsdk_error_msg(err)}")
-            return []
-        return [desc.propDesc[i] for i in range(desc.numElements)]
+        with _edsdk_lock:
+            desc = EdsPropertyDesc()
+            err = edsdk.EdsGetPropertyDesc(self._camera_ref, prop_id, ctypes.byref(desc))
+            if err != EDS_ERR_OK: return []
+            return [desc.propDesc[i] for i in range(desc.numElements)]
 
     def get_property_value(self, prop_id: int) -> int:
         if not self._is_session_open: return 0
-        val = EdsUInt32(0)
-        err = edsdk.EdsGetPropertyData(self._camera_ref, prop_id, 0, ctypes.sizeof(val), ctypes.byref(val))
-        return val.value if err == EDS_ERR_OK else 0
+        with _edsdk_lock:
+            val = EdsUInt32(0)
+            err = edsdk.EdsGetPropertyData(self._camera_ref, prop_id, 0, ctypes.sizeof(val), ctypes.byref(val))
+            return val.value if err == EDS_ERR_OK else 0
 
     def set_property_value(self, prop_id: int, val: int) -> bool:
         if not self._is_session_open: return False
-        v = EdsUInt32(val)
-        err = edsdk.EdsSetPropertyData(self._camera_ref, prop_id, 0, ctypes.sizeof(v), ctypes.byref(v))
-        if err == EDS_ERR_OK:
-            self.log(f"Propiedad 0x{prop_id:04X} actualizada a 0x{val:02X}")
-            return True
-        self.log(f"⚠ Error al cambiar propiedad 0x{prop_id:04X}: {get_edsdk_error_msg(err)}")
-        return False
+        with _edsdk_lock:
+            v = EdsUInt32(val)
+            err = edsdk.EdsSetPropertyData(self._camera_ref, prop_id, 0, ctypes.sizeof(v), ctypes.byref(v))
+            if err == EDS_ERR_OK:
+                self.log(f"Propiedad 0x{prop_id:04X} actualizada a 0x{val:02X}")
+                return True
+            self.log(f"⚠ Error al cambiar propiedad 0x{prop_id:04X}: {get_edsdk_error_msg(err)}")
+            return False
 
-    # ── Captura y Descarga Robusta de Fotos ───────────────────────────────────
+    # ── Captura Inteligente con Pausa de Live View ────────────────────────────
 
     def take_photo(self) -> bool:
         """
-        Ejecuta el disparo completo mediante la secuencia de obturador:
-        PressShutterButton (Halfway -> Completely -> OFF).
+        Pausa el Live View temporalmente para liberar el sensor réflex DIGIC 4,
+        ejecuta el disparo TakePicture en resolución completa de 15 MP y reactiva el Live View.
         """
         if not self._is_session_open:
             self.log("⚠ No se puede tomar foto: Sesión USB no abierta.")
             return False
 
-        self.log("📸 Iniciando secuencia de obturación remota (PressShutterButton)...")
-        # 1. Presionar obturador a la mitad (Bloqueo AF/AE)
-        err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway_NonAF)
-        time.sleep(0.08)
+        self.log("📸 Pausando Live View para disparar captura en alta resolución (15 MP)...")
+        was_evf = self._evf_enabled
+        if was_evf:
+            self.disable_live_view()
+            time.sleep(0.15) # Pausa necesaria para liberar buffer de sensor
 
-        # 2. Presionar obturador completamente (Disparo)
-        err2 = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF)
-        time.sleep(0.12)
+        with _edsdk_lock:
+            self.log("📸 Enviando orden de disparo del obturador (TakePicture)...")
+            err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_TakePicture, 0)
+            if err != EDS_ERR_OK:
+                self.log(f"⚠ TakePicture retornó {get_edsdk_error_msg(err)}. Reintentando con PressShutterButton...")
+                edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF)
+                time.sleep(0.08)
+                edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF)
 
-        # 3. Soltar obturador
-        edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF)
+        time.sleep(0.3) # Dar tiempo a que el sensor grabe la foto
 
-        if err2 == EDS_ERR_OK or err == EDS_ERR_OK:
-            self.log("📸 Disparo de obturador completado. Esperando transferencia...")
-            return True
-        else:
-            # Fallback secundario con TakePicture
-            self.log(f"⚠ Aviso en obturador ({get_edsdk_error_msg(err2)}). Intentando comando TakePicture...")
-            err_tp = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_TakePicture, 0)
-            if err_tp == EDS_ERR_OK:
-                self.log("📸 Comando TakePicture enviado con éxito.")
-                return True
-            else:
-                self.log(f"❌ Fallo al tomar foto: {get_edsdk_error_msg(err_tp)}")
-                return False
+        if was_evf:
+            self.log("🎥 Reactivando Live View...")
+            self.enable_live_view()
+
+        return True
 
     def set_save_directory(self, path: str):
         self._save_dir = os.path.abspath(path)
@@ -513,30 +511,31 @@ class CanonCamera:
 
     def _register_photo_handler(self):
         def _on_dir_item_created(event: int, item_ref: EdsDirectoryItemRef, context: ctypes.c_void_p) -> int:
-            self.log("📸 Evento detectado: Nueva foto generada en la cámara. Iniciando descarga a PC...")
-            info = EdsDirectoryItemInfo()
-            err = edsdk.EdsGetDirectoryItemInfo(item_ref, ctypes.byref(info))
-            if err == EDS_ERR_OK:
-                filename = info.szFileName.decode("utf-8", errors="ignore")
-                save_path = os.path.join(self._save_dir, filename)
-                os.makedirs(self._save_dir, exist_ok=True)
+            self.log("📸 Evento detectado: Nueva foto lista en la réflex. Iniciando transferencia a PC...")
+            with _edsdk_lock:
+                info = EdsDirectoryItemInfo()
+                err = edsdk.EdsGetDirectoryItemInfo(item_ref, ctypes.byref(info))
+                if err == EDS_ERR_OK:
+                    filename = info.szFileName.decode("utf-8", errors="ignore")
+                    save_path = os.path.join(self._save_dir, filename)
+                    os.makedirs(self._save_dir, exist_ok=True)
 
-                stream = EdsStreamRef()
-                err_st = edsdk.EdsCreateFileStreamEx(
-                    ctypes.c_wchar_p(save_path),
-                    kEdsFileCreateDisposition_CreateAlways,
-                    kEdsAccess_ReadWrite,
-                    ctypes.byref(stream)
-                )
-                if err_st == EDS_ERR_OK:
-                    edsdk.EdsDownload(item_ref, info.size, stream)
-                    edsdk.EdsDownloadComplete(item_ref)
-                    edsdk.EdsRelease(stream)
-                    self.log(f"✅ ¡FOTO DESCARGADA EXITOSAMENTE!: {save_path}")
+                    stream = EdsStreamRef()
+                    err_st = edsdk.EdsCreateFileStreamEx(
+                        ctypes.c_wchar_p(save_path),
+                        kEdsFileCreateDisposition_CreateAlways,
+                        kEdsAccess_ReadWrite,
+                        ctypes.byref(stream)
+                    )
+                    if err_st == EDS_ERR_OK:
+                        edsdk.EdsDownload(item_ref, info.size, stream)
+                        edsdk.EdsDownloadComplete(item_ref)
+                        edsdk.EdsRelease(stream)
+                        self.log(f"✅ ¡FOTO GUARDADA EXITOSAMENTE!: {save_path}")
+                    else:
+                        self.log(f"❌ Error al crear archivo de descarga: {get_edsdk_error_msg(err_st)}")
                 else:
-                    self.log(f"❌ Error al crear archivo de descarga: {get_edsdk_error_msg(err_st)}")
-            else:
-                self.log(f"❌ Error leyendo información de foto: {get_edsdk_error_msg(err)}")
+                    self.log(f"❌ Error leyendo información de foto: {get_edsdk_error_msg(err)}")
             return EDS_ERR_OK
 
         self._cb_keepalive = EdsObjectEventHandler(_on_dir_item_created)
