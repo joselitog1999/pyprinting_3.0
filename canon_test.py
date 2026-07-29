@@ -4,9 +4,10 @@ canon_test.py — Programa de prueba nativo para Canon EOS 500D (EDSDK Canon)
 PyPrinting — UNSAM Nanofotónica — PyQt6
 
 Permite probar en vivo:
-  - Transmisión Live View en máxima calidad óptica.
-  - Zoom Live View (1x, 5x, 10x) para enfoque de precisión.
-  - Ajuste dinámico de ISO, Apertura (Av) y Velocidad de Obturación (Tv).
+  - Transmisión Live View en máxima calidad óptica (Suavizado bilinear/bicubic en PyQtGraph).
+  - Zoom Live View (1x, 2x Digital Nitidez Fina, 5x Hardware AF, 10x Hardware Enfoque Fino).
+  - Ajuste remoto de Enfoque de Lente (Paso fino/medio/grande Cerca y Lejos + Disparo AF).
+  - Ajuste dinámico de ISO, Apertura (Av), Velocidad de Obturación (Tv) y lectura del Modo Dial (M/Av/Tv/P).
   - Captura y descarga de fotos en máxima resolución al disco local.
 """
 from __future__ import annotations
@@ -24,13 +25,15 @@ from PyQt6.QtCore    import (Qt, QThread, QObject, pyqtSignal, pyqtSlot, QTimer)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                                QComboBox, QGroupBox, QFileDialog, QMessageBox,
-                               QFormLayout, QSplitter, QStatusBar)
+                               QFormLayout, QSplitter, QStatusBar, QGridLayout)
 from PyQt6.QtGui     import QFont, QColor
 
 from config import DEFAULT_DATA_PATH, CAMERA_WIDTH, CAMERA_HEIGHT
 from canon_edsdk import (CanonCamera, ISO_MAP, REV_ISO_MAP, AV_MAP, REV_AV_MAP,
-                         TV_MAP, REV_TV_MAP, ZOOM_MAP, REV_ZOOM_MAP,
-                         kEdsPropID_ISOSpeed, kEdsPropID_Av, kEdsPropID_Tv)
+                         TV_MAP, REV_TV_MAP, ZOOM_MAP, REV_ZOOM_MAP, AE_MODE_MAP,
+                         kEdsPropID_ISOSpeed, kEdsPropID_Av, kEdsPropID_Tv, kEdsPropID_AEMode,
+                         EvfDriveLens_Near1, EvfDriveLens_Near2, EvfDriveLens_Near3,
+                         EvfDriveLens_Far1, EvfDriveLens_Far2, EvfDriveLens_Far3)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -41,7 +44,7 @@ class CanonWorker(QObject):
     frameSignal      = pyqtSignal(np.ndarray)
     statusSignal     = pyqtSignal(str)
     connectedSignal  = pyqtSignal(bool)
-    propsReadySignal = pyqtSignal(list, list, list) # iso_supported, av_supported, tv_supported
+    propsReadySignal = pyqtSignal(list, list, list, int) # iso_desc, av_desc, tv_desc, ae_mode
 
     def __init__(self):
         super().__init__()
@@ -67,7 +70,8 @@ class CanonWorker(QObject):
             iso_desc = self._cam.get_property_desc(kEdsPropID_ISOSpeed)
             av_desc  = self._cam.get_property_desc(kEdsPropID_Av)
             tv_desc  = self._cam.get_property_desc(kEdsPropID_Tv)
-            self.propsReadySignal.emit(iso_desc, av_desc, tv_desc)
+            ae_mode  = self._cam.get_property_value(kEdsPropID_AEMode)
+            self.propsReadySignal.emit(iso_desc, av_desc, tv_desc, ae_mode)
         else:
             self.connectedSignal.emit(False)
             self.statusSignal.emit("⚠ No se detectó cámara Canon EOS por USB — Modo Simulación Activo")
@@ -91,26 +95,28 @@ class CanonWorker(QObject):
                 frame_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if frame_bgr is not None:
                     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    self.frameSignal.emit(frame_rgb)
+                    # Procesar zoom de alta calidad (1x, 2x, 5x, 10x)
+                    processed = self._cam.process_frame_zoom(frame_rgb)
+                    self.frameSignal.emit(processed)
                     return
 
         # Frame de prueba (Simulador MOCK si no hay cámara física o durante reconexión)
         self._mock_n += 1
         W, H = 1056, 704
         t = self._mock_n * 0.05
-        frame = np.full((H, W, 3), 40, dtype=np.uint8)
-        # Rejilla óptica de alta calidad
+        frame = np.full((H, W, 3), 35, dtype=np.uint8)
+        # Rejilla óptica sintética de alta resolución
         cx, cy = int(W/2 + 20*np.sin(t)), int(H/2 + 15*np.cos(t))
         cv2.circle(frame, (cx, cy), 18, (62, 207, 142), -1)
         cv2.circle(frame, (cx, cy), 45, (74, 158, 255), 2)
-        cv2.putText(frame, "CANON EOS MOCK STREAM (1056x704)", (30, 40),
+        cv2.putText(frame, "CANON EOS 500D MOCK STREAM (1056x704)", (30, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (245, 166, 35), 2)
-        self.frameSignal.emit(frame)
+        processed = self._cam.process_frame_zoom(frame)
+        self.frameSignal.emit(processed)
 
     @pyqtSlot(int)
     def set_zoom(self, zoom_val: int):
-        if self._cam._is_session_open:
-            self._cam.set_live_view_zoom(zoom_val)
+        self._cam.set_live_view_zoom(zoom_val)
 
     @pyqtSlot(int)
     def set_iso(self, val: int):
@@ -126,6 +132,16 @@ class CanonWorker(QObject):
     def set_tv(self, val: int):
         if self._cam._is_session_open:
             self._cam.set_property_value(kEdsPropID_Tv, val)
+
+    @pyqtSlot(int)
+    def drive_lens(self, cmd_code: int):
+        if self._cam._is_session_open:
+            self._cam.drive_lens(cmd_code)
+
+    @pyqtSlot()
+    def trigger_af(self):
+        if self._cam._is_session_open:
+            self._cam.trigger_autofocus()
 
     @pyqtSlot()
     def take_photo(self):
@@ -151,13 +167,15 @@ class CanonTestWindow(QMainWindow):
     setIsoSignal      = pyqtSignal(int)
     setAvSignal       = pyqtSignal(int)
     setTvSignal       = pyqtSignal(int)
+    driveLensSignal   = pyqtSignal(int)
+    triggerAfSignal   = pyqtSignal()
     takePhotoSignal   = pyqtSignal()
     setSaveDirSignal  = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Canon EOS 500D — Suite de Pruebas Nativa EDSDK")
-        self.resize(1200, 750)
+        self.resize(1280, 800)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -166,21 +184,28 @@ class CanonTestWindow(QMainWindow):
         # ── Splitter Principal ───────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 1. Visor de Live View con PyQtGraph
-        visor_box = QGroupBox("Live View Óptico Nativo (EDSDK)")
+        # 1. Visor de Live View con PyQtGraph (Filtrado Bilinear Activo)
+        visor_box = QGroupBox("Live View Óptico Nativo (Calidad Réflex EDSDK)")
         v_lo = QVBoxLayout(visor_box)
         self._view = pg.GraphicsLayoutWidget()
         self._vb   = self._view.addViewBox(lockAspect=True)
         self._vb.invertY(True)
+        # Activar suavizado bilinear en la imagen para máxima definición óptica
         self._img_item = pg.ImageItem()
+        self._img_item.setOpts(axisOrder='row-major', smooth=True)
         self._vb.addItem(self._img_item)
         v_lo.addWidget(self._view)
         splitter.addWidget(visor_box)
 
         # 2. Panel de Control de la Cámara
-        panel = QGroupBox("Parámetros Canon EOS 500D")
+        panel = QGroupBox("Controles Canon EOS 500D")
         p_lo  = QVBoxLayout(panel)
         form  = QFormLayout()
+
+        # Modo Dial
+        self._lbl_mode = QLabel("Modo Dial: Desconectado")
+        self._lbl_mode.setStyleSheet("font-weight: bold; color: #3ecf8e;")
+        form.addRow("Modo Cámara:", self._lbl_mode)
 
         # ISO
         self._combo_iso = QComboBox()
@@ -194,13 +219,38 @@ class CanonTestWindow(QMainWindow):
         self._combo_tv  = QComboBox()
         form.addRow("Velocidad (Tv):", self._combo_tv)
 
-        # Zoom Live View
+        # Zoom Live View (1x, 2x, 5x, 10x)
         self._combo_zoom = QComboBox()
         for val, label in ZOOM_MAP.items():
             self._combo_zoom.addItem(label, userData=val)
         form.addRow("Zoom Live View:", self._combo_zoom)
 
         p_lo.addLayout(form)
+        p_lo.addSpacing(10)
+
+        # ── Panel de Enfoque Remoto (Drive Lens) ──────────────────────────────
+        focus_box = QGroupBox("Enfoque Remoto (Motor de Lente)")
+        f_grid = QGridLayout(focus_box)
+        
+        btn_far3  = QPushButton("<<< Lejos L")
+        btn_far1  = QPushButton("< Lejos F")
+        btn_near1 = QPushButton("Cerca F >")
+        btn_near3 = QPushButton("Cerca L >>>")
+        btn_af    = QPushButton("🎯 Disparar AF")
+
+        btn_far3.clicked.connect(lambda: self.driveLensSignal.emit(EvfDriveLens_Far3))
+        btn_far1.clicked.connect(lambda: self.driveLensSignal.emit(EvfDriveLens_Far1))
+        btn_near1.clicked.connect(lambda: self.driveLensSignal.emit(EvfDriveLens_Near1))
+        btn_near3.clicked.connect(lambda: self.driveLensSignal.emit(EvfDriveLens_Near3))
+        btn_af.clicked.connect(lambda: self.triggerAfSignal.emit())
+
+        f_grid.addWidget(btn_far3, 0, 0)
+        f_grid.addWidget(btn_far1, 0, 1)
+        f_grid.addWidget(btn_near1, 0, 2)
+        f_grid.addWidget(btn_near3, 0, 3)
+        f_grid.addWidget(btn_af, 1, 0, 1, 4)
+
+        p_lo.addWidget(focus_box)
         p_lo.addSpacing(10)
 
         # Botón Disparar Foto
@@ -256,6 +306,8 @@ class CanonTestWindow(QMainWindow):
         self.setIsoSignal.connect(self._worker.set_iso)
         self.setAvSignal.connect(self._worker.set_av)
         self.setTvSignal.connect(self._worker.set_tv)
+        self.driveLensSignal.connect(self._worker.drive_lens)
+        self.triggerAfSignal.connect(self._worker.trigger_af)
         self.takePhotoSignal.connect(self._worker.take_photo)
         self.setSaveDirSignal.connect(self._worker.set_save_dir)
 
@@ -280,8 +332,11 @@ class CanonTestWindow(QMainWindow):
     def _update_status(self, msg: str):
         self.statusBar().showMessage(msg)
 
-    @pyqtSlot(list, list, list)
-    def _populate_properties(self, iso_vals: list, av_vals: list, tv_vals: list):
+    @pyqtSlot(list, list, list, int)
+    def _populate_properties(self, iso_vals: list, av_vals: list, tv_vals: list, ae_mode: int):
+        mode_str = AE_MODE_MAP.get(ae_mode, f"Modo 0x{ae_mode:02X}")
+        self._lbl_mode.setText(f"Modo Cámara: {mode_str}")
+
         # Poblar ISO
         self._combo_iso.blockSignals(True)
         self._combo_iso.clear()

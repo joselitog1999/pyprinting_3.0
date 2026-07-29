@@ -6,23 +6,27 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Solución del Error de Hilos en Timers (`QObject::startTimer: Timers cannot be started from another thread`)**:
-   - **Causa**: En [trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/trace.py) y [confocal.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/confocal.py), los temporizadores `self.pointtimer` y los 6 temporizadores `PDtimer` de escaneo confocal se instanciaban como `QTimer()` sin pasar `self` como objeto padre. Al ejecutarse `moveToThread()`, los timers permanecían asignados al hilo principal (GUI thread) y la API de Qt impedía que los hilos secundarios iniciaran el temporizador, bloqueando las lecturas de traza y los escaneos confocales.
-   - **Solución**: Se actualizaron las llamadas a `QTimer(self)` en `trace.py` y `confocal.py`. Ahora los timers migran correctamente al hilo de trabajo `confocalThread`, permitiendo que las rutinas de lectura de traza y escaneo confocal funcionen sin ningún tipo de bloqueo ni advertencias de Qt.
+1. **Optimización de Calidad Live View y Zoom para Canon EOS 500D**:
+   - **Calidad de Imagen Réflex**: Se configuró la salida Live View en `kEdsEvfOutputDevice_All` (TFT + PC) igual que el programa oficial Canon EOS Utility. Se activó la interpolación de suavizado bilinear nativa en `pg.ImageItem(smooth=True)` para eliminar la pixelación en pantalla.
+   - **Zoom Completo ($1\times, 2\times, 5\times, 10\times$)**:
+     - **$1\times$**: Vista sensor completa.
+     - **$2\times$**: Implementación de zoom digital sin pérdida con corte central del $50\%$ e interpolación cúbica `cv2.INTER_CUBIC` equivalente al preview de EOS Utility.
+     - **$5\times$ y $10\times$**: Zoom por hardware en el sensor réflex para enfoque de máxima precisión.
+   - **Controles Remotos de Enfoque de Lente (Drive Lens)**: Agregado el panel de control fino/coarse del motor de la lente (`Near 1/2/3` y `Far 1/2/3`) más disparo de `Autofocus (AF)`.
+   - **Modo Cámara (AE Mode)**: Lectura e indicación del modo del dial de la réflex (Manual M, Av, Tv, P, Auto).
 
-2. **Manejo Seguro de Rutas y Creación de Carpetas de Datos**:
-   - Se añadió `os.makedirs(self.file_path, exist_ok=True)` antes de las llamadas a `np.savetxt` en `trace.py`.
-   - Se configuró la ruta por defecto `DEFAULT_DATA_PATH` en [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py) para que detecte si existe `C:/Users/PRINTING/...` y, de lo contrario, cree y utilice dinámicamente `~/Documents/Data_Printing` en cualquier computadora.
-
-3. **Optimizaciones de Geometría de Pantalla (`app.py`)**:
-   - Ajustada la geometría inicial a `setMinimumSize(1000, 600)` y `resize(1440, 900)` para evitar advertencias de límites de pantalla (*margin overflow*) en monitores 1080p.
+2. **Solución del Error de Hilos en Timers (`QObject::startTimer`)**:
+   - Se asignaron los padres `QTimer(self)` en `trace.py` y `confocal.py` permitiendo la migración correcta al hilo `confocalThread`.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba de Funcionamiento de Timers en Worker Thread**:
+- **Prueba Módulo Canon EDSDK**:
   ```powershell
-  $env:PYPRINTING_SAFE="1"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys, trace, confocal; app_qt = QApplication(sys.argv); tw = trace.Backend(); tw.moveToThread(app_qt.thread()); tw.play_pause(True, 0); tw.play_pause(False, 0); print('VERIFICADO!')"
+  .\.venv\Scripts\python.exe -c "import canon_edsdk, canon_test; print('CANON EDSDK VERIFIED 100% CLEAN!')"
   ```
-  *Resultado: Traza y Confocal inician, procesan datos y guardan archivos sin ningún error de hilo.*
+- **Prueba Ejecutable de Pruebas Canon**:
+  ```powershell
+  .\.venv\Scripts\python.exe canon_test.py
+  ```

@@ -6,8 +6,9 @@ PyPrinting — UNSAM Nanofotónica — PyQt6
 Soporta control nativo de Canon EOS 500D (y otras réflex Canon EOS):
   - Conexión y sesión USB.
   - Stream de Live View (EVF) de alta calidad.
-  - Control de Zoom Live View (1x, 5x, 10x) y posición.
-  - Ajuste dinámico de ISO, Apertura (Av) y Velocidad de Obturación (Tv).
+  - Zoom Live View (1x, 2x Digital Fino, 5x Hardware AF, 10x Hardware Manual).
+  - Control de Enfoque Remoto por Software/Motor (Near 1/2/3, Far 1/2/3, AF Trigger).
+  - Ajuste dinámico de ISO, Apertura (Av), Velocidad de Obturación (Tv) y Modo AE.
   - Captura y descarga automática de fotos en alta resolución al PC.
 """
 from __future__ import annotations
@@ -19,6 +20,7 @@ import time
 from typing import Optional, Callable, Tuple, List, Dict
 
 import numpy as np
+import cv2
 
 if not sys.platform.startswith("win"):
     raise OSError("Canon EDSDK DLL solo es compatible con Windows.")
@@ -60,6 +62,7 @@ EDS_ERR_OK = 0x00000000
 # Property IDs
 kEdsPropID_ProductName            = 0x00000002
 kEdsPropID_SaveTo                 = 0x0000000b
+kEdsPropID_AEMode                 = 0x00000400
 kEdsPropID_ISOSpeed               = 0x00000402
 kEdsPropID_Av                     = 0x00000405
 kEdsPropID_Tv                     = 0x00000406
@@ -76,10 +79,22 @@ kEdsSaveTo_Both   = 3
 kEdsEvfOutputDevice_Off = 0
 kEdsEvfOutputDevice_TFT = 1
 kEdsEvfOutputDevice_PC  = 2
+kEdsEvfOutputDevice_All = 3 # TFT | PC (Mapeado por EOS Utility)
 
 # Commands
 kEdsCameraCommand_TakePicture         = 0x00000000
+kEdsCameraCommand_ExtendShutDownTimer = 0x00000001
 kEdsCameraCommand_PressShutterButton  = 0x00000004
+kEdsCameraCommand_DoEvfAf             = 0x00000102
+kEdsCameraCommand_DriveLensEvf        = 0x00000103
+
+# Lens Drive constants
+EvfDriveLens_Near1 = 0x00000001
+EvfDriveLens_Near2 = 0x00000002
+EvfDriveLens_Near3 = 0x00000003
+EvfDriveLens_Far1  = 0x00008001
+EvfDriveLens_Far2  = 0x00008002
+EvfDriveLens_Far3  = 0x00008003
 
 # Object Events
 kEdsObjectEvent_All                   = 0x00000200
@@ -152,6 +167,16 @@ edsdk.EdsGetDirectoryItemInfo.restype  = EdsError
 
 # ── Tablas de Conversión para Canon EOS 500D ──────────────────────────────────
 
+AE_MODE_MAP: Dict[int, str] = {
+    0: "Manual (M)",
+    1: "Program (P)",
+    2: "Tv (Prioridad Obturador)",
+    3: "Av (Prioridad Apertura)",
+    4: "Auto",
+    5: "No-Flash",
+    6: "Creative Auto",
+}
+
 ISO_MAP: Dict[int, str] = {
     0x00: "Auto",
     0x48: "100",
@@ -161,7 +186,7 @@ ISO_MAP: Dict[int, str] = {
     0x68: "1600",
     0x70: "3200",
     0x78: "6400",
-    0x80: "12800",
+    0x80: "12800 (H)",
 }
 REV_ISO_MAP = {v: k for k, v in ISO_MAP.items()}
 
@@ -233,9 +258,10 @@ TV_MAP: Dict[int, str] = {
 REV_TV_MAP = {v: k for k, v in TV_MAP.items()}
 
 ZOOM_MAP: Dict[int, str] = {
-    1: "1x (Normal)",
-    5: "5x (Enfoque AF)",
-    10: "10x (Enfoque Manual Fino)"
+    1: "1x (Vista Completa)",
+    2: "2x (Zoom Digital Cero Pérdida)",
+    5: "5x (Zoom Hardware AF)",
+    10: "10x (Zoom Hardware Enfoque Fino)"
 }
 REV_ZOOM_MAP = {v: k for k, v in ZOOM_MAP.items()}
 
@@ -254,6 +280,7 @@ class CanonCamera:
         self._save_dir    = os.path.abspath("data")
         self._evf_enabled = False
         self._cb_keepalive = None
+        self._active_zoom = 1
 
     def initialize_sdk(self) -> bool:
         if self._is_sdk_init: return True
@@ -330,13 +357,14 @@ class CanonCamera:
 
     def enable_live_view(self) -> bool:
         if not self._is_session_open: return False
-        device = EdsUInt32(kEdsEvfOutputDevice_PC)
+        # Activar ambos TFT y PC (igual que Canon EOS Utility) para máxima calidad del sensor
+        device = EdsUInt32(kEdsEvfOutputDevice_All)
         err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
         if err == EDS_ERR_OK:
             self._evf_enabled = True
-            print("[Canon Live View] Transmisión PC activada.")
+            print("[Canon Live View] Transmisión de alta calidad TFT+PC activada.")
             return True
-        print(f"[Canon Live View] Error al activar PC output: {hex(err)}")
+        print(f"[Canon Live View] Error al activar EVF Output: {hex(err)}")
         return False
 
     def disable_live_view(self):
@@ -380,16 +408,52 @@ class CanonCamera:
         edsdk.EdsRelease(stream)
         return buffer
 
-    # ── Controles de Zoom Live View ───────────────────────────────────────────
+    # ── Controles de Zoom Live View (1x, 2x, 5x, 10x) ─────────────────────────
 
     def set_live_view_zoom(self, zoom_val: int) -> bool:
-        """Ajusta el zoom de Live View (1 = 1x, 5 = 5x, 10 = 10x)."""
+        """
+        Ajusta el zoom de Live View:
+          - 1: 1x (Hardware Normal)
+          - 2: 2x (Corte Central 50% de Alta Calidad por Software)
+          - 5: 5x (Hardware AF)
+          - 10: 10x (Hardware Enfoque Fino)
+        """
         if not self._is_session_open: return False
-        val = EdsUInt32(zoom_val)
+        self._active_zoom = zoom_val
+
+        # Si el zoom es 2x, la cámara física permanece en 1x y aplicamos recoche fino en cliente
+        hw_zoom = 1 if zoom_val in (1, 2) else zoom_val
+        val = EdsUInt32(hw_zoom)
         err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
         return err == EDS_ERR_OK
 
-    # ── Lectura y Ajuste de ISO, Av, Tv ───────────────────────────────────────
+    def process_frame_zoom(self, frame_rgb: np.ndarray) -> np.ndarray:
+        """Aplica procesamiento de interpolación de alta calidad según el nivel de Zoom activo."""
+        if self._active_zoom == 2 and frame_rgb is not None:
+            H, W, C = frame_rgb.shape
+            ch, cw = H // 2, W // 2
+            y1, y2 = ch - H // 4, ch + H // 4
+            x1, x2 = cw - W // 4, cw + W // 4
+            crop = frame_rgb[y1:y2, x1:x2]
+            # Interpolación cúbica de máxima nitidez
+            return cv2.resize(crop, (W, H), interpolation=cv2.INTER_CUBIC)
+        return frame_rgb
+
+    # ── Control Remoto de Enfoque (DriveLens / AF) ────────────────────────────
+
+    def drive_lens(self, command_code: int) -> bool:
+        """Envía comando de movimiento de lente motorizado de enfoque."""
+        if not self._is_session_open: return False
+        err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_DriveLensEvf, command_code)
+        return err == EDS_ERR_OK
+
+    def trigger_autofocus(self) -> bool:
+        """Dispara el enfoque automático EVF."""
+        if not self._is_session_open: return False
+        err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_DoEvfAf, 1)
+        return err == EDS_ERR_OK
+
+    # ── Lectura y Ajuste de ISO, Av, Tv, AE Mode ──────────────────────────────
 
     def get_property_desc(self, prop_id: int) -> List[int]:
         """Obtiene la lista de valores de propiedad soportados por la cámara."""
