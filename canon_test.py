@@ -53,7 +53,7 @@ class CanonWorker(QObject):
         self._cam = CanonCamera(log_callback=self._emit_log)
         self._running = False
         self._timer = QTimer(self)
-        self._timer.setInterval(15) # Tasa adaptativa USB ~30-60 Hz
+        self._timer.setInterval(40) # Frecuencia fija de 25 FPS fijos nativa del sensor DIGIC 4
         self._timer.timeout.connect(self._fetch_frame)
         self._last_valid_frame = None
         self._mock_n = 0

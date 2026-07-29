@@ -6,17 +6,15 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Corrección del Disparo de Fotos (Shutter Button Sequence)**:
-   - **Obturador Físico / Remoto**: Se reemplazó el comando simple `TakePicture` por la secuencia completa de disparador `PressShutterButton` (`Halfway` $\rightarrow$ `Completely` $\rightarrow$ `OFF`), que evita conflictos de estado durante Live View activo.
-   - **Eventos de Transferencia**: Se habilitaron los handlers para `kEdsObjectEvent_DirItemCreated` y `kEdsObjectEvent_DirItemRequestTransfer` para forzar la descarga de fotos a la PC.
-   - **Soporte Mock / Simulación**: En modo sin cámara física, el botón de tomar fotos genera automáticamente una captura de alta resolución sintética con fecha y hora (`CANON_MOCK_PHOTO_YYYYMMDD_HHMMSS.jpg`) para verificar el guardado en disco.
+1. **Frecuencia Fija Nativa de 25 FPS (40 ms) para Canon EOS 500D**:
+   - **Tasa Fija Hardware**: Se fijó la frecuencia de captura Live View en **40 ms (25 FPS fijos)** coincidiendo exactamente con la velocidad de refresco del sensor y procesador DIGIC 4 de la réflex. Esto elimina las saturaciones del bus USB y colisiones de estado `EDS_ERR_OBJECT_NOTREADY`.
 
-2. **Tasa de Refresco Adaptativa USB (Sincronización Nativa)**:
-   - Se ajustó el temporizador a frecuencia ultra-rápida (15ms / ~60Hz) con retorno inmediato ante estados ocupados de la réflex, logrando aprovechar la máxima tasa de transmisión nativa del bus USB 2.0.
+2. **Identificación y Uso de Biblioteca EDSDK**:
+   - Confirmado el uso de la biblioteca principal `EDSDK_v13.20.21_Windows` (comunicación USB 64-bit, control réflex, Live View y disparador), diferenciándola del módulo secundario de revelado RAW (`EDSDK_v13.20.10_Raw_Win`).
 
-3. **Consola en Vivo de Diagnóstico y Decodificador de Errores EDSDK**:
-   - Se creó una tabla de decodificación completa para todos los códigos de error EDSDK (`0x80 DEVICE_BUSY`, `0x8D SESSION_NOT_OPEN`, `0xF0 TAKE_PICTURE_AF_NG`, `0xA102 OBJECT_NOTREADY`, etc.).
-   - Se añadió un panel interactivo **Diagnóstico & Eventos EDSDK** en `canon_test.py` con estampas de tiempo (`HH:MM:SS`) que registra exactamente el motivo de cualquier desconexión, error de bus o cierre de sesión.
+3. **Disparo por Secuencia de Obturador (`PressShutterButton`) y Diagnóstico EDSDK**:
+   - Disparo remoto mediante la secuencia oficial `PressShutterButton` (`Halfway` $\rightarrow$ `Completely` $\rightarrow$ `OFF`) con soporte de foto simulación MOCK cuando no hay cámara física.
+   - Panel de consola **Diagnóstico & Eventos EDSDK** en vivo con marcas de tiempo (`HH:MM:SS`) y decodificador completo de códigos de error.
 
 ---
 
