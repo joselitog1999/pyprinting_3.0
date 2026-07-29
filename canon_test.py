@@ -28,7 +28,8 @@ from PyQt6.QtCore    import (Qt, QThread, QObject, pyqtSignal, pyqtSlot, QTimer)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                                QComboBox, QGroupBox, QFileDialog, QMessageBox,
-                               QFormLayout, QSplitter, QStatusBar, QTextEdit)
+                               QFormLayout, QSplitter, QStatusBar, QTextEdit,
+                               QStackedWidget, QSlider, QDoubleSpinBox)
 from PyQt6.QtGui     import QFont, QColor
 
 from config import DEFAULT_DATA_PATH, CAMERA_WIDTH, CAMERA_HEIGHT
