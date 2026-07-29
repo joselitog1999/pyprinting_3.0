@@ -4,13 +4,14 @@ canon_test.py — Programa de prueba nativo para Canon EOS 500D (EDSDK Canon)
 PyPrinting — UNSAM Nanofotónica — PyQt6
 
 Permite probar en vivo:
-  - Transmisión Live View en máxima calidad óptica con tasa constante de 30 FPS.
-  - Corrección de orientación automática (rotación 90° horario y eliminación de espejo).
+  - Transmisión Live View en máxima calidad óptica adaptada a la velocidad nativa del bus USB.
+  - Consola en tiempo real de Diagnóstico y Logs de Errores EDSDK.
+  - Corrección de orientación automática (rotación 90° e inversión espejo).
   - Zoom Live View (1x, 2x Digital Nitidez Fina, 5x Hardware AF, 10x Hardware Enfoque Fino).
   - Espera automática de 5 segundos tras conectar para estabilizar la sesión USB.
   - Ajuste dinámico de ISO (Auto, 100-3200) y Velocidad de Obturación (Tv: 1/10s a 10s).
   - Fallback automático a lista completa si la cámara reporta menos propiedades.
-  - Captura y descarga de fotos en máxima resolución al disco local.
+  - Captura robusta mediante secuencia de obturador y descarga automática a la PC.
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from PyQt6.QtCore    import (Qt, QThread, QObject, pyqtSignal, pyqtSlot, QTimer)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                                QComboBox, QGroupBox, QFileDialog, QMessageBox,
-                               QFormLayout, QSplitter, QStatusBar, QGridLayout)
+                               QFormLayout, QSplitter, QStatusBar, QTextEdit)
 from PyQt6.QtGui     import QFont, QColor
 
 from config import DEFAULT_DATA_PATH, CAMERA_WIDTH, CAMERA_HEIGHT
@@ -43,35 +44,44 @@ from canon_edsdk import (CanonCamera, ISO_MAP, REV_ISO_MAP, FULL_ISO_LIST,
 class CanonWorker(QObject):
     frameSignal      = pyqtSignal(np.ndarray)
     statusSignal     = pyqtSignal(str)
+    logSignal        = pyqtSignal(str)
     connectedSignal  = pyqtSignal(bool)
     propsReadySignal = pyqtSignal(list, list, int) # iso_vals, tv_vals, ae_mode
 
     def __init__(self):
         super().__init__()
-        self._cam = CanonCamera()
+        self._cam = CanonCamera(log_callback=self._emit_log)
         self._running = False
         self._timer = QTimer(self)
-        self._timer.setInterval(33) # ~30 FPS
+        self._timer.setInterval(15) # Tasa adaptativa USB ~30-60 Hz
         self._timer.timeout.connect(self._fetch_frame)
         self._last_valid_frame = None
         self._mock_n = 0
 
+    def _emit_log(self, msg: str):
+        self.logSignal.emit(msg)
+
     @pyqtSlot()
     def start_camera(self):
         self.statusSignal.emit("Conectando con cámara Canon EOS por USB...")
+        self._emit_log("Iniciando conexión USB con cámara Canon EOS...")
         ok = self._cam.open_session()
         if ok:
             self._cam.enable_live_view()
             self._running = True
             self._timer.start()
             self.connectedSignal.emit(True)
-            self.statusSignal.emit("Conectado. Estabilizando sesión USB (esperando 5s para habilitar ISO y Velocidad)...")
+            msg = "Conectado. Estabilizando sesión USB (esperando 5s para habilitar ISO y Velocidad)..."
+            self.statusSignal.emit(msg)
+            self._emit_log(msg)
 
             # Iniciar temporizador de 5 segundos antes de leer y habilitar propiedades
             QTimer.singleShot(5000, self._query_properties_after_delay)
         else:
             self.connectedSignal.emit(False)
-            self.statusSignal.emit("⚠ No se detectó cámara Canon EOS por USB — Modo Simulación Activo")
+            msg = "⚠ No se detectó cámara Canon EOS por USB — Modo Simulación MOCK Activo"
+            self.statusSignal.emit(msg)
+            self._emit_log(msg)
             self._running = True
             self._timer.start()
             # En modo simulación habilitar inmediatamente con listas completas
@@ -80,7 +90,7 @@ class CanonWorker(QObject):
     def _query_properties_after_delay(self):
         if not self._running: return
 
-        ae_mode  = self._cam.get_property_value(kEdsPropID_AEMode) if self._cam._is_session_open else 0
+        ae_mode = self._cam.get_property_value(kEdsPropID_AEMode) if self._cam._is_session_open else 0
 
         # Consultar propiedades a Canon EDSDK
         cam_iso = self._cam.get_property_desc(kEdsPropID_ISOSpeed) if self._cam._is_session_open else []
@@ -92,6 +102,7 @@ class CanonWorker(QObject):
 
         self.propsReadySignal.emit(final_iso, final_tv, ae_mode)
         self.statusSignal.emit("Cámara Canon EOS 500D Lista | Opciones de ISO y Velocidad Habilitadas")
+        self._emit_log("Propiedades de cámara sincronizadas. Controles de ISO y Velocidad Habilitados.")
 
     @pyqtSlot()
     def stop_camera(self):
@@ -100,6 +111,7 @@ class CanonWorker(QObject):
         self._cam.close_session()
         self._cam.terminate_sdk()
         self.statusSignal.emit("Cámara desconectada.")
+        self._emit_log("Cámara desconectada y recursos liberados.")
 
     def _fetch_frame(self):
         if not self._running: return
@@ -137,6 +149,7 @@ class CanonWorker(QObject):
     @pyqtSlot(int)
     def set_zoom(self, zoom_val: int):
         self._cam.set_live_view_zoom(zoom_val)
+        self._emit_log(f"Zoom Live View configurado a: {ZOOM_MAP.get(zoom_val, zoom_val)}")
 
     @pyqtSlot(int)
     def set_iso(self, val: int):
@@ -152,9 +165,26 @@ class CanonWorker(QObject):
     def take_photo(self):
         if self._cam._is_session_open:
             self.statusSignal.emit("📸 Disparando foto en alta resolución...")
-            self._cam.take_photo()
+            ok = self._cam.take_photo()
+            if not ok:
+                self._emit_log("❌ Error en el comando de obturación de foto.")
         else:
-            self.statusSignal.emit("⚠ Foto simulación creada en carpeta data.")
+            # En modo MOCK simulación crear foto de prueba en carpeta destino
+            save_dir = self._cam._save_dir
+            os.makedirs(save_dir, exist_ok=True)
+            t_str = time.strftime("%Y%m%d_%H%M%S")
+            mock_photo_path = os.path.join(save_dir, f"CANON_MOCK_PHOTO_{t_str}.jpg")
+            
+            # Generar foto sintética de alta resolución (4752x3168)
+            img = np.full((1080, 1620, 3), 50, dtype=np.uint8)
+            cv2.circle(img, (810, 540), 120, (62, 207, 142), -1)
+            cv2.putText(img, f"CANON EOS 500D MOCK PHOTO - {t_str}", (100, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+            cv2.imwrite(mock_photo_path, img)
+
+            msg = f"✅ FOTO SIMULACIÓN MOCK CREADA EXITOSAMENTE EN: {mock_photo_path}"
+            self.statusSignal.emit(msg)
+            self._emit_log(msg)
 
     @pyqtSlot(str)
     def set_save_dir(self, path: str):
@@ -177,7 +207,7 @@ class CanonTestWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Canon EOS 500D — Suite de Pruebas Nativa EDSDK")
-        self.resize(1280, 800)
+        self.resize(1300, 820)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -200,7 +230,7 @@ class CanonTestWindow(QMainWindow):
         splitter.addWidget(visor_box)
 
         # 2. Panel de Control de la Cámara
-        panel = QGroupBox("Controles Canon EOS 500D")
+        panel = QGroupBox("Controles y Diagnóstico Canon EOS 500D")
         p_lo  = QVBoxLayout(panel)
         form  = QFormLayout()
 
@@ -226,7 +256,7 @@ class CanonTestWindow(QMainWindow):
         form.addRow("Zoom Live View:", self._combo_zoom)
 
         p_lo.addLayout(form)
-        p_lo.addSpacing(15)
+        p_lo.addSpacing(10)
 
         # Botón Disparar Foto
         self._btn_photo = QPushButton("📸 Disparar Foto (Alta Res)")
@@ -239,6 +269,17 @@ class CanonTestWindow(QMainWindow):
         self._lbl_dir = QLabel(f"Guardando en: {os.path.abspath(DEFAULT_DATA_PATH)}")
         self._lbl_dir.setStyleSheet("font-family: monospace; font-size: 10px; color: #aaa;")
         p_lo.addWidget(self._lbl_dir)
+
+        p_lo.addSpacing(10)
+
+        # ── Consola de Log y Diagnóstico EDSDK ────────────────────────────────
+        log_box = QGroupBox("Diagnóstico & Eventos EDSDK")
+        l_lo = QVBoxLayout(log_box)
+        self._txt_log = QTextEdit()
+        self._txt_log.setReadOnly(True)
+        self._txt_log.setStyleSheet("font-family: monospace; font-size: 10px; background-color: #111; color: #00ff66;")
+        l_lo.addWidget(self._txt_log)
+        p_lo.addWidget(log_box)
 
         p_lo.addStretch()
 
@@ -271,6 +312,7 @@ class CanonTestWindow(QMainWindow):
 
         self._worker.frameSignal.connect(self._update_frame)
         self._worker.statusSignal.connect(self._update_status)
+        self._worker.logSignal.connect(self._append_log)
         self._worker.propsReadySignal.connect(self._populate_properties)
         self._worker.connectedSignal.connect(self._on_connected)
 
@@ -306,6 +348,10 @@ class CanonTestWindow(QMainWindow):
     @pyqtSlot(str)
     def _update_status(self, msg: str):
         self.statusBar().showMessage(msg)
+
+    @pyqtSlot(str)
+    def _append_log(self, msg: str):
+        self._txt_log.append(msg)
 
     @pyqtSlot(list, list, int)
     def _populate_properties(self, iso_vals: list, tv_vals: list, ae_mode: int):

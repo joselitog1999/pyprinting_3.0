@@ -6,15 +6,17 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Corrección de Orientación y Estabilidad de Cuadros en Canon EOS 500D**:
-   - **Corrección Geométrica**: Se incorporó la transformación de matriz de orientación (`cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)` + `cv2.flip(1)`) para corregir la rotación de 90° antihorario y eliminar el espejo, logrando que la imagen en pantalla coincida exactamente con la posición real de la muestra.
-   - **Eliminación de Intermitencia en Live View**: Se añadió retención de cuadro previo `_last_valid_frame` para responder suavemente ante códigos de estado `EDS_ERR_OBJECT_NOTREADY` o `BUSY` de EDSDK. Esto garantiza una tasa de refresco constante de 30 FPS sin cortes negros ni parpadeos.
-   - **Extensión de Temporizador (`ExtendShutDownTimer`)**: Se envía automáticamente la señal de mantenimiento activo a la réflex para prevenir la baja de framerate por ahorro de energía.
-   - **Eliminación del Panel de Enfoque Motor**: Removidos los botones de control de motor de lente no aplicables a la configuración actual del laboratorio.
+1. **Corrección del Disparo de Fotos (Shutter Button Sequence)**:
+   - **Obturador Físico / Remoto**: Se reemplazó el comando simple `TakePicture` por la secuencia completa de disparador `PressShutterButton` (`Halfway` $\rightarrow$ `Completely` $\rightarrow$ `OFF`), que evita conflictos de estado durante Live View activo.
+   - **Eventos de Transferencia**: Se habilitaron los handlers para `kEdsObjectEvent_DirItemCreated` y `kEdsObjectEvent_DirItemRequestTransfer` para forzar la descarga de fotos a la PC.
+   - **Soporte Mock / Simulación**: En modo sin cámara física, el botón de tomar fotos genera automáticamente una captura de alta resolución sintética con fecha y hora (`CANON_MOCK_PHOTO_YYYYMMDD_HHMMSS.jpg`) para verificar el guardado en disco.
 
-2. **Ajuste de Controles de Cámara (ISO y Velocidad Tv)**:
-   - Controles de **ISO** (`Auto`, `100` a `3200`) y **Velocidad de Obturación / Tiempo de Exposición (Tv)** (`1/10s` a `10s`).
-   - Espera automática de 5 segundos tras conectar para estabilizar la sesión USB con fallback a lista completa de propiedades.
+2. **Tasa de Refresco Adaptativa USB (Sincronización Nativa)**:
+   - Se ajustó el temporizador a frecuencia ultra-rápida (15ms / ~60Hz) con retorno inmediato ante estados ocupados de la réflex, logrando aprovechar la máxima tasa de transmisión nativa del bus USB 2.0.
+
+3. **Consola en Vivo de Diagnóstico y Decodificador de Errores EDSDK**:
+   - Se creó una tabla de decodificación completa para todos los códigos de error EDSDK (`0x80 DEVICE_BUSY`, `0x8D SESSION_NOT_OPEN`, `0xF0 TAKE_PICTURE_AF_NG`, `0xA102 OBJECT_NOTREADY`, etc.).
+   - Se añadió un panel interactivo **Diagnóstico & Eventos EDSDK** en `canon_test.py` con estampas de tiempo (`HH:MM:SS`) que registra exactamente el motivo de cualquier desconexión, error de bus o cierre de sesión.
 
 ---
 

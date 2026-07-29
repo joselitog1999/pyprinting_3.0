@@ -4,13 +4,12 @@ canon_edsdk.py — Wrapper nativo ctypes para Canon EOS Digital SDK (EDSDK) 64-b
 PyPrinting — UNSAM Nanofotónica — PyQt6
 
 Soporta control nativo de Canon EOS 500D:
-  - Conexión y sesión USB.
-  - Stream de Live View (EVF) fluido y sin intermitencias.
+  - Conexión y sesión USB con diagnósticos de error detallados.
+  - Stream de Live View (EVF) de alta frecuencia adaptativo al bus USB.
   - Extensión de temporizador de apagado (ExtendShutDownTimer).
-  - Corrección de orientación de imagen (rotación 90° y eliminación de espejo).
-  - Zoom Live View (1x, 2x Digital Nitidez Fina, 5x Hardware AF, 10x Hardware Enfoque Fino).
-  - Ajuste dinámico de ISO (Auto, 100-3200) y Velocidad de Obturación (Tv: 1/10s a 10s).
-  - Captura y descarga automática de fotos en alta resolución al PC.
+  - Secuencia robusta de disparo por obturador (PressShutterButton).
+  - Descarga de fotografías en alta resolución (JPEG/RAW) a la PC.
+  - Corrección geométrica de orientación (rotación 90° e inversión espejo).
 """
 from __future__ import annotations
 
@@ -58,9 +57,34 @@ EdsInt32            = ctypes.c_int32
 EdsVoid             = None
 
 # Errors
-EDS_ERR_OK               = 0x00000000
-EDS_ERR_DEVICE_BUSY      = 0x00000080
-EDS_ERR_OBJECT_NOTREADY  = 0x0000A102
+EDS_ERR_OK                         = 0x00000000
+EDS_ERR_UNIMPLEMENTED              = 0x00000001
+EDS_ERR_INTERNAL_ERROR             = 0x00000002
+EDS_ERR_HANDLE_INVALID             = 0x00000006
+EDS_ERR_INVALID_PARAMETER          = 0x00000007
+EDS_ERR_DEVICE_BUSY                = 0x00000080
+EDS_ERR_SESSION_NOT_OPEN           = 0x0000008D
+EDS_ERR_INVALID_TRANSACTION        = 0x0000008E
+EDS_ERR_TAKE_PICTURE_AF_NG         = 0x000000F0
+EDS_ERR_TAKE_PICTURE_NO_CARD_NG    = 0x000000F5
+EDS_ERR_OBJECT_NOTREADY            = 0x0000A102
+
+EDSDK_ERRORS: Dict[int, str] = {
+    0x00000000: "EDS_ERR_OK (Éxito)",
+    0x00000001: "EDS_ERR_UNIMPLEMENTED (Función no implementada en este modelo)",
+    0x00000002: "EDS_ERR_INTERNAL_ERROR (Error interno de EDSDK)",
+    0x00000006: "EDS_ERR_HANDLE_INVALID (Referencia de cámara no válida)",
+    0x00000007: "EDS_ERR_INVALID_PARAMETER (Parámetro no válido)",
+    0x00000080: "EDS_ERR_DEVICE_BUSY (Cámara ocupada procesando otra operación)",
+    0x0000008D: "EDS_ERR_SESSION_NOT_OPEN (Sesión USB no abierta)",
+    0x0000008E: "EDS_ERR_INVALID_TRANSACTION (Transacción USB no válida)",
+    0x000000F0: "EDS_ERR_TAKE_PICTURE_AF_NG (Fallo de enfoque AF al disparar)",
+    0x000000F5: "EDS_ERR_TAKE_PICTURE_NO_CARD_NG (Sin tarjeta o almacenamiento no listo)",
+    0x0000A102: "EDS_ERR_OBJECT_NOTREADY (Cuadro EVF en preparación)",
+}
+
+def get_edsdk_error_msg(err_code: int) -> str:
+    return EDSDK_ERRORS.get(err_code, f"Error EDSDK 0x{err_code:08X}")
 
 # Property IDs
 kEdsPropID_ProductName            = 0x00000002
@@ -82,18 +106,25 @@ kEdsSaveTo_Both   = 3
 kEdsEvfOutputDevice_Off = 0
 kEdsEvfOutputDevice_TFT = 1
 kEdsEvfOutputDevice_PC  = 2
-kEdsEvfOutputDevice_All = 3 # TFT | PC (Mapeado por EOS Utility)
+kEdsEvfOutputDevice_All = 3
 
 # Commands
 kEdsCameraCommand_TakePicture         = 0x00000000
 kEdsCameraCommand_ExtendShutDownTimer = 0x00000001
 kEdsCameraCommand_PressShutterButton  = 0x00000004
 kEdsCameraCommand_DoEvfAf             = 0x00000102
-kEdsCameraCommand_DriveLensEvf        = 0x00000103
+
+# Shutter Button States
+kEdsCameraCommand_ShutterButton_OFF                 = 0x00000000
+kEdsCameraCommand_ShutterButton_Halfway             = 0x00000001
+kEdsCameraCommand_ShutterButton_Completely          = 0x00000003
+kEdsCameraCommand_ShutterButton_Halfway_NonAF       = 0x00010001
+kEdsCameraCommand_ShutterButton_Completely_NonAF    = 0x00010003
 
 # Object Events
 kEdsObjectEvent_All                   = 0x00000200
 kEdsObjectEvent_DirItemCreated        = 0x00000204
+kEdsObjectEvent_DirItemRequestTransfer= 0x00000208
 
 # File Access
 kEdsFileCreateDisposition_CreateAlways = 1
@@ -172,7 +203,6 @@ AE_MODE_MAP: Dict[int, str] = {
     6: "Creative Auto",
 }
 
-# ISO requeridos: Auto, 100, 200, 400, 800, 1600, 3200
 ISO_MAP: Dict[int, str] = {
     0x00: "Auto",
     0x48: "100",
@@ -185,7 +215,6 @@ ISO_MAP: Dict[int, str] = {
 FULL_ISO_LIST = list(ISO_MAP.keys())
 REV_ISO_MAP   = {v: k for k, v in ISO_MAP.items()}
 
-# Velocidad de Obturación (Tv / Tiempo de Exposición)
 TV_MAP: Dict[int, str] = {
     0x53: "1/10s",
     0x50: "1/8s",
@@ -229,7 +258,7 @@ REV_ZOOM_MAP = {v: k for k, v in ZOOM_MAP.items()}
 class CanonCamera:
     """Clase controladora nativa para cámaras Canon EOS mediante EDSDK."""
 
-    def __init__(self):
+    def __init__(self, log_callback: Optional[Callable[[str], None]] = None):
         self._is_sdk_init = False
         self._camera_ref  = None
         self._is_session_open = False
@@ -238,15 +267,24 @@ class CanonCamera:
         self._cb_keepalive = None
         self._active_zoom = 1
         self._last_extend_timer = 0.0
+        self._log_cb = log_callback
+
+    def log(self, msg: str):
+        t_str = time.strftime("%H:%M:%S")
+        formatted = f"[{t_str}] {msg}"
+        print(f"[Canon EDSDK] {formatted}")
+        if self._log_cb:
+            try: self._log_cb(formatted)
+            except Exception: pass
 
     def initialize_sdk(self) -> bool:
         if self._is_sdk_init: return True
         err = edsdk.EdsInitializeSDK()
         if err == EDS_ERR_OK:
             self._is_sdk_init = True
-            print("[Canon EDSDK] SDK inicializado con éxito.")
+            self.log("SDK inicializado con éxito.")
             return True
-        print(f"[Canon EDSDK] Error al inicializar SDK: {hex(err)}")
+        self.log(f"⚠ Error al inicializar SDK: {get_edsdk_error_msg(err)}")
         return False
 
     def terminate_sdk(self):
@@ -255,7 +293,7 @@ class CanonCamera:
         if self._is_sdk_init:
             edsdk.EdsTerminateSDK()
             self._is_sdk_init = False
-            print("[Canon EDSDK] SDK finalizado.")
+            self.log("SDK finalizado.")
 
     def open_session(self) -> bool:
         if not self._is_sdk_init:
@@ -264,14 +302,14 @@ class CanonCamera:
         cam_list = EdsCameraListRef()
         err = edsdk.EdsGetCameraList(ctypes.byref(cam_list))
         if err != EDS_ERR_OK:
-            print(f"[Canon EDSDK] Error al obtener lista de cámaras: {hex(err)}")
+            self.log(f"⚠ Error al obtener lista de cámaras: {get_edsdk_error_msg(err)}")
             return False
 
         count = EdsUInt32(0)
         edsdk.EdsGetChildCount(cam_list, ctypes.byref(count))
 
         if count.value == 0:
-            print("[Canon EDSDK] No hay ninguna cámara Canon EOS conectada por USB.")
+            self.log("⚠ No se detectó ninguna cámara Canon EOS conectada por USB.")
             if cam_list: edsdk.EdsRelease(cam_list)
             return False
 
@@ -280,23 +318,23 @@ class CanonCamera:
         if cam_list: edsdk.EdsRelease(cam_list)
 
         if err != EDS_ERR_OK or not cam:
-            print(f"[Canon EDSDK] Error obteniendo referencia de cámara: {hex(err)}")
+            self.log(f"⚠ Error al obtener referencia de cámara: {get_edsdk_error_msg(err)}")
             return False
 
         self._camera_ref = cam
         err = edsdk.EdsOpenSession(self._camera_ref)
         if err != EDS_ERR_OK:
-            print(f"[Canon EDSDK] Error al abrir sesión USB: {hex(err)}")
+            self.log(f"⚠ Error al abrir sesión USB: {get_edsdk_error_msg(err)}")
             return False
 
         self._is_session_open = True
-        print("[Canon EDSDK] Sesión USB abierta con la cámara Canon EOS 500D.")
+        self.log("Sesión USB abierta exitosamente con Canon EOS 500D.")
 
-        # Configurar guardado directo en PC
+        # Configurar guardado directo en PC (Host)
         save_to = EdsUInt32(kEdsSaveTo_Host)
         edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_SaveTo, 0, ctypes.sizeof(save_to), ctypes.byref(save_to))
 
-        # Registrar handler de descarga de fotos
+        # Registrar handlers para eventos de fotos creadas o listas para transferencia
         self._register_photo_handler()
         return True
 
@@ -308,7 +346,7 @@ class CanonCamera:
             edsdk.EdsRelease(self._camera_ref)
             self._camera_ref = None
             self._is_session_open = False
-            print("[Canon EDSDK] Sesión de cámara cerrada.")
+            self.log("Sesión de cámara cerrada.")
 
     # ── Live View (EVF Stream) ────────────────────────────────────────────────
 
@@ -318,9 +356,9 @@ class CanonCamera:
         err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
         if err == EDS_ERR_OK:
             self._evf_enabled = True
-            print("[Canon Live View] Transmisión PC de alta calidad activada.")
+            self.log("Transmisión PC Live View activada.")
             return True
-        print(f"[Canon Live View] Error al activar EVF Output: {hex(err)}")
+        self.log(f"⚠ Error al activar salida PC Live View: {get_edsdk_error_msg(err)}")
         return False
 
     def disable_live_view(self):
@@ -328,13 +366,13 @@ class CanonCamera:
         device = EdsUInt32(kEdsEvfOutputDevice_Off)
         edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
         self._evf_enabled = False
-        print("[Canon Live View] Transmisión desactivada.")
+        self.log("Transmisión Live View desactivada.")
 
     def extend_shutdown_timer(self):
         """Mantiene la cámara activa evitando ahorro de energía."""
         if not self._is_session_open: return
         now = time.time()
-        if now - self._last_extend_timer > 10.0:
+        if now - self._last_extend_timer > 8.0:
             edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_ExtendShutDownTimer, 0)
             self._last_extend_timer = now
 
@@ -356,11 +394,11 @@ class CanonCamera:
 
         err = edsdk.EdsDownloadEvfImage(self._camera_ref, evf_image)
         if err in (EDS_ERR_DEVICE_BUSY, EDS_ERR_OBJECT_NOTREADY):
-            # La cámara aún no ha generado el siguiente cuadro — retornar None sin fallar
             edsdk.EdsRelease(evf_image)
             edsdk.EdsRelease(stream)
             return None
         elif err != EDS_ERR_OK:
+            self.log(f"⚠ Aviso Live View: {get_edsdk_error_msg(err)}")
             edsdk.EdsRelease(evf_image)
             edsdk.EdsRelease(stream)
             return None
@@ -370,10 +408,7 @@ class CanonCamera:
         edsdk.EdsGetPointer(stream, ctypes.byref(data_ptr))
         edsdk.EdsGetLength(stream, ctypes.byref(length))
 
-        if length.value > 0 and data_ptr.value:
-            buffer = ctypes.string_at(data_ptr.value, length.value)
-        else:
-            buffer = None
+        buffer = ctypes.string_at(data_ptr.value, length.value) if (length.value > 0 and data_ptr.value) else None
 
         edsdk.EdsRelease(evf_image)
         edsdk.EdsRelease(stream)
@@ -391,18 +426,13 @@ class CanonCamera:
         return err == EDS_ERR_OK
 
     def process_frame_zoom_and_orientation(self, frame_rgb: np.ndarray) -> np.ndarray:
-        """
-        Corrige la orientación de la imagen (rotación 90° horario + espejo horizontal)
-        y aplica interpolación cúbica si está activo el zoom 2x.
-        """
         if frame_rgb is None: return frame_rgb
 
-        # 1. Corregir rotación 90° antihorario y espejo:
-        # Rotar 90° sentido horario y voltear horizontalmente
+        # Rotación 90° sentido horario e inversión horizontal
         corrected = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
         corrected = cv2.flip(corrected, 1)
 
-        # 2. Aplicar Zoom 2x de alta calidad si está activo:
+        # Aplicar Zoom 2x de alta resolución por corte central e interpolación cúbica
         if self._active_zoom == 2:
             H, W, C = corrected.shape
             ch, cw = H // 2, W // 2
@@ -419,7 +449,9 @@ class CanonCamera:
         if not self._is_session_open: return []
         desc = EdsPropertyDesc()
         err = edsdk.EdsGetPropertyDesc(self._camera_ref, prop_id, ctypes.byref(desc))
-        if err != EDS_ERR_OK: return []
+        if err != EDS_ERR_OK:
+            self.log(f"⚠ No se pudo consultar lista de propiedad 0x{prop_id:04X}: {get_edsdk_error_msg(err)}")
+            return []
         return [desc.propDesc[i] for i in range(desc.numElements)]
 
     def get_property_value(self, prop_id: int) -> int:
@@ -432,20 +464,56 @@ class CanonCamera:
         if not self._is_session_open: return False
         v = EdsUInt32(val)
         err = edsdk.EdsSetPropertyData(self._camera_ref, prop_id, 0, ctypes.sizeof(v), ctypes.byref(v))
-        return err == EDS_ERR_OK
+        if err == EDS_ERR_OK:
+            self.log(f"Propiedad 0x{prop_id:04X} actualizada a 0x{val:02X}")
+            return True
+        self.log(f"⚠ Error al cambiar propiedad 0x{prop_id:04X}: {get_edsdk_error_msg(err)}")
+        return False
 
-    # ── Captura y Descarga de Fotos ───────────────────────────────────────────
+    # ── Captura y Descarga Robusta de Fotos ───────────────────────────────────
 
     def take_photo(self) -> bool:
-        if not self._is_session_open: return False
-        err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_TakePicture, 0)
-        return err == EDS_ERR_OK
+        """
+        Ejecuta el disparo completo mediante la secuencia de obturador:
+        PressShutterButton (Halfway -> Completely -> OFF).
+        """
+        if not self._is_session_open:
+            self.log("⚠ No se puede tomar foto: Sesión USB no abierta.")
+            return False
+
+        self.log("📸 Iniciando secuencia de obturación remota (PressShutterButton)...")
+        # 1. Presionar obturador a la mitad (Bloqueo AF/AE)
+        err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Halfway_NonAF)
+        time.sleep(0.08)
+
+        # 2. Presionar obturador completamente (Disparo)
+        err2 = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF)
+        time.sleep(0.12)
+
+        # 3. Soltar obturador
+        edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF)
+
+        if err2 == EDS_ERR_OK or err == EDS_ERR_OK:
+            self.log("📸 Disparo de obturador completado. Esperando transferencia...")
+            return True
+        else:
+            # Fallback secundario con TakePicture
+            self.log(f"⚠ Aviso en obturador ({get_edsdk_error_msg(err2)}). Intentando comando TakePicture...")
+            err_tp = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_TakePicture, 0)
+            if err_tp == EDS_ERR_OK:
+                self.log("📸 Comando TakePicture enviado con éxito.")
+                return True
+            else:
+                self.log(f"❌ Fallo al tomar foto: {get_edsdk_error_msg(err_tp)}")
+                return False
 
     def set_save_directory(self, path: str):
         self._save_dir = os.path.abspath(path)
+        self.log(f"Directorio de guardado configurado en: {self._save_dir}")
 
     def _register_photo_handler(self):
         def _on_dir_item_created(event: int, item_ref: EdsDirectoryItemRef, context: ctypes.c_void_p) -> int:
+            self.log("📸 Evento detectado: Nueva foto generada en la cámara. Iniciando descarga a PC...")
             info = EdsDirectoryItemInfo()
             err = edsdk.EdsGetDirectoryItemInfo(item_ref, ctypes.byref(info))
             if err == EDS_ERR_OK:
@@ -464,8 +532,13 @@ class CanonCamera:
                     edsdk.EdsDownload(item_ref, info.size, stream)
                     edsdk.EdsDownloadComplete(item_ref)
                     edsdk.EdsRelease(stream)
-                    print(f"[Canon Photo] Foto descargada exitosamente en: {save_path}")
+                    self.log(f"✅ ¡FOTO DESCARGADA EXITOSAMENTE!: {save_path}")
+                else:
+                    self.log(f"❌ Error al crear archivo de descarga: {get_edsdk_error_msg(err_st)}")
+            else:
+                self.log(f"❌ Error leyendo información de foto: {get_edsdk_error_msg(err)}")
             return EDS_ERR_OK
 
         self._cb_keepalive = EdsObjectEventHandler(_on_dir_item_created)
         edsdk.EdsSetObjectEventHandler(self._camera_ref, kEdsObjectEvent_DirItemCreated, self._cb_keepalive, None)
+        edsdk.EdsSetObjectEventHandler(self._camera_ref, kEdsObjectEvent_DirItemRequestTransfer, self._cb_keepalive, None)
