@@ -6,27 +6,22 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Indicador Visual de Escala Espacial (Verde / Rojo)**:
-   - En la barra inferior del analizador:
-     - **Verde (`#3ecf8e`)**: `"Escala configurada: X.XXXXX µm/px"` cuando la escala espacial ha sido calibrada.
-     - **Rojo (`#e5534b`)**: `"Escala no configurada (mediciones en px)"` cuando aún no se ha calibrado la imagen.
+1. **Corrección de Reglas Tri-Estado y Línea de Medición antes de Calibrar Escala**:
+   - **Antes de Set Scale**: Las reglas (`R1-V`, `R1-H`, `R2-V`, `R2-H`) y la etiqueta sobre la línea punteada de medición muestran estrictamente unidades en **Píxeles ($\text{px}$)** (ej: `R1-V: 528 px`, `d = 145.2 px θ = 12.4°`).
+   - **Después de Set Scale**: Al calibrar la escala espacial, todas las reglas y mediciones cambian dinámicamente a **Micrómetros ($\mu\text{m}$)**.
 
-2. **Detección de Partículas Adaptativa en Micrómetros ($\mu\text{m}$)**:
-   - Cuando la escala **está configurada**:
-     - Los controles del diálogo Trackpy (`TrackpyDialog`) muestran **`Diámetro estimado (µm)`** y **`Separación Mínima (µm)`**.
-     - **Conversión Interna con Regla de Imparidad**: Realiza la conversión automática a píxeles ($\text{px\_diam} = \text{round}(\text{diam\_um} / \text{um\_per\_px})$) aplicando la regla de aproximación exigida por Trackpy de que el diámetro sea **un entero IMPAR $\ge 3$**. Se muestra además la lectura de conversión equivalente en pantalla.
-   - Cuando la escala **no está configurada**:
-     - Los controles se muestran en **Píxeles ($\text{px}$)**.
+2. **Soporte Completo para Archivos TIFF (`.tif`, `.tiff`)**:
+   - Soporte nativo para lectura de imágenes científicas de microscopía y escaneo confocal en formatos `.tif` y `.tiff` de 8 bits, 16 bits y 32 bits float.
 
-3. **Modo Medición Adaptativo ($\text{px}$ vs $\mu\text{m}$)**:
-   - Cuando la escala **no está configurada**: Las mediciones en el lienzo, la etiqueta de resultados y la lista guardada expresan las distancias en **píxeles ($\text{px}$)** (ej: `d = 145.2 px`).
-   - Cuando la escala **está configurada**: Las mediciones expresan las distancias en **micrómetros ($\mu\text{m}$)** (ej: `d = 7.260 µm`).
+3. **Panel de Ajustes Tonal Adaptativo**:
+   - **Para imágenes TIFF (`.tif`, `.tiff`)**: Se habilita el panel de **Intensidad de Escaneo (CLim)** con controles de *Intensidad Mínima (Corte de Fondo)* e *Intensidad Máxima (Saturación)*.
+   - **Para imágenes estándar (`.jpg`, `.jpeg`, `.png`, `.bmp`)**: Se habilita el panel de **Ajustes RGB** con deslizadores interactivos en tiempo real para **Brillo**, **Contraste**, **Gamma** y **Balance de Blancos (Ganancia R, G, B)**, junto al botón de **Restablecer Ajustes RGB**.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Módulo Image Analyzer Adaptativo**:
+- **Prueba Módulo Image Analyzer TIFF/RGB**:
   ```powershell
   .\.venv\Scripts\python.exe -c "import image_analyzer; print('VERIFIED 100% CLEAN!')"
   ```

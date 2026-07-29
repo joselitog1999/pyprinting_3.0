@@ -3,9 +3,10 @@
 image_analyzer.py — Herramienta independiente y Dockable para análisis de imágenes
 PyPrinting — UNSAM Nanofotónica — PyQt6
 
-Permite abrir fotos estáticas (.jpg, .png, .tiff), analizarlas con trackpy,
-aplicar reglas tri-estado, realizar mediciones con snap (Shift), guardar listas de mediciones,
-exportar partículas detectadas y exportar la imagen final con todas las marcas y capas graficadas.
+Permite abrir fotos (.jpg, .png, .bmp, .tiff, .tif 8/16/32-bit), analizarlas con trackpy,
+ajustar niveles de intensidad (CLim) para TIFF o Brillo/Contraste/Gamma/RGB para JPG/PNG,
+aplicar reglas tri-estado, medir distancias (px / µm adaptativo), guardar mediciones
+y exportar partículas e imagen final anotada.
 """
 from __future__ import annotations
 
@@ -21,7 +22,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                                QTableWidget, QTableWidgetItem, QHeaderView,
                                QGroupBox, QMessageBox, QFileDialog, QSplitter,
-                               QDialog)
+                               QDialog, QSlider, QDoubleSpinBox, QFormLayout,
+                               QStackedWidget)
 from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 
 from config import DEFAULT_DATA_PATH, PIXEL_SIZE_UM
@@ -36,8 +38,10 @@ class ImageAnalyzerWidget(QWidget):
         self._scale_set  = False
         self._ref_set    = False
         self._um_per_px  = PIXEL_SIZE_UM
-        self._current_frame: Optional[np.ndarray] = None
+        self._raw_frame: Optional[np.ndarray]     = None  # Matriz original sin procesar
+        self._current_frame: Optional[np.ndarray] = None  # Matriz procesada para renderizado
         self._current_image_path: Optional[Path]  = None
+        self._is_tiff = False
         self._particles: list = []
         self._measure_pts: list = []
         self._saved_measures: list[dict] = []
@@ -54,7 +58,7 @@ class ImageAnalyzerWidget(QWidget):
         tb_lo.setContentsMargins(2, 2, 2, 2)
         tb_lo.setSpacing(4)
 
-        self._btn_open_img  = self._mkbtn("📁 Abrir Foto", color="#4a9eff")
+        self._btn_open_img  = self._mkbtn("📁 Abrir Foto (.jpg, .tif)", color="#4a9eff")
         self._btn_export_img= self._mkbtn("📷 Exportar Foto", color="#3ecf8e")
         self._btn_setref    = self._mkbtn("Set ref.", checkable=True, color="#4a9eff")
         self._btn_setscale  = self._mkbtn("Set scale", color="#f5a623")
@@ -85,36 +89,83 @@ class ImageAnalyzerWidget(QWidget):
         # ── Layout Central con Splitter ───────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 1. Panel Izquierdo: Detección y ROI
-        left_panel = QGroupBox("Detección & ROI")
+        # 1. Panel Izquierdo: Detección, ROI y Ajustes de Imagen
+        left_panel = QGroupBox("Detección & Ajustes de Imagen")
         left_lo    = QVBoxLayout(left_panel)
         left_lo.setContentsMargins(6, 6, 6, 6)
 
+        # Botones de ROI y Detección
         self._btn_roi    = self._mkbtn("ROI detect", checkable=True, color="#8b7cf8")
         self._btn_detect = self._mkbtn("Detectar", color="#3ecf8e")
-        self._btn_exp_part = self._mkbtn("Exportar Partículas (.txt)", color="#3ecf8e")
-        self._btn_clear_particles = self._mkbtn("Limpiar Partículas")
-
-        self._btn_roi.clicked.connect(self._toggle_roi_mode)
-        self._btn_detect.clicked.connect(self._open_trackpy_dialog)
-        self._btn_exp_part.clicked.connect(self._export_particles_txt)
-        self._btn_clear_particles.clicked.connect(self._clear_particles)
-
         btn_row_left = QHBoxLayout()
         btn_row_left.addWidget(self._btn_roi)
         btn_row_left.addWidget(self._btn_detect)
         left_lo.addLayout(btn_row_left)
 
         self._table_particles = QTableWidget(0, 4)
-        self._table_particles.setHorizontalHeaderLabels(["#", "x (µm)", "y (µm)", "Int."])
+        self._table_particles.setHorizontalHeaderLabels(["#", "x (px)", "y (px)", "Int."])
         self._table_particles.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._table_particles.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         left_lo.addWidget(self._table_particles)
 
         btn_row_left2 = QHBoxLayout()
+        self._btn_exp_part = self._mkbtn("Exportar Partículas (.txt)", color="#3ecf8e")
+        self._btn_clear_particles = self._mkbtn("Limpiar Partículas")
+        self._btn_exp_part.clicked.connect(self._export_particles_txt)
+        self._btn_clear_particles.clicked.connect(self._clear_particles)
         btn_row_left2.addWidget(self._btn_exp_part)
         btn_row_left2.addWidget(self._btn_clear_particles)
         left_lo.addLayout(btn_row_left2)
+
+        # ── Panel de Ajustes Adaptativo (TIFF vs RGB) ─────────────────────────
+        self._stack_adj = QStackedWidget()
+
+        # Página 0: Ajustes TIFF (Intensidad / CLim Escaneo)
+        page_tiff = QWidget()
+        pt_lo = QFormLayout(page_tiff)
+        pt_lo.setContentsMargins(0, 0, 0, 0)
+        self._clim_min = QDoubleSpinBox(); self._clim_min.setRange(0, 65535); self._clim_min.setValue(0)
+        self._clim_max = QDoubleSpinBox(); self._clim_max.setRange(0, 65535); self._clim_max.setValue(65535)
+        pt_lo.addRow("Intensidad Mín. (Corte):", self._clim_min)
+        pt_lo.addRow("Intensidad Máx. (Sat.):", self._clim_max)
+        self._clim_min.valueChanged.connect(self._apply_image_adjustments)
+        self._clim_max.valueChanged.connect(self._apply_image_adjustments)
+        self._stack_adj.addWidget(page_tiff)
+
+        # Página 1: Ajustes RGB (Brillo, Contraste, Gamma, WB)
+        page_rgb = QWidget()
+        pr_lo = QFormLayout(page_rgb)
+        pr_lo.setContentsMargins(0, 0, 0, 0)
+        self._slider_bright   = QSlider(Qt.Orientation.Horizontal); self._slider_bright.setRange(-100, 100); self._slider_bright.setValue(0)
+        self._slider_contrast = QSlider(Qt.Orientation.Horizontal); self._slider_contrast.setRange(1, 30);  self._slider_contrast.setValue(10) # /10 -> 0.1 a 3.0
+        self._slider_gamma    = QSlider(Qt.Orientation.Horizontal); self._slider_gamma.setRange(2, 25);   self._slider_gamma.setValue(10)    # /10 -> 0.2 a 2.5
+        self._slider_r_gain   = QSlider(Qt.Orientation.Horizontal); self._slider_r_gain.setRange(5, 20);   self._slider_r_gain.setValue(10)   # /10 -> 0.5 a 2.0
+        self._slider_g_gain   = QSlider(Qt.Orientation.Horizontal); self._slider_g_gain.setRange(5, 20);   self._slider_g_gain.setValue(10)   # /10 -> 0.5 a 2.0
+        self._slider_b_gain   = QSlider(Qt.Orientation.Horizontal); self._slider_b_gain.setRange(5, 20);   self._slider_b_gain.setValue(10)   # /10 -> 0.5 a 2.0
+        btn_reset_adj = QPushButton("Restablecer Ajustes RGB")
+        btn_reset_adj.clicked.connect(self._reset_rgb_adjustments)
+
+        pr_lo.addRow("Brillo:", self._slider_bright)
+        pr_lo.addRow("Contraste:", self._slider_contrast)
+        pr_lo.addRow("Gamma:", self._slider_gamma)
+        pr_lo.addRow("Ganancia Rojo (R):", self._slider_r_gain)
+        pr_lo.addRow("Ganancia Verde (G):", self._slider_g_gain)
+        pr_lo.addRow("Ganancia Azul (B):", self._slider_b_gain)
+        pr_lo.addRow(btn_reset_adj)
+
+        for s in (self._slider_bright, self._slider_contrast, self._slider_gamma,
+                  self._slider_r_gain, self._slider_g_gain, self._slider_b_gain):
+            s.valueChanged.connect(self._apply_image_adjustments)
+
+        self._stack_adj.addWidget(page_rgb)
+
+        box_adj = QGroupBox("Ajustes Tonal de Imagen")
+        box_adj_lo = QVBoxLayout(box_adj)
+        box_adj_lo.addWidget(self._stack_adj)
+        left_lo.addWidget(box_adj)
+
+        self._btn_roi.clicked.connect(self._toggle_roi_mode)
+        self._btn_detect.clicked.connect(self._open_trackpy_dialog)
 
         # 2. Visor Central de Imagen
         visor_container = QWidget()
@@ -154,7 +205,7 @@ class ImageAnalyzerWidget(QWidget):
         right_lo.addLayout(btn_row_right)
 
         self._table_measures = QTableWidget(0, 4)
-        self._table_measures.setHorizontalHeaderLabels(["#", "Dist (µm)", "Δx/Δy (px)", "Ángulo"])
+        self._table_measures.setHorizontalHeaderLabels(["#", "Dist (px)", "Δx/Δy (px)", "Ángulo"])
         self._table_measures.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._table_measures.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         right_lo.addWidget(self._table_measures)
@@ -205,20 +256,45 @@ class ImageAnalyzerWidget(QWidget):
         self._vb.setXRange(x0, x1, padding=0)
         self._vb.setYRange(y0, y1, padding=0)
 
-    # ── Abrir e Importar Imagen ───────────────────────────────────────────────
+    # ── Abrir e Importar Imagen (.jpg, .png, .bmp, .tif, .tiff) ─────────────
 
     def _open_image(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Abrir Imagen", str(DEFAULT_DATA_PATH),
-            "Imágenes (*.jpg *.jpeg *.png *.tiff *.bmp)")
+            "Todas las Imágenes (*.tif *.tiff *.jpg *.jpeg *.png *.bmp);;Archivos TIFF (*.tif *.tiff);;Archivos Estándar (*.jpg *.png *.bmp)")
         if not file_path: return
 
         try:
-            from PIL import Image as PILImage
-            pil_img = PILImage.open(file_path).convert("RGB")
-            self._current_frame = np.array(pil_img, dtype=np.uint8)
-            self._current_image_path = Path(file_path)
-            self._img_item.setImage(self._current_frame.transpose(1, 0, 2))
+            path = Path(file_path)
+            ext = path.suffix.lower()
+            self._is_tiff = ext in (".tif", ".tiff")
+
+            if self._is_tiff:
+                # Intentar leer TIFF científico (8-bit, 16-bit, 32-bit)
+                try:
+                    import tifffile
+                    arr = tifffile.imread(str(path))
+                except Exception:
+                    from PIL import Image as PILImage
+                    img = PILImage.open(str(path))
+                    arr = np.array(img)
+
+                if arr.ndim == 3 and arr.shape[2] == 4:
+                    arr = arr[:, :, :3]
+                self._raw_frame = arr
+                vmin, vmax = float(np.min(arr)), float(np.max(arr))
+                self._clim_min.blockSignals(True); self._clim_min.setValue(vmin); self._clim_min.blockSignals(False)
+                self._clim_max.blockSignals(True); self._clim_max.setValue(vmax); self._clim_max.blockSignals(False)
+                self._stack_adj.setCurrentIndex(0) # Pág TIFF
+            else:
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(str(path)).convert("RGB")
+                self._raw_frame = np.array(pil_img, dtype=np.uint8)
+                self._reset_rgb_adjustments()
+                self._stack_adj.setCurrentIndex(1) # Pág RGB
+
+            self._current_image_path = path
+            self._apply_image_adjustments()
             W, H = self._overlay.get_img_dims()
             self._vb.setXRange(0, W, padding=0)
             self._vb.setYRange(0, H, padding=0)
@@ -226,6 +302,63 @@ class ImageAnalyzerWidget(QWidget):
             self._lbl_result.setText(f"Imagen cargada: {self._current_image_path.name} ({int(W)}x{int(H)} px)")
         except Exception as e:
             QMessageBox.critical(self, "Error al abrir imagen", f"No se pudo cargar la imagen:\n{e}")
+
+    # ── Ajustes de Procesamiento de Imagen (TIFF vs RGB) ──────────────────────
+
+    def _reset_rgb_adjustments(self):
+        for s in (self._slider_bright, self._slider_contrast, self._slider_gamma,
+                  self._slider_r_gain, self._slider_g_gain, self._slider_b_gain):
+            s.blockSignals(True)
+        self._slider_bright.setValue(0)
+        self._slider_contrast.setValue(10)
+        self._slider_gamma.setValue(10)
+        self._slider_r_gain.setValue(10)
+        self._slider_g_gain.setValue(10)
+        self._slider_b_gain.setValue(10)
+        for s in (self._slider_bright, self._slider_contrast, self._slider_gamma,
+                  self._slider_r_gain, self._slider_g_gain, self._slider_b_gain):
+            s.blockSignals(False)
+        self._apply_image_adjustments()
+
+    def _apply_image_adjustments(self):
+        if self._raw_frame is None: return
+
+        if self._is_tiff:
+            cmin = self._clim_min.value()
+            cmax = self._clim_max.value()
+            if cmax <= cmin: cmax = cmin + 1.0
+            norm = np.clip((self._raw_frame.astype(float) - cmin) / (cmax - cmin), 0.0, 1.0)
+            if norm.ndim == 2:
+                # Grayscale to RGB
+                proc = (norm * 255.0).astype(np.uint8)
+                self._current_frame = np.stack([proc]*3, axis=-1)
+            else:
+                self._current_frame = (norm * 255.0).astype(np.uint8)
+        else:
+            # Procesar ajustador RGB: Brillo, Contraste, Gamma y WB
+            frame = self._raw_frame.astype(float)
+
+            # 1. Balance de Blancos (Gains)
+            r_g = self._slider_r_gain.value() / 10.0
+            g_g = self._slider_g_gain.value() / 10.0
+            b_g = self._slider_b_gain.value() / 10.0
+            frame[:, :, 0] *= r_g
+            frame[:, :, 1] *= g_g
+            frame[:, :, 2] *= b_g
+
+            # 2. Brillo y Contraste
+            bright   = self._slider_bright.value()
+            contrast = self._slider_contrast.value() / 10.0
+            frame = (frame - 128.0) * contrast + 128.0 + bright
+
+            # 3. Gamma
+            gamma = self._slider_gamma.value() / 10.0
+            frame = np.clip(frame, 0.0, 255.0) / 255.0
+            frame = np.power(frame, 1.0 / gamma) * 255.0
+
+            self._current_frame = np.clip(frame, 0, 255).astype(np.uint8)
+
+        self._img_item.setImage(self._current_frame.transpose(1, 0, 2))
 
     # ── Exportar Imagen Annotada (con Capas) ──────────────────────────────────
 
@@ -578,7 +711,7 @@ class StandaloneAnalyzerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PyPrinting — Analizador de Imágenes Independiente")
-        self.resize(1150, 720)
+        self.resize(1200, 750)
         self._analyzer = ImageAnalyzerWidget(self)
         self.setCentralWidget(self._analyzer)
 
