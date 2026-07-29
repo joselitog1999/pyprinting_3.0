@@ -343,12 +343,12 @@ class OverlayWidget(QWidget):
         p.drawLine(0, int(sy1_h), self.width(), int(sy1_h))
         p.drawLine(int(sx1_v), 0, int(sx1_v), self.height())
 
-        if self._scale_set or self._um_per_px > 0:
-            p.drawText(int(sx1_v) + 5, 16, f"R1-V: {self._ruler1_v*W*self._um_per_px:.1f}µm")
-            p.drawText(5, int(sy1_h) - 5, f"R1-H: {self._ruler1_h*H*self._um_per_px:.1f}µm")
+        if self._scale_set:
+            p.drawText(int(sx1_v) + 5, 16, f"R1-V: {self._ruler1_v*W*self._um_per_px:.3f}µm")
+            p.drawText(5, int(sy1_h) - 5, f"R1-H: {self._ruler1_h*H*self._um_per_px:.3f}µm")
         else:
-            p.drawText(int(sx1_v) + 5, 16, f"R1-V: {self._ruler1_v*W:.0f}px")
-            p.drawText(5, int(sy1_h) - 5, f"R1-H: {self._ruler1_h*H:.0f}px")
+            p.drawText(int(sx1_v) + 5, 16, f"R1-V: {self._ruler1_v*W:.2f}px")
+            p.drawText(5, int(sy1_h) - 5, f"R1-H: {self._ruler1_h*H:.2f}px")
 
         if self._rulers_state >= 2:
             pen2 = QPen(QColor(74, 158, 255, 220), 1, Qt.PenStyle.DashLine)
@@ -358,12 +358,12 @@ class OverlayWidget(QWidget):
             p.drawLine(0, int(sy2_h), self.width(), int(sy2_h))
             p.drawLine(int(sx2_v), 0, int(sx2_v), self.height())
 
-            if self._scale_set or self._um_per_px > 0:
-                p.drawText(int(sx2_v) + 5, 32, f"R2-V: {self._ruler2_v*W*self._um_per_px:.1f}µm")
-                p.drawText(5, int(sy2_h) - 18, f"R2-H: {self._ruler2_h*H*self._um_per_px:.1f}µm")
+            if self._scale_set:
+                p.drawText(int(sx2_v) + 5, 32, f"R2-V: {self._ruler2_v*W*self._um_per_px:.3f}µm")
+                p.drawText(5, int(sy2_h) - 18, f"R2-H: {self._ruler2_h*H*self._um_per_px:.3f}µm")
             else:
-                p.drawText(int(sx2_v) + 5, 32, f"R2-V: {self._ruler2_v*W:.0f}px")
-                p.drawText(5, int(sy2_h) - 18, f"R2-H: {self._ruler2_h*H:.0f}px")
+                p.drawText(int(sx2_v) + 5, 32, f"R2-V: {self._ruler2_v*W:.2f}px")
+                p.drawText(5, int(sy2_h) - 18, f"R2-H: {self._ruler2_h*H:.2f}px")
 
     def _draw_ref(self, p: QPainter):
         sx, sy = self.frac_to_screen(self._ref_pos[0], self._ref_pos[1])
@@ -410,7 +410,7 @@ class OverlayWidget(QWidget):
             mx, my = int((sx1+sx2)/2), int((sy1+sy2)/2)
             p.setPen(QPen(QColor(245, 166, 35, 255)))
 
-            if self._scale_set or self._um_per_px > 0:
+            if self._scale_set:
                 dist_um = dist_px * self._um_per_px
                 lbl = f"d={dist_um:.3f}µm θ={angle:.1f}°"
             else:

@@ -4,9 +4,9 @@ image_analyzer.py — Herramienta independiente y Dockable para análisis de im�
 PyPrinting — UNSAM Nanofotónica — PyQt6
 
 Permite abrir fotos (.jpg, .png, .bmp, .tiff, .tif 8/16/32-bit), analizarlas con trackpy,
-ajustar niveles de intensidad (CLim) para TIFF o Brillo/Contraste/Gamma/RGB para JPG/PNG,
-aplicar reglas tri-estado, medir distancias (px / µm adaptativo), guardar mediciones
-y exportar partículas e imagen final anotada.
+ajustar niveles de intensidad (CLim) y paleta de falso color (LUT) para TIFF (estilo Confocal)
+o Brillo/Contraste/Gamma/RGB para JPG/PNG, aplicar reglas tri-estado, medir distancias (px / µm adaptativo),
+guardar mediciones y exportar partículas e imagen final anotada.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import cv2
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore    import (Qt, pyqtSignal, pyqtSlot)
@@ -22,12 +23,15 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                                QTableWidget, QTableWidgetItem, QHeaderView,
                                QGroupBox, QMessageBox, QFileDialog, QSplitter,
-                               QDialog, QSlider, QDoubleSpinBox, QFormLayout,
+                               QDialog, QSlider, QDoubleSpinBox, QComboBox, QFormLayout,
                                QStackedWidget)
 from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 
 from config import DEFAULT_DATA_PATH, PIXEL_SIZE_UM
 from camera import OverlayWidget, SetScaleDialog, TrackpyDialog
+
+
+COLORMAP_MODES = ["Gris (Original)", "Thermal (Confocal/Láser)", "Viridis", "Plasma", "Inferno", "Jet / Arcoíris"]
 
 
 class ImageAnalyzerWidget(QWidget):
@@ -42,6 +46,8 @@ class ImageAnalyzerWidget(QWidget):
         self._current_frame: Optional[np.ndarray] = None  # Matriz procesada para renderizado
         self._current_image_path: Optional[Path]  = None
         self._is_tiff = False
+        self._raw_min = 0.0
+        self._raw_max = 65535.0
         self._particles: list = []
         self._measure_pts: list = []
         self._saved_measures: list[dict] = []
@@ -120,16 +126,32 @@ class ImageAnalyzerWidget(QWidget):
         # ── Panel de Ajustes Adaptativo (TIFF vs RGB) ─────────────────────────
         self._stack_adj = QStackedWidget()
 
-        # Página 0: Ajustes TIFF (Intensidad / CLim Escaneo)
+        # Página 0: Ajustes TIFF (Intensidad Mín/Máx CLim estilo Confocal + Deslizadores)
         page_tiff = QWidget()
         pt_lo = QFormLayout(page_tiff)
         pt_lo.setContentsMargins(0, 0, 0, 0)
-        self._clim_min = QDoubleSpinBox(); self._clim_min.setRange(0, 65535); self._clim_min.setValue(0)
-        self._clim_max = QDoubleSpinBox(); self._clim_max.setRange(0, 65535); self._clim_max.setValue(65535)
-        pt_lo.addRow("Intensidad Mín. (Corte):", self._clim_min)
-        pt_lo.addRow("Intensidad Máx. (Sat.):", self._clim_max)
-        self._clim_min.valueChanged.connect(self._apply_image_adjustments)
-        self._clim_max.valueChanged.connect(self._apply_image_adjustments)
+
+        self._slider_clim_min = QSlider(Qt.Orientation.Horizontal); self._slider_clim_min.setRange(0, 1000); self._slider_clim_min.setValue(0)
+        self._slider_clim_max = QSlider(Qt.Orientation.Horizontal); self._slider_clim_max.setRange(0, 1000); self._slider_clim_max.setValue(1000)
+
+        self._clim_min = QDoubleSpinBox(); self._clim_min.setRange(0, 1e7); self._clim_min.setValue(0)
+        self._clim_max = QDoubleSpinBox(); self._clim_max.setRange(0, 1e7); self._clim_max.setValue(65535)
+
+        self._cmap_combo = QComboBox()
+        self._cmap_combo.addItems(COLORMAP_MODES)
+
+        pt_lo.addRow("Intensidad Mín (Deslizador):", self._slider_clim_min)
+        pt_lo.addRow("Intensidad Mín (Corte):", self._clim_min)
+        pt_lo.addRow("Intensidad Máx (Deslizador):", self._slider_clim_max)
+        pt_lo.addRow("Intensidad Máx (Sat.):", self._clim_max)
+        pt_lo.addRow("Paleta Falso Color (LUT):", self._cmap_combo)
+
+        self._slider_clim_min.valueChanged.connect(self._on_slider_clim_min_changed)
+        self._slider_clim_max.valueChanged.connect(self._on_slider_clim_max_changed)
+        self._clim_min.valueChanged.connect(self._on_spin_clim_min_changed)
+        self._clim_max.valueChanged.connect(self._on_spin_clim_max_changed)
+        self._cmap_combo.currentIndexChanged.connect(self._apply_image_adjustments)
+
         self._stack_adj.addWidget(page_tiff)
 
         # Página 1: Ajustes RGB (Brillo, Contraste, Gamma, WB)
@@ -235,6 +257,42 @@ class ImageAnalyzerWidget(QWidget):
         status_bar.addWidget(self._lbl_result)
         main_vlo.addLayout(status_bar, stretch=0)
 
+    # ── Sincronización Deslizadores vs Spinboxes TIFF (CLim) ─────────────────
+
+    def _on_slider_clim_min_changed(self, val: int):
+        if self._raw_max <= self._raw_min: return
+        spin_val = self._raw_min + (val / 1000.0) * (self._raw_max - self._raw_min)
+        self._clim_min.blockSignals(True)
+        self._clim_min.setValue(spin_val)
+        self._clim_min.blockSignals(False)
+        self._apply_image_adjustments()
+
+    def _on_slider_clim_max_changed(self, val: int):
+        if self._raw_max <= self._raw_min: return
+        spin_val = self._raw_min + (val / 1000.0) * (self._raw_max - self._raw_min)
+        self._clim_max.blockSignals(True)
+        self._clim_max.setValue(spin_val)
+        self._clim_max.blockSignals(False)
+        self._apply_image_adjustments()
+
+    def _on_spin_clim_min_changed(self, val: float):
+        if self._raw_max <= self._raw_min: return
+        frac = (val - self._raw_min) / (self._raw_max - self._raw_min)
+        slider_val = int(round(np.clip(frac, 0.0, 1.0) * 1000))
+        self._slider_clim_min.blockSignals(True)
+        self._slider_clim_min.setValue(slider_val)
+        self._slider_clim_min.blockSignals(False)
+        self._apply_image_adjustments()
+
+    def _on_spin_clim_max_changed(self, val: float):
+        if self._raw_max <= self._raw_min: return
+        frac = (val - self._raw_min) / (self._raw_max - self._raw_min)
+        slider_val = int(round(np.clip(frac, 0.0, 1.0) * 1000))
+        self._slider_clim_max.blockSignals(True)
+        self._slider_clim_max.setValue(slider_val)
+        self._slider_clim_max.blockSignals(False)
+        self._apply_image_adjustments()
+
     # ── Helpers UI ────────────────────────────────────────────────────────────
 
     def _mkbtn(self, text, checkable=False, color=None) -> QPushButton:
@@ -270,7 +328,7 @@ class ImageAnalyzerWidget(QWidget):
             self._is_tiff = ext in (".tif", ".tiff")
 
             if self._is_tiff:
-                # Intentar leer TIFF científico (8-bit, 16-bit, 32-bit)
+                # Leer TIFF científico (8-bit, 16-bit, 32-bit)
                 try:
                     import tifffile
                     arr = tifffile.imread(str(path))
@@ -282,9 +340,16 @@ class ImageAnalyzerWidget(QWidget):
                 if arr.ndim == 3 and arr.shape[2] == 4:
                     arr = arr[:, :, :3]
                 self._raw_frame = arr
-                vmin, vmax = float(np.min(arr)), float(np.max(arr))
-                self._clim_min.blockSignals(True); self._clim_min.setValue(vmin); self._clim_min.blockSignals(False)
-                self._clim_max.blockSignals(True); self._clim_max.setValue(vmax); self._clim_max.blockSignals(False)
+                self._raw_min = float(np.min(arr))
+                self._raw_max = float(np.max(arr))
+                if self._raw_max <= self._raw_min:
+                    self._raw_max = self._raw_min + 1.0
+
+                self._clim_min.blockSignals(True); self._clim_min.setValue(self._raw_min); self._clim_min.blockSignals(False)
+                self._clim_max.blockSignals(True); self._clim_max.setValue(self._raw_max); self._clim_max.blockSignals(False)
+                self._slider_clim_min.blockSignals(True); self._slider_clim_min.setValue(0); self._slider_clim_min.blockSignals(False)
+                self._slider_clim_max.blockSignals(True); self._slider_clim_max.setValue(1000); self._slider_clim_max.blockSignals(False)
+
                 self._stack_adj.setCurrentIndex(0) # Pág TIFF
             else:
                 from PIL import Image as PILImage
@@ -328,12 +393,18 @@ class ImageAnalyzerWidget(QWidget):
             cmax = self._clim_max.value()
             if cmax <= cmin: cmax = cmin + 1.0
             norm = np.clip((self._raw_frame.astype(float) - cmin) / (cmax - cmin), 0.0, 1.0)
-            if norm.ndim == 2:
-                # Grayscale to RGB
-                proc = (norm * 255.0).astype(np.uint8)
-                self._current_frame = np.stack([proc]*3, axis=-1)
+            u8 = (norm * 255.0).astype(np.uint8)
+
+            cmap_idx = self._cmap_combo.currentIndex()
+            if u8.ndim == 2:
+                if cmap_idx == 0: # Gris (Original)
+                    self._current_frame = np.stack([u8]*3, axis=-1)
+                else:
+                    cv_maps = [None, cv2.COLORMAP_HOT, cv2.COLORMAP_VIRIDIS, cv2.COLORMAP_PLASMA, cv2.COLORMAP_INFERNO, cv2.COLORMAP_JET]
+                    colored = cv2.applyColorMap(u8, cv_maps[cmap_idx])
+                    self._current_frame = cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
             else:
-                self._current_frame = (norm * 255.0).astype(np.uint8)
+                self._current_frame = u8
         else:
             # Procesar ajustador RGB: Brillo, Contraste, Gamma y WB
             frame = self._raw_frame.astype(float)
@@ -711,7 +782,7 @@ class StandaloneAnalyzerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PyPrinting — Analizador de Imágenes Independiente")
-        self.resize(1200, 750)
+        self.resize(1240, 780)
         self._analyzer = ImageAnalyzerWidget(self)
         self.setCentralWidget(self._analyzer)
 
