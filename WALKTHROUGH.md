@@ -6,25 +6,23 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Optimización de Calidad Live View y Zoom para Canon EOS 500D**:
-   - **Calidad de Imagen Réflex**: Se configuró la salida Live View en `kEdsEvfOutputDevice_All` (TFT + PC) igual que el programa oficial Canon EOS Utility. Se activó la interpolación de suavizado bilinear nativa en `pg.ImageItem(smooth=True)` para eliminar la pixelación en pantalla.
-   - **Zoom Completo ($1\times, 2\times, 5\times, 10\times$)**:
-     - **$1\times$**: Vista sensor completa.
-     - **$2\times$**: Implementación de zoom digital sin pérdida con corte central del $50\%$ e interpolación cúbica `cv2.INTER_CUBIC` equivalente al preview de EOS Utility.
-     - **$5\times$ y $10\times$**: Zoom por hardware en el sensor réflex para enfoque de máxima precisión.
-   - **Controles Remotos de Enfoque de Lente (Drive Lens)**: Agregado el panel de control fino/coarse del motor de la lente (`Near 1/2/3` y `Far 1/2/3`) más disparo de `Autofocus (AF)`.
-   - **Modo Cámara (AE Mode)**: Lectura e indicación del modo del dial de la réflex (Manual M, Av, Tv, P, Auto).
+1. **Ajuste de Controles de Cámara Canon EOS 500D (ISO y Velocidad Tv)**:
+   - **Simplificación de la Interfaz**: Se removió el selector de Apertura (Av) al ser una lente manual sin control electrónico, manteniendo activos únicamente los desplegables de **ISO** (`Auto`, `100`, `200`, `400`, `800`, `1600`, `3200`) y **Velocidad de Obturación / Tiempo de Exposición (Tv)** (`1/10s`, `1/8s`, `1/6s`, `1/5s`, `1/4s`, `1s`, `2s`, `3.2s`, `10s` y lista extendida).
+   - **Estabilización de 5 Segundos**: Al conectar la cámara, los desplegables de ISO y Tv permanecen **bloqueados/deshabilitados durante 5 segundos** mientras se estabiliza la transmisión USB. En la barra de estado se informa el tiempo restante.
+   - **Mecanismo de Fallback Automático**: Pasados los 5 segundos, si la cámara reporta una lista parcial con menos opciones que nuestra tabla estándar, el sistema utiliza automáticamente la **lista completa de respaldo** para garantizar disponibilidad total de opciones.
 
-2. **Solución del Error de Hilos en Timers (`QObject::startTimer`)**:
-   - Se asignaron los padres `QTimer(self)` en `trace.py` y `confocal.py` permitiendo la migración correcta al hilo `confocalThread`.
+2. **Optimización de Calidad Live View y Zoom**:
+   - Salida `kEdsEvfOutputDevice_All` (TFT + PC) igual que el programa oficial Canon EOS Utility.
+   - Suavizado bilinear nativo `pg.ImageItem(smooth=True)` para máxima nitidez en pantalla.
+   - Zoom $1\times$ (Sensor), $2\times$ (Corte Central 50% con interpolación cúbica `INTER_CUBIC`), $5\times$ y $10\times$ (Hardware Sensor).
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Módulo Canon EDSDK**:
+- **Prueba Módulo Canon EDSDK con Temporización y Fallback**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import canon_edsdk, canon_test; print('CANON EDSDK VERIFIED 100% CLEAN!')"
+  .\.venv\Scripts\python.exe -c "import canon_edsdk, canon_test; print('VERIFIED 100% CLEAN!')"
   ```
 - **Prueba Ejecutable de Pruebas Canon**:
   ```powershell

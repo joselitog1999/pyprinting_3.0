@@ -6,8 +6,9 @@ PyPrinting — UNSAM Nanofotónica — PyQt6
 Permite probar en vivo:
   - Transmisión Live View en máxima calidad óptica (Suavizado bilinear/bicubic en PyQtGraph).
   - Zoom Live View (1x, 2x Digital Nitidez Fina, 5x Hardware AF, 10x Hardware Enfoque Fino).
-  - Ajuste remoto de Enfoque de Lente (Paso fino/medio/grande Cerca y Lejos + Disparo AF).
-  - Ajuste dinámico de ISO, Apertura (Av), Velocidad de Obturación (Tv) y lectura del Modo Dial (M/Av/Tv/P).
+  - Espera automática de 5 segundos tras conectar para estabilizar la sesión USB.
+  - Ajuste dinámico de ISO (Auto, 100-3200) y Velocidad de Obturación (Tv: 1/10s a 10s).
+  - Fallback automático a lista completa si la cámara reporta menos propiedades.
   - Captura y descarga de fotos en máxima resolución al disco local.
 """
 from __future__ import annotations
@@ -29,9 +30,9 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
 from PyQt6.QtGui     import QFont, QColor
 
 from config import DEFAULT_DATA_PATH, CAMERA_WIDTH, CAMERA_HEIGHT
-from canon_edsdk import (CanonCamera, ISO_MAP, REV_ISO_MAP, AV_MAP, REV_AV_MAP,
-                         TV_MAP, REV_TV_MAP, ZOOM_MAP, REV_ZOOM_MAP, AE_MODE_MAP,
-                         kEdsPropID_ISOSpeed, kEdsPropID_Av, kEdsPropID_Tv, kEdsPropID_AEMode,
+from canon_edsdk import (CanonCamera, ISO_MAP, REV_ISO_MAP, FULL_ISO_LIST,
+                         TV_MAP, REV_TV_MAP, FULL_TV_LIST, ZOOM_MAP, REV_ZOOM_MAP,
+                         AE_MODE_MAP, kEdsPropID_ISOSpeed, kEdsPropID_Tv, kEdsPropID_AEMode,
                          EvfDriveLens_Near1, EvfDriveLens_Near2, EvfDriveLens_Near3,
                          EvfDriveLens_Far1, EvfDriveLens_Far2, EvfDriveLens_Far3)
 
@@ -44,7 +45,7 @@ class CanonWorker(QObject):
     frameSignal      = pyqtSignal(np.ndarray)
     statusSignal     = pyqtSignal(str)
     connectedSignal  = pyqtSignal(bool)
-    propsReadySignal = pyqtSignal(list, list, list, int) # iso_desc, av_desc, tv_desc, ae_mode
+    propsReadySignal = pyqtSignal(list, list, int) # iso_vals, tv_vals, ae_mode
 
     def __init__(self):
         super().__init__()
@@ -64,19 +65,33 @@ class CanonWorker(QObject):
             self._running = True
             self._timer.start()
             self.connectedSignal.emit(True)
-            self.statusSignal.emit("Cámara Canon EOS 500D Conectada por USB | Live View Activo")
+            self.statusSignal.emit("Conectado. Estabilizando sesión USB (esperando 5s para habilitar ISO y Velocidad)...")
 
-            # Consultar propiedades soportadas
-            iso_desc = self._cam.get_property_desc(kEdsPropID_ISOSpeed)
-            av_desc  = self._cam.get_property_desc(kEdsPropID_Av)
-            tv_desc  = self._cam.get_property_desc(kEdsPropID_Tv)
-            ae_mode  = self._cam.get_property_value(kEdsPropID_AEMode)
-            self.propsReadySignal.emit(iso_desc, av_desc, tv_desc, ae_mode)
+            # Iniciar temporizador de 5 segundos antes de leer y habilitar propiedades
+            QTimer.singleShot(5000, self._query_properties_after_delay)
         else:
             self.connectedSignal.emit(False)
             self.statusSignal.emit("⚠ No se detectó cámara Canon EOS por USB — Modo Simulación Activo")
             self._running = True
             self._timer.start()
+            # En modo simulación habilitar inmediatamente con listas completas
+            QTimer.singleShot(1000, self._query_properties_after_delay)
+
+    def _query_properties_after_delay(self):
+        if not self._running: return
+
+        ae_mode  = self._cam.get_property_value(kEdsPropID_AEMode) if self._cam._is_session_open else 0
+
+        # Consultar propiedades a Canon EDSDK
+        cam_iso = self._cam.get_property_desc(kEdsPropID_ISOSpeed) if self._cam._is_session_open else []
+        cam_tv  = self._cam.get_property_desc(kEdsPropID_Tv) if self._cam._is_session_open else []
+
+        # Regla de fallback: si la cámara devuelve menos propiedades que nuestra lista completa, usar lista completa de respaldo
+        final_iso = cam_iso if len(cam_iso) >= len(FULL_ISO_LIST) else FULL_ISO_LIST
+        final_tv  = cam_tv  if len(cam_tv)  >= len(FULL_TV_LIST)  else FULL_TV_LIST
+
+        self.propsReadySignal.emit(final_iso, final_tv, ae_mode)
+        self.statusSignal.emit("Cámara Canon EOS 500D Lista | Opciones de ISO y Velocidad Habilitadas")
 
     @pyqtSlot()
     def stop_camera(self):
@@ -124,11 +139,6 @@ class CanonWorker(QObject):
             self._cam.set_property_value(kEdsPropID_ISOSpeed, val)
 
     @pyqtSlot(int)
-    def set_av(self, val: int):
-        if self._cam._is_session_open:
-            self._cam.set_property_value(kEdsPropID_Av, val)
-
-    @pyqtSlot(int)
     def set_tv(self, val: int):
         if self._cam._is_session_open:
             self._cam.set_property_value(kEdsPropID_Tv, val)
@@ -165,7 +175,6 @@ class CanonTestWindow(QMainWindow):
     stopCameraSignal  = pyqtSignal()
     setZoomSignal     = pyqtSignal(int)
     setIsoSignal      = pyqtSignal(int)
-    setAvSignal       = pyqtSignal(int)
     setTvSignal       = pyqtSignal(int)
     driveLensSignal   = pyqtSignal(int)
     triggerAfSignal   = pyqtSignal()
@@ -203,20 +212,18 @@ class CanonTestWindow(QMainWindow):
         form  = QFormLayout()
 
         # Modo Dial
-        self._lbl_mode = QLabel("Modo Dial: Desconectado")
+        self._lbl_mode = QLabel("Modo Cámara: Desconectado")
         self._lbl_mode.setStyleSheet("font-weight: bold; color: #3ecf8e;")
         form.addRow("Modo Cámara:", self._lbl_mode)
 
-        # ISO
+        # ISO (Bloqueado al inicio hasta pasar 5s)
         self._combo_iso = QComboBox()
-        form.addRow("ISO:", self._combo_iso)
+        self._combo_iso.setEnabled(False)
+        form.addRow("ISO (5s lock):", self._combo_iso)
 
-        # Av (Apertura)
-        self._combo_av  = QComboBox()
-        form.addRow("Apertura (Av):", self._combo_av)
-
-        # Tv (Velocidad)
+        # Tv (Velocidad de Obturación / Tiempo Exposición)
         self._combo_tv  = QComboBox()
+        self._combo_tv.setEnabled(False)
         form.addRow("Velocidad (Tv):", self._combo_tv)
 
         # Zoom Live View (1x, 2x, 5x, 10x)
@@ -287,7 +294,6 @@ class CanonTestWindow(QMainWindow):
         self._btn_dir.clicked.connect(self._select_save_dir)
         self._combo_zoom.currentIndexChanged.connect(self._on_zoom_changed)
         self._combo_iso.currentIndexChanged.connect(self._on_iso_changed)
-        self._combo_av.currentIndexChanged.connect(self._on_av_changed)
         self._combo_tv.currentIndexChanged.connect(self._on_tv_changed)
 
         # Configurar Hilo de Trabajo
@@ -304,7 +310,6 @@ class CanonTestWindow(QMainWindow):
         self.stopCameraSignal.connect(self._worker.stop_camera)
         self.setZoomSignal.connect(self._worker.set_zoom)
         self.setIsoSignal.connect(self._worker.set_iso)
-        self.setAvSignal.connect(self._worker.set_av)
         self.setTvSignal.connect(self._worker.set_tv)
         self.driveLensSignal.connect(self._worker.drive_lens)
         self.triggerAfSignal.connect(self._worker.trigger_af)
@@ -315,9 +320,13 @@ class CanonTestWindow(QMainWindow):
 
     def _toggle_camera(self):
         if self._btn_connect.text().startswith("▶"):
+            self._combo_iso.setEnabled(False)
+            self._combo_tv.setEnabled(False)
             self.startCameraSignal.emit()
         else:
             self.stopCameraSignal.emit()
+            self._combo_iso.setEnabled(False)
+            self._combo_tv.setEnabled(False)
             self._btn_connect.setText("▶ Iniciar Cámara Canon")
 
     def _on_connected(self, connected: bool):
@@ -332,8 +341,8 @@ class CanonTestWindow(QMainWindow):
     def _update_status(self, msg: str):
         self.statusBar().showMessage(msg)
 
-    @pyqtSlot(list, list, list, int)
-    def _populate_properties(self, iso_vals: list, av_vals: list, tv_vals: list, ae_mode: int):
+    @pyqtSlot(list, list, int)
+    def _populate_properties(self, iso_vals: list, tv_vals: list, ae_mode: int):
         mode_str = AE_MODE_MAP.get(ae_mode, f"Modo 0x{ae_mode:02X}")
         self._lbl_mode.setText(f"Modo Cámara: {mode_str}")
 
@@ -344,22 +353,16 @@ class CanonTestWindow(QMainWindow):
             lbl = ISO_MAP.get(v, f"0x{v:02X}")
             self._combo_iso.addItem(lbl, userData=v)
         self._combo_iso.blockSignals(False)
+        self._combo_iso.setEnabled(True)
 
-        # Poblar Av
-        self._combo_av.blockSignals(True)
-        self._combo_av.clear()
-        for v in av_vals:
-            lbl = AV_MAP.get(v, f"0x{v:02X}")
-            self._combo_av.addItem(lbl, userData=v)
-        self._combo_av.blockSignals(False)
-
-        # Poblar Tv
+        # Poblar Tv (Velocidad de Obturación)
         self._combo_tv.blockSignals(True)
         self._combo_tv.clear()
         for v in tv_vals:
             lbl = TV_MAP.get(v, f"0x{v:02X}")
             self._combo_tv.addItem(lbl, userData=v)
         self._combo_tv.blockSignals(False)
+        self._combo_tv.setEnabled(True)
 
     def _on_zoom_changed(self, idx: int):
         val = self._combo_zoom.itemData(idx)
@@ -368,10 +371,6 @@ class CanonTestWindow(QMainWindow):
     def _on_iso_changed(self, idx: int):
         val = self._combo_iso.itemData(idx)
         if val is not None: self.setIsoSignal.emit(val)
-
-    def _on_av_changed(self, idx: int):
-        val = self._combo_av.itemData(idx)
-        if val is not None: self.setAvSignal.emit(val)
 
     def _on_tv_changed(self, idx: int):
         val = self._combo_tv.itemData(idx)

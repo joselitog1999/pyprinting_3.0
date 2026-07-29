@@ -3,12 +3,11 @@
 canon_edsdk.py — Wrapper nativo ctypes para Canon EOS Digital SDK (EDSDK) 64-bit
 PyPrinting — UNSAM Nanofotónica — PyQt6
 
-Soporta control nativo de Canon EOS 500D (y otras réflex Canon EOS):
+Soporta control nativo de Canon EOS 500D:
   - Conexión y sesión USB.
   - Stream de Live View (EVF) de alta calidad.
-  - Zoom Live View (1x, 2x Digital Fino, 5x Hardware AF, 10x Hardware Manual).
-  - Control de Enfoque Remoto por Software/Motor (Near 1/2/3, Far 1/2/3, AF Trigger).
-  - Ajuste dinámico de ISO, Apertura (Av), Velocidad de Obturación (Tv) y Modo AE.
+  - Zoom Live View (1x, 2x Digital Fino, 5x Hardware AF, 10x Hardware Enfoque Fino).
+  - Ajuste dinámico de ISO (Auto, 100-3200) y Velocidad de Obturación (Tv: 1/10s a 10s).
   - Captura y descarga automática de fotos en alta resolución al PC.
 """
 from __future__ import annotations
@@ -177,6 +176,7 @@ AE_MODE_MAP: Dict[int, str] = {
     6: "Creative Auto",
 }
 
+# ISO requeridos: Auto, 100, 200, 400, 800, 1600, 3200
 ISO_MAP: Dict[int, str] = {
     0x00: "Auto",
     0x48: "100",
@@ -185,67 +185,28 @@ ISO_MAP: Dict[int, str] = {
     0x60: "800",
     0x68: "1600",
     0x70: "3200",
-    0x78: "6400",
-    0x80: "12800 (H)",
 }
-REV_ISO_MAP = {v: k for k, v in ISO_MAP.items()}
+FULL_ISO_LIST = list(ISO_MAP.keys())
+REV_ISO_MAP   = {v: k for k, v in ISO_MAP.items()}
 
-AV_MAP: Dict[int, str] = {
-    0x08: "f/1.4",
-    0x0B: "f/1.8",
-    0x0D: "f/2.0",
-    0x10: "f/2.5",
-    0x13: "f/2.8",
-    0x15: "f/3.2",
-    0x18: "f/3.5",
-    0x1B: "f/4.0",
-    0x1D: "f/4.5",
-    0x20: "f/5.0",
-    0x23: "f/5.6",
-    0x25: "f/6.3",
-    0x28: "f/7.1",
-    0x2B: "f/8.0",
-    0x2D: "f/9.0",
-    0x30: "f/10",
-    0x33: "f/11",
-    0x35: "f/13",
-    0x38: "f/14",
-    0x3B: "f/16",
-    0x3D: "f/18",
-    0x40: "f/20",
-    0x43: "f/22",
-    0x45: "f/25",
-    0x48: "f/29",
-    0x4B: "f/32",
-}
-REV_AV_MAP = {v: k for k, v in AV_MAP.items()}
-
+# Velocidad de Obturación (Tv / Tiempo de Exposición)
+# Requeridos: 1/10s, 1/8s, 1/6s, 1/5s, 1/4s, 1s, 2s, 3.2s, 10s (y lista extendida)
 TV_MAP: Dict[int, str] = {
-    0x0C: "Bulb",
-    0x10: "30\"",
-    0x13: "25\"",
-    0x15: "20\"",
-    0x18: "15\"",
-    0x1B: "13\"",
-    0x1D: "10\"",
-    0x20: "8\"",
-    0x23: "6\"",
-    0x25: "5\"",
-    0x28: "4\"",
-    0x2B: "3.2\"",
-    0x2D: "2.5\"",
-    0x30: "2\"",
-    0x33: "1.6\"",
-    0x35: "1.3\"",
-    0x38: "1\"",
-    0x3B: "0.8\"",
-    0x3D: "0.6\"",
-    0x40: "0.5\"",
-    0x43: "0.4\"",
-    0x45: "0.3\"",
-    0x48: "1/4s",
+    0x53: "1/10s",
     0x50: "1/8s",
-    0x58: "1/15s",
+    0x4D: "1/6s",
+    0x4B: "1/5s",
+    0x48: "1/4s",
+    0x38: "1s",
+    0x30: "2s",
+    0x2B: "3.2s",
+    0x1D: "10s",
+    # Extensiones adicionales si se desea cambiar
+    0x10: "30s",
+    0x18: "15s",
+    0x20: "8s",
+    0x23: "6s",
+    0x28: "4s",
     0x60: "1/30s",
     0x68: "1/60s",
     0x70: "1/125s",
@@ -255,7 +216,8 @@ TV_MAP: Dict[int, str] = {
     0x90: "1/2000s",
     0x98: "1/4000s",
 }
-REV_TV_MAP = {v: k for k, v in TV_MAP.items()}
+FULL_TV_LIST = [0x53, 0x50, 0x4D, 0x4B, 0x48, 0x38, 0x30, 0x2B, 0x1D, 0x10, 0x18, 0x20, 0x28, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98]
+REV_TV_MAP   = {v: k for k, v in TV_MAP.items()}
 
 ZOOM_MAP: Dict[int, str] = {
     1: "1x (Vista Completa)",
@@ -357,7 +319,6 @@ class CanonCamera:
 
     def enable_live_view(self) -> bool:
         if not self._is_session_open: return False
-        # Activar ambos TFT y PC (igual que Canon EOS Utility) para máxima calidad del sensor
         device = EdsUInt32(kEdsEvfOutputDevice_All)
         err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
         if err == EDS_ERR_OK:
@@ -408,55 +369,42 @@ class CanonCamera:
         edsdk.EdsRelease(stream)
         return buffer
 
-    # ── Controles de Zoom Live View (1x, 2x, 5x, 10x) ─────────────────────────
+    # ── Controles de Zoom Live View ───────────────────────────────────────────
 
     def set_live_view_zoom(self, zoom_val: int) -> bool:
-        """
-        Ajusta el zoom de Live View:
-          - 1: 1x (Hardware Normal)
-          - 2: 2x (Corte Central 50% de Alta Calidad por Software)
-          - 5: 5x (Hardware AF)
-          - 10: 10x (Hardware Enfoque Fino)
-        """
         if not self._is_session_open: return False
         self._active_zoom = zoom_val
 
-        # Si el zoom es 2x, la cámara física permanece en 1x y aplicamos recoche fino en cliente
         hw_zoom = 1 if zoom_val in (1, 2) else zoom_val
         val = EdsUInt32(hw_zoom)
         err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
         return err == EDS_ERR_OK
 
     def process_frame_zoom(self, frame_rgb: np.ndarray) -> np.ndarray:
-        """Aplica procesamiento de interpolación de alta calidad según el nivel de Zoom activo."""
         if self._active_zoom == 2 and frame_rgb is not None:
             H, W, C = frame_rgb.shape
             ch, cw = H // 2, W // 2
             y1, y2 = ch - H // 4, ch + H // 4
             x1, x2 = cw - W // 4, cw + W // 4
             crop = frame_rgb[y1:y2, x1:x2]
-            # Interpolación cúbica de máxima nitidez
             return cv2.resize(crop, (W, H), interpolation=cv2.INTER_CUBIC)
         return frame_rgb
 
-    # ── Control Remoto de Enfoque (DriveLens / AF) ────────────────────────────
+    # ── Control Remoto de Enfoque ──────────────────────────────────────────────
 
     def drive_lens(self, command_code: int) -> bool:
-        """Envía comando de movimiento de lente motorizado de enfoque."""
         if not self._is_session_open: return False
         err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_DriveLensEvf, command_code)
         return err == EDS_ERR_OK
 
     def trigger_autofocus(self) -> bool:
-        """Dispara el enfoque automático EVF."""
         if not self._is_session_open: return False
         err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_DoEvfAf, 1)
         return err == EDS_ERR_OK
 
-    # ── Lectura y Ajuste de ISO, Av, Tv, AE Mode ──────────────────────────────
+    # ── Lectura y Ajuste de Propiedades ───────────────────────────────────────
 
     def get_property_desc(self, prop_id: int) -> List[int]:
-        """Obtiene la lista de valores de propiedad soportados por la cámara."""
         if not self._is_session_open: return []
         desc = EdsPropertyDesc()
         err = edsdk.EdsGetPropertyDesc(self._camera_ref, prop_id, ctypes.byref(desc))
