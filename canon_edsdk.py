@@ -5,8 +5,10 @@ PyPrinting — UNSAM Nanofotónica — PyQt6
 
 Soporta control nativo de Canon EOS 500D:
   - Conexión y sesión USB.
-  - Stream de Live View (EVF) de alta calidad.
-  - Zoom Live View (1x, 2x Digital Fino, 5x Hardware AF, 10x Hardware Enfoque Fino).
+  - Stream de Live View (EVF) fluido y sin intermitencias.
+  - Extensión de temporizador de apagado (ExtendShutDownTimer).
+  - Corrección de orientación de imagen (rotación 90° y eliminación de espejo).
+  - Zoom Live View (1x, 2x Digital Nitidez Fina, 5x Hardware AF, 10x Hardware Enfoque Fino).
   - Ajuste dinámico de ISO (Auto, 100-3200) y Velocidad de Obturación (Tv: 1/10s a 10s).
   - Captura y descarga automática de fotos en alta resolución al PC.
 """
@@ -56,7 +58,9 @@ EdsInt32            = ctypes.c_int32
 EdsVoid             = None
 
 # Errors
-EDS_ERR_OK = 0x00000000
+EDS_ERR_OK               = 0x00000000
+EDS_ERR_DEVICE_BUSY      = 0x00000080
+EDS_ERR_OBJECT_NOTREADY  = 0x0000A102
 
 # Property IDs
 kEdsPropID_ProductName            = 0x00000002
@@ -86,14 +90,6 @@ kEdsCameraCommand_ExtendShutDownTimer = 0x00000001
 kEdsCameraCommand_PressShutterButton  = 0x00000004
 kEdsCameraCommand_DoEvfAf             = 0x00000102
 kEdsCameraCommand_DriveLensEvf        = 0x00000103
-
-# Lens Drive constants
-EvfDriveLens_Near1 = 0x00000001
-EvfDriveLens_Near2 = 0x00000002
-EvfDriveLens_Near3 = 0x00000003
-EvfDriveLens_Far1  = 0x00008001
-EvfDriveLens_Far2  = 0x00008002
-EvfDriveLens_Far3  = 0x00008003
 
 # Object Events
 kEdsObjectEvent_All                   = 0x00000200
@@ -190,7 +186,6 @@ FULL_ISO_LIST = list(ISO_MAP.keys())
 REV_ISO_MAP   = {v: k for k, v in ISO_MAP.items()}
 
 # Velocidad de Obturación (Tv / Tiempo de Exposición)
-# Requeridos: 1/10s, 1/8s, 1/6s, 1/5s, 1/4s, 1s, 2s, 3.2s, 10s (y lista extendida)
 TV_MAP: Dict[int, str] = {
     0x53: "1/10s",
     0x50: "1/8s",
@@ -201,7 +196,6 @@ TV_MAP: Dict[int, str] = {
     0x30: "2s",
     0x2B: "3.2s",
     0x1D: "10s",
-    # Extensiones adicionales si se desea cambiar
     0x10: "30s",
     0x18: "15s",
     0x20: "8s",
@@ -243,6 +237,7 @@ class CanonCamera:
         self._evf_enabled = False
         self._cb_keepalive = None
         self._active_zoom = 1
+        self._last_extend_timer = 0.0
 
     def initialize_sdk(self) -> bool:
         if self._is_sdk_init: return True
@@ -319,11 +314,11 @@ class CanonCamera:
 
     def enable_live_view(self) -> bool:
         if not self._is_session_open: return False
-        device = EdsUInt32(kEdsEvfOutputDevice_All)
+        device = EdsUInt32(kEdsEvfOutputDevice_PC)
         err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
         if err == EDS_ERR_OK:
             self._evf_enabled = True
-            print("[Canon Live View] Transmisión de alta calidad TFT+PC activada.")
+            print("[Canon Live View] Transmisión PC de alta calidad activada.")
             return True
         print(f"[Canon Live View] Error al activar EVF Output: {hex(err)}")
         return False
@@ -335,9 +330,19 @@ class CanonCamera:
         self._evf_enabled = False
         print("[Canon Live View] Transmisión desactivada.")
 
+    def extend_shutdown_timer(self):
+        """Mantiene la cámara activa evitando ahorro de energía."""
+        if not self._is_session_open: return
+        now = time.time()
+        if now - self._last_extend_timer > 10.0:
+            edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_ExtendShutDownTimer, 0)
+            self._last_extend_timer = now
+
     def get_live_view_frame(self) -> Optional[bytes]:
         """Obtiene un frame JPEG comprimido en memoria desde el sensor Live View."""
         if not self._is_session_open or not self._evf_enabled: return None
+
+        self.extend_shutdown_timer()
 
         stream = EdsStreamRef()
         err = edsdk.EdsCreateMemoryStream(0, ctypes.byref(stream))
@@ -350,7 +355,12 @@ class CanonCamera:
             return None
 
         err = edsdk.EdsDownloadEvfImage(self._camera_ref, evf_image)
-        if err != EDS_ERR_OK:
+        if err in (EDS_ERR_DEVICE_BUSY, EDS_ERR_OBJECT_NOTREADY):
+            # La cámara aún no ha generado el siguiente cuadro — retornar None sin fallar
+            edsdk.EdsRelease(evf_image)
+            edsdk.EdsRelease(stream)
+            return None
+        elif err != EDS_ERR_OK:
             edsdk.EdsRelease(evf_image)
             edsdk.EdsRelease(stream)
             return None
@@ -369,7 +379,7 @@ class CanonCamera:
         edsdk.EdsRelease(stream)
         return buffer
 
-    # ── Controles de Zoom Live View ───────────────────────────────────────────
+    # ── Controles de Zoom y Corrección de Orientación Live View ──────────────
 
     def set_live_view_zoom(self, zoom_val: int) -> bool:
         if not self._is_session_open: return False
@@ -380,27 +390,28 @@ class CanonCamera:
         err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
         return err == EDS_ERR_OK
 
-    def process_frame_zoom(self, frame_rgb: np.ndarray) -> np.ndarray:
-        if self._active_zoom == 2 and frame_rgb is not None:
-            H, W, C = frame_rgb.shape
+    def process_frame_zoom_and_orientation(self, frame_rgb: np.ndarray) -> np.ndarray:
+        """
+        Corrige la orientación de la imagen (rotación 90° horario + espejo horizontal)
+        y aplica interpolación cúbica si está activo el zoom 2x.
+        """
+        if frame_rgb is None: return frame_rgb
+
+        # 1. Corregir rotación 90° antihorario y espejo:
+        # Rotar 90° sentido horario y voltear horizontalmente
+        corrected = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
+        corrected = cv2.flip(corrected, 1)
+
+        # 2. Aplicar Zoom 2x de alta calidad si está activo:
+        if self._active_zoom == 2:
+            H, W, C = corrected.shape
             ch, cw = H // 2, W // 2
             y1, y2 = ch - H // 4, ch + H // 4
             x1, x2 = cw - W // 4, cw + W // 4
-            crop = frame_rgb[y1:y2, x1:x2]
+            crop = corrected[y1:y2, x1:x2]
             return cv2.resize(crop, (W, H), interpolation=cv2.INTER_CUBIC)
-        return frame_rgb
 
-    # ── Control Remoto de Enfoque ──────────────────────────────────────────────
-
-    def drive_lens(self, command_code: int) -> bool:
-        if not self._is_session_open: return False
-        err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_DriveLensEvf, command_code)
-        return err == EDS_ERR_OK
-
-    def trigger_autofocus(self) -> bool:
-        if not self._is_session_open: return False
-        err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_DoEvfAf, 1)
-        return err == EDS_ERR_OK
+        return corrected
 
     # ── Lectura y Ajuste de Propiedades ───────────────────────────────────────
 
