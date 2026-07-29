@@ -1018,14 +1018,16 @@ class CameraWindow(QMainWindow):
 # ══════════════════════════════════════════════════════════════════════════════
 #  SET SCALE DIALOG (3 Métodos: Puntos con Snap, nm/px directo, µm/px directo)
 # ══════════════════════════════════════════════════════════════════════════════
+#  SET SCALE DIALOG (3 Métodos con Explicación Detallada)
+# ══════════════════════════════════════════════════════════════════════════════
 
 class SetScaleDialog(QDialog):
     scaleAccepted = pyqtSignal(float)
 
     def __init__(self, frame: np.ndarray, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Calibrar escala (Set Scale)")
-        self.setMinimumSize(700, 580)
+        self.setWindowTitle("Calibrar Escala Espacial (Set Scale)")
+        self.setMinimumSize(740, 620)
         self._frame = frame
         self._pts   = []
         self._particles = []
@@ -1033,6 +1035,15 @@ class SetScaleDialog(QDialog):
 
         lo = QVBoxLayout(self)
         lo.setContentsMargins(8, 8, 8, 8)
+
+        # Explicación general superior
+        intro_lbl = QLabel(
+            "<b>Instrucciones de Calibración:</b> Seleccioná uno de los 3 métodos siguientes para definir "
+            "la relación entre píxeles y micrómetros (µm)."
+        )
+        intro_lbl.setWordWrap(True)
+        intro_lbl.setStyleSheet("color: #aaa; margin-bottom: 4px;")
+        lo.addWidget(intro_lbl)
 
         # Visor Interactivo con PyQtGraph
         self._view = pg.GraphicsLayoutWidget()
@@ -1049,32 +1060,40 @@ class SetScaleDialog(QDialog):
         lo.addWidget(self._view, stretch=1)
 
         # Panel de Métodos de Calibración
-        group = QGroupBox("Opciones de Calibración")
+        group = QGroupBox("Opciones de Calibración (Seleccionar un Método)")
         glo = QGridLayout(group)
 
         # Método A: Puntos + Snap
-        glo.addWidget(QLabel("<b>Método A: 2 Puntos (Medido)</b>"), 0, 0, 1, 2)
+        lbl_a = QLabel("<b>Método A: Medición en Pantalla (2 Puntos)</b>")
+        lbl_a.setToolTip("Hacé clic sobre 2 puntos conocidos en la foto. Mantené Shift presionado para encajar (Snap) al centro de la partícula.")
+        glo.addWidget(lbl_a, 0, 0, 1, 2)
         btn_detect = QPushButton("Detectar Partículas (Snap)")
+        btn_detect.setToolTip("Encuentra los centros de las partículas para facilitar el clic exacto con Snap (Shift).")
         btn_detect.clicked.connect(self._detect_particles)
         glo.addWidget(btn_detect, 0, 2)
 
-        glo.addWidget(QLabel("Distancia conocida (µm):"), 1, 0)
-        self._dist_edit = QLineEdit("5.3"); self._dist_edit.setFixedWidth(80)
+        lbl_dist = QLabel("Distancia física conocida entre los 2 puntos (µm):")
+        glo.addWidget(lbl_dist, 1, 0)
+        self._dist_edit = QLineEdit("5.3"); self._dist_edit.setFixedWidth(90)
         glo.addWidget(self._dist_edit, 1, 1)
 
         # Método B: Entrada Directa nm/px
-        glo.addWidget(QLabel("<b>Método B: Directo (nm/px)</b>"), 2, 0)
+        lbl_b = QLabel("<b>Método B: Resolución en nm/px</b>")
+        lbl_b.setToolTip("Ingresá directamente la resolución óptica del objetivo en nanómetros por píxel (ej: 50.0 nm/px).")
+        glo.addWidget(lbl_b, 2, 0)
         self._nm_edit = QLineEdit(); self._nm_edit.setPlaceholderText("ej: 50.0")
-        self._nm_edit.setFixedWidth(80)
+        self._nm_edit.setFixedWidth(90)
         glo.addWidget(self._nm_edit, 2, 1)
 
         # Método C: Entrada Directa µm/px
-        glo.addWidget(QLabel("<b>Método C: Directo (µm/px)</b>"), 3, 0)
+        lbl_c = QLabel("<b>Método C: Factor de Escala en µm/px</b>")
+        lbl_c.setToolTip("Ingresá directamente la escala calibrada en micrómetros por píxel (ej: 0.0500 µm/px).")
+        glo.addWidget(lbl_c, 3, 0)
         self._um_edit = QLineEdit(); self._um_edit.setPlaceholderText("ej: 0.05")
-        self._um_edit.setFixedWidth(80)
+        self._um_edit.setFixedWidth(90)
         glo.addWidget(self._um_edit, 3, 1)
 
-        self._result_lbl = QLabel("— Seleccioná 2 puntos o ingresá la resolución")
+        self._result_lbl = QLabel("— Seleccioná 2 puntos sobre la foto o ingresá la resolución directa")
         self._result_lbl.setStyleSheet("font-family: monospace; color: orange; font-weight: bold;")
         glo.addWidget(self._result_lbl, 4, 0, 1, 3)
 
@@ -1175,8 +1194,8 @@ class TrackpyDialog(QDialog):
 
     def __init__(self, frame: np.ndarray, roi_frac: Optional[tuple] = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Configurar detección trackpy")
-        self.setMinimumSize(680, 520)
+        self.setWindowTitle("Configurar Detección de Partículas (Trackpy)")
+        self.setMinimumSize(720, 560)
         self._frame = frame; self._roi_frac = roi_frac; self._crop = None
 
         lo = QVBoxLayout(self)
@@ -1189,16 +1208,21 @@ class TrackpyDialog(QDialog):
         lo.addWidget(self._view, stretch=1)
 
         self._count_lbl = QLabel("Detectadas: —")
+        self._count_lbl.setStyleSheet("font-weight: bold; color: #3ecf8e;")
         lo.addWidget(self._count_lbl)
 
-        params_box = QGroupBox("Parámetros trackpy"); form = QFormLayout(params_box)
+        params_box = QGroupBox("Parámetros de Filtrado y Detección"); form = QFormLayout(params_box)
         self._diam = QSpinBox(); self._diam.setRange(3, 201); self._diam.setSingleStep(2); self._diam.setValue(11)
-        self._sep  = QDoubleSpinBox(); self._sep.setRange(1, 500); self._sep.setValue(8)
+        self._sep  = QDoubleSpinBox(); self._sep.setRange(1, 500); self._sep.setValue(8); self._sep.setSingleStep(1)
         self._thr  = QDoubleSpinBox(); self._thr.setRange(0, 1e6); self._thr.setValue(0)
 
-        form.addRow("diameter (px, impar):", self._diam)
-        form.addRow("separation (px):", self._sep)
-        form.addRow("threshold (0 = auto):", self._thr)
+        self._diam.setToolTip("Diámetro aproximado de la partícula en píxeles (debe ser número impar).")
+        self._sep.setToolTip("Distancia mínima entre partículas (px). Aumentar para filtrar artefactos cercanos.")
+        self._thr.setToolTip("Umbral mínimo de intensidad (0 = automático).")
+
+        form.addRow("Diámetro estimado (px, impar):", self._diam)
+        form.addRow("Separación Mínima (px):", self._sep)
+        form.addRow("Umbral de Intensidad (0 = auto):", self._thr)
         for w in (self._diam, self._sep, self._thr): w.valueChanged.connect(self._run_preview)
         lo.addWidget(params_box)
 
@@ -1229,7 +1253,7 @@ class TrackpyDialog(QDialog):
                 warnings.simplefilter("ignore")
                 df = tp.locate(gray, diameter=d, separation=self._sep.value(), threshold=thr)
             self._scatter.setData(df["x"].values, df["y"].values) if len(df) else self._scatter.clear()
-            self._count_lbl.setText(f"Detectadas: {len(df)}")
+            self._count_lbl.setText(f"Detectadas: {len(df)} partículas")
         except Exception as e:
             self._count_lbl.setText(f"Error: {e}")
 

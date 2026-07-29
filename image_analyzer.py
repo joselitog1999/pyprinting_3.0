@@ -20,7 +20,8 @@ from PyQt6.QtCore    import (Qt, pyqtSignal, pyqtSlot)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                                QTableWidget, QTableWidgetItem, QHeaderView,
-                               QGroupBox, QMessageBox, QFileDialog, QSplitter)
+                               QGroupBox, QMessageBox, QFileDialog, QSplitter,
+                               QDialog)
 from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 
 from config import DEFAULT_DATA_PATH, PIXEL_SIZE_UM
@@ -38,6 +39,7 @@ class ImageAnalyzerWidget(QWidget):
         self._current_frame: Optional[np.ndarray] = None
         self._current_image_path: Optional[Path]  = None
         self._particles: list = []
+        self._measure_pts: list = []
         self._saved_measures: list[dict] = []
         self._trackpy_params = dict(diameter=11, minmass=100, separation=8, threshold=0)
         self._measure_mode = False
@@ -464,13 +466,15 @@ class ImageAnalyzerWidget(QWidget):
 
         gray = np.mean(crop, axis=2) if crop.ndim == 3 else crop.astype(float)
         p    = self._trackpy_params.copy()
-        d    = p.pop("diameter"); d = d if d % 2 == 1 else d + 1
+        d    = p.pop("diameter", 11); d = d if d % 2 == 1 else d + 1
+        sep  = p.get("separation", 8)
+        thr  = p.get("threshold", None)
 
         try:
             import trackpy as tp
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                df = tp.locate(gray, diameter=d, separation=p.get("separation", 8), threshold=p.get("threshold", None))
+                df = tp.locate(gray, diameter=d, separation=sep, threshold=thr)
         except Exception as e:
             QMessageBox.warning(self, "Detección fallida", str(e))
             return
@@ -480,16 +484,18 @@ class ImageAnalyzerWidget(QWidget):
         for i, row in df.iterrows():
             gx = (row["x"] + offset[0]) / W
             gy = (row["y"] + offset[1]) / H
-            pts.append((gx, gy, row.get("mass", 0)))
+            mass = float(row.get("mass", 0))
+            pts.append((gx, gy, mass))
             x_um = gx * W * self._um_per_px
             y_um = gy * H * self._um_per_px
             self._table_particles.setItem(i, 0, QTableWidgetItem(str(i+1)))
             self._table_particles.setItem(i, 1, QTableWidgetItem(f"{x_um:.2f}"))
             self._table_particles.setItem(i, 2, QTableWidgetItem(f"{y_um:.2f}"))
-            self._table_particles.setItem(i, 3, QTableWidgetItem(f"{row.get('mass',0):.1f}"))
+            self._table_particles.setItem(i, 3, QTableWidgetItem(f"{mass:.1f}"))
 
         self._particles = pts
         self._overlay.set_particles(pts)
+        self._lbl_result.setText(f"Detección completada: {len(pts)} partículas guardadas.")
 
     # ── Limpiar Todo ──────────────────────────────────────────────────────────
 
