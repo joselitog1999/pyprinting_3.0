@@ -58,6 +58,13 @@ class CanonWorker(QObject):
         self._timer.timeout.connect(self._fetch_frame)
         self._last_valid_frame = None
         self._mock_n = 0
+        self._mode_color = "Color RGB"
+        self._clim_min   = 0
+        self._clim_max   = 255
+        self._lut_idx    = 0
+        self._r_gain     = 1.0
+        self._g_gain     = 1.0
+        self._b_gain     = 1.0
 
     def _emit_log(self, msg: str):
         self.logSignal.emit(msg)
