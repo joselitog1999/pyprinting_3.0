@@ -175,8 +175,8 @@ class ImageAnalyzerWidget(QWidget):
 
         # ── Barra de Estado ───────────────────────────────────────────────────
         status_bar = QHBoxLayout()
-        self._lbl_scale  = QLabel("Escala: no calibrada")
-        self._lbl_scale.setStyleSheet("color: #e5534b; font-family: monospace; font-size: 11px;")
+        self._lbl_scale  = QLabel("Escala no configurada (mediciones en px)")
+        self._lbl_scale.setStyleSheet("color: #e5534b; font-family: monospace; font-size: 11px; font-weight: bold;")
         self._lbl_result = QLabel("Abrí una foto para comenzar a analizar")
         self._lbl_result.setStyleSheet("font-family: monospace; font-size: 11px; color: #aaa;")
         status_bar.addWidget(self._lbl_scale)
@@ -294,9 +294,10 @@ class ImageAnalyzerWidget(QWidget):
                 painter.drawLine(p1x, p1y, p2x, p2y)
                 dx_px = (fx2 - fx1) * W
                 dy_px = (fy2 - fy1) * H
-                dist_um = math.hypot(dx_px, dy_px) * self._um_per_px
+                dist_px = math.hypot(dx_px, dy_px)
+                lbl_dist = f"d={dist_px * self._um_per_px:.3f}µm" if self._scale_set else f"d={dist_px:.1f}px"
                 painter.setPen(QPen(QColor(245, 166, 35, 255)))
-                painter.drawText(int((p1x+p2x)/2)+8, int((p1y+p2y)/2)-8, f"d={dist_um:.3f}µm")
+                painter.drawText(int((p1x+p2x)/2)+8, int((p1y+p2y)/2)-8, lbl_dist)
 
         painter.end()
 
@@ -345,10 +346,15 @@ class ImageAnalyzerWidget(QWidget):
                 (fx1, fy1), (fx2, fy2) = self._measure_pts
                 dx_px = (fx2 - fx1) * W
                 dy_px = (fy2 - fy1) * H
-                dist_um = math.hypot(dx_px, dy_px) * self._um_per_px
+                dist_px = math.hypot(dx_px, dy_px)
                 angle   = math.degrees(math.atan2(dy_px, dx_px))
-                self._lbl_result.setText(
-                    f"Medida: {dist_um:.3f} µm (Δx={dx_px:.1f}px, Δy={dy_px:.1f}px) | θ={angle:.1f}°")
+                if self._scale_set:
+                    dist_um = dist_px * self._um_per_px
+                    self._lbl_result.setText(
+                        f"Medida: {dist_um:.3f} µm (Δx={dx_px:.1f}px, Δy={dy_px:.1f}px) | θ={angle:.1f}°")
+                else:
+                    self._lbl_result.setText(
+                        f"Medida: {dist_px:.1f} px (Δx={dx_px:.1f}px, Δy={dy_px:.1f}px) | θ={angle:.1f}°")
 
     # ── Mediciones ────────────────────────────────────────────────────────────
 
@@ -368,16 +374,25 @@ class ImageAnalyzerWidget(QWidget):
         (fx1, fy1), (fx2, fy2) = pts
         dx_px = (fx2 - fx1) * W
         dy_px = (fy2 - fy1) * H
-        dist_um = math.hypot(dx_px, dy_px) * self._um_per_px
+        dist_px = math.hypot(dx_px, dy_px)
         angle   = math.degrees(math.atan2(dy_px, dx_px))
 
-        m = dict(index=len(self._saved_measures)+1, dist=dist_um, dx_px=dx_px, dy_px=dy_px, angle=angle)
+        if self._scale_set:
+            dist_val = dist_px * self._um_per_px
+            unit_str = "µm"
+            dist_disp = f"{dist_val:.3f}"
+        else:
+            dist_val = dist_px
+            unit_str = "px"
+            dist_disp = f"{dist_val:.1f} px"
+
+        m = dict(index=len(self._saved_measures)+1, dist=dist_val, unit=unit_str, dx_px=dx_px, dy_px=dy_px, angle=angle)
         self._saved_measures.append(m)
 
         row = self._table_measures.rowCount()
         self._table_measures.insertRow(row)
         self._table_measures.setItem(row, 0, QTableWidgetItem(str(m["index"])))
-        self._table_measures.setItem(row, 1, QTableWidgetItem(f"{dist_um:.3f}"))
+        self._table_measures.setItem(row, 1, QTableWidgetItem(dist_disp))
         self._table_measures.setItem(row, 2, QTableWidgetItem(f"{dx_px:.1f} / {dy_px:.1f}"))
         self._table_measures.setItem(row, 3, QTableWidgetItem(f"{angle:.1f}°"))
 
@@ -390,8 +405,12 @@ class ImageAnalyzerWidget(QWidget):
         with open(path, "w", encoding="utf-8") as f:
             f.write("# Mediciones de Foto - PyPrinting Image Analyzer\n")
             f.write(f"# Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Escala: {self._um_per_px:.5f} µm/px\n\n")
-            f.write("Index\tDist_um\tDeltaX_px\tDeltaY_px\tAngulo_deg\n")
+            if self._scale_set:
+                f.write(f"# Escala: {self._um_per_px:.5f} µm/px\n\n")
+                f.write("Index\tDist_um\tDeltaX_px\tDeltaY_px\tAngulo_deg\n")
+            else:
+                f.write("# Escala: No configurada (unidades en px)\n\n")
+                f.write("Index\tDist_px\tDeltaX_px\tDeltaY_px\tAngulo_deg\n")
             for m in self._saved_measures:
                 f.write(f"{m['index']}\t{m['dist']:.4f}\t{m['dx_px']:.1f}\t{m['dy_px']:.1f}\t{m['angle']:.2f}\n")
         QMessageBox.information(self, "Exportar", f"Mediciones guardadas en:\n{path}")
@@ -414,12 +433,20 @@ class ImageAnalyzerWidget(QWidget):
         with open(path, "w", encoding="utf-8") as f:
             f.write("# Partículas Detectadas en Foto - PyPrinting\n")
             f.write(f"# Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Escala: {self._um_per_px:.5f} µm/px\n\n")
-            f.write("Index\tX_frac\tY_frac\tX_um\tY_um\tIntensidad\n")
-            for i, (fx, fy, mass) in enumerate(self._particles):
-                x_um = fx * W * self._um_per_px
-                y_um = fy * H * self._um_per_px
-                f.write(f"{i+1}\t{fx:.5f}\t{fy:.5f}\t{x_um:.3f}\t{y_um:.3f}\t{mass:.1f}\n")
+            if self._scale_set:
+                f.write(f"# Escala: {self._um_per_px:.5f} µm/px\n\n")
+                f.write("Index\tX_frac\tY_frac\tX_um\tY_um\tIntensidad\n")
+                for i, (fx, fy, mass) in enumerate(self._particles):
+                    x_um = fx * W * self._um_per_px
+                    y_um = fy * H * self._um_per_px
+                    f.write(f"{i+1}\t{fx:.5f}\t{fy:.5f}\t{x_um:.3f}\t{y_um:.3f}\t{mass:.1f}\n")
+            else:
+                f.write("# Escala: No configurada\n\n")
+                f.write("Index\tX_frac\tY_frac\tX_px\tY_px\tIntensidad\n")
+                for i, (fx, fy, mass) in enumerate(self._particles):
+                    x_px = fx * W
+                    y_px = fy * H
+                    f.write(f"{i+1}\t{fx:.5f}\t{fy:.5f}\t{x_px:.1f}\t{y_px:.1f}\t{mass:.1f}\n")
         QMessageBox.information(self, "Exportar", f"Lista de partículas exportada en:\n{path}")
 
     def _clear_particles(self):
@@ -439,7 +466,8 @@ class ImageAnalyzerWidget(QWidget):
             QMessageBox.warning(self, "Detectar", "Primero abrí una foto.")
             return
         roi = self._overlay.roi_fractions()
-        dlg = TrackpyDialog(self._current_frame.copy(), roi_frac=roi, parent=self)
+        um_per_px = self._um_per_px if self._scale_set else None
+        dlg = TrackpyDialog(self._current_frame.copy(), roi_frac=roi, um_per_px=um_per_px, parent=self)
         dlg.paramsAccepted.connect(self._on_trackpy_params)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._run_detection()
@@ -481,16 +509,26 @@ class ImageAnalyzerWidget(QWidget):
 
         pts = []
         self._table_particles.setRowCount(len(df))
+
+        if self._scale_set:
+            self._table_particles.setHorizontalHeaderLabels(["#", "x (µm)", "y (µm)", "Int."])
+        else:
+            self._table_particles.setHorizontalHeaderLabels(["#", "x (px)", "y (px)", "Int."])
+
         for i, row in df.iterrows():
             gx = (row["x"] + offset[0]) / W
             gy = (row["y"] + offset[1]) / H
             mass = float(row.get("mass", 0))
             pts.append((gx, gy, mass))
-            x_um = gx * W * self._um_per_px
-            y_um = gy * H * self._um_per_px
+            if self._scale_set:
+                x_val = gx * W * self._um_per_px
+                y_val = gy * H * self._um_per_px
+            else:
+                x_val = gx * W
+                y_val = gy * H
             self._table_particles.setItem(i, 0, QTableWidgetItem(str(i+1)))
-            self._table_particles.setItem(i, 1, QTableWidgetItem(f"{x_um:.2f}"))
-            self._table_particles.setItem(i, 2, QTableWidgetItem(f"{y_um:.2f}"))
+            self._table_particles.setItem(i, 1, QTableWidgetItem(f"{x_val:.2f}"))
+            self._table_particles.setItem(i, 2, QTableWidgetItem(f"{y_val:.2f}"))
             self._table_particles.setItem(i, 3, QTableWidgetItem(f"{mass:.1f}"))
 
         self._particles = pts
@@ -530,8 +568,9 @@ class ImageAnalyzerWidget(QWidget):
         self._um_per_px = um_per_px
         self._scale_set = True
         self._overlay.set_scale(um_per_px)
-        self._lbl_scale.setText(f"Escala: {um_per_px:.5f} µm/px")
-        self._lbl_scale.setStyleSheet("color: #3ecf8e; font-family: monospace; font-size: 11px;")
+        self._lbl_scale.setText(f"Escala configurada: {um_per_px:.5f} µm/px")
+        self._lbl_scale.setStyleSheet("color: #3ecf8e; font-weight: bold; font-family: monospace; font-size: 11px;")
+        self._table_measures.setHorizontalHeaderItem(1, QTableWidgetItem("Dist (µm)"))
 
 
 class StandaloneAnalyzerWindow(QMainWindow):

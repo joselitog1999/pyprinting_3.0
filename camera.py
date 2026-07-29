@@ -1192,11 +1192,12 @@ class SetScaleDialog(QDialog):
 class TrackpyDialog(QDialog):
     paramsAccepted = pyqtSignal(dict)
 
-    def __init__(self, frame: np.ndarray, roi_frac: Optional[tuple] = None, parent=None):
+    def __init__(self, frame: np.ndarray, roi_frac: Optional[tuple] = None, um_per_px: Optional[float] = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Configurar Detección de Partículas (Trackpy)")
-        self.setMinimumSize(720, 560)
+        self.setMinimumSize(740, 580)
         self._frame = frame; self._roi_frac = roi_frac; self._crop = None
+        self._um_per_px = um_per_px if (um_per_px and um_per_px > 0) else None
 
         lo = QVBoxLayout(self)
 
@@ -1211,19 +1212,53 @@ class TrackpyDialog(QDialog):
         self._count_lbl.setStyleSheet("font-weight: bold; color: #3ecf8e;")
         lo.addWidget(self._count_lbl)
 
-        params_box = QGroupBox("Parámetros de Filtrado y Detección"); form = QFormLayout(params_box)
-        self._diam = QSpinBox(); self._diam.setRange(3, 201); self._diam.setSingleStep(2); self._diam.setValue(11)
-        self._sep  = QDoubleSpinBox(); self._sep.setRange(1, 500); self._sep.setValue(8); self._sep.setSingleStep(1)
-        self._thr  = QDoubleSpinBox(); self._thr.setRange(0, 1e6); self._thr.setValue(0)
+        params_box = QGroupBox("Parámetros de Detección"); form = QFormLayout(params_box)
 
-        self._diam.setToolTip("Diámetro aproximado de la partícula en píxeles (debe ser número impar).")
-        self._sep.setToolTip("Distancia mínima entre partículas (px). Aumentar para filtrar artefactos cercanos.")
-        self._thr.setToolTip("Umbral mínimo de intensidad (0 = automático).")
+        if self._um_per_px:
+            # Modo µm: Escala configurada
+            self._diam_spin = QDoubleSpinBox()
+            self._diam_spin.setRange(0.05, 500.0)
+            self._diam_spin.setSingleStep(0.1)
+            self._diam_spin.setValue(max(0.1, 11 * self._um_per_px))
+            self._diam_spin.setSuffix(" µm")
+            self._diam_spin.setToolTip("Diámetro estimado de la partícula en micrómetros (µm).")
 
-        form.addRow("Diámetro estimado (px, impar):", self._diam)
-        form.addRow("Separación Mínima (px):", self._sep)
-        form.addRow("Umbral de Intensidad (0 = auto):", self._thr)
-        for w in (self._diam, self._sep, self._thr): w.valueChanged.connect(self._run_preview)
+            self._sep_spin = QDoubleSpinBox()
+            self._sep_spin.setRange(0.05, 1000.0)
+            self._sep_spin.setSingleStep(0.2)
+            self._sep_spin.setValue(max(0.1, 8 * self._um_per_px))
+            self._sep_spin.setSuffix(" µm")
+            self._sep_spin.setToolTip("Distancia mínima entre partículas en micrómetros (µm) para evitar duplicados.")
+
+            self._equiv_lbl = QLabel("—")
+            self._equiv_lbl.setStyleSheet("color: #3ecf8e; font-family: monospace; font-size: 11px;")
+
+            form.addRow("Diámetro estimado (µm):", self._diam_spin)
+            form.addRow("Separación Mínima (µm):", self._sep_spin)
+            form.addRow("Conversión a píxeles:", self._equiv_lbl)
+
+            self._thr = QDoubleSpinBox(); self._thr.setRange(0, 1e6); self._thr.setValue(0)
+            form.addRow("Umbral de Intensidad (0 = auto):", self._thr)
+
+            for w in (self._diam_spin, self._sep_spin, self._thr):
+                w.valueChanged.connect(self._run_preview)
+        else:
+            # Modo px: Escala no configurada
+            self._diam = QSpinBox(); self._diam.setRange(3, 201); self._diam.setSingleStep(2); self._diam.setValue(11)
+            self._sep  = QDoubleSpinBox(); self._sep.setRange(1, 500); self._sep.setValue(8); self._sep.setSingleStep(1)
+            self._thr  = QDoubleSpinBox(); self._thr.setRange(0, 1e6); self._thr.setValue(0)
+
+            self._diam.setToolTip("Diámetro aproximado de la partícula en píxeles (número impar).")
+            self._sep.setToolTip("Distancia mínima entre partículas (px).")
+            self._thr.setToolTip("Umbral mínimo de intensidad (0 = auto).")
+
+            form.addRow("Diámetro estimado (px, impar):", self._diam)
+            form.addRow("Separación Mínima (px):", self._sep)
+            form.addRow("Umbral de Intensidad (0 = auto):", self._thr)
+
+            for w in (self._diam, self._sep, self._thr):
+                w.valueChanged.connect(self._run_preview)
+
         lo.addWidget(params_box)
 
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -1242,24 +1277,46 @@ class TrackpyDialog(QDialog):
         self._crop = frame
         self._img_item.setImage(frame.transpose(1, 0, 2))
 
+    def _get_pixel_params(self) -> tuple[int, float]:
+        if self._um_per_px:
+            d_um = self._diam_spin.value()
+            s_um = self._sep_spin.value()
+
+            # Conversión µm -> px
+            raw_d = d_um / self._um_per_px
+            d_px  = int(round(raw_d))
+            # Regla de aproximación: Trackpy exige diámetro entero IMPAR >= 3
+            if d_px % 2 == 0:
+                d_px += 1
+            if d_px < 3:
+                d_px = 3
+
+            sep_px = max(1.0, s_um / self._um_per_px)
+            if hasattr(self, "_equiv_lbl"):
+                self._equiv_lbl.setText(f"Diámetro: {d_px} px (impar) | Separación: {sep_px:.1f} px")
+            return d_px, sep_px
+        else:
+            d = self._diam.value(); d = d if d % 2 == 1 else d + 1
+            return d, self._sep.value()
+
     def _run_preview(self):
         if not _TRACKPY_AVAILABLE or self._crop is None: return
         import warnings
         gray = np.mean(self._crop, axis=2).astype(float) if self._crop.ndim == 3 else self._crop.astype(float)
-        d = self._diam.value(); d = d if d % 2 == 1 else d + 1
+        d_px, sep_px = self._get_pixel_params()
         thr = self._thr.value() if self._thr.value() > 0 else None
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                df = tp.locate(gray, diameter=d, separation=self._sep.value(), threshold=thr)
+                df = tp.locate(gray, diameter=d_px, separation=sep_px, threshold=thr)
             self._scatter.setData(df["x"].values, df["y"].values) if len(df) else self._scatter.clear()
-            self._count_lbl.setText(f"Detectadas: {len(df)} partículas")
+            self._count_lbl.setText(f"Detectadas: {len(df)} partículas (diámetro = {d_px} px)")
         except Exception as e:
             self._count_lbl.setText(f"Error: {e}")
 
     def get_params(self) -> dict:
-        d = self._diam.value(); d = d if d % 2 == 1 else d + 1
-        return dict(diameter=d, separation=self._sep.value(), threshold=self._thr.value() if self._thr.value() > 0 else None)
+        d_px, sep_px = self._get_pixel_params()
+        return dict(diameter=d_px, separation=sep_px, threshold=self._thr.value() if self._thr.value() > 0 else None)
 
     def _accept(self):
         self.paramsAccepted.emit(self.get_params())

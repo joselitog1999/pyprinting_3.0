@@ -6,25 +6,27 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Correcciones en Image Analyzer (`image_analyzer.py`)**:
-   - **Solución al `NameError: name 'QDialog' is not defined`**: Se importó la clase `QDialog` en `image_analyzer.py`, permitiendo la apertura limpia y el retorno del diálogo de detección Trackpy.
-   - **Guardado y Visualización de Partículas Detectadas**: Corregido el flujo en `_run_detection()` para que las partículas detectadas por Trackpy o OpenCV se almacenen correctamente en `self._particles` y se desplieguen en la tabla de partículas y en el lienzo gráfico.
-   - **Solución al `AttributeError: '_measure_pts'`**: Inicializada la lista `self._measure_pts = []` en `ImageAnalyzerWidget.__init__` para permitir mediciones de distancia sin errores.
+1. **Indicador Visual de Escala Espacial (Verde / Rojo)**:
+   - En la barra inferior del analizador:
+     - **Verde (`#3ecf8e`)**: `"Escala configurada: X.XXXXX µm/px"` cuando la escala espacial ha sido calibrada.
+     - **Rojo (`#e5534b`)**: `"Escala no configurada (mediciones en px)"` cuando aún no se ha calibrado la imagen.
 
-2. **Mejoras en el Diálogo de Calibración de Escala (`SetScaleDialog`)**:
-   - Se agregaron **explicaciones detalladas e indicativas** para cada uno de los 3 métodos de calibración (Método A: Medición en pantalla con Snap/Shift, Método B: Resolución en nm/px, Método C: Escala directa en µm/px).
+2. **Detección de Partículas Adaptativa en Micrómetros ($\mu\text{m}$)**:
+   - Cuando la escala **está configurada**:
+     - Los controles del diálogo Trackpy (`TrackpyDialog`) muestran **`Diámetro estimado (µm)`** y **`Separación Mínima (µm)`**.
+     - **Conversión Interna con Regla de Imparidad**: Realiza la conversión automática a píxeles ($\text{px\_diam} = \text{round}(\text{diam\_um} / \text{um\_per\_px})$) aplicando la regla de aproximación exigida por Trackpy de que el diámetro sea **un entero IMPAR $\ge 3$**. Se muestra además la lectura de conversión equivalente en pantalla.
+   - Cuando la escala **no está configurada**:
+     - Los controles se muestran en **Píxeles ($\text{px}$)**.
 
-3. **Parámetro de Separación Mínima entre Partículas (`TrackpyDialog`)**:
-   - Se habilitó la configuración interactiva de `Separación Mínima (px / µm)` para filtrar artefactos cercanos, ruido y múltiples falsos positivos en el mismo halo.
-
-4. **Visualización de Parámetros ROI en Micrómetros ($\mu\text{m}$)**:
-   - Se actualizó el dibujador de ROI (`OverlayWidget._draw_roi`) para mostrar automáticamente las dimensiones en micrómetros ($\mu\text{m}$) una vez calibrada la escala espacial.
+3. **Modo Medición Adaptativo ($\text{px}$ vs $\mu\text{m}$)**:
+   - Cuando la escala **no está configurada**: Las mediciones en el lienzo, la etiqueta de resultados y la lista guardada expresan las distancias en **píxeles ($\text{px}$)** (ej: `d = 145.2 px`).
+   - Cuando la escala **está configurada**: Las mediciones expresan las distancias en **micrómetros ($\mu\text{m}$)** (ej: `d = 7.260 µm`).
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Módulo Image Analyzer**:
+- **Prueba Módulo Image Analyzer Adaptativo**:
   ```powershell
   .\.venv\Scripts\python.exe -c "import image_analyzer; print('VERIFIED 100% CLEAN!')"
   ```
