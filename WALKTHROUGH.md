@@ -6,8 +6,8 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Solución a `NameError: name 'QStackedWidget' is not defined` en `canon_test.py`**:
-   - Se importaron explícitamente las clases `QStackedWidget`, `QSlider` y `QDoubleSpinBox` desde `PyQt6.QtWidgets` en [canon_test.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/canon_test.py#L28-L32).
+1. **Solución a `AttributeError: 'takePhotoSignal'` en `canon_test.py`**:
+   - Se restauraron las señales `takePhotoSignal` y `setSaveDirSignal` en la definición de clase `CanonTestWindow` en [canon_test.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/canon_test.py#L223-L230).
 
 2. **Modo Cámara para Microscopía de Transmisión (Escala de Grises en Vivo)**:
    - Se incorporó la opción de **`Modo Imagen`** (`Color RGB` vs `Grises (Transmisión)`) en la barra de control de la cámara Réflex Canon EOS 500D.
@@ -20,7 +20,7 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Módulo Canon Live View Adjustments**:
+- **Prueba Módulo Canon Live View Signals**:
   ```powershell
   .\.venv\Scripts\python.exe -c "import canon_test; print('VERIFIED 100% CLEAN!')"
   ```

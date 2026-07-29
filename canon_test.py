@@ -221,11 +221,13 @@ class CanonWorker(QObject):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class CanonTestWindow(QMainWindow):
-    startCameraSignal = pyqtSignal()
-    stopCameraSignal  = pyqtSignal()
-    setZoomSignal     = pyqtSignal(int)
-    setIsoSignal      = pyqtSignal(int)
-    setTvSignal       = pyqtSignal(int)
+    startCameraSignal        = pyqtSignal()
+    stopCameraSignal         = pyqtSignal()
+    setZoomSignal            = pyqtSignal(int)
+    setIsoSignal             = pyqtSignal(int)
+    setTvSignal              = pyqtSignal(int)
+    takePhotoSignal          = pyqtSignal()
+    setSaveDirSignal         = pyqtSignal(str)
     setLiveAdjustmentsSignal = pyqtSignal(str, int, int, int, float, float, float)
 
     def _on_color_mode_changed(self, idx: int):
