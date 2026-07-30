@@ -327,8 +327,23 @@ class Backend(QObject):
 
     @pyqtSlot(list)
     def parameters(self, steps: list):
-        self.steps_after  = steps[0]
-        self.steps_before = steps[1]
+        if len(steps) >= 2:
+            self.steps_after  = steps[0]
+            self.steps_before = steps[1]
+
+    @pyqtSlot(str)
+    def direction(self, file_path: str):
+        self.file_path = file_path
+
+    @pyqtSlot(str, str)
+    @pyqtSlot(int, str)
+    def trace_configuration(self, laser_input, mode_printing: str = "none"):
+        if isinstance(laser_input, int):
+            if 0 <= laser_input < len(SHUTTERS):
+                self.laser = SHUTTERS[laser_input]
+        elif isinstance(laser_input, str):
+            self.laser = laser_input
+        self.mode_printing = mode_printing
 
     @pyqtSlot(float, float)
     def set_calibration_bs(self, slope: float, intercept: float):
