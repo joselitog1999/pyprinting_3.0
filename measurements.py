@@ -206,9 +206,16 @@ class Frontend(QFrame):
         plo.addWidget(QLabel("Umbral:"),       2, 0); plo.addWidget(self.umbralEdit,        2, 1)
         plo.addWidget(QLabel("Umbral down:"),  3, 0); plo.addWidget(self.umbral_downEdit,   3, 1)
         plo.addWidget(QLabel("T max (s):"),    4, 0); plo.addWidget(self.tmaxEdit,          4, 1)
-        plo.addWidget(self.next_button,        8, 0)
-        plo.addWidget(QLabel("Total targets"), 9, 0); plo.addWidget(self.particulasEdit,    9, 1)
-        plo.addWidget(QLabel("Index"),        10, 0); plo.addWidget(self.indice_impresionEdit,10,1)
+        plo.addWidget(QLabel("Steps before:"), 5, 0); plo.addWidget(self.steps_beforeEdit, 5, 1)
+        plo.addWidget(QLabel("Steps after:"),  6, 0); plo.addWidget(self.steps_afterEdit,  6, 1)
+        plo.addWidget(self.scan_check,         7, 0)
+        if self.mode == "dimers":
+            plo.addWidget(self.postscan_check, 7, 1)
+        plo.addWidget(self.set_ref_button,     8, 0, 1, 2)
+        plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
+        plo.addWidget(self.next_button,        10, 0)
+        plo.addWidget(QLabel("Total targets"), 11, 0); plo.addWidget(self.particulasEdit,    11, 1)
+        plo.addWidget(QLabel("Index"),        12, 0); plo.addWidget(self.indice_impresionEdit,12,1)
         pcDock = Dock(f"{label} control"); pcDock.addWidget(pcW)
         dock_area.addDock(pcDock, "right", gcDock)
 
@@ -285,7 +292,9 @@ class Frontend(QFrame):
                   float(self.shiftxEdit.text()),
                   float(self.shiftyEdit.text()),
                   float(self.dxEdit.text()),
-                  float(self.dyEdit.text())]
+                  float(self.dyEdit.text()),
+                  int(self.steps_beforeEdit.text()),
+                  int(self.steps_afterEdit.text())]
         scanbool     = self.scan_check.isChecked()
         postscanbool = self.postscan_check.isChecked() if self.mode == "dimers" else False
         self.parametersSignal.emit(color, params, scanbool, postscanbool)

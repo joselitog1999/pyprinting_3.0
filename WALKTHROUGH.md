@@ -14,7 +14,7 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
    - **Controles Compartidos**: Botones unificados de **`▶ Play / ■ Stop`** y **`💾 Save Trace`**.
 
 3. **Reubicación de `Steps before` / `Steps after` (`measurements.py`)**:
-   - Se trasladaron los campos `Steps before` y `Steps after` desde `trace.py` al panel de impresión **`Do Printing`** (`measurements.py`), donde son utilizados para calcular la línea base y el umbral de impresión.
+   - Se trasladaron los campos `Steps before` y `Steps after` desde `trace.py` al panel de control de impresión **`Do Printing`** (`measurements.py`), integrándolos visualmente en el layout `pcW` y emitiéndolos hacia la lógica de cálculo del umbral.
 
 4. **Ventana e Integración `Power in BS` (`PowerBSWindow`)**:
    - Se creó la ventana flotante independiente `PowerBSWindow` que incluye el gráfico **`Trace on BS`** abajo de los campos de calibración `Slope` e `Intercept`.
