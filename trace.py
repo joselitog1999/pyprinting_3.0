@@ -274,6 +274,10 @@ class Frontend(QFrame):
 
     def make_connection(self, backend: Backend):
         backend.dataSignal.connect(self.get_data)
+        self.startSignal.connect(backend.play_pause)
+        self.stopSignal.connect(backend.stop)
+        self.saveSignal.connect(lambda: backend.save_trace())
+        self.calibrationBS_Signal.connect(backend.set_calibration_bs)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -292,6 +296,13 @@ class Backend(QObject):
         self.steps_before = 10
         self.laser        = SHUTTERS[0]
         self.mode_printing = "none"
+
+    def make_connection(self, frontend: QObject):
+        frontend.startSignal.connect(self.play_pause)
+        frontend.stopSignal.connect(self.stop)
+        frontend.saveSignal.connect(lambda: self.save_trace())
+        frontend.calibrationBS_Signal.connect(self.set_calibration_bs)
+        self.dataSignal.connect(frontend.get_data)
 
     def _init_params(self):
         self.rate = RATE_MULTICHANNEL / 100
