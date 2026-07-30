@@ -110,35 +110,35 @@ class Frontend(QMainWindow):
         #   nanoDock     → a la izquierda de focus
         # ══════════════════════════════════════════════════════════════════════
 
-        # 1. Confocal — ancla principal (arriba izquierda)
-        confocalDock = Dock("Confocal", size=(520, 400))
+        # 1. Confocal — arriba izquierda
+        confocalDock = Dock("Confocal", size=(600, 400))
         self.confocalWidget = ConfocalFrontend()
         confocalDock.addWidget(self.confocalWidget)
         self.dockArea.addDock(confocalDock)
 
-        # 2. Trace — a la derecha del confocal (arriba derecha)
-        traceDock = Dock("Trace", size=(360, 400))
-        self.traceWidget = TraceFrontend()
-        traceDock.addWidget(self.traceWidget)
-        self.dockArea.addDock(traceDock, "right", confocalDock)
-
-        # 3. Focus z — bajo el confocal (fila inferior centro)
+        # 2. Focus z — bajo el confocal
         focusDock = Dock("Focus z", size=(260, 180))
         self.focusWidget = FocusFrontend()
         focusDock.addWidget(self.focusWidget)
         self.dockArea.addDock(focusDock, "bottom", confocalDock)
 
-        # 4. Shutters / Flipper / Láser 532 — a la derecha del focus
+        # 3. Shutters / Flipper / Láser 532 — a la derecha de focus
         shuttersDock = Dock("Shutters / Flipper / Láser 532", size=(360, 180))
         self.shuttersWidget = ShuttersFrontend()
         shuttersDock.addWidget(self.shuttersWidget)
         self.dockArea.addDock(shuttersDock, "right", focusDock)
 
-        # 5. Nanopositioning — a la izquierda del focus (fila inferior izquierda)
+        # 4. Nanopositioning — a la izquierda de focus
         nanoDock = Dock("Nanopositioning", size=(200, 180))
         self.nanoWidget = NanoFrontend()
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
+
+        # 5. Trace — abajo de todo ocupando todo el ancho de la ventana
+        traceDock = Dock("Trace", size=(1400, 260))
+        self.traceWidget = TraceFrontend()
+        traceDock.addWidget(self.traceWidget)
+        self.dockArea.addDock(traceDock, "bottom")
 
         # ── Ventanas flotantes (bajo demanda desde menú) ─────────────────────
         self.cameraWindow        = CameraWindow()          # Tools → Cámara

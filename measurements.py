@@ -198,25 +198,43 @@ class Frontend(QFrame):
         gcDock = Dock("Grid"); gcDock.addWidget(gcW)
         dock_area.addDock(gcDock, "right", refDock)
 
-        # Print control dock
+        # Print control dock (Multi-column layout expandido)
         pcW = QWidget(); plo = QGridLayout(pcW)
+        plo.setContentsMargins(6, 6, 6, 6)
+        plo.setHorizontalSpacing(10)
+        plo.setVerticalSpacing(6)
+
+        # Fila 0: Botón de directorio + Nombre de ruta
         plo.addWidget(self.imprimir_button,    0, 0, 1, 2)
         plo.addWidget(self.NameDirValue,       0, 2, 1, 2)
+
+        # Fila 1: Láser | Umbral
         plo.addWidget(QLabel("Láser:"),        1, 0); plo.addWidget(self.grid_laser,       1, 1)
-        plo.addWidget(QLabel("Umbral:"),       2, 0); plo.addWidget(self.umbralEdit,        2, 1)
-        plo.addWidget(QLabel("Umbral down:"),  3, 0); plo.addWidget(self.umbral_downEdit,   3, 1)
-        plo.addWidget(QLabel("T max (s):"),    4, 0); plo.addWidget(self.tmaxEdit,          4, 1)
-        plo.addWidget(QLabel("Steps before:"), 5, 0); plo.addWidget(self.steps_beforeEdit, 5, 1)
-        plo.addWidget(QLabel("Steps after:"),  6, 0); plo.addWidget(self.steps_afterEdit,  6, 1)
-        plo.addWidget(self.scan_check,         7, 0)
+        plo.addWidget(QLabel("Umbral:"),       1, 2); plo.addWidget(self.umbralEdit,        1, 3)
+
+        # Fila 2: Umbral down | T max (s)
+        plo.addWidget(QLabel("Umbral down:"),  2, 0); plo.addWidget(self.umbral_downEdit,   2, 1)
+        plo.addWidget(QLabel("T max (s):"),    2, 2); plo.addWidget(self.tmaxEdit,          2, 3)
+
+        # Fila 3: Steps before | Steps after
+        plo.addWidget(QLabel("Steps before:"), 3, 0); plo.addWidget(self.steps_beforeEdit, 3, 1)
+        plo.addWidget(QLabel("Steps after:"),  3, 2); plo.addWidget(self.steps_afterEdit,  3, 3)
+
+        # Fila 4: Scan pre-print | Post scan
+        plo.addWidget(self.scan_check,         4, 0, 1, 2)
         if self.mode == "dimers":
-            plo.addWidget(self.postscan_check, 7, 1)
-        plo.addWidget(self.set_ref_button,     8, 0, 1, 2)
-        plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
-        plo.addWidget(self.next_button,        10, 0)
-        plo.addWidget(QLabel("Total targets"), 11, 0); plo.addWidget(self.particulasEdit,    11, 1)
-        plo.addWidget(QLabel("Index"),        12, 0); plo.addWidget(self.indice_impresionEdit,12,1)
-        pcDock = Dock(f"{label} control"); pcDock.addWidget(pcW)
+            plo.addWidget(self.postscan_check, 4, 2, 1, 2)
+
+        # Fila 5: Controles de reproducción Play / Pause / Next Index
+        plo.addWidget(self.play_button,        5, 0); plo.addWidget(self.pause_button,      5, 1)
+        plo.addWidget(self.next_button,        5, 2, 1, 2)
+
+        # Fila 6: Total targets | Target Index
+        plo.addWidget(QLabel("Total targets:"),6, 0); plo.addWidget(self.particulasEdit,    6, 1)
+        plo.addWidget(QLabel("Target Index:"), 6, 2); plo.addWidget(self.indice_impresionEdit,6,3)
+
+        pcDock = Dock(f"{label} control", size=(640, 360))
+        pcDock.addWidget(pcW)
         dock_area.addDock(pcDock, "right", gcDock)
 
         # Focus shift dock
