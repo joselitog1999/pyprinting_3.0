@@ -36,7 +36,7 @@ from confocal        import Frontend as ConfocalFrontend, Backend as ConfocalBac
 from measurements    import Frontend as MeasFrontend,     Backend as MeasBackend
 from camera          import (CameraWindow, Backend as CameraBackend,
                               Laser532Window, Laser532Backend)
-from image_analyzer  import ImageAnalyzerWidget
+from image_analyzer  import ImageAnalyzerWidget, ImageAnalyzerWindow
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -140,17 +140,12 @@ class Frontend(QMainWindow):
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
 
-        # 6. Analizador de Imágenes Dock (Integrado permanentemente como pestaña en la app)
-        self.imageAnalyzerDock = Dock("Analizador de Imágenes", size=(520, 400))
-        self.imageAnalyzerWidget = ImageAnalyzerWidget()
-        self.imageAnalyzerDock.addWidget(self.imageAnalyzerWidget)
-        self.dockArea.addDock(self.imageAnalyzerDock, "below", traceDock)
-
         # ── Ventanas flotantes (bajo demanda desde menú) ─────────────────────
-        self.cameraWindow   = CameraWindow()         # Tools → Cámara
-        self.laser532Window = Laser532Window()        # Tools → Láser 532
-        self.printingWidget = MeasFrontend(mode="printing")
-        self.dimersWidget   = MeasFrontend(mode="dimers")
+        self.cameraWindow        = CameraWindow()          # Tools → Cámara
+        self.imageAnalyzerWindow = ImageAnalyzerWindow()   # Tools → Analizador de Imágenes
+        self.laser532Window      = Laser532Window()         # Tools → Láser 532
+        self.printingWidget      = MeasFrontend(mode="printing")
+        self.dimersWidget        = MeasFrontend(mode="dimers")
 
         # Nota: El menú Measurements está desbloqueado tanto en MODO REAL como en MODO MOCK/SAFE_MODE para depuración.
 
@@ -162,11 +157,7 @@ class Frontend(QMainWindow):
     def measurement_printing(self): self.printingWidget.show()
     def measurement_dimers(self):   self.dimersWidget.show()
     def tools_camera(self):         self.cameraWindow.show(); self.cameraWindow.raise_()
-    def tools_image_analyzer(self):
-        if self.imageAnalyzerDock not in self.dockArea.docks.values():
-            self.dockArea.addDock(self.imageAnalyzerDock, "right")
-        self.imageAnalyzerDock.show()
-        self.imageAnalyzerDock.raise_()
+    def tools_image_analyzer(self): self.imageAnalyzerWindow.show(); self.imageAnalyzerWindow.raise_()
     def tools_laser532(self):       self.laser532Window.show()
 
     def save_docks(self):

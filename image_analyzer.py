@@ -778,13 +778,16 @@ class ImageAnalyzerWidget(QWidget):
 
 
 class StandaloneAnalyzerWindow(QMainWindow):
-    """Ventana independiente para ejecutar `python image_analyzer.py` directamente."""
-    def __init__(self):
-        super().__init__()
+    """Ventana independiente para ejecutar el analizador de imágenes."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setWindowTitle("PyPrinting — Analizador de Imágenes Independiente")
         self.resize(1240, 780)
         self._analyzer = ImageAnalyzerWidget(self)
         self.setCentralWidget(self._analyzer)
+
+
+ImageAnalyzerWindow = StandaloneAnalyzerWindow
 
 
 if __name__ == "__main__":
