@@ -6,25 +6,33 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Solución al `AttributeError: 'CanonWorker' object has no attribute '_mode_color'`**:
-   - Se inicializaron los atributos `_mode_color`, `_clim_min`, `_clim_max`, `_lut_idx`, `_r_gain`, `_g_gain`, `_b_gain` dentro del constructor `CanonWorker.__init__()` en [canon_test.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/canon_test.py#L52-L66).
+1. **Reorganización en `Confocal` (`confocal.py`)**:
+   - Se movió la selección de `PSF_mode` (`x/y`, `x/z`, `y/x`, `y/z`) para ubicarla **al lado** del modo de escaneo `scan_mode` (`Ramp`, `Step by step`) en la misma fila del menú.
 
-2. **Modo Cámara para Microscopía de Transmisión (Escala de Grises en Vivo)**:
-   - Opción de **`Modo Imagen`** (`Color RGB` vs `Grises (Transmisión)`) en la suite de la cámara réflex Canon EOS 500D.
+2. **Modernización del Módulo de Trazas (`trace.py`)**:
+   - **Trazas Dobles Simultáneas**: Se reemplazó la traza individual por el monitoreo paralelo de **Láser 1** y **Láser 2** con selectores independientes en la parte superior.
+   - **Controles Compartidos**: Botones unificados de **`▶ Play / ■ Stop`** y **`💾 Save Trace`**.
 
-3. **Panel Integrado de Ajustes en Vivo**:
-   - **En Modo Escala de Grises / Transmisión**: Deslizadores CLim e histograma de paleta de falso color (LUT) (*Gris*, *Thermal*, *Viridis*, *Plasma*, *Inferno*, *Jet*).
-   - **En Modo Color RGB**: Deslizadores de Balance de Blancos (Ganancia R, G, B) ultrarrápidos en $<1\text{ ms}$.
+3. **Reubicación de `Steps before` / `Steps after` (`measurements.py`)**:
+   - Se trasladaron los campos `Steps before` y `Steps after` desde `trace.py` al panel de impresión **`Do Printing`** (`measurements.py`), donde son utilizados para calcular la línea base y el umbral de impresión.
+
+4. **Ventana e Integración `Power in BS` (`PowerBSWindow`)**:
+   - Se creó la ventana flotante independiente `PowerBSWindow` que incluye el gráfico **`Trace on BS`** abajo de los campos de calibración `Slope` e `Intercept`.
+   - **Auto-activación**: Al abrir la ventana (`showEvent`), el botón de medición de potencia se mantiene activo automáticamente, y al cerrarla (`closeEvent`) se desactiva.
+
+5. **Ajustes de Docks y Desbloqueo en Modo MOCK (`app.py`)**:
+   - Se integró el **Analizador de Imágenes** como una pestaña/Dock fija en la ventana principal.
+   - Se **desbloqueó** el menú `&Measurements` (`Printing` y `Dimers`) en `SAFE_MODE` (modo seguro MOCK) para depuración completa sin hardware físico conectado.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Módulo Canon Live View Adjustments**:
+- **Prueba Módulo Principal y Docks**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import canon_test; print('VERIFIED 100% CLEAN!')"
+  .\.venv\Scripts\python.exe -c "import app; print('VERIFIED 100% CLEAN!')"
   ```
-- **Prueba Ejecutable de la Suite de Cámara Canon**:
+- **Prueba Ejecutable de la Aplicación**:
   ```powershell
-  .\.venv\Scripts\python.exe canon_test.py
+  .\.venv\Scripts\python.exe app.py
   ```

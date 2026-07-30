@@ -89,6 +89,8 @@ class Frontend(QFrame):
         self.umbralEdit      = QLineEdit("1.2")
         self.umbral_downEdit = QLineEdit("0")
         self.tmaxEdit        = QLineEdit("20")
+        self.steps_beforeEdit = QLineEdit("10"); self.steps_beforeEdit.setFixedWidth(44)
+        self.steps_afterEdit  = QLineEdit("10"); self.steps_afterEdit.setFixedWidth(44)
         self.autofocEdit     = QLineEdit("2");  self.autofocEdit.setFixedWidth(44)
         self.shiftxEdit      = QLineEdit("0");  self.shiftxEdit.setFixedWidth(44)
         self.shiftyEdit      = QLineEdit("0");  self.shiftyEdit.setFixedWidth(44)
@@ -158,7 +160,8 @@ class Frontend(QFrame):
         self.cargar_archivo_button = QPushButton("Load grid (.txt)")
         self.cargar_archivo_button.clicked.connect(lambda: self.readgridSignal.emit())
         self.cargar_archivo_button.setStyleSheet(
-            "QPushButton { background-color: orange; }")
+            "QPushButton { background-color: orange; }"
+            "QPushButton:pressed { background-color: blue; }")
 
         # ── Info extra ────────────────────────────────────────────────────────
         self.powerlaser  = QLineEdit("—")
@@ -203,11 +206,6 @@ class Frontend(QFrame):
         plo.addWidget(QLabel("Umbral:"),       2, 0); plo.addWidget(self.umbralEdit,        2, 1)
         plo.addWidget(QLabel("Umbral down:"),  3, 0); plo.addWidget(self.umbral_downEdit,   3, 1)
         plo.addWidget(QLabel("T max (s):"),    4, 0); plo.addWidget(self.tmaxEdit,          4, 1)
-        plo.addWidget(self.scan_check,         5, 0)
-        if self.mode == "dimers":
-            plo.addWidget(self.postscan_check, 5, 1)
-        plo.addWidget(self.set_ref_button,     6, 0, 1, 2)
-        plo.addWidget(self.play_button,        7, 0); plo.addWidget(self.pause_button,      7, 1)
         plo.addWidget(self.next_button,        8, 0)
         plo.addWidget(QLabel("Total targets"), 9, 0); plo.addWidget(self.particulasEdit,    9, 1)
         plo.addWidget(QLabel("Index"),        10, 0); plo.addWidget(self.indice_impresionEdit,10,1)

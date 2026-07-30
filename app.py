@@ -140,10 +140,11 @@ class Frontend(QMainWindow):
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
 
-        # 6. Analizador de Imágenes Dock (Dock Opcional)
+        # 6. Analizador de Imágenes Dock (Integrado permanentemente como pestaña en la app)
         self.imageAnalyzerDock = Dock("Analizador de Imágenes", size=(520, 400))
         self.imageAnalyzerWidget = ImageAnalyzerWidget()
         self.imageAnalyzerDock.addWidget(self.imageAnalyzerWidget)
+        self.dockArea.addDock(self.imageAnalyzerDock, "tab", traceDock)
 
         # ── Ventanas flotantes (bajo demanda desde menú) ─────────────────────
         self.cameraWindow   = CameraWindow()         # Tools → Cámara
@@ -151,12 +152,7 @@ class Frontend(QMainWindow):
         self.printingWidget = MeasFrontend(mode="printing")
         self.dimersWidget   = MeasFrontend(mode="dimers")
 
-        # En modo seguro: deshabilitar menú Measurements
-        if SAFE_MODE:
-            for action in self.menuBar().actions():
-                if action.text() == "&Measurements":
-                    action.setEnabled(False)
-                    action.setToolTip("No disponible en modo seguro")
+        # Nota: El menú Measurements está desbloqueado tanto en MODO REAL como en MODO MOCK/SAFE_MODE para depuración.
 
     def get_selectDir(self):        self.selectDirSignal.emit()
     def get_createDir(self):        self.createDirSignal.emit()

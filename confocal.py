@@ -169,7 +169,7 @@ class Frontend(QFrame):
         sg = QGridLayout(paramWidget)
         sg.addWidget(self.scan_laser,      1, 1)
         sg.addWidget(self.scan_mode,       1, 2)
-        sg.addWidget(self.PSF_mode,        2, 2)
+        sg.addWidget(self.PSF_mode,        1, 3)
         sg.addWidget(QLabel("Range x (µm)"),  3, 1); sg.addWidget(self.scanrangeEdit,   3, 2)
         sg.addWidget(QLabel("Range y (µm)"),  4, 1); sg.addWidget(self.scanrangeEdit_y, 4, 2)
         sg.addWidget(QLabel("Pixels x"),      5, 1); sg.addWidget(self.NxEdit,          5, 2)
