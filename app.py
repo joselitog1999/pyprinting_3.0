@@ -144,7 +144,7 @@ class Frontend(QMainWindow):
         self.imageAnalyzerDock = Dock("Analizador de Imágenes", size=(520, 400))
         self.imageAnalyzerWidget = ImageAnalyzerWidget()
         self.imageAnalyzerDock.addWidget(self.imageAnalyzerWidget)
-        self.dockArea.addDock(self.imageAnalyzerDock, "tab", traceDock)
+        self.dockArea.addDock(self.imageAnalyzerDock, "below", traceDock)
 
         # ── Ventanas flotantes (bajo demanda desde menú) ─────────────────────
         self.cameraWindow   = CameraWindow()         # Tools → Cámara
