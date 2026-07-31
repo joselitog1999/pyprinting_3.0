@@ -1,50 +1,139 @@
 # Manual de Usuario: PyPrinting 3.0 🔬
-**Sistema de Control, Espectroscopía Confocal y Nanofabricación Óptica**
+**Sistema de Control, Espectroscopía Confocal, Caracterización de PSF y Nanofabricación Óptica**
 *UNSAM — Nanofotónica*
 
 ---
 
 ## 📖 Índice
 
-1. [Introducción y Arquitectura General](#1-introducción-y-arquitectura-general)
-2. [Modos de Operación: Producción vs. Seguro](#2-modos-de-operación-producción-vs-seguro)
-3. [Estructura de la Menú Bar Principal](#3-estructura-de-la-menú-bar-principal)
+1. [Introducción, Fundamentos Físicos y Formulación Matemática](#1-introducción-fundamentos-físicos-y-formulación-matemática)
+   - [1.1 Impresión Óptica Fototérmica y Ensamblado de Dímeros Plasmónicos](#11-impresión-óptica-fototérmica-y-ensamblado-de-dímeros-plasmónicos)
+   - [1.2 Modelo Analítico Gaussiano 2D de 7 Parámetros](#12-modelo-analítico-gaussiano-2d-de-7-parámetros)
+   - [1.3 Modelo Analítico Haz Vortex / Donut (Laguerre-Gauss $LG_{01}$)](#13-modelo-analítico-haz-vortex--donut-laguerre-gauss-lg_01)
+   - [1.4 Métricas de Caracterización y Alineación Sub-nanométrica de PSF](#14-métricas-de-caracterización-y-alineación-sub-nanométrica-de-psf)
+   - [1.5 Algoritmo de Estabilización Z por Autocorrelación](#15-algoritmo-de-estabilización-z-por-autocorrelación)
+   - [1.6 Mapeo Físico de Coordenadas Piezoeléctricas PI](#16-mapeo-físico-de-coordenadas-piezoeléctricas-pi)
+2. [Modos de Operación: Producción vs. Modo Seguro](#2-modos-de-operación-producción-vs-modo-seguro)
+3. [Estructura de la Barra de Menús Principal](#3-estructura-de-la-barra-de-menús-principal)
 4. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#4-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
    - [4.1 Mapeo Confocal 2D/3D y Ajuste de Partículas (PSF)](#41-mapeo-confocal-2d3d-y-ajuste-de-partículas-psf)
    - [4.2 Impresión Automatizada de Redes/Grillas de Nanopartículas](#42-impresión-automatizada-de-redesgrillas-de-nanopartículas)
    - [4.3 Fabricación Guiada de Nanodímeros Plasmónicos](#43-fabricación-guiada-de-nanodímeros-plasmónicos)
    - [4.4 Medición con Cámara y Alineación Óptica](#44-medición-con-cámara-y-alineación-óptica)
    - [4.5 Adquisición de Trazas Temporales y Calibración de Potencia BS](#45-adquisición-de-trazas-temporales-y-calibración-de-potencia-bs)
+   - [4.6 Caracterización Analítica Avanzada de PSF (`psf_analyzer.py`)](#46-caracterización-analítica-avanzada-de-psf-psf_analyzerpy)
 5. [Descripción Detallada de Docks, Ventanas y Controles](#5-descripción-detallada-de-docks-ventanas-y-controles)
    - [5.1 Dock: Confocal](#51-dock-confocal)
    - [5.2 Dock: Trace (Trazas Dobles y Ventana Power BS)](#52-dock-trace-trazas-dobles-y-ventana-power-bs)
    - [5.3 Dock: Focus z](#53-dock-focus-z)
    - [5.4 Dock: Shutters / Flipper / Láser 532](#54-dock-shutters--flipper--láser-532)
    - [5.5 Dock: Nanopositioning](#55-dock-nanopositioning)
-   - [5.6 Ventana de Mediciones (Printing & Dimers)](#56-ventana-de-mediciones-printing--dimers)
-   - [5.7 Ventana de Cámara Réflex Canon EOS 500D](#57-ventana-de-cámara-réflex-canon-eos-500d)
-   - [5.8 Ventana de Analizador de Imágenes Estáticas](#58-ventana-de-analizador-de-imágenes-estáticas)
+   - [5.6 Archivo de Configuración Centralizada (`config.py`)](#56-archivo-de-configuración-centralizada-configpy)
+   - [5.7 Ventana de Mediciones (Printing & Dimers)](#57-ventana-de-mediciones-printing--dimers)
+   - [5.8 Ventana de Cámara Réflex Canon EOS 500D](#58-ventana-de-cámara-réflex-canon-eos-500d)
+   - [5.9 Ventana de Analizador de Imágenes Estáticas](#59-ventana-de-analizador-de-imágenes-estáticas)
+   - [5.10 Ventana de Caracterización de PSF (`psf_analyzer.py` — PSF Analyzer)](#510-ventana-de-caracterización-de-psf-psf_analyzerpy--psf-analyzer)
 6. [Tabla de Atajos de Teclado (Shortcuts)](#6-tabla-de-atajos-de-teclado-shortcuts)
 7. [Preguntas Frecuentes (FAQ)](#7-preguntas-frecuentes-faq)
    - [7.1 ¿Cómo se determina el centro de la partícula al realizar un escaneo confocal?](#71-cómo-se-determina-el-centro-de-la-partícula-al-realizar-un-escaneo-confocal)
    - [7.2 ¿Qué sucede exactamente en el sistema al ejecutar un escaneo desde el widget Confocal?](#72-qué-sucede-exactamente-en-el-sistema-al-ejecutar-un-escaneo-desde-el-widget-confocal)
+   - [7.3 ¿Cómo funciona matemáticamente el casillero "Filtro (%)" de umbral de ruido?](#73-cómo-funciona-matemáticamente-el-casillero-filtro--de-umbral-de-ruido)
+   - [7.4 ¿Qué métricas reporta el módulo PSF Analyzer y cómo interpretar los modelos Gaussiano vs. Donut?](#74-qué-métricas-reporta-el-módulo-psf-analyzer-y-cómo-interpretar-los-modelos-gaussiano-vs-donut)
 
 ---
 
-## 1. Introducción y Arquitectura General
+## 1. Introducción, Fundamentos Físicos y Formulación Matemática
 
-**PyPrinting 3.0** es una suite de software científico desarrollada en **Python 3 / PyQt6** diseñada para laboratorios de nanofotónica. El sistema automatiza experimentos de:
-* **Microscopía Confocal Láser**: Barridos 2D y 3D con lectura síncrona por disparo de hardware.
-* **Impresión Óptica (Fototérmica / Transferencia dirigida por radiación)**: Deposición controlada de nanopartículas individuales (oro, plata, dieléctricos) organizada en matrices predefinidas.
-* **Ensamblado Plasmónico de Dímeros**: Impresión precisa de pares de nanopartículas a separaciones nanométricas para generar hot-spots de campo cercano.
-* **Estabilización de Foco Z**: Corrección activa de deriva térmica mediante autocorrelación de señal luminosa.
-* **Visión por Computadora & Microscopía de Transmisión**: Transmisión Live View desde cámaras réflex Canon EOS con paletas LUT, balance de blancos, contraste CLim, calibración espacial ($\mu\text{m/píxel}$) y seguimiento dinámico de nanopartículas (`trackpy`).
+**PyPrinting 3.0** es una plataforma de software científico desarrollada en **Python 3 / PyQt6** diseñada para laboratorios de nanofotónica. La arquitectura automatiza experimentos de microscopía confocal láser, espectroscopía de fluorescencia/dispersión, nanofabricación fototérmica y caracterización fina de la Función de Punto de Dispersión (PSF).
 
-La interfaz principal utiliza un sistema modular de **Docks** dinámicos basados en `pyqtgraph.dockarea`, permitiendo al operador desacoplar, mover o reorganizar todos los paneles de control según las necesidades del experimento.
+```mermaid
+graph TD
+    System[PyPrinting 3.0 System] --> Hardware[Control de Hardware & DAQ]
+    System --> Optics[Espectroscopía Confocal & PSF]
+    System --> Fabrication[Impresión Óptica & Dímeros]
+    System --> Vision[Visión por Computadora & Tracking]
+
+    Hardware --> PI[Piezo PI E-517/E-736]
+    Hardware --> NIDAQ[NI-DAQmx 1.0 MS/s]
+    Optics --> Scan2D[Escaneo Síncrono 2D/3D]
+    Optics --> PSFAnalyzer[PSF Analyzer 2D Fit]
+    Optics --> FocusZ[Autofoco por Autocorrelación]
+    Fabrication --> PrintingGrid[Matrices de Impresión]
+    Fabrication --> Dimers[Ensamblado Guiado de Dímeros]
+    Vision --> Canon[Cámara Réflex Canon EDSDK]
+    Vision --> Trackpy[Tracking Dinámico trackpy]
+```
+
+### 1.1 Impresión Óptica Fototérmica y Ensamblado de Dímeros Plasmónicos
+La **impresión óptica** logra la deposición espacialmente controlada de nanopartículas metálicas (Au, Ag) sobre sustratos dieléctricos impulsada por fuerzas ópticas de presión de radiación. Al iluminar una nanopartícula en su resonancia plasmónica ($LSPR$), la fuerza de gradiente $\mathbf{F}_{\text{grad}}$ domina atrayendo la partícula al foco focalizado:
+
+$$\mathbf{F}_{\text{grad}} = \frac{1}{4} \varepsilon_m \operatorname{Re}(\alpha) \nabla |\mathbf{E}|^2$$
+
+En el **ensamblado de nanodímeros plasmónicos**, la deposición de una segunda nanopartícula a distancias de sub-100 nm genera una fuerte acoplamiento fotónico de campo cercano (*hot-spot* plasmónico), intensificando la emisión Raman (SERS) y la fluorescencia local.
 
 ---
 
-## 2. Modos de Operación: Producción vs. Seguro
+### 1.2 Modelo Analítico Gaussiano 2D de 7 Parámetros
+Para caracterizar el perfil de excitación en el plano focal horizontal ($XY$), el sistema ajusta la distribución de intensidad normalizada $Z_n$ mediante una función Gaussiana 2D no lineal de 7 parámetros orientada en un ángulo $\theta$ (`scipy.optimize.curve_fit`):
+
+$$G(x, y) = Z_{\text{offset}} + A \cdot \exp\left( -\left[ a(x - x_0)^2 + 2b(x - x_0)(y - y_0) + c(y - y_0)^2 \right] \right)$$
+
+donde los coeficientes anisotrópicos son:
+
+$$a = \frac{\cos^2\theta}{2\sigma_x^2} + \frac{\sin^2\theta}{2\sigma_y^2}, \quad b = -\frac{\sin(2\theta)}{4\sigma_x^2} + \frac{\sin(2\theta)}{4\sigma_y^2}, \quad c = \frac{\sin^2\theta}{2\sigma_x^2} + \frac{\cos^2\theta}{2\sigma_y^2}$$
+
+El Ancho Completo a la Mitad del Máximo (FWHM) para cada eje principal es:
+
+$$\text{FWHM}_x = 2\sqrt{2\ln 2} \cdot \sigma_x \approx 2.35482 \cdot \sigma_x, \quad \text{FWHM}_y = 2.35482 \cdot \sigma_y$$
+
+---
+
+### 1.3 Modelo Analítico Haz Vortex / Donut (Laguerre-Gauss $LG_{01}$)
+Para caracterizar haces de fase espiral o donas de depleción en microscopía STED/confocal, se ajusta el perfil analítico Laguerre-Gauss $LG_{01}$:
+
+$$I_{\text{donut}}(x, y) = Z_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right)$$
+
+donde la distancia radial elíptica normalizada es:
+
+$$r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
+
+---
+
+### 1.4 Métricas de Caracterización y Alineación Sub-nanométrica de PSF
+* **Calidad del cero central**:
+  $$Q_{\text{cero}} = \frac{I_{\min}}{I_{\max}}$$
+* **Uniformidad angular del anillo**:
+  $$U_{\theta} = \frac{\sigma_{\theta}}{\bar{I}_{\text{anillo}}}$$
+* **Desalineación espacial vectorial entre canales ($\Delta r_{\text{nm}}$)**:
+  $$\Delta r_{\text{nm}} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2} \times 1000 \quad [\text{nm}]$$
+* **Coeficiente de Correlación de Pearson ($\text{PCC}$)**:
+  $$\text{PCC} = \frac{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)(Z_{2,ij} - \bar{Z}_2)}{\sqrt{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)^2 \cdot \sum_{i,j} (Z_{2,ij} - \bar{Z}_2)^2}}$$
+* **Error RMS & Chi-cuadrado reducido ($\chi^2_{\text{red}}$)**:
+  $$\text{RMS} = \sqrt{\frac{1}{N}\sum_{i,j} \left(Z_{n,ij} - Z_{\text{fit},ij}\right)^2}, \quad \chi^2_{\text{red}} = \frac{1}{N - p} \sum_{i,j} \left(Z_{n,ij} - Z_{\text{fit},ij}\right)^2$$
+
+---
+
+### 1.5 Algoritmo de Estabilización Z por Autocorrelación
+La deriva térmica del eje axial Z se corrige activamente mediante la autocorrelación de la curva de fototransmisión/dispersión capturada por el fotodiodo divisor de haz (BS):
+
+$$C_Z(\Delta z) = \frac{\sum_{i} \left[I(z_i) - \bar{I}\right]\cdot\left[I_{\text{ref}}(z_i + \Delta z) - \bar{I}_{\text{ref}}\right]}{\sigma_I \cdot \sigma_{I_{\text{ref}}}}$$
+
+El algoritmo busca el desplazamiento $\Delta z^*$ que maximiza $C_Z(\Delta z)$ y aplica el ajuste correctivo sobre la platina piezoeléctrica PI.
+
+---
+
+### 1.6 Mapeo Físico de Coordenadas Piezoeléctricas PI
+La conversión entre las coordenadas relativas en píxeles $(x_o, y_o)$ del mapa confocal y la posición absoluta $(\mu\text{m})$ de la platina piezoeléctrica **Physik Instrumente (PI)** se rige por:
+
+$$X_{\text{físico}} = X_{\text{ref}} - \frac{\text{Range}_x}{2} + \frac{dx}{2} + (x_o \cdot dx)$$
+
+$$Y_{\text{físico}} = Y_{\text{ref}} - \frac{\text{Range}_y}{2} + \frac{dy}{2} + (y_o \cdot dy)$$
+
+donde los tamaños de paso espacial son $dx = \frac{\text{Range}_x}{N_x}$ y $dy = \frac{\text{Range}_y}{N_y}$.
+
+---
+
+## 2. Modos de Operación: Producción vs. Modo Seguro
 
 El sistema cuenta con dos modos de arranque configurables:
 
@@ -66,7 +155,7 @@ $env:PYPRINTING_SAFE="1"
 
 ---
 
-## 3. Estructura de la Menú Bar Principal
+## 3. Estructura de la Barra de Menús Principal
 
 La barra superior de menús proporciona accesos directos globales a la gestión de archivos, herramientas avanzadas, mediciones y personalización de interfaz:
 
@@ -78,6 +167,7 @@ La barra superior de menús proporciona accesos directos globales a la gestión 
 | **Files** | `Cargar última posición` | — | Lee el archivo de sesión previa y posiciona la platina PI en las últimas coordenadas $(X, Y, Z)$ registradas. |
 | **Tools** | `Cámara` | — | Despliega la ventana flotante de control Live View de la cámara Réflex Canon EOS 500D (`CameraWindow`). |
 | **Tools** | `Analizador de Imágenes` | — | Abre la ventana flotante independiente del Analizador de Imágenes estáticas (`ImageAnalyzerWindow`). |
+| **Tools** | `PSF Analyzer` | — | Abre la ventana flotante de caracterización analítica fina de PSF 2D (`PSFAnalyzerWindow`). |
 | **Tools** | `Láser 532` | — | Despliega la ventana de control analógico de potencia/voltaje DAC para el láser verde de 532 nm. |
 | **Tools** | `Load Grid` | — | Importa un archivo de coordenadas de grilla personalizada (`.txt`) para secuencias de impresión. |
 | **Measurements** | `Printing` | — | Abre la ventana flotante de control de impresión automatizada de nanopartículas individuales. |
@@ -190,6 +280,27 @@ La barra superior de menús proporciona accesos directos globales a la gestión 
 
 ---
 
+### 4.6 Caracterización Analítica Avanzada de PSF (`psf_analyzer.py`)
+
+```
+[Tools -> PSF Analyzer] ──> [Cargar Confocal .tiff] ──> [Elegir Modelo 2D / Donut] ──> [Aplicar Filtro %] ──> [Inspeccionar Métricas, Residuales y RGB]
+```
+
+1. Abra la ventana desde la barra de menú superior: `Tools` $\rightarrow$ `PSF Analyzer`.
+2. **Cargar Imágenes Confocales**:
+   - Haga clic en **`Cargar Confocal (.tiff)`** en el panel superior (**Confocal 1**, excitación verde) o en el panel inferior (**Confocal 2**, donut rojo).
+3. **Seleccionar Modelo de Ajuste & Umbral de Ruido**:
+   - Elija el modelo analítico en el combo: `Gaussiana 2D` o `Donut (Laguerre-Gauss)`.
+   - Ajuste el porcentaje de umbral en `Filtro (%)` (por defecto 30%) y presione **`Enter`** o haga clic en **`Aplicar`**.
+4. **Inspección en Visores Triples por Canal**:
+   - Examine las 3 imágenes generadas en tiempo real: **Original / Filtrada** (con centro $x_0,y_0$ y elipse), **Modelo Ajustado (Fit $Z_{\text{fit}}$)** y **Mapa de Residuales (|Zn - Zfit|)** con sus respectivas barras laterales de escala Z dinámicas (`ColorBarItem`).
+5. **Ajuste de Unidades y Visualización**:
+   - Cambie las etiquetas graduadas de los ejes en `Unidades` (`micrómetros (µm)` vs `píxeles (px)`).
+   - En la pestaña **Perfiles 1D**, elija el canal (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y la orientación del corte pasante por el centro (`Horizontal`, `Vertical`, `Diagonal 45°`, `Diagonal 135°`).
+   - En la pestaña **Superposición Falso Color**, seleccione el origen RGB (`Imágenes Originales`, `Originales con Filtro de Ruido`, `Modelos Ajustados (Fits)`).
+
+---
+
 ## 5. Descripción Detallada de Docks, Ventanas y Controles
 
 ### 5.1 Dock: Confocal (`ConfocalFrontend`)
@@ -267,7 +378,9 @@ La barra superior de menús proporciona accesos directos globales a la gestión 
 | **`Set reference`** | `QPushButton` | Guarda las coordenadas actuales como origen de referencia para el panel *Go to*. |
 | **`Go to`** | `QPushButton` | Mueve la platina de forma absoluta a las coordenadas $(X, Y, Z)$ ingresadas en las casillas. |
 
-### 2.2 Archivo de Configuración Centralizada (`config.py`)
+---
+
+### 5.6 Archivo de Configuración Centralizada (`config.py`)
 
 Todos los valores predeterminados (*typical values*) que aparecen en los casilleros y parámetros editables de la interfaz gráfica se encuentran centralizados en [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py). Esto permite adaptar los valores de inicio del sistema sin necesidad de modificar el código interno de la interfaz:
 
@@ -279,7 +392,7 @@ Todos los valores predeterminados (*typical values*) que aparecen en los casille
 
 ---
 
-### 5.6 Ventana de Mediciones (`MeasFrontend` — Printing & Dimers)
+### 5.7 Ventana de Mediciones (`MeasFrontend` — Printing & Dimers)
 
 El panel **Printing control** cuenta con una disposición matricial de 4 columnas para máxima claridad visual:
 
@@ -307,7 +420,7 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 
 ---
 
-### 5.7 Ventana de Cámara Réflex Canon EOS 500D (`canon_test.py` / `canon_edsdk.py`)
+### 5.8 Ventana de Cámara Réflex Canon EOS 500D (`canon_test.py` / `canon_edsdk.py`)
 
 | Elemento | Tipo | Función / Descripción |
 |---|---|---|
@@ -323,7 +436,7 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 
 ---
 
-### 5.8 Ventana de Analizador de Imágenes Estáticas (`image_analyzer.py`)
+### 5.9 Ventana de Analizador de Imágenes Estáticas (`image_analyzer.py`)
 
 | Elemento | Tipo | Función / Descripción |
 |---|---|---|
@@ -338,7 +451,7 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 
 ---
 
-### 5.9 Ventana de Caracterización de PSF (`psf_analyzer.py` — PSF Analyzer)
+### 5.10 Ventana de Caracterización de PSF (`psf_analyzer.py` — PSF Analyzer)
 
 | Elemento | Tipo | Función / Descripción |
 |---|---|---|
@@ -406,10 +519,6 @@ El cálculo del centro de la nanopartícula durante y al finalizar un escaneo co
    $$Y_{\text{físico}} = Y_{\text{origen}} - \frac{\text{Range}_y}{2} + \frac{dy}{2} + (y_o \cdot dy)$$
    donde $dx = \frac{\text{Range}_x}{N_x}$ y $dy = \frac{\text{Range}_y}{N_y}$.
 
-**Acciones Automatizadas Tras la Detección**:
-- **Si `Auto CM` está activo**: La platina PI se desplaza automáticamente (`_moveto`) al centro exacto $(X_{\text{físico}}, Y_{\text{físico}})$ apenas termina el escaneo.
-- **Botón `Go to NP1` / `Go to NP2`**: Mueve manualmente el piezo al centro calculado de la partícula 1 o 2 en cualquier momento.
-
 ---
 
 ### 7.2 ¿Qué sucede exactamente en el sistema al ejecutar un escaneo desde el widget Confocal?
@@ -439,6 +548,39 @@ Al hacer clic en **`Start Scan`** en el widget **Confocal**, la interfaz (`Front
    - **Posicionamiento PI**: Si `Auto CM` está marcado, mueve automáticamente la platina PI al centro calculado de la nanopartícula; de lo contrario, regresa el piezo al centro original del área escaneada $(X_{pos}, Y_{pos})$.
    - **Guardado**: Exporta automáticamente la imagen procesada a disco en formato `.tiff` dentro de la carpeta de trabajo.
    - **Notificación**: Emite `scandoneSignal` informando que el escaneo concluyó con éxito.
+
+---
+
+### 7.3 ¿Cómo funciona matemáticamente el casillero "Filtro (%)" de umbral de ruido?
+
+El casillero **`Filtro (%)`** (tanto en el widget Confocal como en PSF Analyzer) realiza una operación de filtrado no lineal por umbralización sobre la matriz de intensidad normalizada $Z_n \in [0.0, 1.0]$:
+
+$$Z_f[x, y] = \begin{cases} Z_n[x, y] & \text{si } Z_n[x, y] \ge \frac{P}{100} \\ 0.0 & \text{si } Z_n[x, y] < \frac{P}{100} \end{cases}$$
+
+donde $P\%$ representa el porcentaje ingresado (por ejemplo, $P = 30\%$). 
+
+* **Impacto en el Ajuste**: Todo valor con intensidad inferior al $30\%$ del rango dinámico pico-a-fondo se fuerza a $0.0$. Esto elimina las fluctuaciones de ruido aleatorio del fondo lejano, impidiendo que distorsionen los momentos de segundo orden o inflen falsamente el valor de los anchos de cintura ($\sigma_x, \sigma_y$).
+* **Actualización Dinámica**: En PSF Analyzer, modificar el número y presionar **`Enter`** o hacer clic en **`Aplicar`** dispara inmediatamente el recálculo completo de $Z_f$, el fit 2D, el mapa de residuales y los perfiles 1D.
+
+---
+
+### 7.4 ¿Qué métricas reporta el módulo PSF Analyzer y cómo interpretar los modelos Gaussiano vs. Donut?
+
+La ventana **PSF Analyzer** (`psf_analyzer.py`) genera un informe analítico multicanal comparando las siguientes métricas en la pestaña **`📊 Métricas de Ajuste`**:
+
+1. **Coordenadas de Centro ($x_0, y_0$)**: Posición espacial ajustada sub-píxel en $\mu\text{m}$.
+2. **Desalineación Vectorial Dual ($\Delta r_{\text{nm}}$)**: Distancia euclidiana entre el centro del haz de excitación (Canal 1) y el haz Donut (Canal 2):
+   $$\Delta r_{\text{nm}} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2} \times 1000 \quad [\text{nm}]$$
+3. **Radio del Anillo Donut ($r_0$) & Elipticidad ($a/b$)**:
+   - $r_0$: Radio promedio del anillo de máxima intensidad en el perfil donut.
+   - $a/b$: Relación entre los semi-ejes mayor y menor. Un valor de $1.000$ indica una simetría circular perfecta.
+4. **Orientación de Inclinación ($\theta$)**: Ángulo del eje principal de la elipse respecto al eje horizontal X (en grados °).
+5. **Calidad del Cero Central ($I_{\min}/I_{\max}$)**: Intensidad residual en la dona de depleción respecto al pico. Un valor cercano a $0.0000$ refleja un cero físico de alta calidad para nanoscopía STED.
+6. **Uniformidad Angular ($\sigma_{\theta}/\bar{I}$)**: Variación de intensidad a lo largo del anillo del donut. Un valor bajo representa un anillo homogéneo sin aberraciones de fase.
+7. **Bondad de Ajuste ($R^2$, Error RMS y $\chi^2_{\text{red}}$)**:
+   - $R^2$: Coeficiente de determinación (meta: $>0.90$).
+   - $\text{RMS}$: Error cuadrático medio de residuales normalizados.
+   - $\chi^2_{\text{red}}$: Chi-cuadrado reducido para evaluar el ajuste estadístico del modelo analítico.
 
 ---
 
