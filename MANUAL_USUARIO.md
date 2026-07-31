@@ -209,7 +209,7 @@ La barra superior de menús proporciona accesos directos globales a la gestión 
 | **`Go to NP2`** | `QPushButton` | Posiciona la platina en las coordenadas calculadas para la Nanopartícula 2 (si aplica). |
 | **Auto CM** | `QCheckBox` | Si está activo, tras un escaneo el piezo se desplaza automáticamente al centro de masa. |
 | **Scan Image Combo** | `QComboBox` | Define el contraste dinámico (`NPs maximum`, `NPs minimum`, `choose`). |
-| **Method Center Combo**| `QComboBox` | Algoritmo de ajuste de centro (`center of mass`, `center of gauss`, `two NP: center of gauss`). |
+| **Method Center Combo**| `QComboBox` | Algoritmo de ajuste de centro (`center of mass`, `center of gauss`, `two NP: center of gauss`, `donut (Laguerre-Gauss)`). |
 | **`DRIFT measurement`**| `QPushButton` | Inicia la medición periódica de deriva espacial ajustando la posición Gaussiana a intervalos regulables. |
 
 ---
@@ -368,6 +368,9 @@ El cálculo del centro de la nanopartícula durante y al finalizar un escaneo co
      $$G(x,y) = Z_{\text{offset}} + A \cdot \exp\left(-\left[a(x-x_0)^2 + 2b(x-x_0)(y-y_0) + c(y-y_0)^2\right]\right)$$
      Devuelve las coordenadas $(x_0, y_0)$ con precisión sub-nanométrica.
    - **`two NP: center of gauss` (Doble Partícula / Nanodímeros)**: Identifica los dos picos locales mediante `skimage.feature.peak_local_max` y ajusta una función de dos gaussianas 2D superpuestas (`two_gaussian2D`) para obtener la posición exacta de ambas partículas $(x_1, y_1)$ y $(x_2, y_2)$.
+   - **`donut (Laguerre-Gauss)` (Ajuste Haz Vortex / STED $LG_{01}$)**: Toma el centro de masa como semilla e integra el modelo analítico de haz Donut:
+     $$I_{\text{donut}}(x, y) = I_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right), \quad \text{donde } r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
+     Ajusta por mínimos cuadrados no lineales (`scipy.optimize.curve_fit`) determinando las coordenadas sub-píxel $(x_0, y_0)$ del **mínimo nulo central del donut**.
 
 4. **Conversión a Coordenadas Físicas ($\mu\text{m}$) (`_coords`)**:
    Convierte las coordenadas en píxeles $(x_o, y_o)$ a la posición absoluta en micrómetros de la platina piezoeléctrica **Physik Instrumente (PI)**:

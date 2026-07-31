@@ -45,6 +45,34 @@ def center_of_gauss2D(image: np.ndarray, xo: float, yo: float):
     return popt[1] - x[0], popt[2] - y[0]
 
 
+def donut2D(grid, amplitude, x0, y0, σ_x, σ_y, offset):
+    x, y = grid
+    x0, y0 = float(x0), float(y0)
+    r2 = ((x - x0)**2) / (2 * σ_x**2) + ((y - y0)**2) / (2 * σ_y**2)
+    D = offset + amplitude * r2 * np.exp(-r2)
+    return D.ravel()
+
+
+def center_of_donut2D(image: np.ndarray, xo: float, yo: float):
+    Nx, Ny = image.shape
+    x = np.arange(-Nx/2 + 0.5, Nx/2)
+    y = np.arange(-Ny/2 + 0.5, Ny/2)
+    Mx, My = np.meshgrid(x, y)
+    initial_sigma = [2.0, 2.0]
+    initial_guess = [1.0, xo + x[0], yo + y[0],
+                     initial_sigma[0], initial_sigma[1], 0.0]
+    bounds = ([0.0, x[0],  y[0],  0.1, 0.1, 0.0],
+              [5.0, x[-1], y[-1], 10.0, 10.0, 1.0])
+    try:
+        popt, _ = curve_fit(donut2D, (Mx, My), image.ravel(),
+                            p0=initial_guess, bounds=bounds)
+        popt = np.around(popt, 3)
+        return popt[1] - x[0], popt[2] - y[0]
+    except Exception as e:
+        print(f"[PSF] Error en fit Donut 2D: {e}, fallback a center of mass")
+        return xo, yo
+
+
 def two_gaussian2D(grid, amplitude, x0, y0, σ_x, σ_y, offset,
                    amplitude1, x1, y1, theta=0):
     x, y = grid

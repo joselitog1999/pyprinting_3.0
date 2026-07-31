@@ -38,14 +38,14 @@ from config  import pi, SHUTTERS, DEFAULT_DATA_PATH
 from nidaq   import (open_shutter, close_shutter, channels_photodiodos,
                      channels_triggers, PD_CHANNELS, PD_CHANS_LIST,
                      RATE_MULTICHANNEL)
-from psf    import (center_of_mass, center_of_gauss2D,
+from psf    import (center_of_mass, center_of_gauss2D, center_of_donut2D,
                     find_two_centers, two_centers_of_gauss2D)
 from spiral import to_spiral
 
 SCAN_MODES    = ["Ramp", "Step by step"]
 PSF_MODES     = ["x/y", "x/z", "y/x", "y/z"]
 SCAN_IMAGE    = ["NPs maximum", "NPs minimum", "choose", "two NP: maximum-minimum"]
-METHOD_CENTER = ["center of mass", "center of gauss", "two NP: center of gauss"]
+METHOD_CENTER = ["center of mass", "center of gauss", "two NP: center of gauss", "donut (Laguerre-Gauss)"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -691,12 +691,17 @@ class Backend(QObject):
         elif self.method_center_opt == METHOD_CENTER[1]:
             xo, yo = center_of_mass(Zf)
             xo, yo = center_of_gauss2D(Zn, xo, yo)
-        else:
+        elif self.method_center_opt == METHOD_CENTER[2]:
             xo1, yo1, xo2, yo2 = find_two_centers(Zf)
             xo, yo, xo2, yo2   = two_centers_of_gauss2D(Zn, xo1, yo1, xo2, yo2)
             xo2_um, yo2_um = self._coords(xo2, yo2)
             self._xo2_um = xo2_um; self._yo2_um = yo2_um
             self.CMValuesSignal_NP2.emit([xo2_um, yo2_um, xo2, yo2])
+        elif self.method_center_opt == METHOD_CENTER[3]:
+            xo, yo = center_of_mass(Zf)
+            xo, yo = center_of_donut2D(Zn, xo, yo)
+        else:
+            xo, yo = center_of_mass(Zf)
 
         xo_um, yo_um = self._coords(xo, yo)
         self.CMValuesSignal.emit([xo_um, yo_um, xo, yo])
