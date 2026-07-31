@@ -317,6 +317,10 @@ class ConfocalChannelPanel(QGroupBox):
         self.vb_orig = self.glw_orig.addPlot(title="Original / Filtrada")
         self.vb_orig.setAspectLocked(True)
         self.vb_orig.addItem(self.img_orig)
+        self.cb_orig = pg.ColorBarItem(values=(0, 1), colorMap="viridis")
+        self.cb_orig.setImageItem(self.img_orig)
+        self.glw_orig.addItem(self.cb_orig)
+
         self.center_scatter = pg.ScatterPlotItem(size=12, symbol="+", pen=pg.mkPen("m", width=2))
         self.ellipse_curve = pg.PlotCurveItem(pen=pg.mkPen("c", width=1.5, style=Qt.PenStyle.DashLine))
         self.vb_orig.addItem(self.center_scatter)
@@ -330,6 +334,9 @@ class ConfocalChannelPanel(QGroupBox):
         self.vb_fit = self.glw_fit.addPlot(title="Modelo Ajustado (Fit)")
         self.vb_fit.setAspectLocked(True)
         self.vb_fit.addItem(self.img_fit)
+        self.cb_fit = pg.ColorBarItem(values=(0, 1), colorMap="viridis")
+        self.cb_fit.setImageItem(self.img_fit)
+        self.glw_fit.addItem(self.cb_fit)
         self.vb_fit.setLabel("left", "Y", **label_style)
         self.vb_fit.setLabel("bottom", "X", **label_style)
 
@@ -339,6 +346,9 @@ class ConfocalChannelPanel(QGroupBox):
         self.vb_res = self.glw_res.addPlot(title="Residual (|Zn - Zfit|)")
         self.vb_res.setAspectLocked(True)
         self.vb_res.addItem(self.img_res)
+        self.cb_res = pg.ColorBarItem(values=(0, 1), colorMap="inferno")
+        self.cb_res.setImageItem(self.img_res)
+        self.glw_res.addItem(self.cb_res)
         self.vb_res.setLabel("left", "Y", **label_style)
         self.vb_res.setLabel("bottom", "X", **label_style)
 
@@ -413,10 +423,19 @@ class ConfocalChannelPanel(QGroupBox):
         else:
             self.fit_results = fit_donut_2d(self.Z, thr_percent=thr)
 
-        # Actualizar visores
-        self.img_orig.setImage(self.fit_results["Zf"].T)
-        self.img_fit.setImage(self.fit_results["Z_fit"].T)
-        self.img_res.setImage(self.fit_results["residual"].T)
+        # Actualizar visores y barras de escala Z dinámicas
+        zf = self.fit_results["Zf"]
+        zfit = self.fit_results["Z_fit"]
+        zres = self.fit_results["residual"]
+
+        self.img_orig.setImage(zf.T)
+        self.cb_orig.setLevels((float(zf.min()), float(zf.max())))
+
+        self.img_fit.setImage(zfit.T)
+        self.cb_fit.setLevels((float(zfit.min()), float(zfit.max())))
+
+        self.img_res.setImage(zres.T)
+        self.cb_res.setLevels((float(zres.min()), float(zres.max())))
 
         xo, yo = self.fit_results["xo_px"], self.fit_results["yo_px"]
         self.center_scatter.setData([xo], [yo])
@@ -476,11 +495,11 @@ class PSFAnalyzerWidget(QWidget):
 
         main_vlo.addWidget(top_box)
 
-        # ── Splitter Principal ───────────────────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        # ── Splitter Principal (Horizontal: Izquierda = Confocales V-Splitter, Derecha = Resultados) ────────────────
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Sub-splitter para Canal 1 y Canal 2
-        chan_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Sub-splitter Vertical para Canal 1 (Arriba) y Canal 2 (Abajo)
+        chan_splitter = QSplitter(Qt.Orientation.Vertical)
 
         # Canal 1
         self.ch1_panel = ConfocalChannelPanel("Confocal 1 (Verde / Excitación)")
@@ -492,7 +511,7 @@ class PSFAnalyzerWidget(QWidget):
 
         chan_splitter.addWidget(self.ch1_panel)
         chan_splitter.addWidget(self.ch2_panel)
-        splitter.addWidget(chan_splitter)
+        chan_splitter.setSizes([400, 400])
 
         # Panel de Resultados y Gráficos (Pestañas)
         self.tabs_results = QTabWidget()
@@ -555,10 +574,11 @@ class PSFAnalyzerWidget(QWidget):
         olo.addWidget(self.glw_overlay)
         self.tabs_results.addTab(self.tab_overlay, "🎨 Superposición Falso Color")
 
-        splitter.addWidget(self.tabs_results)
-        splitter.setSizes([450, 300])
+        main_splitter.addWidget(chan_splitter)
+        main_splitter.addWidget(self.tabs_results)
+        main_splitter.setSizes([750, 450])
 
-        main_vlo.addWidget(splitter)
+        main_vlo.addWidget(main_splitter)
         self._update_unit_mode()
 
     def _clear_channel_1(self):

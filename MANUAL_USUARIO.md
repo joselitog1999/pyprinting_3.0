@@ -342,10 +342,11 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 
 | Elemento | Tipo | Función / Descripción |
 |---|---|---|
-| **`Cargar Confocal (.tiff)`** | `QPushButton` | Carga imágenes confocales individuales para el Canal 1 (excitación verde) o Canal 2 (donut rojo). |
+| **`Cargar Confocal (.tiff)`** | `QPushButton` | Carga imágenes confocales individuales para el Canal 1 (excitación verde, arriba) o Canal 2 (donut rojo, abajo). |
 | **`Modelo`** | `QComboBox` | Selecciona el modelo analítico de ajuste 2D (`Gaussiana 2D` o `Donut (Laguerre-Gauss)`). |
 | **`Filtro (%)` + `Aplicar` / `Enter`** | `QLineEdit` + `QPushButton` | Porcentaje de umbral de filtrado de fondo ($Z_n < P/100 \implies Z_f = 0$). Presionar `Enter` o `Aplicar` recalcula inmediatamente los ajustes, residuales y métricas. |
-| **Vistas Triples por Canal** | `pg.PlotWidget` ($\times 3$) | Despliega 3 visores por canal: **Original/Filtrada** (con centro $x_0,y_0$ y elipse superpuesta), **Modelo Ajustado (Fit $Z_{\text{fit}}$)** y **Mapa de Residuales ($|Z_n - Z_{\text{fit}}|$)**. |
+| **Vistas Triples con Escala Z Dinámica** | `pg.PlotWidget` ($\times 3$) + `ColorBarItem` | Despliega 3 visores por canal con barras laterales de escala de intensidad Z dinámicas: **Original/Filtrada** (con centro $x_0,y_0$ y elipse), **Modelo Ajustado (Fit $Z_{\text{fit}}$)** y **Mapa de Residuales ($|Z_n - Z_{\text{fit}}|$)**. |
+| **Disposición Geométrica** | `QSplitter` ($\times 2$) | Organiza los canales de forma vertical (Confocal 1 arriba, Confocal 2 abajo) y posiciona el panel de Resultados/Gráficos a la **derecha**. |
 | **Selector de Unidades** | `QComboBox` | Alterna las etiquetas de los ejes graduados de todas las imágenes entre **micrómetros ($\mu\text{m}$)** y **píxeles ($\text{px}$)**. |
 | **`Limpiar Canal 1` / `Canal 2`** | `QPushButton` | Vacía y reinicia los paneles del Canal 1 o Canal 2 de forma independiente. |
 | **Canal y Dirección en Perfiles 1D** | `QComboBox` ($\times 2$) | Selecciona el canal a graficar (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y la orientación del corte 1D pasante por $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`. |
