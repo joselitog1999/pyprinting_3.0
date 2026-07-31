@@ -25,6 +25,9 @@
    - [5.7 Ventana de Cámara Réflex Canon EOS 500D](#57-ventana-de-cámara-réflex-canon-eos-500d)
    - [5.8 Ventana de Analizador de Imágenes Estáticas](#58-ventana-de-analizador-de-imágenes-estáticas)
 6. [Tabla de Atajos de Teclado (Shortcuts)](#6-tabla-de-atajos-de-teclado-shortcuts)
+7. [Preguntas Frecuentes (FAQ)](#7-preguntas-frecuentes-faq)
+   - [7.1 ¿Cómo se determina el centro de la partícula al realizar un escaneo confocal?](#71-cómo-se-determina-el-centro-de-la-partícula-al-realizar-un-escaneo-confocal)
+   - [7.2 ¿Qué sucede exactamente en el sistema al ejecutar un escaneo desde el widget Confocal?](#72-qué-sucede-exactamente-en-el-sistema-al-ejecutar-un-escaneo-desde-el-widget-confocal)
 
 ---
 
@@ -337,6 +340,74 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 | **`F8`** | Ejecutar Autofoco Z (Go to maximum) | Dock: Focus z |
 | **`F9`** | Congelar perfil de intensidad Z (Lock Focus) | Dock: Focus z |
 | **`F10`** | Ejecutar corrección por autocorrelación Z ($\times 2$) | Dock: Focus z |
+
+---
+
+## 7. Preguntas Frecuentes (FAQ)
+
+### 7.1 ¿Cómo se determina el centro de la partícula al realizar un escaneo confocal?
+
+El cálculo del centro de la nanopartícula durante y al finalizar un escaneo confocal en **PyPrinting 3.0** (`confocal.py` y `psf.py`) se realiza mediante un pipeline de 4 pasos continuos:
+
+1. **Normalización de la Imagen (`_norm_image`)**:
+   Al completarse la matriz de fotodetector $Z$ ($N_x \times N_y$), el sistema normaliza la imagen entre $0.0$ y $1.0$:
+   $$Z_n = \frac{Z - Z_{\min}}{Z_{\max} - Z_{\min}}$$
+   Dependiendo de la opción en el combo `Scan Image`:
+   - **`NPs maximum`**: Mantiene nanopartículas brillantes (dispersión/fluorescencia).
+   - **`NPs minimum`**: Invierte la matriz ($|Z_n - 1|$) para nanopartículas oscuras (absorción).
+
+2. **Filtrado por Umbral de Ruido (`_filter_image`)**:
+   Para evitar que el ruido del fondo desvíe la localización del centro, se aplica un filtro umbral de intensidad al **30%** ($0.30$):
+   $$\text{Si } Z_n < 0.30 \implies Z_f = 0.0$$
+   Esto conserva únicamente el perfil luminoso correspondiente a la respuesta de la partícula (PSF).
+
+3. **Algoritmo de Ajuste del Centro (Combo `method_center`)**:
+   - **`center of mass` (Centro de Masa Ponderado)**: Utiliza `scipy.ndimage.measurements.center_of_mass(Zf)`. Calcula el centroide ponderado en píxeles:
+     $$x_o = \frac{\sum x \cdot Z_f(x,y)}{\sum Z_f(x,y)}, \quad y_o = \frac{\sum y \cdot Z_f(x,y)}{\sum Z_f(x,y)}$$
+   - **`center of gauss` (Ajuste Gaussiano 2D Sub-píxel — Recomendado)**: Toma el centro de masa como semilla e integra un ajuste por mínimos cuadrados no lineales (`scipy.optimize.curve_fit`):
+     $$G(x,y) = Z_{\text{offset}} + A \cdot \exp\left(-\left[a(x-x_0)^2 + 2b(x-x_0)(y-y_0) + c(y-y_0)^2\right]\right)$$
+     Devuelve las coordenadas $(x_0, y_0)$ con precisión sub-nanométrica.
+   - **`two NP: center of gauss` (Doble Partícula / Nanodímeros)**: Identifica los dos picos locales mediante `skimage.feature.peak_local_max` y ajusta una función de dos gaussianas 2D superpuestas (`two_gaussian2D`) para obtener la posición exacta de ambas partículas $(x_1, y_1)$ y $(x_2, y_2)$.
+
+4. **Conversión a Coordenadas Físicas ($\mu\text{m}$) (`_coords`)**:
+   Convierte las coordenadas en píxeles $(x_o, y_o)$ a la posición absoluta en micrómetros de la platina piezoeléctrica **Physik Instrumente (PI)**:
+   $$X_{\text{físico}} = X_{\text{origen}} - \frac{\text{Range}_x}{2} + \frac{dx}{2} + (x_o \cdot dx)$$
+   $$Y_{\text{físico}} = Y_{\text{origen}} - \frac{\text{Range}_y}{2} + \frac{dy}{2} + (y_o \cdot dy)$$
+   donde $dx = \frac{\text{Range}_x}{N_x}$ y $dy = \frac{\text{Range}_y}{N_y}$.
+
+**Acciones Automatizadas Tras la Detección**:
+- **Si `Auto CM` está activo**: La platina PI se desplaza automáticamente (`_moveto`) al centro exacto $(X_{\text{físico}}, Y_{\text{físico}})$ apenas termina el escaneo.
+- **Botón `Go to NP1` / `Go to NP2`**: Mueve manualmente el piezo al centro calculado de la partícula 1 o 2 en cualquier momento.
+
+---
+
+### 7.2 ¿Qué sucede exactamente en el sistema al ejecutar un escaneo desde el widget Confocal?
+
+Al hacer clic en **`Start Scan`** en el widget **Confocal**, la interfaz (`Frontend`) y el hilo de control (`Backend`) ejecutan una secuencia coordinada de 4 etapas:
+
+1. **Preparación e Inicio**:
+   - Oculta los marcadores de centro de masa/gaussiano de escaneos anteriores en el visor central (`Viewbox`).
+   - Captura el láser seleccionado (532 nm o 637 nm), el rango de escaneo (`Range x/y` en $\mu\text{m}$), la resolución (`Pixels x/y`), el modo de escaneo (`Ramp` o `Step by step`) y la proyección (`x/y`, `x/z`, `y/x`, `y/z`).
+   - Llama a `start_scan_routines` en el backend.
+
+2. **Adquisición de Datos y Barrido Óptico**:
+   - **En modo `Ramp` (Barrido continuo por hardware — Alta velocidad)**:
+     - Registra las coordenadas de origen $(X_{pos}, Y_{pos}, Z_{pos})$ de la platina PI.
+     - Configura en el controlador PI un movimiento de rampa lineal síncrono para el eje rápido ($X$).
+     - Llama a `open_shutter(laser)` activando la línea de excitación en la tarjeta National Instruments (NI-DAQ).
+     - Ejecuta un bucle por líneas: mueve el eje lento ($Y$), dispara la rampa en $X$, lee síncronamente el fotodiodo mediante el reloj de hardware NI-DAQmx, construye la fila de imagen y emite `dataSignal` para actualizar la pantalla térmica en tiempo real.
+   - **En modo `Step by step` (Barrido discreto punto por punto)**:
+     - Mueve el piezo a cada par $(x_i, y_j)$, abre el obturador, lee $N$ muestras analógicas del fotodiodo, promedia el valor y actualiza el píxel.
+
+3. **Cierre de Dispositivos y Cálculo del Centro**:
+   - Al completar la última fila/píxel, detiene los timers de reloj y llama a `close_shutter(laser)` para proteger la muestra.
+   - Ejecuta el cálculo de centro de partícula `_CMmeasure()` (normalización, umbral al 30%, ajuste gaussiano/CM y conversión a $\mu\text{m}$).
+   - Coloca una marca gráfica (cruz o punto rojo) sobre el visor central en la posición exacta calculada.
+
+4. **Posicionamiento Final y Guardado (`_post_scan_dispatch`)**:
+   - **Posicionamiento PI**: Si `Auto CM` está marcado, mueve automáticamente la platina PI al centro calculado de la nanopartícula; de lo contrario, regresa el piezo al centro original del área escaneada $(X_{pos}, Y_{pos})$.
+   - **Guardado**: Exporta automáticamente la imagen procesada a disco en formato `.tiff` dentro de la carpeta de trabajo.
+   - **Notificación**: Emite `scandoneSignal` informando que el escaneo concluyó con éxito.
 
 ---
 
