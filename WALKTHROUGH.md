@@ -6,17 +6,26 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Apertura/Cierre Dual de Obturadores y Opción `None` para Láser 2 (`trace.py`)**:
-   - **Opción `None`**: Se incorporó la opción `"None"` al selector del **Láser 2** (`trace_laser2`). Al estar seleccionada, no abre ningún obturador adicional ni intenta leer un segundo fotodiodo.
-   - **Apertura y Cierre Sincronizado**: Al presionar `Play` se abren ambos obturadores de los lásers activos (`open_shutter(laser1)` y `open_shutter(laser2)`). Al presionar `Stop` se cierran ambos obturadores en simultáneo (`close_shutter(laser1)` y `close_shutter(laser2)`).
+1. **Actualización Completa del Manual de Usuario (`MANUAL_USUARIO.md`)**:
+   - Se completaron todas las secciones del manual [MANUAL_USUARIO.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/MANUAL_USUARIO.md), añadiendo tablas descriptivas detalladas para **cada botón, menú y panel de control del sistema**:
+     - **Barra de Menús (`Files`, `Tools`, `Measurements`, `Docks`)**: Atajos de teclado y funcionalidad de cada elemento.
+     - **Dock Confocal**: Parámetros de escaneo 2D/3D, `PSF_mode`, `scan_mode`, resoluciones `Pixels x/y` y métodos de ajuste gaussiano/centro de masa.
+     - **Dock Trace & Ventana Power BS**: Trazas dobles simultáneas (`Láser 1` y `Láser 2`), opción `"None"`, ventana `PowerBSWindow` con calibración de 2 puntos y gráfico continuo `Trace on BS`.
+     - **Panel Multicolumna Printing Control**: `Imprimir folder`, `NameDirValue`, `Láser`, `Umbral`, `Umbral down`, `T max (s)`, `Steps before/after`, `Scan pre-print?`, `Post scan?`, `Play ►`, `Pause`, `Next index ►`, `Total targets`, `Target Index`, `Set/Go reference`, `Autofocus every N`, `Shift x/y`, `dx/dy`.
+     - **Ventana de Cámara Réflex Canon EOS 500D**: Modos `Color RGB` y `Grises (Transmisión)`, controles Live View (CLim Mín/Máx, LUTs, balance RGB, ISO, Tv, Zoom 1x/2x/5x/10x) y captura a PC.
+     - **Analizador de Imágenes Estáticas**: Soporte TIFF 8/16/32-bit float, indicador de escala verde/rojo, calibración gráfica, reglas tri-estado, detección `trackpy` y exportación anotada.
 
-2. **Solución a cuelgue de programa y disparos duplicados de `open_shutter` (`trace.py`)**:
+2. **Apertura/Cierre Dual de Obturadores y Opción `None` para Láser 2 (`trace.py`)**:
+   - Se incorporó la opción `"None"` al selector del **Láser 2** (`trace_laser2`). Al estar seleccionada, no abre ningún obturador adicional ni intenta leer un segundo fotodiodo.
+   - Al presionar `Play` se abren ambos obturadores de los lásers activos (`open_shutter(laser1)` y `open_shutter(laser2)`). Al presionar `Stop` se cierran ambos obturadores en simultáneo (`close_shutter(laser1)` y `close_shutter(laser2)`).
+
+3. **Solución a cuelgue de programa y disparos duplicados de `open_shutter` (`trace.py`)**:
    - Se unificó la vinculación de señales en `Backend.make_connection(self, frontend)` y se removió `close_all_tasks()` de `_stop_and_save()`, reemplazándolo por `close_shutter(self.laser)`.
 
-3. **Dock de Trazas Abajo de Todo y Ancho Completo (`app.py`)**:
+4. **Dock de Trazas Abajo de Todo y Ancho Completo (`app.py`)**:
    - Se reposicionó `traceDock` en [app.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/app.py#L138-L144) usando `self.dockArea.addDock(traceDock, "bottom")` con dimensiones `size=(1400, 260)`.
 
-4. **Panel `Printing control` Multicolumna y Expandido (`measurements.py`)**:
+5. **Panel `Printing control` Multicolumna y Expandido (`measurements.py`)**:
    - Se reorganizaron los elementos del dock `Printing control` en un layout matricial de 4 columnas horizontales en [measurements.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/measurements.py#L201-L235).
 
 ---
