@@ -1,70 +1,82 @@
 # Manual de Usuario: PyPrinting 3.0 🔬
-**Sistema de Control, Espectroscopía Confocal, Caracterización de PSF y Nanofabricación Óptica**
+**Suite de Control, Espectroscopía Confocal, Caracterización de PSF y Nanofabricación Óptica**
 *UNSAM — Nanofotónica*
 
 ---
 
 ## 📖 Índice
 
-1. [Introducción, Fundamentos Físicos y Formulación Matemática](#1-introducción-fundamentos-físicos-y-formulación-matemática)
-   - [1.1 Impresión Óptica Fototérmica y Ensamblado de Dímeros Plasmónicos](#11-impresión-óptica-fototérmica-y-ensamblado-de-dímeros-plasmónicos)
-   - [1.2 Modelo Analítico Gaussiano 2D de 7 Parámetros](#12-modelo-analítico-gaussiano-2d-de-7-parámetros)
-   - [1.3 Modelo Analítico Haz Vortex / Donut (Laguerre-Gauss $LG_{01}$)](#13-modelo-analítico-haz-vortex--donut-laguerre-gauss-lg_01)
-   - [1.4 Métricas de Caracterización y Alineación Sub-nanométrica de PSF](#14-métricas-de-caracterización-y-alineación-sub-nanométrica-de-psf)
-   - [1.5 Algoritmo de Estabilización Z por Autocorrelación](#15-algoritmo-de-estabilización-z-por-autocorrelación)
-   - [1.6 Mapeo Físico de Coordenadas Piezoeléctricas PI](#16-mapeo-físico-de-coordenadas-piezoeléctricas-pi)
-2. [Modos de Operación: Producción vs. Modo Seguro](#2-modos-de-operación-producción-vs-modo-seguro)
-3. [Estructura de la Barra de Menús Principal](#3-estructura-de-la-barra-de-menús-principal)
-4. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#4-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
-   - [4.1 Mapeo Confocal 2D/3D y Ajuste de Partículas (PSF)](#41-mapeo-confocal-2d3d-y-ajuste-de-partículas-psf)
-   - [4.2 Impresión Automatizada de Redes/Grillas de Nanopartículas](#42-impresión-automatizada-de-redesgrillas-de-nanopartículas)
-   - [4.3 Fabricación Guiada de Nanodímeros Plasmónicos](#43-fabricación-guiada-de-nanodímeros-plasmónicos)
-   - [4.4 Medición con Cámara y Alineación Óptica](#44-medición-con-cámara-y-alineación-óptica)
-   - [4.5 Adquisición de Trazas Temporales y Calibración de Potencia BS](#45-adquisición-de-trazas-temporales-y-calibración-de-potencia-bs)
-   - [4.6 Caracterización Analítica Avanzada de PSF (`psf_analyzer.py`)](#46-caracterización-analítica-avanzada-de-psf-psf_analyzerpy)
-5. [Descripción Detallada de Docks, Ventanas y Controles](#5-descripción-detallada-de-docks-ventanas-y-controles)
-   - [5.1 Dock: Confocal](#51-dock-confocal)
-   - [5.2 Dock: Trace (Trazas Dobles y Ventana Power BS)](#52-dock-trace-trazas-dobles-y-ventana-power-bs)
-   - [5.3 Dock: Focus z](#53-dock-focus-z)
-   - [5.4 Dock: Shutters / Flipper / Láser 532](#54-dock-shutters--flipper--láser-532)
-   - [5.5 Dock: Nanopositioning](#55-dock-nanopositioning)
-   - [5.6 Archivo de Configuración Centralizada (`config.py`)](#56-archivo-de-configuración-centralizada-configpy)
-   - [5.7 Ventana de Mediciones (Printing & Dimers)](#57-ventana-de-mediciones-printing--dimers)
-   - [5.8 Ventana de Cámara Réflex Canon EOS 500D](#58-ventana-de-cámara-réflex-canon-eos-500d)
-   - [5.9 Ventana de Analizador de Imágenes Estáticas](#59-ventana-de-analizador-de-imágenes-estáticas)
-   - [5.10 Ventana de Caracterización de PSF (`psf_analyzer.py` — PSF Analyzer)](#510-ventana-de-caracterización-de-psf-psf_analyzerpy--psf-analyzer)
-6. [Tabla de Atajos de Teclado (Shortcuts)](#6-tabla-de-atajos-de-teclado-shortcuts)
-7. [Preguntas Frecuentes (FAQ)](#7-preguntas-frecuentes-faq)
-   - [7.1 ¿Cómo se determina el centro de la partícula al realizar un escaneo confocal?](#71-cómo-se-determina-el-centro-de-la-partícula-al-realizar-un-escaneo-confocal)
-   - [7.2 ¿Qué sucede exactamente en el sistema al ejecutar un escaneo desde el widget Confocal?](#72-qué-sucede-exactamente-en-el-sistema-al-ejecutar-un-escaneo-desde-el-widget-confocal)
-   - [7.3 ¿Cómo funciona matemáticamente el casillero "Filtro (%)" de umbral de ruido?](#73-cómo-funciona-matemáticamente-el-casillero-filtro--de-umbral-de-ruido)
-   - [7.4 ¿Qué métricas reporta el módulo PSF Analyzer y cómo interpretar los modelos Gaussiano vs. Donut?](#74-qué-métricas-reporta-el-módulo-psf-analyzer-y-cómo-interpretar-los-modelos-gaussiano-vs-donut)
+1. [Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")](#1-panel-de-inicio-principal-mainpy--bienvenidos-al-printing)
+   - [1.1 Visión General y Selección de Modo Seguro (`SAFE_MODE`)](#11-visión-general-y-selección-de-modo-seguro-safe_mode)
+   - [1.2 Navegación e Índice de Módulos en Grilla $3 \times 3$](#12-navegación-e-índice-de-módulos-en-grilla-3-times-3)
+2. [Fundamentos Físicos, Formulación Matemática & Mapeo de Hardware](#2-fundamentos-físicos-formulación-matemática--mapeo-de-hardware)
+   - [2.1 Impresión Óptica Fototérmica y Ensamblado de Dímeros Plasmónicos](#21-impresión-óptica-fototérmica-y-ensamblado-de-dímeros-plasmónicos)
+   - [2.2 Modelo Analítico Gaussiano 2D de 7 Parámetros](#22-modelo-analítico-gaussiano-2d-de-7-parámetros)
+   - [2.3 Modelo Analítico Haz Vortex / Donut (Laguerre-Gauss $LG_{01}$)](#23-modelo-analítico-haz-vortex--donut-laguerre-gauss-lg_01)
+   - [2.4 Métricas de Caracterización y Alineación Sub-nanométrica de PSF](#24-métricas-de-caracterización-y-alineación-sub-nanométrica-de-psf)
+   - [2.5 Algoritmo de Estabilización Z por Autocorrelación](#25-algoritmo-de-estabilización-z-por-autocorrelación)
+   - [2.6 Mapeo Físico de Coordenadas Piezoeléctricas PI](#26-mapeo-físico-de-coordenadas-piezoeléctricas-pi)
+3. [Módulo 1: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)](#3-módulo-1-microscopio-derecho-apppy--pyprinting-30-suite-completa)
+   - [3.1 Dock: Confocal (Mapeo 2D/3D & Centrado Sub-píxel)](#31-dock-confocal-mapeo-2d3d--centrado-sub-píxel)
+   - [3.2 Dock: Trace (Trazas Temporales & Calibración BS)](#32-dock-trace-trazas-temporales--calibración-bs)
+   - [3.3 Dock: Focus z (Autofoco Dinámico)](#33-dock-focus-z-autofoco-dinámico)
+   - [3.4 Dock: Shutters / Flipper / Láser 532](#34-dock-shutters--flipper--láser-532)
+   - [3.5 Dock: Nanopositioning (Platina PI)](#35-dock-nanopositioning-platina-pi)
+   - [3.6 Ventana de Mediciones (Printing Automatizado & Dímeros)](#36-ventana-de-mediciones-printing-automatizado--dímeros)
+4. [Módulo 2: PySpectrum *(En Construcción)*](#4-módulo-2-pyspectrum-en-construcción)
+5. [Módulo 3: Microscopio Contrapropagante *(En Construcción)*](#5-módulo-3-microscopio-contrapropagante-en-construcción)
+6. [Módulo 4: PyPrinting 2 (Legacy — `PyPrinting_UNSAM.py`)](#6-módulo-4-pyprinting-2-legacy--pyprinting_unsampy)
+7. [Módulo 5: Cámara Live View (`camera.py`)](#7-módulo-5-cámara-live-view-camerapy)
+8. [Módulo 6: Modulación Láser 532 nm (`Laser532Window`)](#8-módulo-6-modulación-láser-532-nm-laser532window)
+9. [Módulo 7: PSF Analyzer (`psf_analyzer.py`)](#9-módulo-7-psf-analyzer-psf_analyzerpy)
+10. [Módulo 8: Analizador de Imágenes (`image_analyzer.py`)](#10-módulo-8-analizador-de-imágenes-image_analyzerpy)
+11. [Módulo 9: Documentación y Créditos del Autor](#11-módulo-9-documentación-y-créditos-del-autor)
+12. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#12-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
+13. [Tabla de Atajos de Teclado & Preguntas Frecuentes (FAQ)](#13-tabla-de-atajos-de-teclado--preguntas-frecuentes-faq)
 
 ---
 
-## 1. Introducción, Fundamentos Físicos y Formulación Matemática
+## 1. Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")
 
-**PyPrinting 3.0** es una plataforma de software científico desarrollada en **Python 3 / PyQt6** diseñada para laboratorios de nanofotónica. La arquitectura automatiza experimentos de microscopía confocal láser, espectroscopía de fluorescencia/dispersión, nanofabricación fototérmica y caracterización fina de la Función de Punto de Dispersión (PSF).
+### 1.1 Visión General y Selección de Modo Seguro (`SAFE_MODE`)
+El punto de entrada unificado de la suite de software es **`main.py`**. Al ejecutar `python main.py`, se despliega el panel de inicio **"Bienvenidos al printing"**, diseñado para centralizar el acceso a todas las herramientas experimentales, utilidades de visión por computadora y proyectos de desarrollo futuro en el Laboratorio de Nanofotónica de la Universidad Nacional de San Martín (UNSAM).
 
-```mermaid
-graph TD
-    System[PyPrinting 3.0 System] --> Hardware[Control de Hardware & DAQ]
-    System --> Optics[Espectroscopía Confocal & PSF]
-    System --> Fabrication[Impresión Óptica & Dímeros]
-    System --> Vision[Visión por Computadora & Tracking]
-
-    Hardware --> PI[Piezo PI E-517/E-736]
-    Hardware --> NIDAQ[NI-DAQmx 1.0 MS/s]
-    Optics --> Scan2D[Escaneo Síncrono 2D/3D]
-    Optics --> PSFAnalyzer[PSF Analyzer 2D Fit]
-    Optics --> FocusZ[Autofoco por Autocorrelación]
-    Fabrication --> PrintingGrid[Matrices de Impresión]
-    Fabrication --> Dimers[Ensamblado Guiado de Dímeros]
-    Vision --> Canon[Cámara Réflex Canon EDSDK]
-    Vision --> Trackpy[Tracking Dinámico trackpy]
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 🏠 Bienvenidos al printing                                                              │
+│ UNSAM — Nanofotónica | Suite de Control, Espectroscopía Confocal y Nanofabricación Óptica │
+│                                                      [☑ Modo Seguro (Simulación)]       │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.1 Impresión Óptica Fototérmica y Ensamblado de Dímeros Plasmónicos
+* **Casillero `Modo Seguro (Simulación)`**:
+  - Ubicado en la esquina superior derecha del banner.
+  - Al estar marcado (`PYPRINTING_SAFE=1`), activa el entorno de simulación completa sin requerir instrumentos físicos conectados (platina PI simulada, lectura sintética NI-DAQmx a 1.0 MS/s y cámara sintética OpenCV).
+  - Al desmarcarlo, el sistema pasa a modo laboratorio real requiriendo la inicialización de la controladora PI E-517/E-736 y la tarjeta National Instruments DAQmx.
+
+---
+
+### 1.2 Navegación e Índice de Módulos en Grilla $3 \times 3$
+Las herramientas del sistema están dispuestas en una grilla simétrica de 9 paneles ordenados en 3 filas:
+
+```
+┌─────────────────────────┬─────────────────────────┬─────────────────────────┐
+│ 🔬 1. Microscopio       │ 🔮 2. PySpectrum        │ 🔍 3. M. Contra-        │
+│    Derecho (app.py)     │    (En construcción)    │    propagante (En const)│
+├─────────────────────────┼─────────────────────────┼─────────────────────────┤
+│ 🏛️ 4. PyPrinting 2      │ 📷 5. Cámara Live View  │ ⚡ 6. Modulación Láser   │
+│    (Legacy)             │    (camera.py)          │    532 nm               │
+├─────────────────────────┼─────────────────────────┼─────────────────────────┤
+│ 🧬 7. PSF Analyzer      │ 🖼️ 8. Analizador de     │ 📚 9. Documentación     │
+│    (psf_analyzer.py)    │    Imágenes             │    y Créditos           │
+└─────────────────────────┴─────────────────────────┴─────────────────────────┘
+```
+
+---
+
+## 2. Fundamentos Físicos, Formulación Matemática & Mapeo de Hardware
+
+### 2.1 Impresión Óptica Fototérmica y Ensamblado de Dímeros Plasmónicos
 La **impresión óptica** logra la deposición espacialmente controlada de nanopartículas metálicas (Au, Ag) sobre sustratos dieléctricos impulsada por fuerzas ópticas de presión de radiación. Al iluminar una nanopartícula en su resonancia plasmónica ($LSPR$), la fuerza de gradiente $\mathbf{F}_{\text{grad}}$ domina atrayendo la partícula al foco focalizado:
 
 $$\mathbf{F}_{\text{grad}} = \frac{1}{4} \varepsilon_m \operatorname{Re}(\alpha) \nabla |\mathbf{E}|^2$$
@@ -73,7 +85,7 @@ En el **ensamblado de nanodímeros plasmónicos**, la deposición de una segunda
 
 ---
 
-### 1.2 Modelo Analítico Gaussiano 2D de 7 Parámetros
+### 2.2 Modelo Analítico Gaussiano 2D de 7 Parámetros
 Para caracterizar el perfil de excitación en el plano focal horizontal ($XY$), el sistema ajusta la distribución de intensidad normalizada $Z_n$ mediante una función Gaussiana 2D no lineal de 7 parámetros orientada en un ángulo $\theta$ (`scipy.optimize.curve_fit`):
 
 $$G(x, y) = Z_{\text{offset}} + A \cdot \exp\left( -\left[ a(x - x_0)^2 + 2b(x - x_0)(y - y_0) + c(y - y_0)^2 \right] \right)$$
@@ -88,7 +100,7 @@ $$\text{FWHM}_x = 2\sqrt{2\ln 2} \cdot \sigma_x \approx 2.35482 \cdot \sigma_x, 
 
 ---
 
-### 1.3 Modelo Analítico Haz Vortex / Donut (Laguerre-Gauss $LG_{01}$)
+### 2.3 Modelo Analítico Haz Vortex / Donut (Laguerre-Gauss $LG_{01}$)
 Para caracterizar haces de fase espiral o donas de depleción en microscopía STED/confocal, se ajusta el perfil analítico Laguerre-Gauss $LG_{01}$:
 
 $$I_{\text{donut}}(x, y) = Z_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right)$$
@@ -99,507 +111,241 @@ $$r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2
 
 ---
 
-### 1.4 Métricas de Caracterización y Alineación Sub-nanométrica de PSF
-* **Calidad del cero central**:
-  $$Q_{\text{cero}} = \frac{I_{\min}}{I_{\max}}$$
-* **Uniformidad angular del anillo**:
-  $$U_{\theta} = \frac{\sigma_{\theta}}{\bar{I}_{\text{anillo}}}$$
-* **Desalineación espacial vectorial entre canales ($\Delta r_{\text{nm}}$)**:
-  $$\Delta r_{\text{nm}} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2} \times 1000 \quad [\text{nm}]$$
-* **Coeficiente de Correlación de Pearson ($\text{PCC}$)**:
-  $$\text{PCC} = \frac{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)(Z_{2,ij} - \bar{Z}_2)}{\sqrt{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)^2 \cdot \sum_{i,j} (Z_{2,ij} - \bar{Z}_2)^2}}$$
-* **Error RMS & Chi-cuadrado reducido ($\chi^2_{\text{red}}$)**:
-  $$\text{RMS} = \sqrt{\frac{1}{N}\sum_{i,j} \left(Z_{n,ij} - Z_{\text{fit},ij}\right)^2}, \quad \chi^2_{\text{red}} = \frac{1}{N - p} \sum_{i,j} \left(Z_{n,ij} - Z_{\text{fit},ij}\right)^2$$
+### 2.4 Métricas de Caracterización y Alineación Sub-nanométrica de PSF
+El módulo de análisis calcula las métricas de alineación entre canales de excitación y dona:
+
+1. **Desalineación Vectorial Dual ($\Delta r_{\text{nm}}$)**:
+   $$\Delta r_{\text{nm}} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2} \times 1000 \quad [\text{nm}]$$
+2. **Elipticidad del Donut ($a/b$)**: Relación entre los semi-ejes mayor $a$ y menor $b$. Un valor de $1.000$ representa simetría circular perfecta.
+3. **Calidad del Cero Central ($I_{\min}/I_{\max}$)**: Intensidad residual en el nulo central dividida por la intensidad máxima del anillo.
+4. **Uniformidad Angular ($\sigma_{\theta}/\bar{I}$)**: Desviación estándar de intensidad a lo largo del anillo del donut dividida por la intensidad media.
 
 ---
 
-### 1.5 Algoritmo de Estabilización Z por Autocorrelación
-La deriva térmica del eje axial Z se corrige activamente mediante la autocorrelación de la curva de fototransmisión/dispersión capturada por el fotodiodo divisor de haz (BS):
+### 2.5 Algoritmo de Estabilización Z por Autocorrelación
+Para corregir la deriva térmica axial en tiempo real, el sistema ejecuta la autocorrelación de Pearson entre la señal instantánea de perfil Z $I(z)$ y el perfil de referencia congelado $I_{\text{ref}}(z)$:
 
-$$C_Z(\Delta z) = \frac{\sum_{i} \left[I(z_i) - \bar{I}\right]\cdot\left[I_{\text{ref}}(z_i + \Delta z) - \bar{I}_{\text{ref}}\right]}{\sigma_I \cdot \sigma_{I_{\text{ref}}}}$$
+$$R(\Delta z) = \frac{\sum_{i} (I(z_i + \Delta z) - \bar{I}) (I_{\text{ref}}(z_i) - \bar{I}_{\text{ref}})}{\sqrt{\sum_{i} (I(z_i + \Delta z) - \bar{I})^2 \sum_{i} (I_{\text{ref}}(z_i) - \bar{I}_{\text{ref}})^2}}$$
 
-El algoritmo busca el desplazamiento $\Delta z^*$ que maximiza $C_Z(\Delta z)$ y aplica el ajuste correctivo sobre la platina piezoeléctrica PI.
-
----
-
-### 1.6 Mapeo Físico de Coordenadas Piezoeléctricas PI
-La conversión entre las coordenadas relativas en píxeles $(x_o, y_o)$ del mapa confocal y la posición absoluta $(\mu\text{m})$ de la platina piezoeléctrica **Physik Instrumente (PI)** se rige por:
-
-$$X_{\text{físico}} = X_{\text{ref}} - \frac{\text{Range}_x}{2} + \frac{dx}{2} + (x_o \cdot dx)$$
-
-$$Y_{\text{físico}} = Y_{\text{ref}} - \frac{\text{Range}_y}{2} + \frac{dy}{2} + (y_o \cdot dy)$$
-
-donde los tamaños de paso espacial son $dx = \frac{\text{Range}_x}{N_x}$ y $dy = \frac{\text{Range}_y}{N_y}$.
+El desplazamiento $\Delta z_{\text{óptimo}}$ que maximiza $R(\Delta z)$ se aplica a la platina PI en el eje Z.
 
 ---
 
-## 2. Lanzador Principal (`main.py`) y Modos de Operación
+### 2.6 Mapeo Físico de Coordenadas Piezoeléctricas PI
+La conversión entre coordenadas en píxeles $(x_p, y_p)$ y la posición absoluta en micrómetros $(\mu\text{m})$ de la platina **Physik Instrumente (PI)** es:
 
-### 🏠 Lanzador Interactivo (`main.py`)
-El punto de entrada principal para el laboratorio es **`main.py`**. Al ejecutarse, despliega una ventana de inicio titulada **"Bienvenidos al printing"** con un diseño moderno tipo tarjetas que permite lanzar los distintos módulos del sistema de forma independiente:
+$$X_{\text{físico}} = X_{\text{origen}} - \frac{\text{Range}_x}{2} + \frac{dx}{2} + (x_p \cdot dx)$$
+$$Y_{\text{físico}} = Y_{\text{origen}} - \frac{\text{Range}_y}{2} + \frac{dy}{2} + (y_p \cdot dy)$$
 
-* **🔬 Microscopio Derecho** (`app.py`): Inicia la plataforma completa de microscopía confocal, espectroscopía, impresión óptica, dímeros y trazas.
-* **🧬 PSF Analyzer** (`psf_analyzer.py`): Inicia el analizador analítico 2D de PSF (Gaussiana 7-param / Donut $LG_{01}$), mapas de residuales, perfiles 1D y falsos colores.
-* **🖼️ Analizador de Imágenes** (`image_analyzer.py`): Inicia la herramienta gráfica de medición en imágenes estáticas, calibración $\mu\text{m/px}$ y tracking `trackpy`.
-* **📷 Cámara Réflex Live View** (`camera.py` / `canon_test.py`): Inicia el control de cámara Canon EOS 500D, balance de blancos, paletas LUT y modulación láser.
-
-### 🔴 Modo Producción (Hardware Real) vs. 🟢 Modo Seguro (`SAFE_MODE`)
-En el encabezado del lanzador `main.py` se incluye una casilla interactiva **`Modo Seguro (Simulación)`**:
-- **Desmarcada (Modo Producción)**: Conecta con la platina piezoeléctrica **Physik Instrumente (PI E-517/E-736)** vía USB, la tarjeta **National Instruments (NI-DAQmx PCIe/USB-6353)** y la cámara física Canon EOS.
-- **Marcada (Modo Seguro)**: Permite ejecutar el 100% de los programas sin hardware conectado emulando el piezo PI, la tarjeta DAQmx y la transmisión de video sintética.
-
-```powershell
-# Lanzar Panel Principal de Inicio:
-.\.venv\Scripts\python.exe main.py
-```
+donde $dx = \frac{\text{Range}_x}{N_x}$ y $dy = \frac{\text{Range}_y}{N_y}$.
 
 ---
 
-## 3. Estructura de la Barra de Menús Principal
+## 3. Módulo 1: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)
 
-La barra superior de menús proporciona accesos directos globales a la gestión de archivos, herramientas avanzadas, mediciones y personalización de interfaz:
+El botón **`🚀 Iniciar Microscopio Derecho`** (Fila 1, Columna 1) abre la aplicación principal orquestadora basada en `QMainWindow` y `pyqtgraph.dockarea`.
 
-| Menú | Opción | Atajo | Función / Descripción |
-|---|---|---|---|
-| **Files** | `Seleccionar directorio` | `Ctrl + A` | Abre un cuadro de diálogo para seleccionar la carpeta base de trabajo donde se guardarán todos los datos. |
-| **Files** | `Crear directorio diario` | `Ctrl + S` | Crea automáticamente una subcarpeta nombrada con la fecha actual (`YYYY-MM-DD`) dentro del directorio de datos. |
-| **Files** | `Abrir directorio` | `Ctrl + D` | Abre la carpeta de trabajo actual directamente en el Explorador de archivos de Windows. |
-| **Files** | `Cargar última posición` | — | Lee el archivo de sesión previa y posiciona la platina PI en las últimas coordenadas $(X, Y, Z)$ registradas. |
-| **Tools** | `Cámara` | — | Despliega la ventana flotante de control Live View de la cámara Réflex Canon EOS 500D (`CameraWindow`). |
-| **Tools** | `Analizador de Imágenes` | — | Abre la ventana flotante independiente del Analizador de Imágenes estáticas (`ImageAnalyzerWindow`). |
-| **Tools** | `PSF Analyzer` | — | Abre la ventana flotante de caracterización analítica fina de PSF 2D (`PSFAnalyzerWindow`). |
-| **Tools** | `Láser 532` | — | Despliega la ventana de control analógico de potencia/voltaje DAC para el láser verde de 532 nm. |
-| **Tools** | `Load Grid` | — | Importa un archivo de coordenadas de grilla personalizada (`.txt`) para secuencias de impresión. |
-| **Measurements** | `Printing` | — | Abre la ventana flotante de control de impresión automatizada de nanopartículas individuales. |
-| **Measurements** | `Dimers` | — | Abre la ventana flotante para fabricación guiada de nanodímeros plasmónicos con barridos pre/post. |
-| **Docks** | `Guardar configuración` | — | Memoriza la disposición geométrica y posiciones de todos los docks en la pantalla actual. |
-| **Docks** | `Restaurar configuración` | — | Restablece los docks a su diseño y proporciones predeterminadas de fábrica. |
+### 3.1 Dock: Confocal (Mapeo 2D/3D & Centrado Sub-píxel)
+* **Controles de Escaneo**:
+  - `Laser`: Selecciona entre $532\ \text{nm}$ (verde) y $637\ \text{nm}$ (rojo).
+  - `Range x / Range y (µm)`: Rango físico de escaneo ($0.1 - 100.0\ \mu\text{m}$).
+  - `Pixels x / Pixels y`: Resolución de la matriz (típicamente $50 \times 50$ o $100 \times 100$).
+  - `Scan mode`: `Ramp` (barrido continuo por hardware a alta velocidad) o `Step by step` (paso a paso discreto).
+  - `Scan projection`: Plano de corte `x/y`, `x/z` o `y/z`.
+  - `Scan Image`: `NPs maximum` (brillantes) o `NPs minimum` (inversión de absorción).
+  - `method_center`: Algoritmo de centrado (`center of mass`, `center of gauss`, `two NP: center of gauss`, `donut (Laguerre-Gauss)`).
+  - `Auto CM`: Al marcarse, desplaza automáticamente la platina al centro de masa o gaussiano calculado tras el escaneo.
+  - `Filtro (%)`: Umbral de filtrado de ruido ($P\%$).
 
 ---
 
-## 4. Flujos de Trabajo Experimentales (Protocolos Paso a Paso)
-
-### 4.1 Mapeo Confocal 2D/3D y Ajuste de Partículas (PSF)
-
-```
-[Seleccionar Láser] ──> [Definir Rango X/Y y Píxeles] ──> [Start Scan] ──> [Cálculo CM / Gauss 2D] ──> [Go to NP1]
-```
-
-1. **Seleccionar Línea de Excitación**: En el panel **Confocal**, elija el láser deseado (`532 nm (green)` o `637 nm (red)`).
-2. **Configurar Parámetros del Barrido**:
-   * Ajuste el tamaño del área a escanear en `Range x (µm)` y `Range y (µm)` (ejemplo: $2 \times 2\ \mu\text{m}$).
-   * Ingrese la resolución espacial en `Pixels x` y `Pixels y` (ejemplo: $34 \times 34$ píxeles).
-3. **Seleccionar Modo de Escaneo y Proyección**:
-   * `Scan Mode`: `Ramp` (barrido continuo por hardware) o `Step by step` (paso a paso).
-   * `PSF Mode`: `x/y` (plano horizontal focal), `x/z`, `y/x`, `y/z` (cortes axiales).
-4. **Ejecutar el Barrido**: Haga clic en **`Start Scan`**. La imagen fotónica se construirá en tiempo real en la pantalla central (`Viewbox`).
-5. **Localizar el Centro de la Nanopartícula**:
-   * En `method of center`, seleccione `center of gauss` o `center of mass`.
-   * Presione **`Go to NP1`**. La platina piezoeléctrica moverá el haz láser exactamente a las coordenadas sub-nanométricas del pico ajustado.
+### 3.2 Dock: Trace (Trazas Temporales & Calibración BS)
+* **Trazas de Fotoluminiscencia**:
+  - Gráfica temporal continua con atajos **F1** (Iniciar captura) y **F2** (Detener y guardar).
+  - `Laser 1 Combo` / `Laser 2 Combo`: Selección de líneas láser a monitorear.
+  - `View Power BS`: Abre la ventana flotante `PowerBSWindow` para la calibración de 2 puntos del fotodiodo divisor (*Beam Splitter*) en $\text{mW/V}$.
 
 ---
 
-### 4.2 Impresión Automatizada de Redes/Grillas de Nanopartículas
-
-```
-[Establecer Coordenada Ref.] ──> [Crear Grilla] ──> [Configurar Umbral e Intensidad] ──> [Imprimir] ──> [Ciclo Automatizado]
-```
-
-1. **Definir Posición de Origen (Referencia)**:
-   * Mueva la platina al área limpia del sustrato donde comenzará la grilla.
-   * Abra la ventana **Measurements** (`Measurements` $\rightarrow$ `Printing`).
-   * En el Dock *Reference pos*, presione **`Set reference`**.
-2. **Crear o Cargar la Grilla**:
-   * **Opción A (Crear)**: En el Dock *Grid*, especifique `NPs/col` (ej. 5), `Columns` (ej. 5), `Dist NP (µm)` (ej. 5.0) y `Dist col (µm)` (ej. 5.0). Haga clic en **`Create Grid`**.
-   * **Opción B (Cargar)**: Presione **`Load Grid`** o use la barra de menú `Tools` $\rightarrow$ `Load Grid` para importar una matriz `.txt`.
-3. **Configurar Parámetros en el Panel Multicolumna (`Printing control`)**:
-   * Defina el incremento de señal en `Umbral` (ej. `1.2` para un salto del 20%).
-   * Defina el umbral inferior en `Umbral down` (para detectar desprendimiento o fotoblanqueamiento).
-   * Ingrese el tiempo máximo en `T max (s)` (ej. `20` s).
-   * Ingrese los puntos de promedio móvil en `Steps before` (ej. `10`) y `Steps after` (ej. `10`).
-   * Active `Scan pre-print?` si requiere mapa confocal previo en cada celda.
-4. **Iniciar la Secuencia Automática**:
-   * Presione **`Imprimir folder`** para definir el directorio y luego **`Play ►`**.
-   * El sistema ejecutará automáticamente para cada nodo:
-     1. Movimiento a la celda objetivo.
-     2. Ciclo de **Autofoco Z** para compensar deriva térmica.
-     3. Apertura del obturador y trazado continuo.
-     4. Cierre del obturador al detectar el salto de intensidad por encima del umbral.
-     5. Conteo y salto automático al siguiente índice (`Next index ►`).
+### 3.3 Dock: Focus z (Autofoco Dinámico)
+* **Controles de Enfoque**:
+  - **`Go to maximum (F8)`**: Barrido axial rápido en Z para posicionarse en el pico máximo de señal.
+  - **`Lock Focus (F9)`**: Congela el perfil Z de referencia.
+  - **`Autocorrelation ×2 (F10)`**: Corrección de deriva axial por autocorrelación.
 
 ---
 
-### 4.3 Fabricación Guiada de Nanodímeros Plasmónicos
-
-```
-[Mapear Partícula 1 (Pre-Scan)] ──> [Ajustar Centro Gaussiano] ──> [Aplicar Off-Set (dx, dy)] ──> [Imprimir Partícula 2] ──> [Post-Scan Caracterización]
-```
-
-1. Abra la ventana de mediciones en modo Dímeros (`Measurements` $\rightarrow$ `Dimers`).
-2. Defina el desplazamiento requerido entre la primera y la segunda partícula en `dx (µm)` y `dy (µm)` (ej. $dx = 0.08\ \mu\text{m} = 80\ \text{nm}$).
-3. Active `Scan pre-print?` (Pre-scan) y `Post scan?`.
-4. Inicie el protocolo pulsando **`Dimers folder`** $\rightarrow$ **`Play ►`**.
-5. **Flujo Interno Automatizado**:
-   * **Center-Scan**: Barrido de la partícula inicial y cálculo de su centro $(x_1, y_1)$.
-   * **Off-set Nanométrico**: Movimiento de la platina a $(x_1 + dx, y_1 + dy)$.
-   * **Pre-Scan**: Mapeo de la zona previa.
-   * **Impresión**: Exposición láser hasta detectar la unión de la segunda nanopartícula.
-   * **Post-Scan**: Mapeo confocal final revelando el nanodímero plasmónico.
+### 3.4 Dock: Shutters / Flipper / Láser 532
+* **Obturadores & Atenuadores**:
+  - `Shutter 532 nm`: Obturador digital del láser verde.
+  - `Shutter 637 nm`: Obturador digital del láser rojo.
+  - `Shutter 592 nm`: Obturador digital del láser amarillo.
+  - `Low power`: Atenuador óptico de baja potencia.
+  - `Mirror up`: Espejo escamotearle del filtro Notch de 532 nm (*Flipper*).
+  - `Láser 532 Voltage`: Control de voltaje DAC ($1.0 - 5.0\ \text{V}$).
 
 ---
 
-### 4.4 Medición con Cámara y Alineación Óptica
-
-1. Abra la ventana flotante de cámara desde la barra de menú: `Tools` $\rightarrow$ `Cámara`.
-2. **Seleccionar Modo de Imagen**:
-   * `Color RGB`: Transmisión estándar en color para alineación óptica.
-   * `Grises (Transmisión)`: Modo especializado en microscopía de transmisión con ajuste de contraste **CLim (Mín/Máx)** y falso color **LUT** (*Gris*, *Thermal*, *Viridis*, *Plasma*, *Inferno*, *Jet*).
-3. **Control Live View & Captura**:
-   * Haga clic en **`Iniciar Cámara`**.
-   * Ajuste `ISO` (Auto, 100-3200) y tiempo de exposición `Obturación (Tv)`.
-   * Presione **`Capturar Foto`** para guardar una imagen de alta resolución de 15 MP descargada a la PC.
-4. **Seguimiento de Partículas (Tracking)**:
-   * Abra el cuadro de diálogo de detección `trackpy`, ingrese el tamaño de partícula en $\mu\text{m}$ (convertido internamente a píxeles impares $\ge 3$) y ejecute el conteo en tiempo real.
+### 3.5 Dock: Nanopositioning (Platina PI)
+* **Control Manual de la Platina Piezoeléctrica**:
+  - Lectura en tiempo real de coordenadas $(X, Y, Z)$ en $\mu\text{m}$.
+  - Flechas de movimiento incremental relativo ($\times 1$ y $\times 10$).
 
 ---
 
-### 4.5 Adquisición de Trazas Temporales y Calibración de Potencia BS
-
-1. **Lectura de Trazas Dobles Simultáneas**:
-   - En el Dock **Trace** (ubicado abajo de todo a todo el ancho):
-     - Seleccione **Láser 1** (ej. `532 nm (green)`).
-     - Seleccione **Láser 2** (ej. `637 nm (red)` o `"None"`).
-     - Presione **`► Play / ■ Stop`** (o tecla **`F1`**).
-     - Al presionar Play se abrirán en simultáneo los obturadores de los lásers seleccionados y se graficarán ambas trazas en paralelo.
-     - Presione **`■ Stop`** (o **`F2`**). Los obturadores se cerrarán automáticamente y los datos se guardarán en `.txt`.
-2. **Calibración de Potencia en el Plano Focal Trasero (`PowerBSWindow`)**:
-   - Haga clic en el botón **`View Power BS`**. Se abrirá la ventana flotante de calibración.
-   - Mientras la ventana permanezca abierta, la medición de potencia BS estará **activa automáticamente**.
-   - Ingrese los mW medidos comercialmente en `High (mW)` y `Low (mW)` y presione **`Set High`** y **`Set Low`**.
-   - Haga clic en **`Set Calibration`**. El sistema calculará `Slope` (mW/V) e `Intercept` (mW) y actualizará la lectura digital en mW e integrará el gráfico continuo **`Trace on BS`** abajo de los controles.
+### 3.6 Ventana de Mediciones (Printing Automatizado & Dímeros)
+* **Impresión de Grillas (`Printing`) & Ensamblado de Nanodímeros (`Dimers`)**:
+  - Creación y carga de matrices de deposición en sustrato (`Create Grid` / `Load Grid`).
+  - Configuración de umbrales de salto de intensidad `Umbral` ($I_{\text{new}} > \text{Umbral} \cdot I_{\text{old}}$), tiempo máximo `T max (s)` y promedios móviles `Steps before` / `Steps after`.
+  - Secuencia automatizada con autofoco dinámico inter-nodo y post-escaneo confocal.
 
 ---
 
-### 4.6 Caracterización Analítica Avanzada de PSF (`psf_analyzer.py`)
+## 4. Módulo 2: PySpectrum *(En Construcción)*
 
-```
-[Tools -> PSF Analyzer] ──> [Cargar Confocal .tiff] ──> [Elegir Modelo 2D / Donut] ──> [Aplicar Filtro %] ──> [Inspeccionar Métricas, Residuales y RGB]
-```
+El botón **`🔮 En Desarrollo Futuro`** (Fila 1, Columna 2) está reservado para la suite de espectrometría avanzadas:
 
-1. Abra la ventana desde la barra de menú superior: `Tools` $\rightarrow$ `PSF Analyzer`.
-2. **Cargar Imágenes Confocales**:
-   - Haga clic en **`Cargar Confocal (.tiff)`** en el panel superior (**Confocal 1**, excitación verde) o en el panel inferior (**Confocal 2**, donut rojo).
-3. **Seleccionar Modelo de Ajuste & Umbral de Ruido**:
-   - Elija el modelo analítico en el combo: `Gaussiana 2D` o `Donut (Laguerre-Gauss)`.
-   - Ajuste el porcentaje de umbral en `Filtro (%)` (por defecto 30%) y presione **`Enter`** o haga clic en **`Aplicar`**.
-4. **Inspección en Visores Triples por Canal**:
-   - Examine las 3 imágenes generadas en tiempo real: **Original / Filtrada** (con centro $x_0,y_0$ y elipse), **Modelo Ajustado (Fit $Z_{\text{fit}}$)** y **Mapa de Residuales (|Zn - Zfit|)** con sus respectivas barras laterales de escala Z dinámicas (`ColorBarItem`).
-5. **Ajuste de Unidades y Visualización**:
-   - Cambie las etiquetas graduadas de los ejes en `Unidades` (`micrómetros (µm)` vs `píxeles (px)`).
-   - En la pestaña **Perfiles 1D**, elija el canal (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y la orientación del corte pasante por el centro (`Horizontal`, `Vertical`, `Diagonal 45°`, `Diagonal 135°`).
-   - En la pestaña **Superposición Falso Color**, seleccione el origen RGB (`Imágenes Originales`, `Originales con Filtro de Ruido`, `Modelos Ajustados (Fits)`).
+> 🚧 **ESTADO: EN CONSTRUCCIÓN**
+> 
+> **Funcionalidades Planificadas**:
+> - Integración y manejo directo de espectrómetros de rejilla CCD/EMCCD (reemplazo extendido de *Andor Solis*).
+> - Rutinas automatizadas de **nano-termometría fotónica** por fluorescencia/luminiscencia dependiente de la temperatura.
+> - Adquisición de espectros de dispersión (*scattering*) sobre nanopartículas individuales.
+> - Lectura síncrona de espectros acoplada al escaneo de platinas piezoeléctricas y excitación láser.
 
 ---
 
-## 5. Descripción Detallada de Docks, Ventanas y Controles
+## 5. Módulo 3: Microscopio Contrapropagante *(En Construcción)*
 
-### 5.1 Dock: Confocal (`ConfocalFrontend`)
+El botón **`🔍 En Desarrollo Futuro`** (Fila 1, Columna 3) está reservado para la arquitectura de microscopía dual:
 
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **Láser Combo** | `QComboBox` | Selecciona la línea de excitación láser (`532 nm (green)`, `637 nm (red)`). |
-| **Scan Mode Combo** | `QComboBox` | Selecciona entre barrido continuo `Ramp` o barrido paso a paso `Step by step`. |
-| **PSF Mode Combo** | `QComboBox` | Selecciona el plano de proyección del barrido (`x/y`, `x/z`, `y/x`, `y/z`), ubicado al lado de `scan_mode`. |
-| **Range x (µm)** | `QLineEdit` | Tamaño del campo de visión en el eje horizontal ($\mu\text{m}$). |
-| **Range y (µm)** | `QLineEdit` | Tamaño del campo de visión en el eje vertical ($\mu\text{m}$). |
-| **Pixels x / y** | `QLineEdit` | Resolución de la imagen (número de puntos por fila/columna). Recomendado: múltiplos de 16. |
-| **`Start Scan`** | `QPushButton` | Inicia el barrido confocal síncrono en el plano y modo seleccionados. |
-| **`Stop`** | `QPushButton` | Interrumpe inmediatamente el escaneo en curso y cierra el obturador láser. |
-| **`Save Frame`** | `QPushButton` | Guarda las matrices de la imagen actual (`.tiff` y `.txt`) en el directorio de trabajo. |
-| **`Go to NP1`** | `QPushButton` | Posiciona la platina en las coordenadas del pico ajustado para la Nanopartícula 1. |
-| **`Go to NP2`** | `QPushButton` | Posiciona la platina en las coordenadas calculadas para la Nanopartícula 2 (si aplica). |
-| **Filtro (%)** | `QLineEdit` | Porcentaje de umbral de intensidad para el filtro de fondo en la búsqueda del centro (por defecto 30%). Ubicado abajo de `Go to NP2`. |
-| **Auto CM** | `QCheckBox` | Si está activo, tras un escaneo el piezo se desplaza automáticamente al centro de masa. |
-| **Scan Image Combo** | `QComboBox` | Define el contraste dinámico (`NPs maximum`, `NPs minimum`, `choose`). |
-| **Method Center Combo**| `QComboBox` | Algoritmo de ajuste de centro (`center of mass`, `center of gauss`, `two NP: center of gauss`, `donut (Laguerre-Gauss)`). |
-| **`DRIFT measurement`**| `QPushButton` | Inicia la medición periódica de deriva espacial ajustando la posición Gaussiana a intervalos regulables. |
+> 🚧 **ESTADO: EN CONSTRUCCIÓN**
+> 
+> **Funcionalidades Planificadas**:
+> - Adaptación de la arquitectura PyPrinting 3.0 para microscopía con doble iluminación y detección.
+> - Observación simultánea coordinada mediante objetivo superior e invertido.
+> - Excitación mediante haces láser contrapropagantes para pinzas ópticas y trampas fotónicas.
 
 ---
 
-### 5.2 Dock: Trace (`TraceFrontend` — Trazas Dobles y Ventana Power BS)
+## 6. Módulo 4: PyPrinting 2 (Legacy — `PyPrinting_UNSAM.py`)
 
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **Láser 1 Combo** | `QComboBox` | Selecciona la primera línea de excitación láser a monitorear. |
-| **Láser 2 Combo** | `QComboBox` | Selecciona la segunda línea de excitación o `"None"` (al seleccionar None desactiva el 2do obturador y canal). |
-| **`► Play / ■ Stop`** | `QPushButton` | Abre los obturadores de los lásers seleccionados e inicia/detiene el trazado simultáneo (Atajos **F1** / **F2**). |
-| **PointLabel** | `QLabel` | Muestra en tiempo real las intensidades numéricas instantáneas en Volts ($I_{L1} \mid I_{L2}$). |
-| **`Save trace`** | `QPushButton` | Guarda manualmente la traza temporal de ambos canales en un archivo `.txt`. |
-| **`View Power BS`** | `QPushButton` | Abre la ventana flotante independiente de calibración de potencia y monitoreo `PowerBSWindow`. |
-| **`Active Power BS`** | `QPushButton` *(En PowerBSWindow)* | Botón de alternancia de medición activa en tiempo real (mantenido encendido automáticamente al abrir la ventana). |
-| **`High/Low (mW)`** | `QLineEdit` *(En PowerBSWindow)* | Ingreso de lecturas del medidor de potencia comercial para calibración de 2 puntos. |
-| **`Set High/Low`** | `QPushButton` *(En PowerBSWindow)* | Asigna la lectura actual del fotodiodo BS al punto de calibración alto o bajo. |
-| **`Set Calibration`**| `QPushButton` *(En PowerBSWindow)* | Calcula la pendiente `Slope` (mW/V) e intersección `Intercept` (mW). |
-| **`Trace on BS`** | Plot *(En PowerBSWindow)* | Gráfica temporal continua dedicada del fotodiodo divisor colocada abajo de los controles. |
+El botón **`🏛️ Iniciar PyPrinting 2`** (Fila 2, Columna 1) ejecuta la versión previa del software de impresión situada en `../printing2/PyPrinting_UNSAM.py`. Permite abrir la interfaz histórica para consulta de rutinas antiguas y comparación directa de protocolos experimentales.
 
 ---
 
-### 5.3 Dock: Focus z (`FocusFrontend`)
+## 7. Módulo 5: Cámara Live View (`camera.py`)
 
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **`Go to maximum (F8)`**| `QPushButton` | Realiza un barrido rápido en Z y desplaza la platina al pico de máxima intensidad óptica. |
-| **`Lock Focus (F9)`** | `QPushButton` | Registra y congela el perfil de intensidad Z actual como firma de referencia de enfoque. |
-| **`Autocorrelation ×2 (F10)`**| `QPushButton` | Correlaciona la señal Z actual con el perfil locked y ajusta el foco a la coincidencia óptima. |
+El botón **`📷 Iniciar Cámara Live View`** (Fila 2, Columna 2) lanza de forma independiente la ventana de transmisión de cámara en tiempo real:
 
----
-
-### 5.4 Dock: Shutters / Flipper / Láser 532 (`ShuttersFrontend`)
-
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **Shutter 532 nm** | `QCheckBox` / `QPushButton` | Abre o cierra el obturador digital del láser verde de 532 nm (`open_shutter("532 nm (green)")` / `close_shutter("532 nm (green)")`). En `Laser532Window`, conmuta dinámicamente entre abrir y cerrar el obturador. |
-| **Shutter 637 nm** | `QCheckBox` | Abre o cierra el obturador digital del láser rojo de 637 nm (Canal DO 11, PD ai1). |
-| **Shutter 592 nm** | `QCheckBox` | Abre o cierra el obturador digital del láser amarillo de 592 nm (Canal DO 10, PD ai3). |
-| **Low power** | `QCheckBox` | Activa/Desactiva el atenuador óptico de baja potencia. |
-| **Mirror up** | `QCheckBox` | Levanta o baja el espejo escamotearle del filtro Notch de 532 nm (*Flipper*). |
-| **Láser 532 Voltage**| `QSlider` / `QDoubleSpinBox` | Control de voltaje analógico DAC ($1.0 - 5.0\ \text{V}$) para ajustar la potencia del láser verde continuo. |
+* **Características Principales**:
+  - **Soporte Réflex Canon EOS 500D (EDSDK 64-bit)** y **Webcams USB OpenCV**.
+  - **Modos de Visualización**: `Color RGB` y `Grises (Transmisión)`.
+  - **Ajuste de Contraste Dinámico (CLim Mín/Máx)** en escala de grises.
+  - **Paletas LUT de Falso Color**: *Gris Estándar*, *Thermal*, *Viridis*, *Plasma*, *Inferno*, *Jet*.
+  - **Ajustes Réflex**: Sensibilidad `ISO` (100–3200) y velocidad de `Obturación (Tv)`.
+  - **Captura Fotográfica de Alta Resolución**: Foto limpia de 15 MP guardada en disco sin interrumpir el Live View.
 
 ---
 
-### 5.5 Dock: Nanopositioning (`NanoFrontend`)
+## 8. Módulo 6: Modulación Láser 532 nm (`Laser532Window`)
 
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **`Read position`** | `QPushButton` | Lee y actualiza la posición actual en tiempo real de los ejes X, Y, Z de la platina PI. |
-| **Flechas $x, y, z$** | `QPushButton` | Movimientos incrementales relativos en dirección positiva o negativa ($\times 1$ y $\times 10$). |
-| **step x/y [µm]** | `QLineEdit` | Tamaño del paso incremental para movimientos en el plano XY ($\mu\text{m}$). |
-| **step z [µm]** | `QLineEdit` | Tamaño del paso incremental para el eje Z ($\mu\text{m}$). |
-| **`Set reference`** | `QPushButton` | Guarda las coordenadas actuales como origen de referencia para el panel *Go to*. |
-| **`Go to`** | `QPushButton` | Mueve la platina de forma absoluta a las coordenadas $(X, Y, Z)$ ingresadas en las casillas. |
+El botón **`⚡ Iniciar Control Láser 532`** (Fila 2, Columna 3) lanza la ventana flotante independiente para el control del láser verde:
 
----
-
-### 5.6 Archivo de Configuración Centralizada (`config.py`)
-
-Todos los valores predeterminados (*typical values*) que aparecen en los casilleros y parámetros editables de la interfaz gráfica se encuentran centralizados en [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py). Esto permite adaptar los valores de inicio del sistema sin necesidad de modificar el código interno de la interfaz:
-
-* **Parámetros Confocales**: `DEFAULT_CONFOCAL_RANGE_X` ($2.0\ \mu\text{m}$), `DEFAULT_CONFOCAL_PIXELS_X` ($34$), `DEFAULT_CONFOCAL_FILTER_PERCENT` ($30\%$), `DEFAULT_DRIFT_TOTAL_MINUTES` ($20\text{ min}$), `DEFAULT_DRIFT_REFRESH_SECONDS` ($40\text{ s}$).
-* **Trazas & Calibración de Potencia BS**: `DEFAULT_TRACE_STEPS_BEFORE` ($10$), `DEFAULT_TRACE_STEPS_AFTER` ($10$), `DEFAULT_POWER_BS_HIGH_MW` ($3.3\ \text{mW}$), `DEFAULT_POWER_BS_LOW_MW` ($1.0\ \text{mW}$), `DEFAULT_POWER_BS_SLOPE` ($3.0\ \text{mW/V}$).
-* **Nanoposicionador PI E-517**: `DEFAULT_NANO_STEP_XY` ($1.0\ \mu\text{m}$), `DEFAULT_NANO_STEP_Z` ($0.2\ \mu\text{m}$), `DEFAULT_NANO_GOTO_X/Y` ($50.0\ \mu\text{m}$), `DEFAULT_NANO_GOTO_Z` ($10.0\ \mu\text{m}$).
-* **Grillas de Impresión y Dímeros**: `DEFAULT_GRID_NPS_COL` ($4$), `DEFAULT_GRID_COLS` ($4$), `DEFAULT_GRID_DIST_NP` ($3.0\ \mu\text{m}$), `DEFAULT_PRINTING_UMBRAL` ($1.2$), `DEFAULT_PRINTING_TMAX` ($20.0\text{ s}$), `DEFAULT_PRINTING_AUTOFOCUS_EVERY` ($2$).
-* **Visión y Detección Trackpy**: `DEFAULT_CAMERA_FPS` ($30$), `DEFAULT_TRACKPY_DIAMETER_PX` ($11\text{ px}$), `DEFAULT_TRACKPY_SEPARATION_PX` ($8\text{ px}$), `DEFAULT_TRACKPY_MINMASS` ($100$).
+* **Funciones del Panel**:
+  - **Deslizador y SpinBox de Voltaje**: Ajuste continuo de voltaje analógico DAC entre $1.0\ \text{V}$ y $5.0\ \text{V}$ (Canal NI-DAQ `Dev1/ao2`).
+  - **Botones Preset**: Acceso directo con un solo clic a $1.0\text{V}$, $2.0\text{V}$, $3.0\text{V}$, $4.0\text{V}$ y $5.0\text{V}$.
+  - **Botón Conmutador del Obturador (Shutter 532 nm)**:
+    - **`► Abrir Shutter 532 nm (Cerrado)`** (Verde `#2e7d32`): Ejecuta `open_shutter("532 nm (green)")`.
+    - **`■ Cerrar Shutter 532 nm (Abierto)`** (Rojo `#c62828`): Ejecuta `close_shutter("532 nm (green)")`.
 
 ---
 
-### 5.7 Ventana de Mediciones (`MeasFrontend` — Printing & Dimers)
+## 9. Módulo 7: PSF Analyzer (`psf_analyzer.py`)
 
-El panel **Printing control** cuenta con una disposición matricial de 4 columnas para máxima claridad visual:
+El botón **`📊 Iniciar PSF Analyzer`** (Fila 3, Columna 1) lanza la herramienta de caracterización analítica de la Función de Punto de Dispersión (PSF):
 
-| Elemento / Columna | Tipo | Función / Descripción |
-|---|---|---|
-| **`Imprimir/Dimers folder`** | `QPushButton` | Abre el cuadro de diálogo para definir la carpeta destino del experimento. |
-| **NameDirValue** | `QLabel` | Muestra el estado del directorio (en verde si está listo, en rojo si falta configurar). |
-| **Láser** | `QComboBox` | Selecciona la línea láser de excitación utilizada para la impresión óptica. |
-| **Umbral** | `QLineEdit` | Factor multiplicativo del salto de intensidad para detectar la deposición ($I_{new} > \text{Umbral} \cdot I_{old}$). |
-| **Umbral down** | `QLineEdit` | Umbral inferior de caída de señal para detectar desprendimiento o fotoblanqueamiento. |
-| **T max (s)** | `QLineEdit` | Tiempo máximo de exposición láser permitido por celda antes de abortar. |
-| **Steps before** | `QLineEdit` | Número de puntos promediados pre-exposición para calcular la línea base ($I_{old}$). |
-| **Steps after** | `QLineEdit` | Número de puntos promediados tras el punto actual para evaluar la condición de umbral ($I_{new}$). |
-| **Scan pre-print?** | `QCheckBox` | Habilita un barrido confocal de confirmación previa antes de abrir el obturador. |
-| **Post scan?** *(Dimers)* | `QCheckBox` | Habilita un barrido confocal caracterizador tras completar la unión de la 2da partícula. |
-| **`Play ►`** | `QPushButton` | Inicia la secuencia automatizada de impresión paso a paso a lo largo de la grilla. |
-| **`Pause`** | `QPushButton` | Pausa temporalmente el avance automático manteniendo el índice actual. |
-| **`Next index ►`** | `QPushButton` | Omite la celda actual y salta directamente al siguiente objetivo de la matriz. |
-| **Total targets** | `QLabel` | Muestra el número total de partículas/nodos a fabricar en la grilla actual. |
-| **Target Index** | `QLineEdit` | Muestra o permite editar manualmente el índice de partícula objetivo en ejecución. |
-| **`Set reference` / `Go reference`** | `QPushButton` | Guarda o desplaza la platina al origen de coordenadas $(X_{ref}, Y_{ref}, Z_{ref})$. |
-| **Autofocus every N** | `QLineEdit` | Frecuencia de ciclos de enfoque Z automático (ej. ejecutar autofoco cada 2 celdas). |
-| **Shift x / y (µm)** | `QLineEdit` | Desplazamiento fino del haz óptico respecto al centro del mapa confocal. |
-| **dx / dy (µm)** *(Dimers)* | `QLineEdit` | Separación nanometrada deseada entre la primera y la segunda nanopartícula del dímero. |
+* **Características Principales**:
+  - **Visualización Dual Vertical**: Carga independiente de imágenes `.tiff` para el Canal 1 (excitación verde, arriba) y Canal 2 (donut rojo, abajo).
+  - **Modelos de Ajuste 2D**: `Gaussiana 2D` (7 parámetros) y `Donut (Laguerre-Gauss LG01)`.
+  - **Filtro (%) de Ruido de Fondo**: Campo de texto interactivo. Al ingresar un valor y presionar **`Enter`** o hacer clic en **`Aplicar`**, el sistema recalcula en tiempo real las matrices filtradas $Z_f$, los fits 2D, las mapas de residuales ($|Z_n - Z_{\text{fit}}|$) y las métricas.
+  - **Vistas Triples con Escala Z Dinámica**: Despliega por cada canal la imagen Original/Filtrada, el Modelo Ajustado y el Mapa de Residuales con barras de color Z dinámicas (`ColorBarItem`).
+  - **Cortes de Perfil 1D Pasantes por el Centro**: Gráficos interactivos 1D configurables por canal (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y dirección de corte pasante por $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`.
+  - **Falso Color RGB**: Superposición cromática configurable sobre `Imágenes Originales`, `Originales con Filtro` o `Modelos Ajustados (Fits)`.
+  - **Informe de Métricas Completo**: Tabla con coordenadas sub-píxel $(x_0, y_0)$, radio $r_0$, elipticidad $a/b$, ángulo de orientación $\theta$, calidad del cero $I_{\min}/I_{\max}$, uniformidad angular $\sigma_{\theta}/\bar{I}$, bondad de ajuste ($R^2$, Error RMS, $\chi^2_{\text{red}}$) y desalineación dual $\Delta r_{\text{nm}}$.
 
 ---
 
-### 5.8 Ventana de Cámara Réflex Canon EOS 500D (`canon_test.py` / `canon_edsdk.py`)
+## 10. Módulo 8: Analizador de Imágenes (`image_analyzer.py`)
 
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **`Iniciar Cámara`** | `QPushButton` | Abre la sesión EDSDK USB e inicia el flujo Live View nativo a 25 FPS ($1056 \times 704$). |
-| **Modo Imagen** | `QComboBox` | Conmuta entre `Color RGB` y `Grises (Transmisión)` para microscopía de transmisión. |
-| **Mín / Máx (CLim)** | `QSlider` | Deslizadores de intensidad mínima y máxima para ajustar el rango dinámico en modo grises. |
-| **Colormap (LUT)** | `QComboBox` | Aplica paletas de falso color en tiempo real (*Gris Estándar*, *Thermal*, *Viridis*, *Plasma*, *Inferno*, *Jet*). |
-| **Ganancia R / G / B** | `QSlider` | Deslizadores de balance de blancos para multiplicar canales cromáticos en modo RGB ($<1\text{ ms}$). |
-| **ISO Speed** | `QComboBox` | Ajusta la sensibilidad ISO del sensor Canon (Auto, 100, 200, 400, 800, 1600, 3200). |
-| **Obturación (Tv)** | `QComboBox` | Ajusta el tiempo de exposición del obturador mecánico (desde 1/10s hasta 10s). |
-| **Zoom Mode** | `QComboBox` | Conmuta entre zoom digital ($1\times, 2\times$) y zoom por hardware ($5\times, 10\times$). |
-| **`Capturar Foto`** | `QPushButton` | Dispara el obturador de 15 MP, descarga la imagen a la PC y reactiva el Live View sin bloqueos. |
+El botón **`📐 Iniciar Analizador de Imágenes`** (Fila 3, Columna 2) abre la herramienta gráfica para imágenes estáticas:
+
+* **Funciones Principales**:
+  - Carga de imágenes en formato `.png`, `.jpg`, `.bmp`, `.tif`, `.tiff` (8, 16 y 32 bits).
+  - **Calibración de Escala en $\mu\text{m/px}$**: Diálogo gráfico interactivo trazando una línea de referencia conocida.
+  - **Reglas Tri-estado**: Conmutador para ocultar reglas, mostrar 1er par de ejes graduados o 2do par de ejes graduados sobre la imagen.
+  - **Herramienta de Medición**: Medición directa de distancias con Snap magnético (`Shift`).
+  - **Detección y Tracking de Partículas (`trackpy`)**: Identificación automática de centroides por masa y diámetro dentro de una ROI configurada.
 
 ---
 
-### 5.9 Ventana de Analizador de Imágenes Estáticas (`image_analyzer.py`)
+## 11. Módulo 9: Documentación y Créditos del Autor
 
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **`📁 Abrir Foto`** | `QPushButton` | Carga archivos de imagen estáticos (`.png`, `.jpg`, `.bmp`, `.tif`, `.tiff` de 8/16/32 bits). |
-| **Indicador de Escala** | `QLabel` | Muestra en **verde** (`Escala configurada: X.XXXXX µm/px`) o en **rojo** (`Escala no configurada`). |
-| **`Configurar Escala`** | `QPushButton` | Abre el diálogo gráfico para trazar un trazo de longitud conocida en $\mu\text{m}$. |
-| **`ROI detect`** | `QPushButton` | Permite definir un rectángulo de región de interés para restringir el análisis de partículas. |
-| **`Detectar Partículas`**| `QPushButton` | Ejecuta el algoritmo `trackpy` especificando masa y diámetro en $\mu\text{m}$/píxeles. |
-| **`Medir`** | `QPushButton` | Activa la herramienta de medición entre 2 puntos con soporte para Snap magnético (`Shift`). |
-| **Reglas Tri-estado** | `QPushButton` | Alterna entre reglas invisibles, 1er par de ejes graduados y 2do par de ejes graduados en $\mu\text{m/px}$. |
-| **`📷 Exportar Foto`** | `QPushButton` | Renderiza la imagen procesada junto a todas las capas de overlay y la guarda en disco. |
+El panel de la Fila 3, Columna 3 agrupa la documentación y la información institucional del proyecto:
 
----
-
-### 5.10 Ventana de Caracterización de PSF (`psf_analyzer.py` — PSF Analyzer)
-
-| Elemento | Tipo | Función / Descripción |
-|---|---|---|
-| **`Cargar Confocal (.tiff)`** | `QPushButton` | Carga imágenes confocales individuales para el Canal 1 (excitación verde, arriba) o Canal 2 (donut rojo, abajo). |
-| **`Modelo`** | `QComboBox` | Selecciona el modelo analítico de ajuste 2D (`Gaussiana 2D` o `Donut (Laguerre-Gauss)`). |
-| **`Filtro (%)` + `Aplicar` / `Enter`** | `QLineEdit` + `QPushButton` | Porcentaje de umbral de filtrado de fondo ($Z_n < P/100 \implies Z_f = 0$). Presionar `Enter` o `Aplicar` recalcula inmediatamente los ajustes, residuales y métricas. |
-| **Vistas Triples con Escala Z Dinámica** | `pg.PlotWidget` ($\times 3$) + `ColorBarItem` | Despliega 3 visores por canal con barras laterales de escala de intensidad Z dinámicas: **Original/Filtrada** (con centro $x_0,y_0$ y elipse), **Modelo Ajustado (Fit $Z_{\text{fit}}$)** y **Mapa de Residuales ($|Z_n - Z_{\text{fit}}|$)**. |
-| **Disposición Geométrica** | `QSplitter` ($\times 2$) | Organiza los canales de forma vertical (Confocal 1 arriba, Confocal 2 abajo) y posiciona el panel de Resultados/Gráficos a la **derecha**. |
-| **Selector de Unidades** | `QComboBox` | Alterna las etiquetas de los ejes graduados de todas las imágenes entre **micrómetros ($\mu\text{m}$)** y **píxeles ($\text{px}$)**. |
-| **`Limpiar Canal 1` / `Canal 2`** | `QPushButton` | Vacía y reinicia los paneles del Canal 1 o Canal 2 de forma independiente. |
-| **Canal y Dirección en Perfiles 1D** | `QComboBox` ($\times 2$) | Selecciona el canal a graficar (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y la orientación del corte 1D pasante por $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`. |
-| **Modo de Falso Color RGB** | `QComboBox` | Elige el origen para la imagen compuesta RGB: `Imágenes Originales`, `Originales con Filtro de Ruido` o `Modelos Ajustados (Fits)`. |
-| **Pestaña `Métricas de Ajuste`** | `QTableWidget` | Despliega la tabla comparativa con el ajuste no lineal de 7 parámetros y las métricas de alineación ($x_0, y_0$, radio $r_0$, elipticidad $a/b$, orientación $\theta$, calidad del cero $I_{\min}/I_{\max}$, uniformidad angular $\sigma_{\theta}/\bar{I}$, FWHM promedio, Error RMS, $\chi^2_{\text{red}}$, $R^2$ y desalineación dual $\Delta r_{\text{nm}}$). |
+* **Botón `📘 Manual`**: Abre directamente este archivo de manual de usuario ([MANUAL_USUARIO.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/MANUAL_USUARIO.md)).
+* **Botón `📖 README`**: Abre la documentación técnica general del repositorio ([README.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)).
+* **Botón `🎓 Créditos`**: Despliega el diálogo modal con la información académica e institucional:
+  - **Autor Principal**: José Luis González Peñafiel
+  - **Cargo**: Becario Doctoral CONICET
+  - **Institución**: Instituto de Nanosistemas (INS-UNSAM)
+  - **Ubicación**: San Martín, Buenos Aires, Argentina
+  - **Contacto**: `jose.lito.g.1999@gmail.com`
+  - **GitHub**: `https://github.com/joselitog1999/pyprinting_3.0`
 
 ---
 
-## 6. Tabla de Atajos de Teclado (Shortcuts)
+## 12. Flujos de Trabajo Experimentales (Protocolos Paso a Paso)
 
-| Tecla de Acceso Directo | Función Asociada | Módulo / Dock |
+### 12.1 Mapeo Confocal 2D/3D y Ajuste de Partículas
+1. Inicie **Microscopio Derecho** desde `main.py`.
+2. En el Dock **Confocal**, configure `Range x/y` (ej. $10\ \mu\text{m}$) y `Pixels x/y` (ej. $50 \times 50$).
+3. Seleccione `Scan mode: Ramp` y `method_center: center of gauss`.
+4. Haga clic en **`Start Scan`**. Al concluir, el sistema ajustará la gaussiana 2D y moverá la platina PI al centro si `Auto CM` está activo.
+
+### 12.2 Impresión Automatizada de Grillas
+1. Desplace la platina a la región limpia del sustrato.
+2. Abra `Measurements` $\rightarrow$ `Printing`, marque **`Set reference`** y configure las dimensiones de la grilla (`NPs/col`, `Columns`, `Dist NP`).
+3. Configure `Umbral` (ej. `1.2`), `T max` (ej. `20` s) y `Steps before/after`.
+4. Presione **`Imprimir folder`** para definir la carpeta y luego **`Play ►`**.
+
+### 12.3 Fabricación Guiada de Nanodímeros Plasmónicos
+1. Abra `Measurements` $\rightarrow$ `Dimers`.
+2. Ingrese los valores de separación nanometrada `dx (µm)` y `dy (µm)`.
+3. Ejecute el escaneo de localización de la partícula 1; el sistema aplicará el offset de posición e imprimirá la partícula 2 de forma automatizada.
+
+---
+
+## 13. Tabla de Atajos de Teclado & Preguntas Frecuentes (FAQ)
+
+### Atajos de Teclado (Shortcuts)
+| Tecla | Función | Módulo / Dock |
 |---|---|---|
 | **`Ctrl + A`** | Seleccionar directorio de trabajo base | Menú principal (`Files`) |
 | **`Ctrl + S`** | Crear directorio diario automático (`YYYY-MM-DD`) | Menú principal (`Files`) |
 | **`Ctrl + D`** | Abrir la carpeta del directorio actual en Explorer | Menú principal (`Files`) |
-| **`Shift + Click/Arrastrar`** | Activar Snap magnético a partículas/referencia en mediciones | Cámara / Analizador de Imágenes |
-| **`F1`** | Iniciar captura de Trazas dobles en tiempo real (Play) | Dock: Trace |
-| **`F2`** | Detener captura de Trazas dobles y guardar datos (Stop) | Dock: Trace |
+| **`Shift + Click`** | Snap magnético a partículas en mediciones | Cámara / Analizador de Imágenes |
+| **`F1`** | Iniciar captura de Trazas dobles (Play) | Dock: Trace |
+| **`F2`** | Detener captura de Trazas dobles (Stop) | Dock: Trace |
 | **`F8`** | Ejecutar Autofoco Z (Go to maximum) | Dock: Focus z |
 | **`F9`** | Congelar perfil de intensidad Z (Lock Focus) | Dock: Focus z |
-| **`F10`** | Ejecutar corrección por autocorrelación Z ($\times 2$) | Dock: Focus z |
+| **`F10`** | Corrección por autocorrelación Z ($\times 2$) | Dock: Focus z |
 
 ---
 
-## 7. Preguntas Frecuentes (FAQ)
-
-### 7.1 ¿Cómo se determina el centro de la partícula al realizar un escaneo confocal?
-
-El cálculo del centro de la nanopartícula durante y al finalizar un escaneo confocal en **PyPrinting 3.0** (`confocal.py` y `psf.py`) se realiza mediante un pipeline de 4 pasos continuos:
-
-1. **Normalización de la Imagen (`_norm_image`)**:
-   Al completarse la matriz de fotodetector $Z$ ($N_x \times N_y$), el sistema normaliza la imagen entre $0.0$ y $1.0$:
-   $$Z_n = \frac{Z - Z_{\min}}{Z_{\max} - Z_{\min}}$$
-   Dependiendo de la opción en el combo `Scan Image`:
-   - **`NPs maximum`**: Mantiene nanopartículas brillantes (dispersión/fluorescencia).
-   - **`NPs minimum`**: Invierte la matriz ($|Z_n - 1|$) para nanopartículas oscuras (absorción).
-
-2. **Filtrado por Umbral de Ruido (`_filter_image`)**:
-   Para evitar que el ruido del fondo desvíe la localización del centro, se aplica un filtro umbral de intensidad al **30%** ($0.30$):
-   $$\text{Si } Z_n < 0.30 \implies Z_f = 0.0$$
-   Esto conserva únicamente el perfil luminoso correspondiente a la respuesta de la partícula (PSF).
-
-3. **Algoritmo de Ajuste del Centro (Combo `method_center`)**:
-   - **`center of mass` (Centro de Masa Ponderado)**: Utiliza `scipy.ndimage.measurements.center_of_mass(Zf)`. Calcula el centroide ponderado en píxeles:
-     $$x_o = \frac{\sum x \cdot Z_f(x,y)}{\sum Z_f(x,y)}, \quad y_o = \frac{\sum y \cdot Z_f(x,y)}{\sum Z_f(x,y)}$$
-   - **`center of gauss` (Ajuste Gaussiano 2D Sub-píxel — Recomendado)**: Toma el centro de masa como semilla e integra un ajuste por mínimos cuadrados no lineales (`scipy.optimize.curve_fit`):
-     $$G(x,y) = Z_{\text{offset}} + A \cdot \exp\left(-\left[a(x-x_0)^2 + 2b(x-x_0)(y-y_0) + c(y-y_0)^2\right]\right)$$
-     Devuelve las coordenadas $(x_0, y_0)$ con precisión sub-nanométrica.
-   - **`two NP: center of gauss` (Doble Partícula / Nanodímeros)**: Identifica los dos picos locales mediante `skimage.feature.peak_local_max` y ajusta una función de dos gaussianas 2D superpuestas (`two_gaussian2D`) para obtener la posición exacta de ambas partículas $(x_1, y_1)$ y $(x_2, y_2)$.
-   - **`donut (Laguerre-Gauss)` (Ajuste Haz Vortex / STED $LG_{01}$)**: Toma el centro de masa como semilla e integra el modelo analítico de haz Donut:
-     $$I_{\text{donut}}(x, y) = I_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right), \quad \text{donde } r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
-     Ajusta por mínimos cuadrados no lineales (`scipy.optimize.curve_fit`) determinando las coordenadas sub-píxel $(x_0, y_0)$ del **mínimo nulo central del donut**.
-
-4. **Conversión a Coordenadas Físicas ($\mu\text{m}$) (`_coords`)**:
-   Convierte las coordenadas en píxeles $(x_o, y_o)$ a la posición absoluta en micrómetros de la platina piezoeléctrica **Physik Instrumente (PI)**:
-   $$X_{\text{físico}} = X_{\text{origen}} - \frac{\text{Range}_x}{2} + \frac{dx}{2} + (x_o \cdot dx)$$
-   $$Y_{\text{físico}} = Y_{\text{origen}} - \frac{\text{Range}_y}{2} + \frac{dy}{2} + (y_o \cdot dy)$$
-   donde $dx = \frac{\text{Range}_x}{N_x}$ y $dy = \frac{\text{Range}_y}{N_y}$.
-
----
-
-### 7.2 ¿Qué sucede exactamente en el sistema al ejecutar un escaneo desde el widget Confocal?
-
-Al hacer clic en **`Start Scan`** en el widget **Confocal**, la interfaz (`Frontend`) y el hilo de control (`Backend`) ejecutan una secuencia coordinada de 4 etapas:
-
-1. **Preparación e Inicio**:
-   - Oculta los marcadores de centro de masa/gaussiano de escaneos anteriores en el visor central (`Viewbox`).
-   - Captura el láser seleccionado (532 nm o 637 nm), el rango de escaneo (`Range x/y` en $\mu\text{m}$), la resolución (`Pixels x/y`), el modo de escaneo (`Ramp` o `Step by step`) y la proyección (`x/y`, `x/z`, `y/x`, `y/z`).
-   - Llama a `start_scan_routines` en el backend.
-
-2. **Adquisición de Datos y Barrido Óptico**:
-   - **En modo `Ramp` (Barrido continuo por hardware — Alta velocidad)**:
-     - Registra las coordenadas de origen $(X_{pos}, Y_{pos}, Z_{pos})$ de la platina PI.
-     - Configura en el controlador PI un movimiento de rampa lineal síncrono para el eje rápido ($X$).
-     - Llama a `open_shutter(laser)` activando la línea de excitación en la tarjeta National Instruments (NI-DAQ).
-     - Ejecuta un bucle por líneas: mueve el eje lento ($Y$), dispara la rampa en $X$, lee síncronamente el fotodiodo mediante el reloj de hardware NI-DAQmx, construye la fila de imagen y emite `dataSignal` para actualizar la pantalla térmica en tiempo real.
-   - **En modo `Step by step` (Barrido discreto punto por punto)**:
-     - Mueve el piezo a cada par $(x_i, y_j)$, abre el obturador, lee $N$ muestras analógicas del fotodiodo, promedia el valor y actualiza el píxel.
-
-3. **Cierre de Dispositivos y Cálculo del Centro**:
-   - Al completar la última fila/píxel, detiene los timers de reloj y llama a `close_shutter(laser)` para proteger la muestra.
-   - Ejecuta el cálculo de centro de partícula `_CMmeasure()` (normalización, umbral al 30%, ajuste gaussiano/CM y conversión a $\mu\text{m}$).
-   - Coloca una marca gráfica (cruz o punto rojo) sobre el visor central en la posición exacta calculada.
-
-4. **Posicionamiento Final y Guardado (`_post_scan_dispatch`)**:
-   - **Posicionamiento PI**: Si `Auto CM` está marcado, mueve automáticamente la platina PI al centro calculado de la nanopartícula; de lo contrario, regresa el piezo al centro original del área escaneada $(X_{pos}, Y_{pos})$.
-   - **Guardado**: Exporta automáticamente la imagen procesada a disco en formato `.tiff` dentro de la carpeta de trabajo.
-   - **Notificación**: Emite `scandoneSignal` informando que el escaneo concluyó con éxito.
-
----
-
-### 7.3 ¿Cómo funciona matemáticamente el casillero "Filtro (%)" de umbral de ruido?
-
-El casillero **`Filtro (%)`** (tanto en el widget Confocal como en PSF Analyzer) realiza una operación de filtrado no lineal por umbralización sobre la matriz de intensidad normalizada $Z_n \in [0.0, 1.0]$:
-
-$$Z_f[x, y] = \begin{cases} Z_n[x, y] & \text{si } Z_n[x, y] \ge \frac{P}{100} \\ 0.0 & \text{si } Z_n[x, y] < \frac{P}{100} \end{cases}$$
-
-donde $P\%$ representa el porcentaje ingresado (por ejemplo, $P = 30\%$). 
-
-* **Impacto en el Ajuste**: Todo valor con intensidad inferior al $30\%$ del rango dinámico pico-a-fondo se fuerza a $0.0$. Esto elimina las fluctuaciones de ruido aleatorio del fondo lejano, impidiendo que distorsionen los momentos de segundo orden o inflen falsamente el valor de los anchos de cintura ($\sigma_x, \sigma_y$).
-* **Actualización Dinámica**: En PSF Analyzer, modificar el número y presionar **`Enter`** o hacer clic en **`Aplicar`** dispara inmediatamente el recálculo completo de $Z_f$, el fit 2D, el mapa de residuales y los perfiles 1D.
-
----
-
-### 7.4 ¿Qué métricas reporta el módulo PSF Analyzer y cómo interpretar los modelos Gaussiano vs. Donut?
-
-La ventana **PSF Analyzer** (`psf_analyzer.py`) genera un informe analítico multicanal comparando las siguientes métricas en la pestaña **`📊 Métricas de Ajuste`**:
-
-1. **Coordenadas de Centro ($x_0, y_0$)**: Posición espacial ajustada sub-píxel en $\mu\text{m}$.
-2. **Desalineación Vectorial Dual ($\Delta r_{\text{nm}}$)**: Distancia euclidiana entre el centro del haz de excitación (Canal 1) y el haz Donut (Canal 2):
-   $$\Delta r_{\text{nm}} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2} \times 1000 \quad [\text{nm}]$$
-3. **Radio del Anillo Donut ($r_0$) & Elipticidad ($a/b$)**:
-   - $r_0$: Radio promedio del anillo de máxima intensidad en el perfil donut.
-   - $a/b$: Relación entre los semi-ejes mayor y menor. Un valor de $1.000$ indica una simetría circular perfecta.
-4. **Orientación de Inclinación ($\theta$)**: Ángulo del eje principal de la elipse respecto al eje horizontal X (en grados °).
-5. **Calidad del Cero Central ($I_{\min}/I_{\max}$)**: Intensidad residual en la dona de depleción respecto al pico. Un valor cercano a $0.0000$ refleja un cero físico de alta calidad para nanoscopía STED.
-6. **Uniformidad Angular ($\sigma_{\theta}/\bar{I}$)**: Variación de intensidad a lo largo del anillo del donut. Un valor bajo representa un anillo homogéneo sin aberraciones de fase.
-7. **Bondad de Ajuste ($R^2$, Error RMS y $\chi^2_{\text{red}}$)**:
-   - $R^2$: Coeficiente de determinación (meta: $>0.90$).
-   - $\text{RMS}$: Error cuadrático medio de residuales normalizados.
-   - $\chi^2_{\text{red}}$: Chi-cuadrado reducido para evaluar el ajuste estadístico del modelo analítico.
-
----
-
-## 8. Roadmap Futuro de Proyectos (En Desarrollo)
-
-El panel principal de inicio **`main.py`** reserva dos módulos de software científico para desarrollo futuro en el laboratorio de Nanofotónica:
-
-### 🔮 8.1 PySpectrum (Espectrometría, Nano-termometría & Scattering)
-* **Propósito**: Manejo integrado de espectrómetros de rejilla CCD/EMCCD (diseñado como extensión avanzada del software comercial *Andor Solis*).
-* **Funcionalidades Clave**:
-  - Rutinas automatizadas de **nano-termometría fotónica** por fluorescencia/luminiscencia dependiente de la temperatura.
-  - Adquisición de espectros de dispersión (*scattering*) de nanopartículas individuales.
-  - Sincronización continua de lectura de espectros con movimiento de platinas piezoeléctricas y excitación láser sintonizable.
-
-### 🔍 8.2 Microscopio Contrapropagante
-* **Propósito**: Adaptación de la arquitectura PyPrinting 3.0 para microscopía de doble iluminación y detección.
-* **Funcionalidades Clave**:
-  - Observación simultánea por objetivo superior e invertido.
-  - Excitación coordinada por haces láser contrapropagantes para trampas fotónicas y pinzas ópticas.
+### FAQ Rápida
+* **¿Cómo ajustar el filtro de ruido en PSF Analyzer?**: Ingrese el porcentaje en el campo `Filtro (%)` y presione **`Enter`** o haga clic en **`Aplicar`**. Todo valor por debajo de ese porcentaje pico-a-fondo se forzará a cero recalculando la gaussiana 2D y residuales.
+* **¿Cómo conmutar el obturador verde en Modulación Láser 532 nm?**: En la ventana `Laser532Window`, presione el botón **`► Abrir Shutter 532 nm`** (verde) o **`■ Cerrar Shutter 532 nm`** (rojo).
 
 ---
 
