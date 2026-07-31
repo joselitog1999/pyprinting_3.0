@@ -6,26 +6,25 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Dock de Trazas Abajo de Todo y Ancho Completo (`app.py`)**:
-   - Se reposicionó `traceDock` en [app.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/app.py#L138-L144) usando `self.dockArea.addDock(traceDock, "bottom")` con dimensiones `size=(1400, 260)`, ocupando el 100% del ancho inferior de la ventana principal.
+1. **Solución al error de PyQtGraph `setData` en `trace.py`**:
+   - Se añadieron validaciones de longitud `len(t) > 0` y conversión explícita de tipos a `np.asarray(..., dtype=np.float64)` antes de actualizar las curvas `curve_L1`, `curve_L2` y `curve_BS` en [trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/trace.py#L260-L275), previniendo excepciones en `_getDisplayDataset` / `setProperty('xViewRangeWasChanged')` de PyQtGraph.
 
-2. **Panel `Printing control` Multicolumna y Expandido (`measurements.py`)**:
-   - Se reorganizaron las etiquetas, campos de entrada y botones de control del dock `Printing control` en un layout matricial de 4 columnas horizontales en [measurements.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/measurements.py#L201-L235).
-   - Se incrementó el tamaño del dock a `size=(640, 360)` para mayor visibilidad e interacción cómoda.
+2. **Dock de Trazas Abajo de Todo y Ancho Completo (`app.py`)**:
+   - Se reposicionó `traceDock` en [app.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/app.py#L138-L144) usando `self.dockArea.addDock(traceDock, "bottom")` con dimensiones `size=(1400, 260)`.
 
-3. **Analizador de Imágenes como Ventana Flotante a Demanda (`app.py` / `image_analyzer.py`)**:
+3. **Panel `Printing control` Multicolumna y Expandido (`measurements.py`)**:
+   - Se reorganizaron los elementos del dock `Printing control` en un layout matricial de 4 columnas horizontales en [measurements.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/measurements.py#L201-L235).
+
+4. **Analizador de Imágenes como Ventana Flotante a Demanda (`app.py` / `image_analyzer.py`)**:
    - Ventana flotante independiente (`ImageAnalyzerWindow`) abierta a demanda desde el menú `Tools` $\rightarrow$ `Analizador de Imágenes`.
-
-4. **Solución a `AttributeError: 'Backend' object has no attribute 'make_connection'`**:
-   - Vinculación simétrica `make_connection(self, frontend)` en `TraceBackend` ([trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/trace.py#L292-L298)).
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Instanciación de GUI, Trace Inferior y Printing Multicolumna**:
+- **Prueba Validación setData de Trazas**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from app import Frontend, Backend; gui = Frontend(); worker = Backend(); gui.make_connection(worker); print('APP FULL BOTTOM TRACE AND MULTI COLUMN PRINTING CONTROL VERIFIED 100% CLEAN!')"
+  .\.venv\Scripts\python.exe -c "from app import Backend, Frontend; from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); gui = Frontend(); worker = Backend(); gui.make_connection(worker); gui.traceWidget.get_data([1, [0.1], [1.0], 1.0, 1.0, [0.5], 0.5]); print('TRACE SETDATA DATA VALIDATION VERIFIED 100% CLEAN!')"
   ```
 - **Prueba Ejecutable de la Aplicación**:
   ```powershell

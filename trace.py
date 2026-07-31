@@ -111,7 +111,8 @@ class PowerBSWindow(QWidget):
             print(f"[PowerBS] Error en calibración: {e}")
 
     def update_bs_data(self, timeaxis: np.ndarray, bs_data: np.ndarray, mean_bs: float):
-        self.curve_BS.setData(timeaxis, bs_data)
+        if timeaxis is not None and bs_data is not None and len(timeaxis) > 0 and len(bs_data) == len(timeaxis):
+            self.curve_BS.setData(np.asarray(timeaxis, dtype=np.float64), np.asarray(bs_data, dtype=np.float64))
         self.mean_BS = round(mean_bs, 3)
         try:
             slope     = float(self.slope_Edit.text())
@@ -257,15 +258,23 @@ class Frontend(QFrame):
 
     @pyqtSlot(list)
     def get_data(self, data: list):
+        if not data or len(data) < 7:
+            return
         n, timeaxis, intensity, med2, med, intensity_BS, mean_BS = data
+        if timeaxis is None or len(timeaxis) == 0 or intensity is None or len(intensity) == 0:
+            return
+
         SHOW = 1000
         sl = slice(max(0, n - SHOW), n)
-        t  = timeaxis[sl] if n >= SHOW else timeaxis
-        i  = intensity[sl] if n >= SHOW else intensity
-        bs = intensity_BS[sl] if n >= SHOW else intensity_BS
+        t  = np.asarray(timeaxis[sl] if n >= SHOW else timeaxis, dtype=np.float64)
+        i  = np.asarray(intensity[sl] if n >= SHOW else intensity, dtype=np.float64)
+        bs = np.asarray(intensity_BS[sl] if n >= SHOW else intensity_BS, dtype=np.float64)
 
-        self.curve_L1.setData(t, i)
-        self.curve_L2.setData(t, bs)
+        if len(t) > 0 and len(i) == len(t):
+            self.curve_L1.setData(t, i)
+        if len(t) > 0 and len(bs) == len(t):
+            self.curve_L2.setData(t, bs)
+
         self.PointLabel.setText(f"<b>{med2:.3f} | {med:.3f}</b>")
 
         self.mean_BS = round(mean_BS, 3)
