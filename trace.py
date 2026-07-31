@@ -26,6 +26,8 @@ from config import SHUTTERS, DEFAULT_DATA_PATH
 from nidaq  import (open_shutter, close_shutter,
                     channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
 
+SHUTTERS_LASER2 = ["None"] + list(SHUTTERS)
+
 
 class PowerBSWindow(QWidget):
     """Ventana independiente para calibración y monitoreo de potencia en BS (Trace on BS)."""
@@ -173,11 +175,19 @@ class Frontend(QFrame):
     def _on_power_bs_active(self, active: bool):
         pass
 
-    def _color_menu(self, combo: QComboBox):
+    def _color_menu1(self):
         colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: blue;", "color: darkred;"]
-        idx = combo.currentIndex()
+        idx = self.trace_laser1.currentIndex()
         if 0 <= idx < len(colors):
-            combo.setStyleSheet(f"QComboBox {{ {colors[idx]} }}")
+            self.trace_laser1.setStyleSheet(f"QComboBox {{ {colors[idx]} }}")
+
+    def _color_menu2(self):
+        colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: blue;", "color: darkred;"]
+        idx = self.trace_laser2.currentIndex()
+        if idx == 0:
+            self.trace_laser2.setStyleSheet("QComboBox { color: gray; font-style: italic; }")
+        elif 1 <= idx <= len(colors):
+            self.trace_laser2.setStyleSheet(f"QComboBox {{ {colors[idx - 1]} }}")
 
     # ── GUI ───────────────────────────────────────────────────────────────────
 
@@ -187,15 +197,15 @@ class Frontend(QFrame):
         sc_f2 = QShortcut(QKeySequence("F2"), self)
         sc_f2.activated.connect(self._get_stop)
 
-        # Selección de Lásers Simultáneos
+        # Selección de Lásers Simultáneos (Láser 2 incluye opción "None")
         self.trace_laser1 = QComboBox(); self.trace_laser1.addItems(SHUTTERS); self.trace_laser1.setFixedWidth(100)
-        self.trace_laser2 = QComboBox(); self.trace_laser2.addItems(SHUTTERS); self.trace_laser2.setFixedWidth(100)
-        if len(SHUTTERS) > 1: self.trace_laser2.setCurrentIndex(1)
+        self.trace_laser2 = QComboBox(); self.trace_laser2.addItems(SHUTTERS_LASER2); self.trace_laser2.setFixedWidth(100)
+        self.trace_laser2.setCurrentIndex(0) # Default "None"
 
-        self.trace_laser1.currentIndexChanged.connect(lambda: self._color_menu(self.trace_laser1))
-        self.trace_laser2.currentIndexChanged.connect(lambda: self._color_menu(self.trace_laser2))
-        self._color_menu(self.trace_laser1)
-        self._color_menu(self.trace_laser2)
+        self.trace_laser1.currentIndexChanged.connect(self._color_menu1)
+        self.trace_laser2.currentIndexChanged.connect(self._color_menu2)
+        self._color_menu1()
+        self._color_menu2()
 
         # Botones Compartidos de Play/Stop y Guardar Traza
         self.traceButton = QPushButton("► Play / ■ Stop  (F1/F2)")
@@ -299,7 +309,8 @@ class Backend(QObject):
         self._init_params()
         self.steps_after  = 10
         self.steps_before = 10
-        self.laser        = SHUTTERS[0]
+        self.laser1       = SHUTTERS[0]
+        self.laser2       = "None"
         self.mode_printing = "none"
 
     def make_connection(self, frontend: QObject):
@@ -323,7 +334,16 @@ class Backend(QObject):
 
     @pyqtSlot(bool, int, int)
     def play_pause(self, play: bool, color_laser1: int = 0, color_laser2: int = 0):
-        self.laser = SHUTTERS[color_laser1]
+        if 0 <= color_laser1 < len(SHUTTERS):
+            self.laser1 = SHUTTERS[color_laser1]
+        else:
+            self.laser1 = SHUTTERS[0]
+
+        if 0 <= color_laser2 < len(SHUTTERS_LASER2):
+            self.laser2 = SHUTTERS_LASER2[color_laser2]
+        else:
+            self.laser2 = "None"
+
         self.mode_printing = "none"
         if play:
             self._start()
@@ -335,7 +355,11 @@ class Backend(QObject):
         self._stop_and_save()
 
     def _start(self):
-        open_shutter(self.laser)
+        if hasattr(self, 'laser1') and self.laser1 != "None":
+            open_shutter(self.laser1)
+        if hasattr(self, 'laser2') and self.laser2 != "None":
+            open_shutter(self.laser2)
+
         self._n     = 0
         self.timeaxis     = np.array([])
         self.intensity    = np.array([])
@@ -344,7 +368,10 @@ class Backend(QObject):
 
     def _stop_and_save(self):
         self.pointtimer.stop()
-        close_shutter(self.laser)
+        if hasattr(self, 'laser1') and self.laser1 != "None":
+            close_shutter(self.laser1)
+        if hasattr(self, 'laser2') and self.laser2 != "None":
+            close_shutter(self.laser2)
 
     @pyqtSlot(list)
     def parameters(self, steps: list):
@@ -361,9 +388,9 @@ class Backend(QObject):
     def trace_configuration(self, laser_input, mode_printing: str = "none"):
         if isinstance(laser_input, int):
             if 0 <= laser_input < len(SHUTTERS):
-                self.laser = SHUTTERS[laser_input]
+                self.laser1 = SHUTTERS[laser_input]
         elif isinstance(laser_input, str):
-            self.laser = laser_input
+            self.laser1 = laser_input
         self.mode_printing = mode_printing
 
     @pyqtSlot(float, float)
@@ -376,14 +403,14 @@ class Backend(QObject):
         self._n += 1
 
         if SAFE_MODE:
-            val    = 1.0 + 0.3 * np.sin(self._n * 0.1) + np.random.normal(0, 0.05)
-            val_bs = 0.5 + 0.1 * np.cos(self._n * 0.1) + np.random.normal(0, 0.02)
+            val    = (1.0 + 0.3 * np.sin(self._n * 0.1) + np.random.normal(0, 0.05)) if getattr(self, 'laser1', 'None') != "None" else 0.0
+            val_bs = (0.5 + 0.1 * np.cos(self._n * 0.1) + np.random.normal(0, 0.02)) if getattr(self, 'laser2', 'None') != "None" else 0.0
         else:
             try:
                 raw    = channels_photodiodos(1)
-                val    = float(raw[0])
-                val_bs = float(raw[1]) if len(raw) > 1 else val * 0.5
-            except Exception as e:
+                val    = float(raw[0]) if getattr(self, 'laser1', 'None') != "None" and len(raw) > 0 else 0.0
+                val_bs = float(raw[1]) if getattr(self, 'laser2', 'None') != "None" and len(raw) > 1 else 0.0
+            except Exception:
                 val, val_bs = 0.0, 0.0
 
         t_now = self._n / self.rate
@@ -407,6 +434,6 @@ class Backend(QObject):
         t_str = time.strftime("%Y%m%d_%H%M%S")
         path  = os.path.join(self.file_path, f"{t_str}_{filename}")
         data  = np.column_stack((self.timeaxis, self.intensity, self.intensity_BS))
-        header = f"Trace Data - PyPrinting\nLáser: {self.laser}\nTime(s)\tIntensity(V)\tIntensity_BS(V)"
+        header = f"Trace Data - PyPrinting\nLáser 1: {getattr(self, 'laser1', 'None')}\nLáser 2: {getattr(self, 'laser2', 'None')}\nTime(s)\tIntensity_L1(V)\tIntensity_L2(V)"
         np.savetxt(path, data, fmt="%.6f", delimiter="\t", header=header)
         print(f"[Trace] Guardado en: {path}")
