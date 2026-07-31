@@ -37,6 +37,7 @@ from measurements    import Frontend as MeasFrontend,     Backend as MeasBackend
 from camera          import (CameraWindow, Backend as CameraBackend,
                               Laser532Window, Laser532Backend)
 from image_analyzer  import ImageAnalyzerWidget, ImageAnalyzerWindow
+from psf_analyzer    import PSFAnalyzerWidget, PSFAnalyzerWindow
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -79,6 +80,7 @@ class Frontend(QMainWindow):
         tm = mb.addMenu("&Tools")
         self._add_action(tm, "Cámara",                self.tools_camera)
         self._add_action(tm, "Analizador de Imágenes", self.tools_image_analyzer)
+        self._add_action(tm, "PSF Analyzer",          self.tools_psf_analyzer)
         self._add_action(tm, "Láser 532",             self.tools_laser532)
         self._add_action(tm, "Load Grid",             self.load_grid)
         mm = mb.addMenu("&Measurements")
@@ -143,6 +145,7 @@ class Frontend(QMainWindow):
         # ── Ventanas flotantes (bajo demanda desde menú) ─────────────────────
         self.cameraWindow        = CameraWindow()          # Tools → Cámara
         self.imageAnalyzerWindow = ImageAnalyzerWindow()   # Tools → Analizador de Imágenes
+        self.psfAnalyzerWindow   = PSFAnalyzerWindow()     # Tools → PSF Analyzer
         self.laser532Window      = Laser532Window()         # Tools → Láser 532
         self.printingWidget      = MeasFrontend(mode="printing")
         self.dimersWidget        = MeasFrontend(mode="dimers")
@@ -158,6 +161,7 @@ class Frontend(QMainWindow):
     def measurement_dimers(self):   self.dimersWidget.show()
     def tools_camera(self):         self.cameraWindow.show(); self.cameraWindow.raise_()
     def tools_image_analyzer(self): self.imageAnalyzerWindow.show(); self.imageAnalyzerWindow.raise_()
+    def tools_psf_analyzer(self):   self.psfAnalyzerWindow.show(); self.psfAnalyzerWindow.raise_()
     def tools_laser532(self):       self.laser532Window.show()
 
     def save_docks(self):

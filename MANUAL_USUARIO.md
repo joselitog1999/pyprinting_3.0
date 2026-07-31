@@ -338,6 +338,20 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 
 ---
 
+### 5.9 Ventana de Caracterización de PSF (`psf_analyzer.py` — PSF Analyzer)
+
+| Elemento | Tipo | Función / Descripción |
+|---|---|---|
+| **`Cargar Confocal (.tiff)`** | `QPushButton` | Carga imágenes confocales individuales para el Canal 1 (excitación verde) o Canal 2 (donut rojo). |
+| **`Modelo`** | `QComboBox` | Selecciona el modelo analítico de ajuste 2D (`Gaussiana 2D` o `Donut (Laguerre-Gauss)`). |
+| **`Filtro (%)`** | `QLineEdit` | Porcentaje de umbral de filtrado de fondo para desestimar ruido antes de ajustar el modelo (por defecto 30%). |
+| **`Dirección del Perfil`** | `QComboBox` | Selecciona la orientación del perfil de corte 1D pasante por el centro $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`. |
+| **Pestaña `Métricas de Ajuste`** | `QTableWidget` | Despliega la tabla comparativa con las métricas de alineación ($x_0, y_0$, radio $r_0$, semi-ejes $a, b$, elipticidad $a/b$, calidad del cero $I_{\min}/I_{\max}$, uniformidad angular $\sigma_{\theta}/\bar{I}$ y desalineación dual $\Delta r_{\text{nm}}$). |
+| **Pestaña `Perfiles 1D`** | `pg.PlotWidget` | Gráfica los cortes 1D de intensidad normalizada pasantes por el centro ajustado para ambos canales. |
+| **Pestaña `Superposición Falso Color`**| `pg.GraphicsLayoutWidget` | Renderiza la vista combinada RGB en falso color (Verde = Canal 1, Rojo = Canal 2) con los centros marcados. |
+
+---
+
 ## 6. Tabla de Atajos de Teclado (Shortcuts)
 
 | Tecla de Acceso Directo | Función Asociada | Módulo / Dock |

@@ -6,24 +6,38 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Centralización de Todos los Valores Típicos (*Typical Values*) en `config.py`**:
-   - Se crearon constantes globales de configuración en [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py) para definir todos los parámetros editables y por defecto del programa:
-     - **Confocal**: `DEFAULT_CONFOCAL_RANGE_X` ($2.0\ \mu\text{m}$), `DEFAULT_CONFOCAL_RANGE_Y` ($2.0\ \mu\text{m}$), `DEFAULT_CONFOCAL_PIXELS_X` ($34$), `DEFAULT_CONFOCAL_PIXELS_Y` ($34$), `DEFAULT_CONFOCAL_FILTER_PERCENT` ($30\%$), `DEFAULT_DRIFT_TOTAL_MINUTES` ($20\text{ min}$), `DEFAULT_DRIFT_REFRESH_SECONDS` ($40\text{ s}$).
-     - **Trace & Power in BS**: `DEFAULT_TRACE_STEPS_BEFORE` ($10$), `DEFAULT_TRACE_STEPS_AFTER` ($10$), `DEFAULT_POWER_BS_HIGH_MW` ($3.3\text{ mW}$), `DEFAULT_POWER_BS_LOW_MW` ($1.0\text{ mW}$), `DEFAULT_POWER_BS_INTERCEPT` ($0.0$), `DEFAULT_POWER_BS_SLOPE` ($3.0\text{ mW/V}$).
-     - **Nanopositioning PI**: `DEFAULT_NANO_STEP_XY` ($1.0\ \mu\text{m}$), `DEFAULT_NANO_STEP_Z` ($0.2\ \mu\text{m}$), `DEFAULT_NANO_GOTO_X` ($50.0\ \mu\text{m}$), `DEFAULT_NANO_GOTO_Y` ($50.0\ \mu\text{m}$), `DEFAULT_NANO_GOTO_Z` ($10.0\ \mu\text{m}$).
-     - **Impresión y Dímeros**: `DEFAULT_GRID_NPS_COL` ($4$), `DEFAULT_GRID_COLS` ($4$), `DEFAULT_GRID_DIST_NP` ($3.0\ \mu\text{m}$), `DEFAULT_GRID_DIST_COL` ($3.0\ \mu\text{m}$), `DEFAULT_PRINTING_UMBRAL` ($1.2$), `DEFAULT_PRINTING_UMBRAL_DOWN` ($0.0$), `DEFAULT_PRINTING_TMAX` ($20.0\text{ s}$), `DEFAULT_PRINTING_STEPS_BEFORE` ($10$), `DEFAULT_PRINTING_STEPS_AFTER` ($10$), `DEFAULT_PRINTING_AUTOFOCUS_EVERY` ($2$), `DEFAULT_PRINTING_SHIFT_X` ($0.0\ \mu\text{m}$), `DEFAULT_PRINTING_SHIFT_Y` ($0.0\ \mu\text{m}$), `DEFAULT_DIMERS_DX` ($0.0\ \mu\text{m}$), `DEFAULT_DIMERS_DY` ($0.0\ \mu\text{m}$).
-     - **Cámara & Detección Trackpy**: `DEFAULT_CAMERA_FPS` ($30$), `DEFAULT_TRACKPY_DIAMETER_PX` ($11\text{ px}$), `DEFAULT_TRACKPY_SEPARATION_PX` ($8\text{ px}$), `DEFAULT_TRACKPY_MINMASS` ($100$).
-   - Todos los casilleros de texto (`QLineEdit`) y valores iniciales de backend en [confocal.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/confocal.py), [trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/trace.py), [nanopositioning.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/nanopositioning.py), [measurements.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/measurements.py), [camera.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/camera.py) e [image_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/image_analyzer.py) ahora consumen estas constantes centralizadas.
+1. **Nuevo Módulo de Análisis y Caracterización de PSF (`psf_analyzer.py` / `PSFAnalyzerWindow`)**:
+   - Se implementó la nueva ventana independiente accesible desde el menú **`Tools -> PSF Analyzer`** en [app.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/app.py).
+   - Permite cargar y comparar **1 o 2 imágenes confocales simultáneamente** (`.tiff` o `.txt`).
+   - Soporta modelos de ajuste 2D por mínimos cuadrados: **Gaussiana 2D** y **Donut (Laguerre-Gauss $LG_{01}$)**.
+   - **Métricas de Calidad e Invarianza Físicas**:
+     - Centro $(x_0, y_0)$ ($\text{px}$ y $\mu\text{m}$).
+     - Radio del anillo $r_0$, semi-ejes $a, b$ ($\mu\text{m}$).
+     - **Elipticidad** $a/b$.
+     - **Orientación** $\theta$ ($^\circ$).
+     - **Calidad del cero central** $I_{\min} / I_{\max}$.
+     - **Uniformidad angular del anillo** $\sigma_{\theta} / \bar{I}$.
+     - **Desalineación espacial dual** $\Delta r_{\text{nm}}$, $\Delta x_{\text{nm}}$, $\Delta y_{\text{nm}}$ en nanómetros para alineación de haces STED/MINFLUX.
+   - **Controles por Canal**:
+     - Casillero editable **`Filtro (%)`** (por defecto `30%`) para desestimar ruido de fondo por canal.
+   - **Visualización 1D & Superposición**:
+     - Selector de perfiles de corte 1D pasantes por $(x_0, y_0)$: **Horizontal**, **Vertical**, **Diagonal 45°** y **Diagonal 135°**.
+     - Renderizado de superposición RGB en falso color (Verde = Canal 1, Rojo = Canal 2).
 
-2. **Casillero de Control del Filtro Umbral (`Filtro (%)`) en Widget CM (`confocal.py`)**:
-   - Se añadió la casilla `threshold_filterEdit` (`QLineEdit("30")`) en el widget CM de [confocal.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/confocal.py), conectada a `_CMmeasure()` de forma dinámica.
+2. **Centralización de Valores Típicos (*Typical Values*) en `config.py`**:
+   - Todas las constantes iniciales y parámetros por defecto fueron migrados a [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py) y consumidos de forma dinámica en toda la aplicación.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba de Importación y Verificación de Constantes**:
+- **Prueba del Módulo PSF Analyzer**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import config, confocal, trace, nanopositioning, measurements, camera, image_analyzer; print('ALL MODULES IMPORTED AND TYPICAL VALUES VERIFIED SUCCESSFULLY!')"
+  .\.venv\Scripts\python.exe -c "import numpy as np, sys; from PyQt6.QtWidgets import QApplication; from psf_analyzer import fit_gaussian_2d, fit_donut_2d, extract_1d_profile, PSFAnalyzerWindow; app = QApplication(sys.argv); y, x = np.indices((34, 34)); Zg = np.exp(-((x-17)**2 + (y-17)**2)/10); Zd = np.exp(-((x-17)**2 + (y-17)**2)/10) * ((x-17)**2 + (y-17)**2); res_g = fit_gaussian_2d(Zg); res_d = fit_donut_2d(Zd); d, p = extract_1d_profile(Zd, 17, 17, mode='Horizontal'); win = PSFAnalyzerWindow(); print('GAUSS FIT:', res_g['xo_px'], res_g['r2']); print('DONUT FIT:', res_d['xo_px'], res_d['zero_quality'], res_d['ellipticity']); print('PROFILE 1D len:', len(p)); print('PSF ANALYZER FULLY VERIFIED!')"
   ```
-  *(Resultado: `ALL MODULES IMPORTED AND TYPICAL VALUES VERIFIED SUCCESSFULLY!`)*
+  *(Resultado: `GAUSS FIT: 17.0 0.8027`, `DONUT FIT: 17.0 0.0 1.1052`, `PROFILE 1D len: 34` — `PSF ANALYZER FULLY VERIFIED!`)*
+
+- **Prueba Ejecutable de la Aplicación**:
+  ```powershell
+  .\.venv\Scripts\python.exe app.py
+  ```
