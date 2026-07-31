@@ -56,49 +56,65 @@ def _filter_image(Z: np.ndarray, thr_percent: float) -> np.ndarray:
     return Zf
 
 
+def gaussian2D_full(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
+    x, y = xy
+    a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
+    b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
+    c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
+    return (offset + amplitude * np.exp(
+        -(a*((x-xo)**2) + 2*b*(x-xo)*(y-yo) + c*((y-yo)**2))
+    )).ravel()
+
+
 def fit_gaussian_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
                     thr_percent: float = DEFAULT_CONFOCAL_FILTER_PERCENT) -> dict:
     """
-    Ajusta un modelo Gaussiano 2D sobre la matriz Z.
-    Retorna diccionario de métricas, matriz Z_fit y matriz de residuales.
+    Ajusta un modelo Gaussiano 2D completo (7 parámetros incluyendo theta) sobre la matriz Z.
+    Calcula FWHM_x, FWHM_y, orientación theta, R², RMS error y Chi² reducido.
     """
     Ny, Nx = Z.shape
     Zn = (Z - Z.min()) / (Z.max() - Z.min() + 1e-12)
     Zf = _filter_image(Z, thr_percent)
 
-    # Estimación inicial de centro
+    y_coords, x_coords = np.indices(Z.shape)
+    xy_data = np.vstack((x_coords.ravel(), y_coords.ravel()))
+
     xo_init, yo_init = center_of_mass(Zf)
-    xo_fit, yo_fit = center_of_gauss2D(Zn, xo_init, yo_init)
+    p0 = [Zf.max(), xo_init, yo_init, max(1.0, Nx / 6.0), max(1.0, Ny / 6.0), 0.0, Zf.min()]
+    bounds = (
+        [0, 0, 0, 0.1, 0.1, -np.pi, 0],
+        [np.inf, Nx, Ny, np.inf, np.inf, np.pi, np.max(Zf) + 1e-12]
+    )
 
-    # Coordenadas relativas
-    y_idx, x_idx = np.indices((Ny, Nx))
-    dx_um = pixel_size_um
-    dy_um = pixel_size_um
+    try:
+        popt, _ = curve_fit(gaussian2D_full, xy_data, Zf.ravel(), p0=p0, bounds=bounds)
+        amp, xo_fit, yo_fit, sig_x, sig_y, theta_rad, off = popt
+    except Exception:
+        xo_fit, yo_fit = center_of_gauss2D(Zn, xo_init, yo_init)
+        amp, sig_x, sig_y, theta_rad, off = Zn.max(), 2.0, 2.0, 0.0, 0.0
 
-    # Ajuste de anchura por momentos de 2do orden
-    x_rel = x_idx - xo_fit
-    y_rel = y_idx - yo_fit
-    total_intensity = np.sum(Zf) + 1e-12
-    sigma_x_px = np.sqrt(max(0.5, np.sum(Zf * (x_rel**2)) / total_intensity))
-    sigma_y_px = np.sqrt(max(0.5, np.sum(Zf * (y_rel**2)) / total_intensity))
-
-    fwhm_x_px = 2.35482 * sigma_x_px
-    fwhm_y_px = 2.35482 * sigma_y_px
-    fwhm_x_um = fwhm_x_px * dx_um
-    fwhm_y_um = fwhm_y_px * dy_um
-    fwhm_avg_um = (fwhm_x_um + fwhm_y_um) / 2.0
-    aspect_ratio = sigma_x_px / (sigma_y_px + 1e-12)
-
-    # Modelo sintético evaluado
-    Z_fit = gaussian2D((x_idx, y_idx), Zn.max(), xo_fit, yo_fit, sigma_x_px, sigma_y_px, 0.0).reshape(Ny, Nx)
+    Z_fit = gaussian2D_full(xy_data, amp, xo_fit, yo_fit, sig_x, sig_y, theta_rad, off).reshape(Ny, Nx)
     residual = np.abs(Zn - Z_fit)
 
-    # Calidad de ajuste R²
+    dx_um = pixel_size_um
+    fwhm_x_px = 2.35482 * abs(sig_x)
+    fwhm_y_px = 2.35482 * abs(sig_y)
+    fwhm_x_um = fwhm_x_px * dx_um
+    fwhm_y_um = fwhm_y_px * dx_um
+    fwhm_avg_um = (fwhm_x_um + fwhm_y_um) / 2.0
+    aspect_ratio = abs(sig_x) / (abs(sig_y) + 1e-12)
+    theta_deg = float(np.degrees(theta_rad))
+
+    # Métricas estadísticas (RMS, Chi2 reducido y R2)
+    N = Z.size
+    p = 7
+    rms = float(np.sqrt(np.mean((Zn - Z_fit)**2)))
+    chi2_red = float(np.sum((Zn - Z_fit)**2) / max(1, N - p))
+
     ss_res = np.sum((Zn - Z_fit)**2)
     ss_tot = np.sum((Zn - np.mean(Zn))**2) + 1e-12
     r2 = max(0.0, min(1.0, 1.0 - (ss_res / ss_tot)))
 
-    # Señal a fondo (SBR)
     bkg_mean = np.mean(Zn[Zn < 0.2]) if np.any(Zn < 0.2) else Zn.min()
     sbr = (Zn.max() - bkg_mean) / (bkg_mean + 1e-12)
 
@@ -107,17 +123,19 @@ def fit_gaussian_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
         "xo_px": xo_fit,
         "yo_px": yo_fit,
         "xo_um": xo_fit * dx_um,
-        "yo_um": yo_fit * dy_um,
+        "yo_um": yo_fit * dx_um,
         "fwhm_x_px": fwhm_x_px,
         "fwhm_y_px": fwhm_y_px,
         "fwhm_x_um": fwhm_x_um,
         "fwhm_y_um": fwhm_y_um,
         "fwhm_avg_um": fwhm_avg_um,
         "aspect_ratio": aspect_ratio,
-        "theta_deg": 0.0,
+        "theta_deg": theta_deg,
         "I_max": Z.max(),
         "I_bkg": Z.min(),
         "sbr": sbr,
+        "rms": rms,
+        "chi2_red": chi2_red,
         "r2": r2,
         "Zn": Zn,
         "Zf": Zf,
@@ -182,7 +200,12 @@ def fit_donut_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
 
     ring_fwhm_um = 1.8 * dx_um
 
-    # R² del ajuste
+    # Métricas estadísticas (RMS, Chi2 reducido y R2)
+    N = Z.size
+    p = 7
+    rms = float(np.sqrt(np.mean((Zn - Z_fit)**2)))
+    chi2_red = float(np.sum((Zn - Z_fit)**2) / max(1, N - p))
+
     ss_res = np.sum((Zn - Z_fit)**2)
     ss_tot = np.sum((Zn - np.mean(Zn))**2) + 1e-12
     r2 = max(0.0, min(1.0, 1.0 - (ss_res / ss_tot)))
@@ -206,6 +229,9 @@ def fit_donut_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
         "ring_fwhm_um": ring_fwhm_um,
         "I_max": Z.max(),
         "I_min": Z.min(),
+        "sbr": (Zn.max() - np.mean(Zn[Zn < 0.2])) / (np.mean(Zn[Zn < 0.2]) + 1e-12) if np.any(Zn < 0.2) else 1.0,
+        "rms": rms,
+        "chi2_red": chi2_red,
         "r2": r2,
         "Zn": Zn,
         "Zf": Zf,
@@ -617,12 +643,16 @@ class PSFAnalyzerWidget(QWidget):
              f"{f2.get('r0_um', 0.0):.3f}" if (f2 and 'r0_um' in f2) else "—", "—"),
             ("Elipticidad (a/b)", f"{f1.get('ellipticity', 0.0):.3f}" if (f1 and 'ellipticity' in f1) else "—",
              f"{f2.get('ellipticity', 0.0):.3f}" if (f2 and 'ellipticity' in f2) else "—", "—"),
+            ("Orientación θ (°)", f"{f1.get('theta_deg', 0.0):.1f}°" if f1 else "—",
+             f"{f2.get('theta_deg', 0.0):.1f}°" if f2 else "—", "—"),
             ("Calidad del Cero (I_min/I_max)", f"{f1.get('zero_quality', 0.0):.4f}" if (f1 and 'zero_quality' in f1) else "—",
              f"{f2.get('zero_quality', 0.0):.4f}" if (f2 and 'zero_quality' in f2) else "—", "—"),
             ("Uniformidad Angular (σ_θ/I)", f"{f1.get('angular_uniformity', 0.0):.4f}" if (f1 and 'angular_uniformity' in f1) else "—",
              f"{f2.get('angular_uniformity', 0.0):.4f}" if (f2 and 'angular_uniformity' in f2) else "—", "—"),
             ("FWHM Promedio (µm)", f"{f1.get('fwhm_avg_um', 0.0):.3f}" if (f1 and 'fwhm_avg_um' in f1) else "—",
              f"{f2.get('fwhm_avg_um', 0.0):.3f}" if (f2 and 'fwhm_avg_um' in f2) else "—", "—"),
+            ("Error RMS", f"{f1.get('rms', 0.0):.4f}" if f1 else "—", f"{f2.get('rms', 0.0):.4f}" if f2 else "—", "—"),
+            ("Chi² Reducido (χ²_red)", f"{f1.get('chi2_red', 0.0):.4f}" if f1 else "—", f"{f2.get('chi2_red', 0.0):.4f}" if f2 else "—", "—"),
             ("Calidad de Ajuste R²", f"{f1['r2']:.3f}" if f1 else "—", f"{f2['r2']:.3f}" if f2 else "—", "—"),
         ]
 

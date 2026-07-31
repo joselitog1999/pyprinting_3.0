@@ -351,7 +351,7 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 | **`Limpiar Canal 1` / `Canal 2`** | `QPushButton` | Vacía y reinicia los paneles del Canal 1 o Canal 2 de forma independiente. |
 | **Canal y Dirección en Perfiles 1D** | `QComboBox` ($\times 2$) | Selecciona el canal a graficar (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y la orientación del corte 1D pasante por $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`. |
 | **Modo de Falso Color RGB** | `QComboBox` | Elige el origen para la imagen compuesta RGB: `Imágenes Originales`, `Originales con Filtro de Ruido` o `Modelos Ajustados (Fits)`. |
-| **Pestaña `Métricas de Ajuste`** | `QTableWidget` | Despliega la tabla comparativa con las métricas de alineación ($x_0, y_0$, radio $r_0$, semi-ejes $a, b$, elipticidad $a/b$, calidad del cero $I_{\min}/I_{\max}$, uniformidad angular $\sigma_{\theta}/\bar{I}$ y desalineación dual $\Delta r_{\text{nm}}$). |
+| **Pestaña `Métricas de Ajuste`** | `QTableWidget` | Despliega la tabla comparativa con el ajuste no lineal de 7 parámetros y las métricas de alineación ($x_0, y_0$, radio $r_0$, elipticidad $a/b$, orientación $\theta$, calidad del cero $I_{\min}/I_{\max}$, uniformidad angular $\sigma_{\theta}/\bar{I}$, FWHM promedio, Error RMS, $\chi^2_{\text{red}}$, $R^2$ y desalineación dual $\Delta r_{\text{nm}}$). |
 
 ---
 
