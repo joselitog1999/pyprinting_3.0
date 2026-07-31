@@ -32,7 +32,9 @@ from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 
 from config import (SAFE_MODE, CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT,
                     PIXEL_SIZE_UM, LASER_532_V_MIN, LASER_532_V_MAX,
-                    DEFAULT_DATA_PATH, PI_STAGE_RANGE_UM)
+                    DEFAULT_DATA_PATH, PI_STAGE_RANGE_UM,
+                    DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
+                    DEFAULT_TRACKPY_SEPARATION_PX)
 from nidaq import set_laser532_voltage
 
 if not SAFE_MODE:
@@ -539,7 +541,7 @@ class CameraWindow(QMainWindow):
         self._current_frame: Optional[np.ndarray] = None
         self._particles: list[tuple[float, float, float]] = []
         self._saved_measures: list[dict] = []
-        self._trackpy_params  = dict(diameter=11, minmass=100, separation=8, threshold=0)
+        self._trackpy_params  = dict(diameter=DEFAULT_TRACKPY_DIAMETER_PX, minmass=DEFAULT_TRACKPY_MINMASS, separation=DEFAULT_TRACKPY_SEPARATION_PX, threshold=0)
         self._measure_pts: list = []
         self._measure_mode = False
 

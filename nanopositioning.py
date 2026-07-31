@@ -25,7 +25,9 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
 from PyQt6.QtGui     import QFont
 from pyqtgraph.dockarea import DockArea, Dock
 
-from config import pi, PI_AXES
+from config import (pi, PI_AXES,
+                    DEFAULT_NANO_STEP_XY, DEFAULT_NANO_STEP_Z,
+                    DEFAULT_NANO_GOTO_X, DEFAULT_NANO_GOTO_Y, DEFAULT_NANO_GOTO_Z)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -99,8 +101,8 @@ class Frontend(QFrame):
         self.set_ref_button  = QPushButton("Set reference")
         self.set_ref_button.clicked.connect(self.set_reference)
 
-        self.StepEdit  = QLineEdit("1")
-        self.zStepEdit = QLineEdit("0.2")
+        self.StepEdit  = QLineEdit(str(int(DEFAULT_NANO_STEP_XY) if DEFAULT_NANO_STEP_XY.is_integer() else DEFAULT_NANO_STEP_XY))
+        self.zStepEdit = QLineEdit(str(int(DEFAULT_NANO_STEP_Z) if DEFAULT_NANO_STEP_Z.is_integer() else DEFAULT_NANO_STEP_Z))
         self.StepEdit.setFixedWidth(44)
         self.zStepEdit.setFixedWidth(44)
 
@@ -173,9 +175,9 @@ class Frontend(QFrame):
         lo2.addWidget(QLabel("Y [µm]"), 2, 1)
         lo2.addWidget(QLabel("Z [µm]"), 3, 1)
 
-        self.xgotoLabel = QLineEdit("50")
-        self.ygotoLabel = QLineEdit("50")
-        self.zgotoLabel = QLineEdit("10")
+        self.xgotoLabel = QLineEdit(str(int(DEFAULT_NANO_GOTO_X) if DEFAULT_NANO_GOTO_X.is_integer() else DEFAULT_NANO_GOTO_X))
+        self.ygotoLabel = QLineEdit(str(int(DEFAULT_NANO_GOTO_Y) if DEFAULT_NANO_GOTO_Y.is_integer() else DEFAULT_NANO_GOTO_Y))
+        self.zgotoLabel = QLineEdit(str(int(DEFAULT_NANO_GOTO_Z) if DEFAULT_NANO_GOTO_Z.is_integer() else DEFAULT_NANO_GOTO_Z))
         for w in (self.xgotoLabel, self.ygotoLabel, self.zgotoLabel):
             w.setFixedWidth(54)
 

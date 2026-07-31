@@ -22,7 +22,10 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
 from PyQt6.QtGui     import QKeySequence, QShortcut
 from pyqtgraph.dockarea import DockArea, Dock
 
-from config import SHUTTERS, DEFAULT_DATA_PATH
+from config import (SHUTTERS, DEFAULT_DATA_PATH,
+                    DEFAULT_TRACE_STEPS_BEFORE, DEFAULT_TRACE_STEPS_AFTER,
+                    DEFAULT_POWER_BS_HIGH_MW, DEFAULT_POWER_BS_LOW_MW,
+                    DEFAULT_POWER_BS_INTERCEPT, DEFAULT_POWER_BS_SLOPE)
 from nidaq  import (open_shutter, close_shutter,
                     channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
 
@@ -49,8 +52,8 @@ class PowerBSWindow(QWidget):
         cal_box = QWidget()
         lo = QGridLayout(cal_box)
 
-        self.High_mW = QLineEdit("3.3")
-        self.Low_mW  = QLineEdit("1.0")
+        self.High_mW = QLineEdit(str(DEFAULT_POWER_BS_HIGH_MW))
+        self.Low_mW  = QLineEdit(str(DEFAULT_POWER_BS_LOW_MW))
         self.High_BS = QLabel("NaN")
         self.Low_BS  = QLabel("NaN")
 
@@ -62,8 +65,8 @@ class PowerBSWindow(QWidget):
         self.calibration_Button = QPushButton("Set Calibration")
         self.calibration_Button.clicked.connect(self._set_calibration)
 
-        self.intercept_Edit = QLineEdit("0")
-        self.slope_Edit     = QLineEdit("3")
+        self.intercept_Edit = QLineEdit(str(int(DEFAULT_POWER_BS_INTERCEPT) if DEFAULT_POWER_BS_INTERCEPT.is_integer() else DEFAULT_POWER_BS_INTERCEPT))
+        self.slope_Edit     = QLineEdit(str(int(DEFAULT_POWER_BS_SLOPE) if DEFAULT_POWER_BS_SLOPE.is_integer() else DEFAULT_POWER_BS_SLOPE))
         self.power_mean_BS  = QLabel("0.00 mW")
         self.power_mean_BS.setStyleSheet("QLabel { color: #e5534b; font-size: 14pt; font-weight: bold; }")
 
@@ -307,8 +310,8 @@ class Backend(QObject):
         self.pointtimer = QTimer(self)
         self.pointtimer.timeout.connect(self._trace_update)
         self._init_params()
-        self.steps_after  = 10
-        self.steps_before = 10
+        self.steps_after  = DEFAULT_TRACE_STEPS_AFTER
+        self.steps_before = DEFAULT_TRACE_STEPS_BEFORE
         self.laser1       = SHUTTERS[0]
         self.laser2       = "None"
         self.mode_printing = "none"

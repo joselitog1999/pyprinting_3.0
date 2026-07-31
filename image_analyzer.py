@@ -27,7 +27,9 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QStackedWidget)
 from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 
-from config import DEFAULT_DATA_PATH, PIXEL_SIZE_UM
+from config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
+                    DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
+                    DEFAULT_TRACKPY_SEPARATION_PX)
 from camera import OverlayWidget, SetScaleDialog, TrackpyDialog
 
 
@@ -51,7 +53,7 @@ class ImageAnalyzerWidget(QWidget):
         self._particles: list = []
         self._measure_pts: list = []
         self._saved_measures: list[dict] = []
-        self._trackpy_params = dict(diameter=11, minmass=100, separation=8, threshold=0)
+        self._trackpy_params = dict(diameter=DEFAULT_TRACKPY_DIAMETER_PX, minmass=DEFAULT_TRACKPY_MINMASS, separation=DEFAULT_TRACKPY_SEPARATION_PX, threshold=0)
         self._measure_mode = False
 
         main_vlo = QVBoxLayout(self)

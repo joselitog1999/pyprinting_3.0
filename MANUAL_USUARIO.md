@@ -267,6 +267,16 @@ La barra superior de menús proporciona accesos directos globales a la gestión 
 | **`Set reference`** | `QPushButton` | Guarda las coordenadas actuales como origen de referencia para el panel *Go to*. |
 | **`Go to`** | `QPushButton` | Mueve la platina de forma absoluta a las coordenadas $(X, Y, Z)$ ingresadas en las casillas. |
 
+### 2.2 Archivo de Configuración Centralizada (`config.py`)
+
+Todos los valores predeterminados (*typical values*) que aparecen en los casilleros y parámetros editables de la interfaz gráfica se encuentran centralizados en [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py). Esto permite adaptar los valores de inicio del sistema sin necesidad de modificar el código interno de la interfaz:
+
+* **Parámetros Confocales**: `DEFAULT_CONFOCAL_RANGE_X` ($2.0\ \mu\text{m}$), `DEFAULT_CONFOCAL_PIXELS_X` ($34$), `DEFAULT_CONFOCAL_FILTER_PERCENT` ($30\%$), `DEFAULT_DRIFT_TOTAL_MINUTES` ($20\text{ min}$), `DEFAULT_DRIFT_REFRESH_SECONDS` ($40\text{ s}$).
+* **Trazas & Calibración de Potencia BS**: `DEFAULT_TRACE_STEPS_BEFORE` ($10$), `DEFAULT_TRACE_STEPS_AFTER` ($10$), `DEFAULT_POWER_BS_HIGH_MW` ($3.3\ \text{mW}$), `DEFAULT_POWER_BS_LOW_MW` ($1.0\ \text{mW}$), `DEFAULT_POWER_BS_SLOPE` ($3.0\ \text{mW/V}$).
+* **Nanoposicionador PI E-517**: `DEFAULT_NANO_STEP_XY` ($1.0\ \mu\text{m}$), `DEFAULT_NANO_STEP_Z` ($0.2\ \mu\text{m}$), `DEFAULT_NANO_GOTO_X/Y` ($50.0\ \mu\text{m}$), `DEFAULT_NANO_GOTO_Z` ($10.0\ \mu\text{m}$).
+* **Grillas de Impresión y Dímeros**: `DEFAULT_GRID_NPS_COL` ($4$), `DEFAULT_GRID_COLS` ($4$), `DEFAULT_GRID_DIST_NP` ($3.0\ \mu\text{m}$), `DEFAULT_PRINTING_UMBRAL` ($1.2$), `DEFAULT_PRINTING_TMAX` ($20.0\text{ s}$), `DEFAULT_PRINTING_AUTOFOCUS_EVERY` ($2$).
+* **Visión y Detección Trackpy**: `DEFAULT_CAMERA_FPS` ($30$), `DEFAULT_TRACKPY_DIAMETER_PX` ($11\text{ px}$), `DEFAULT_TRACKPY_SEPARATION_PX` ($8\text{ px}$), `DEFAULT_TRACKPY_MINMASS` ($100$).
+
 ---
 
 ### 5.6 Ventana de Mediciones (`MeasFrontend` — Printing & Dimers)

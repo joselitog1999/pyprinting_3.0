@@ -75,6 +75,57 @@ else:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  PARÁMETROS Y VALORES TÍPICOS DE CONFIGURACIÓN (TYPICAL VALUES)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Confocal (`confocal.py`) ─────────────────────────────────────────────────
+DEFAULT_CONFOCAL_RANGE_X        = 2.0     # µm campo de visión X
+DEFAULT_CONFOCAL_RANGE_Y        = 2.0     # µm campo de visión Y
+DEFAULT_CONFOCAL_PIXELS_X       = 34      # px resolución X
+DEFAULT_CONFOCAL_PIXELS_Y       = 34      # px resolución Y
+DEFAULT_CONFOCAL_FILTER_PERCENT = 30.0    # % umbral de filtro de fondo
+DEFAULT_DRIFT_TOTAL_MINUTES     = 20.0    # min tiempo total de medición de deriva
+DEFAULT_DRIFT_REFRESH_SECONDS   = 40.0    # s intervalo de refresco de deriva
+
+# ── Trace & Power in BS (`trace.py`) ─────────────────────────────────────────
+DEFAULT_TRACE_STEPS_BEFORE      = 10      # puntos promedio pre-umbral
+DEFAULT_TRACE_STEPS_AFTER       = 10      # puntos promedio post-umbral
+DEFAULT_POWER_BS_HIGH_MW        = 3.3     # mW medidos comercialmente en nivel alto
+DEFAULT_POWER_BS_LOW_MW         = 1.0     # mW medidos comercialmente en nivel bajo
+DEFAULT_POWER_BS_INTERCEPT      = 0.0     # mW intersección de calibración
+DEFAULT_POWER_BS_SLOPE          = 3.0     # mW/V pendiente de calibración
+
+# ── Nanopositioning PI (`nanopositioning.py`) ────────────────────────────────
+DEFAULT_NANO_STEP_XY            = 1.0     # µm paso relativo XY
+DEFAULT_NANO_STEP_Z             = 0.2     # µm paso relativo Z
+DEFAULT_NANO_GOTO_X             = 50.0    # µm coordenada inicial Go to X
+DEFAULT_NANO_GOTO_Y             = 50.0    # µm coordenada inicial Go to Y
+DEFAULT_NANO_GOTO_Z             = 10.0    # µm coordenada inicial Go to Z
+
+# ── Impresión y Dímeros (`measurements.py`) ──────────────────────────────────
+DEFAULT_GRID_NPS_COL            = 4       # número de filas/partículas por columna
+DEFAULT_GRID_COLS               = 4       # número de columnas de la grilla
+DEFAULT_GRID_DIST_NP            = 3.0     # µm distancia entre partículas en una columna
+DEFAULT_GRID_DIST_COL           = 3.0     # µm distancia entre columnas
+DEFAULT_PRINTING_UMBRAL         = 1.2     # salto multiplicativo de intensidad (120%)
+DEFAULT_PRINTING_UMBRAL_DOWN    = 0.0     # umbral inferior de desprendimiento
+DEFAULT_PRINTING_TMAX           = 20.0    # s tiempo máximo de exposición por celda
+DEFAULT_PRINTING_STEPS_BEFORE   = 10      # puntos promediados pre-exposición
+DEFAULT_PRINTING_STEPS_AFTER    = 10      # puntos promediados post-exposición
+DEFAULT_PRINTING_AUTOFOCUS_EVERY = 2      # frecuencia de ciclos de autofoco Z (cada N celdas)
+DEFAULT_PRINTING_SHIFT_X        = 0.0     # µm offset óptico X
+DEFAULT_PRINTING_SHIFT_Y        = 0.0     # µm offset óptico Y
+DEFAULT_DIMERS_DX               = 0.0     # µm separación nanométrica X entre dímeros
+DEFAULT_DIMERS_DY               = 0.0     # µm separación nanométrica Y entre dímeros
+
+# ── Cámara & Análisis de Imágenes ─────────────────────────────────────────────
+DEFAULT_CAMERA_FPS              = 30      # FPS objetivo de captura en cámara
+DEFAULT_TRACKPY_DIAMETER_PX     = 11      # px diámetro estimado de partícula para trackpy
+DEFAULT_TRACKPY_SEPARATION_PX   = 8       # px separación mínima entre partículas
+DEFAULT_TRACKPY_MINMASS         = 100.0   # masa mínima para detección trackpy
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  MOCK PI  — misma interfaz que _PIController, sin hardware real
 # ══════════════════════════════════════════════════════════════════════════════
 

@@ -34,7 +34,11 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
                               QPushButton, QCheckBox, QMessageBox)
 from pyqtgraph.dockarea import DockArea, Dock
 
-from config  import pi, SHUTTERS, DEFAULT_DATA_PATH
+from config  import (pi, SHUTTERS, DEFAULT_DATA_PATH,
+                     DEFAULT_CONFOCAL_RANGE_X, DEFAULT_CONFOCAL_RANGE_Y,
+                     DEFAULT_CONFOCAL_PIXELS_X, DEFAULT_CONFOCAL_PIXELS_Y,
+                     DEFAULT_CONFOCAL_FILTER_PERCENT,
+                     DEFAULT_DRIFT_TOTAL_MINUTES, DEFAULT_DRIFT_REFRESH_SECONDS)
 from nidaq   import (open_shutter, close_shutter, channels_photodiodos,
                      channels_triggers, PD_CHANNELS, PD_CHANS_LIST,
                      RATE_MULTICHANNEL)
@@ -158,10 +162,10 @@ class Frontend(QFrame):
         self.PSF_mode.setFixedWidth(100)
         self.PSF_mode.currentIndexChanged.connect(self._set_psf_mode)
 
-        self.scanrangeEdit   = QLineEdit("2");  self.scanrangeEdit.textChanged.connect(self._set_parameters)
-        self.scanrangeEdit_y = QLineEdit("2");  self.scanrangeEdit_y.textChanged.connect(self._set_parameters)
-        self.NxEdit          = QLineEdit("34"); self.NxEdit.textChanged.connect(self._set_parameters)
-        self.NyEdit          = QLineEdit("34"); self.NyEdit.textChanged.connect(self._set_parameters)
+        self.scanrangeEdit   = QLineEdit(str(DEFAULT_CONFOCAL_RANGE_X));  self.scanrangeEdit.textChanged.connect(self._set_parameters)
+        self.scanrangeEdit_y = QLineEdit(str(DEFAULT_CONFOCAL_RANGE_Y));  self.scanrangeEdit_y.textChanged.connect(self._set_parameters)
+        self.NxEdit          = QLineEdit(str(DEFAULT_CONFOCAL_PIXELS_X)); self.NxEdit.textChanged.connect(self._set_parameters)
+        self.NyEdit          = QLineEdit(str(DEFAULT_CONFOCAL_PIXELS_Y)); self.NyEdit.textChanged.connect(self._set_parameters)
         self.NxEdit.setToolTip("Múltiplos de 16 por µm")
 
         self.scanButton     = QPushButton("Start Scan")
@@ -191,7 +195,7 @@ class Frontend(QFrame):
         self.CMcheck     = QPushButton("Go to NP1")
         self.CMcheck_NP2 = QPushButton("Go to NP2")
         self.CMcheck_auto = QCheckBox("Auto CM")
-        self.threshold_filterEdit = QLineEdit("30")
+        self.threshold_filterEdit = QLineEdit(str(int(DEFAULT_CONFOCAL_FILTER_PERCENT) if DEFAULT_CONFOCAL_FILTER_PERCENT.is_integer() else DEFAULT_CONFOCAL_FILTER_PERCENT))
         self.threshold_filterEdit.setFixedWidth(40)
         self.threshold_filterEdit.setToolTip("Porcentaje de umbral de intensidad para el filtro de fondo (por defecto 30%)")
         self.threshold_filterEdit.textChanged.connect(self._set_threshold_filter)
@@ -232,8 +236,8 @@ class Frontend(QFrame):
         self.driftButton.setCheckable(True)
         self.driftButton.clicked.connect(self._get_drift)
         self.driftButton.setToolTip("Modo ramp, PSF x/y")
-        self.drift_totaltime   = QLineEdit("20")
-        self.drift_refreshtime = QLineEdit("40")
+        self.drift_totaltime   = QLineEdit(str(int(DEFAULT_DRIFT_TOTAL_MINUTES) if DEFAULT_DRIFT_TOTAL_MINUTES.is_integer() else DEFAULT_DRIFT_TOTAL_MINUTES))
+        self.drift_refreshtime = QLineEdit(str(int(DEFAULT_DRIFT_REFRESH_SECONDS) if DEFAULT_DRIFT_REFRESH_SECONDS.is_integer() else DEFAULT_DRIFT_REFRESH_SECONDS))
         self.drift_widget      = pg.GraphicsLayoutWidget()
 
         driftWidget = QWidget()

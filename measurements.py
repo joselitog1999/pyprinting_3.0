@@ -37,7 +37,14 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QFrame, QGridLayout,
 from PyQt6.QtGui     import QIntValidator
 from pyqtgraph.dockarea import DockArea, Dock
 
-from config import pi, SHUTTERS, DEFAULT_DATA_PATH
+from config import (pi, SHUTTERS, DEFAULT_DATA_PATH,
+                    DEFAULT_GRID_NPS_COL, DEFAULT_GRID_COLS,
+                    DEFAULT_GRID_DIST_NP, DEFAULT_GRID_DIST_COL,
+                    DEFAULT_PRINTING_UMBRAL, DEFAULT_PRINTING_UMBRAL_DOWN,
+                    DEFAULT_PRINTING_TMAX, DEFAULT_PRINTING_STEPS_BEFORE,
+                    DEFAULT_PRINTING_STEPS_AFTER, DEFAULT_PRINTING_AUTOFOCUS_EVERY,
+                    DEFAULT_PRINTING_SHIFT_X, DEFAULT_PRINTING_SHIFT_Y,
+                    DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY)
 from nidaq  import (open_shutter, close_shutter,
                     up_flipper, down_flipper)
 
@@ -86,14 +93,14 @@ class Frontend(QFrame):
         self._color_menu(self.grid_laser)
 
         # ── Parámetros de detección ───────────────────────────────────────────
-        self.umbralEdit      = QLineEdit("1.2")
-        self.umbral_downEdit = QLineEdit("0")
-        self.tmaxEdit        = QLineEdit("20")
-        self.steps_beforeEdit = QLineEdit("10"); self.steps_beforeEdit.setFixedWidth(44)
-        self.steps_afterEdit  = QLineEdit("10"); self.steps_afterEdit.setFixedWidth(44)
-        self.autofocEdit     = QLineEdit("2");  self.autofocEdit.setFixedWidth(44)
-        self.shiftxEdit      = QLineEdit("0");  self.shiftxEdit.setFixedWidth(44)
-        self.shiftyEdit      = QLineEdit("0");  self.shiftyEdit.setFixedWidth(44)
+        self.umbralEdit      = QLineEdit(str(DEFAULT_PRINTING_UMBRAL))
+        self.umbral_downEdit = QLineEdit(str(int(DEFAULT_PRINTING_UMBRAL_DOWN) if DEFAULT_PRINTING_UMBRAL_DOWN.is_integer() else DEFAULT_PRINTING_UMBRAL_DOWN))
+        self.tmaxEdit        = QLineEdit(str(int(DEFAULT_PRINTING_TMAX) if DEFAULT_PRINTING_TMAX.is_integer() else DEFAULT_PRINTING_TMAX))
+        self.steps_beforeEdit = QLineEdit(str(DEFAULT_PRINTING_STEPS_BEFORE)); self.steps_beforeEdit.setFixedWidth(44)
+        self.steps_afterEdit  = QLineEdit(str(DEFAULT_PRINTING_STEPS_AFTER)); self.steps_afterEdit.setFixedWidth(44)
+        self.autofocEdit     = QLineEdit(str(DEFAULT_PRINTING_AUTOFOCUS_EVERY));  self.autofocEdit.setFixedWidth(44)
+        self.shiftxEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_X) if DEFAULT_PRINTING_SHIFT_X.is_integer() else DEFAULT_PRINTING_SHIFT_X));  self.shiftxEdit.setFixedWidth(44)
+        self.shiftyEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_Y) if DEFAULT_PRINTING_SHIFT_Y.is_integer() else DEFAULT_PRINTING_SHIFT_Y));  self.shiftyEdit.setFixedWidth(44)
 
         # ── Scan check ────────────────────────────────────────────────────────
         self.scan_check = QCheckBox("Scan pre-print?")
@@ -106,8 +113,8 @@ class Frontend(QFrame):
         self.postscan_check.setVisible(self.mode == "dimers")
 
         # ── dx/dy (solo dimers) ───────────────────────────────────────────────
-        self.dxEdit = QLineEdit("0"); self.dxEdit.setFixedWidth(44)
-        self.dyEdit = QLineEdit("0"); self.dyEdit.setFixedWidth(44)
+        self.dxEdit = QLineEdit(str(int(DEFAULT_DIMERS_DX) if DEFAULT_DIMERS_DX.is_integer() else DEFAULT_DIMERS_DX)); self.dxEdit.setFixedWidth(44)
+        self.dyEdit = QLineEdit(str(int(DEFAULT_DIMERS_DY) if DEFAULT_DIMERS_DY.is_integer() else DEFAULT_DIMERS_DY)); self.dyEdit.setFixedWidth(44)
 
         # ── Botones de control ────────────────────────────────────────────────
         self.imprimir_button = QPushButton(f"{label} folder")
@@ -146,10 +153,10 @@ class Frontend(QFrame):
         self.zrefLabel = QLabel("NaN")
 
         # ── Crear grilla ──────────────────────────────────────────────────────
-        self.number_files    = QLineEdit("4")
-        self.number_columns  = QLineEdit("4")
-        self.distance_files  = QLineEdit("3")
-        self.distance_columns= QLineEdit("3")
+        self.number_files    = QLineEdit(str(DEFAULT_GRID_NPS_COL))
+        self.number_columns  = QLineEdit(str(DEFAULT_GRID_COLS))
+        self.distance_files  = QLineEdit(str(int(DEFAULT_GRID_DIST_NP) if DEFAULT_GRID_DIST_NP.is_integer() else DEFAULT_GRID_DIST_NP))
+        self.distance_columns= QLineEdit(str(int(DEFAULT_GRID_DIST_COL) if DEFAULT_GRID_DIST_COL.is_integer() else DEFAULT_GRID_DIST_COL))
 
         self.grid_create_button = QPushButton("Create grid")
         self.grid_create_button.clicked.connect(self._get_grid_create)
