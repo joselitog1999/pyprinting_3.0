@@ -7,7 +7,11 @@ Permite cargar y analizar 1 o 2 imágenes confocales (.tiff o .txt) para caracte
   - PSF Gaussiana 2D (FWHM_x, FWHM_y, asimetría, SBR, R²)
   - PSF Donut / Laguerre-Gauss 2D (Centro, radio r0, semi-ejes a/b, elipticidad,
     orientación theta, calidad del cero I_min/I_max, uniformidad angular sigma_theta/I_mean)
+  - Vistas triples por canal: Original/Filtrada, Modelo Ajustado (Fit) y Mapa de Residuales (|Zn - Zfit|)
+  - Recálculo explícito del filtro con tecla Enter o botón Aplicar
   - Perfiles de corte 1D pasantes por el centro ajustado (Horizontal, Vertical, Diagonal 45°, Diagonal 135°)
+  - Selección de canal para perfiles 1D (Confocal 1, Confocal 2, Ambas superpuestas)
+  - Superposición RGB en Falso Color con modos (Originales, Filtradas, Fits)
   - Co-alineación espacial dual entre 2 confocales en nanómetros (Δr_nm, Δx_nm, Δy_nm, PCC)
 """
 from __future__ import annotations
@@ -18,7 +22,6 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image
-from scipy.optimize import curve_fit
 from scipy.ndimage import map_coordinates
 
 import pyqtgraph as pg
@@ -41,7 +44,10 @@ from psf import (gaussian2D, donut2D, center_of_mass, center_of_gauss2D,
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _filter_image(Z: np.ndarray, thr_percent: float) -> np.ndarray:
-    """Aplica umbral de corte de intensidad en % sobre la imagen normalizada."""
+    """
+    Aplica umbral de corte de intensidad en % sobre la imagen normalizada Zn in [0.0, 1.0].
+    Todo pixel con intensidad < thr_percent/100 se fuerza a 0.0.
+    """
     Zmin, Zmax = Z.min(), Z.max()
     Zn = (Z - Zmin) / (Zmax - Zmin + 1e-12)
     thr = max(0.0, min(100.0, thr_percent)) / 100.0
@@ -54,7 +60,7 @@ def fit_gaussian_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
                     thr_percent: float = DEFAULT_CONFOCAL_FILTER_PERCENT) -> dict:
     """
     Ajusta un modelo Gaussiano 2D sobre la matriz Z.
-    Retorna diccionario de métricas.
+    Retorna diccionario de métricas, matriz Z_fit y matriz de residuales.
     """
     Ny, Nx = Z.shape
     Zn = (Z - Z.min()) / (Z.max() - Z.min() + 1e-12)
@@ -69,7 +75,7 @@ def fit_gaussian_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
     dx_um = pixel_size_um
     dy_um = pixel_size_um
 
-    # Ajuste detallado de anchura (momentos de 2do orden)
+    # Ajuste de anchura por momentos de 2do orden
     x_rel = x_idx - xo_fit
     y_rel = y_idx - yo_fit
     total_intensity = np.sum(Zf) + 1e-12
@@ -85,6 +91,7 @@ def fit_gaussian_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
 
     # Modelo sintético evaluado
     Z_fit = gaussian2D((x_idx, y_idx), Zn.max(), xo_fit, yo_fit, sigma_x_px, sigma_y_px, 0.0).reshape(Ny, Nx)
+    residual = np.abs(Zn - Z_fit)
 
     # Calidad de ajuste R²
     ss_res = np.sum((Zn - Z_fit)**2)
@@ -112,7 +119,10 @@ def fit_gaussian_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
         "I_bkg": Z.min(),
         "sbr": sbr,
         "r2": r2,
-        "Z_fit": Z_fit
+        "Zn": Zn,
+        "Zf": Zf,
+        "Z_fit": Z_fit,
+        "residual": residual
     }
 
 
@@ -135,17 +145,13 @@ def fit_donut_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
 
     # Modelo Donut evaluado
     Z_fit = donut2D((x_idx, y_idx), Zn.max(), xo_fit, yo_fit, 3.0, 3.0, 0.0).reshape(Ny, Nx)
+    residual = np.abs(Zn - Z_fit)
 
-    # Extracción de perfil angular a lo largo del anillo de máxima intensidad
-    # Radio estimado de máxima intensidad r_peak
+    # Radio y perfil angular a lo largo del anillo de máxima intensidad
     r_grid = np.sqrt((x_idx - xo_fit)**2 + (y_idx - yo_fit)**2)
     ring_mask = (r_grid >= 1.5) & (r_grid <= 5.5)
-    if not np.any(ring_mask):
-        r_peak_px = 3.0
-    else:
-        r_peak_px = np.mean(r_grid[ring_mask])
+    r_peak_px = float(np.mean(r_grid[ring_mask])) if np.any(ring_mask) else 3.0
 
-    # Muestra 360 grados a lo largo del anillo
     angles_rad = np.linspace(0, 2 * np.pi, 360, endpoint=False)
     x_ring = xo_fit + r_peak_px * np.cos(angles_rad)
     y_ring = yo_fit + r_peak_px * np.sin(angles_rad)
@@ -158,10 +164,7 @@ def fit_donut_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
     sigma_theta = np.std(ring_intensities)
     angular_uniformity = sigma_theta / I_ring_mean
 
-    # Semi-ejes a y b derivados del perfil elíptico de intensidad
-    # Ajuste de elipse aproximada
-    x_max = xo_fit + (r_peak_px * np.cos(angles_rad))[np.argmax(ring_intensities)]
-    y_max = yo_fit + (r_peak_px * np.sin(angles_rad))[np.argmax(ring_intensities)]
+    # Semi-ejes a y b derivados del perfil elíptico
     a_px = r_peak_px * 1.05
     b_px = r_peak_px * 0.95
     r0_px = (a_px + b_px) / 2.0
@@ -172,15 +175,12 @@ def fit_donut_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
     r0_um = r0_px * dx_um
 
     # Calidad del cero central I_min / I_max
-    # Muestra intensidad en el centro (x0, y0)
     center_coords = np.array([[yo_fit], [xo_fit]])
     I_center = float(map_coordinates(Zn, center_coords, order=1, mode='nearest')[0])
     I_max_ring = float(np.max(ring_intensities)) + 1e-12
     zero_quality = max(0.0, I_center / I_max_ring)
 
-    # Ancho del anillo (ring FWHM)
-    ring_fwhm_px = 1.8
-    ring_fwhm_um = ring_fwhm_px * dx_um
+    ring_fwhm_um = 1.8 * dx_um
 
     # R² del ajuste
     ss_res = np.sum((Zn - Z_fit)**2)
@@ -207,7 +207,10 @@ def fit_donut_2d(Z: np.ndarray, pixel_size_um: float = PIXEL_SIZE_UM,
         "I_max": Z.max(),
         "I_min": Z.min(),
         "r2": r2,
-        "Z_fit": Z_fit
+        "Zn": Zn,
+        "Zf": Zf,
+        "Z_fit": Z_fit,
+        "residual": residual
     }
 
 
@@ -242,18 +245,23 @@ def extract_1d_profile(Z: np.ndarray, xo_px: float, yo_px: float,
         y_pts = yo_px - t / np.sqrt(2)
         dist_um = t * pixel_size_um
 
-    # Interpola intensidades a lo largo de la línea
     coords = np.array([y_pts, x_pts])
     profile = map_coordinates(Z, coords, order=1, mode='nearest')
     return dist_um, profile
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PANEL INDIVIDUAL DE CANAL CONFOCAL
+#  PANEL INDIVIDUAL DE CANAL CONFOCAL (TRIPLE VISTA: ORIGINAL, FIT, RESIDUAL)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ConfocalChannelPanel(QGroupBox):
-    """Panel individual para cargar, ajustar y visualizar una imagen confocal."""
+    """
+    Panel individual para un canal confocal.
+    Despliega 3 visores independientes:
+      1. Original / Filtrada (con centro xo,yo y elipse superpuesta)
+      2. Modelo Ajustado (Fit sintético Z_fit)
+      3. Mapa de Residuales (|Zn - Z_fit|)
+    """
 
     imageLoadedSignal = pyqtSignal()
     fitUpdatedSignal  = pyqtSignal()
@@ -263,6 +271,7 @@ class ConfocalChannelPanel(QGroupBox):
         self.image_path: Optional[Path] = None
         self.Z: Optional[np.ndarray] = None
         self.fit_results: Optional[dict] = None
+        self.unit_mode: str = "µm"
 
         self._setup_ui()
 
@@ -281,36 +290,79 @@ class ConfocalChannelPanel(QGroupBox):
 
         self.thr_edit = QLineEdit(str(int(DEFAULT_CONFOCAL_FILTER_PERCENT)))
         self.thr_edit.setFixedWidth(40)
-        self.thr_edit.setToolTip("Porcentaje de umbral para el filtro de fondo (por defecto 30%)")
-        self.thr_edit.textChanged.connect(self._re_fit)
+        self.thr_edit.setToolTip("Porcentaje de umbral de corte de fondo (por defecto 30%). Presione Enter o Aplicar para recalcular.")
+        self.thr_edit.returnPressed.connect(self._re_fit)
 
-        top_grid.addWidget(self.btn_load, 0, 0, 1, 2)
+        self.btn_apply_thr = QPushButton("Aplicar")
+        self.btn_apply_thr.setFixedWidth(60)
+        self.btn_apply_thr.clicked.connect(self._re_fit)
+
+        top_grid.addWidget(self.btn_load, 0, 0, 1, 3)
         top_grid.addWidget(QLabel("Modelo:"), 1, 0)
-        top_grid.addWidget(self.combo_model, 1, 1)
+        top_grid.addWidget(self.combo_model, 1, 1, 1, 2)
         top_grid.addWidget(QLabel("Filtro (%):"), 2, 0)
         top_grid.addWidget(self.thr_edit, 2, 1)
+        top_grid.addWidget(self.btn_apply_thr, 2, 2)
 
         vlo.addLayout(top_grid)
 
-        # Vista de imagen con PyQtGraph
-        self.glw = pg.GraphicsLayoutWidget()
-        self.glw.setAspectLocked(True)
-        self.img_item = pg.ImageItem()
-        self.vb = self.glw.addPlot()
-        self.vb.addItem(self.img_item)
+        # Visores triples (Original, Fit, Residual)
+        views_layout = QHBoxLayout()
 
-        # Overlays gráficos (centro y elipse)
+        label_style = {"color": "#FFF", "font-size": "7pt"}
+
+        # 1. Visor Original
+        self.glw_orig = pg.GraphicsLayoutWidget()
+        self.img_orig = pg.ImageItem()
+        self.vb_orig = self.glw_orig.addPlot(title="Original / Filtrada")
+        self.vb_orig.setAspectLocked(True)
+        self.vb_orig.addItem(self.img_orig)
         self.center_scatter = pg.ScatterPlotItem(size=12, symbol="+", pen=pg.mkPen("m", width=2))
         self.ellipse_curve = pg.PlotCurveItem(pen=pg.mkPen("c", width=1.5, style=Qt.PenStyle.DashLine))
-        self.vb.addItem(self.center_scatter)
-        self.vb.addItem(self.ellipse_curve)
+        self.vb_orig.addItem(self.center_scatter)
+        self.vb_orig.addItem(self.ellipse_curve)
+        self.vb_orig.setLabel("left", "Y", **label_style)
+        self.vb_orig.setLabel("bottom", "X", **label_style)
 
-        vlo.addWidget(self.glw)
+        # 2. Visor Fit Sintético
+        self.glw_fit = pg.GraphicsLayoutWidget()
+        self.img_fit = pg.ImageItem()
+        self.vb_fit = self.glw_fit.addPlot(title="Modelo Ajustado (Fit)")
+        self.vb_fit.setAspectLocked(True)
+        self.vb_fit.addItem(self.img_fit)
+        self.vb_fit.setLabel("left", "Y", **label_style)
+        self.vb_fit.setLabel("bottom", "X", **label_style)
+
+        # 3. Visor Residual
+        self.glw_res = pg.GraphicsLayoutWidget()
+        self.img_res = pg.ImageItem()
+        self.vb_res = self.glw_res.addPlot(title="Residual (|Zn - Zfit|)")
+        self.vb_res.setAspectLocked(True)
+        self.vb_res.addItem(self.img_res)
+        self.vb_res.setLabel("left", "Y", **label_style)
+        self.vb_res.setLabel("bottom", "X", **label_style)
+
+        views_layout.addWidget(self.glw_orig)
+        views_layout.addWidget(self.glw_fit)
+        views_layout.addWidget(self.glw_res)
+
+        vlo.addLayout(views_layout)
 
         # Estado
         self.lbl_info = QLabel("Sin imagen cargada")
         self.lbl_info.setStyleSheet("color: gray;")
         vlo.addWidget(self.lbl_info)
+
+    def set_unit_mode(self, mode: str, pixel_size_um: float):
+        self.unit_mode = mode
+        unit = "um" if mode == "µm" else "px"
+        scale = pixel_size_um if mode == "µm" else 1.0
+
+        for vb in (self.vb_orig, self.vb_fit, self.vb_res):
+            vb.getAxis("left").setLabel("Y", units=unit)
+            vb.getAxis("bottom").setLabel("X", units=unit)
+            vb.getAxis("left").setScale(scale)
+            vb.getAxis("bottom").setScale(scale)
 
     def _load_file(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -329,12 +381,22 @@ class ConfocalChannelPanel(QGroupBox):
                 img = Image.open(path)
                 self.Z = np.array(img, dtype=np.float64)
 
-            self.img_item.setImage(self.Z.T)
             self.lbl_info.setText(f"Cargado: {path.name} [{self.Z.shape[1]}x{self.Z.shape[0]}]")
             self.imageLoadedSignal.emit()
             self._re_fit()
         except Exception as e:
             QMessageBox.critical(self, "Error de carga", f"No se pudo cargar la imagen:\n{e}")
+
+    def clear_panel(self):
+        self.Z = None
+        self.image_path = None
+        self.fit_results = None
+        self.img_orig.clear()
+        self.img_fit.clear()
+        self.img_res.clear()
+        self.center_scatter.clear()
+        self.ellipse_curve.clear()
+        self.lbl_info.setText("Sin imagen cargada")
 
     def _re_fit(self):
         if self.Z is None:
@@ -351,7 +413,11 @@ class ConfocalChannelPanel(QGroupBox):
         else:
             self.fit_results = fit_donut_2d(self.Z, thr_percent=thr)
 
-        # Actualizar overlays
+        # Actualizar visores
+        self.img_orig.setImage(self.fit_results["Zf"].T)
+        self.img_fit.setImage(self.fit_results["Z_fit"].T)
+        self.img_res.setImage(self.fit_results["residual"].T)
+
         xo, yo = self.fit_results["xo_px"], self.fit_results["yo_px"]
         self.center_scatter.setData([xo], [yo])
 
@@ -388,20 +454,33 @@ class PSFAnalyzerWidget(QWidget):
 
         self.px_size_edit = QLineEdit(str(PIXEL_SIZE_UM))
         self.px_size_edit.setFixedWidth(50)
+        self.px_size_edit.textChanged.connect(self._update_unit_mode)
+
+        self.combo_units = QComboBox()
+        self.combo_units.addItems(["Unidades: micrómetros (µm)", "Unidades: píxeles (px)"])
+        self.combo_units.currentIndexChanged.connect(self._update_unit_mode)
+
+        self.btn_clear_ch1 = QPushButton("Limpiar Canal 1")
+        self.btn_clear_ch1.clicked.connect(self._clear_channel_1)
 
         self.btn_clear_ch2 = QPushButton("Limpiar Canal 2")
         self.btn_clear_ch2.clicked.connect(self._clear_channel_2)
 
         hlo.addWidget(QLabel("Tamaño píxel (µm):"))
         hlo.addWidget(self.px_size_edit)
+        hlo.addWidget(self.combo_units)
         hlo.addSpacing(20)
+        hlo.addWidget(self.btn_clear_ch1)
         hlo.addWidget(self.btn_clear_ch2)
         hlo.addStretch()
 
         main_vlo.addWidget(top_box)
 
         # ── Splitter Principal ───────────────────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Sub-splitter para Canal 1 y Canal 2
+        chan_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Canal 1
         self.ch1_panel = ConfocalChannelPanel("Confocal 1 (Verde / Excitación)")
@@ -411,8 +490,9 @@ class PSFAnalyzerWidget(QWidget):
         self.ch2_panel = ConfocalChannelPanel("Confocal 2 (Rojo / Donut STED)")
         self.ch2_panel.fitUpdatedSignal.connect(self._update_analysis)
 
-        splitter.addWidget(self.ch1_panel)
-        splitter.addWidget(self.ch2_panel)
+        chan_splitter.addWidget(self.ch1_panel)
+        chan_splitter.addWidget(self.ch2_panel)
+        splitter.addWidget(chan_splitter)
 
         # Panel de Resultados y Gráficos (Pestañas)
         self.tabs_results = QTabWidget()
@@ -431,6 +511,14 @@ class PSFAnalyzerWidget(QWidget):
         self.tab_profiles = QWidget()
         plo = QVBoxLayout(self.tab_profiles)
         prof_ctrl = QHBoxLayout()
+
+        prof_ctrl.addWidget(QLabel("Canal a Graficar:"))
+        self.combo_profile_chan = QComboBox()
+        self.combo_profile_chan.addItems(["Confocal 1", "Confocal 2", "Ambas superpuestas"])
+        self.combo_profile_chan.currentIndexChanged.connect(self._update_profiles)
+        prof_ctrl.addWidget(self.combo_profile_chan)
+
+        prof_ctrl.addSpacing(15)
         prof_ctrl.addWidget(QLabel("Dirección del Perfil:"))
         self.combo_profile_dir = QComboBox()
         self.combo_profile_dir.addItems(["Horizontal", "Vertical", "Diagonal 45°", "Diagonal 135°"])
@@ -450,27 +538,46 @@ class PSFAnalyzerWidget(QWidget):
         # Tab 3: Superposición RGB Falso Color
         self.tab_overlay = QWidget()
         olo = QVBoxLayout(self.tab_overlay)
+        ov_ctrl = QHBoxLayout()
+        ov_ctrl.addWidget(QLabel("Modo de Falso Color:"))
+        self.combo_overlay_mode = QComboBox()
+        self.combo_overlay_mode.addItems(["Imágenes Originales", "Originales con Filtro de Ruido", "Modelos Ajustados (Fits)"])
+        self.combo_overlay_mode.currentIndexChanged.connect(self._update_overlay)
+        ov_ctrl.addWidget(self.combo_overlay_mode)
+        ov_ctrl.addStretch()
+        olo.addLayout(ov_ctrl)
+
         self.glw_overlay = pg.GraphicsLayoutWidget()
-        self.glw_overlay.setAspectLocked(True)
         self.img_overlay = pg.ImageItem()
-        self.vb_overlay = self.glw_overlay.addPlot()
+        self.vb_overlay = self.glw_overlay.addPlot(title="Superposición Falso Color RGB")
+        self.vb_overlay.setAspectLocked(True)
         self.vb_overlay.addItem(self.img_overlay)
         olo.addWidget(self.glw_overlay)
         self.tabs_results.addTab(self.tab_overlay, "🎨 Superposición Falso Color")
 
         splitter.addWidget(self.tabs_results)
-        splitter.setSizes([350, 350, 450])
+        splitter.setSizes([450, 300])
 
         main_vlo.addWidget(splitter)
+        self._update_unit_mode()
+
+    def _clear_channel_1(self):
+        self.ch1_panel.clear_panel()
+        self._update_analysis()
 
     def _clear_channel_2(self):
-        self.ch2_panel.Z = None
-        self.ch2_panel.image_path = None
-        self.ch2_panel.fit_results = None
-        self.ch2_panel.img_item.clear()
-        self.ch2_panel.center_scatter.clear()
-        self.ch2_panel.ellipse_curve.clear()
-        self.ch2_panel.lbl_info.setText("Sin imagen cargada")
+        self.ch2_panel.clear_panel()
+        self._update_analysis()
+
+    def _update_unit_mode(self):
+        mode_str = "µm" if "micrómetros" in self.combo_units.currentText() else "px"
+        try:
+            px_size = float(self.px_size_edit.text())
+        except ValueError:
+            px_size = PIXEL_SIZE_UM
+
+        self.ch1_panel.set_unit_mode(mode_str, px_size)
+        self.ch2_panel.set_unit_mode(mode_str, px_size)
         self._update_analysis()
 
     def _update_analysis(self):
@@ -511,12 +618,16 @@ class PSFAnalyzerWidget(QWidget):
 
     def _update_profiles(self):
         dir_mode = self.combo_profile_dir.currentText()
+        chan_mode = self.combo_profile_chan.currentText()
         try:
             px_size = float(self.px_size_edit.text())
         except ValueError:
             px_size = PIXEL_SIZE_UM
 
-        if self.ch1_panel.Z is not None and self.ch1_panel.fit_results is not None:
+        show_c1 = (chan_mode in ("Confocal 1", "Ambas superpuestas"))
+        show_c2 = (chan_mode in ("Confocal 2", "Ambas superpuestas"))
+
+        if show_c1 and self.ch1_panel.Z is not None and self.ch1_panel.fit_results is not None:
             f1 = self.ch1_panel.fit_results
             dist1, prof1 = extract_1d_profile(self.ch1_panel.Z, f1["xo_px"], f1["yo_px"], px_size, dir_mode)
             prof1_norm = (prof1 - prof1.min()) / (prof1.max() - prof1.min() + 1e-12)
@@ -524,7 +635,7 @@ class PSFAnalyzerWidget(QWidget):
         else:
             self.curve_prof1.clear()
 
-        if self.ch2_panel.Z is not None and self.ch2_panel.fit_results is not None:
+        if show_c2 and self.ch2_panel.Z is not None and self.ch2_panel.fit_results is not None:
             f2 = self.ch2_panel.fit_results
             dist2, prof2 = extract_1d_profile(self.ch2_panel.Z, f2["xo_px"], f2["yo_px"], px_size, dir_mode)
             prof2_norm = (prof2 - prof2.min()) / (prof2.max() - prof2.min() + 1e-12)
@@ -537,21 +648,35 @@ class PSFAnalyzerWidget(QWidget):
             self.img_overlay.clear()
             return
 
-        Z1 = self.ch1_panel.Z
-        Z1_n = (Z1 - Z1.min()) / (Z1.max() - Z1.min() + 1e-12)
+        mode = self.combo_overlay_mode.currentText()
 
-        if self.ch2_panel.Z is not None:
-            Z2 = self.ch2_panel.Z
-            Z2_n = (Z2 - Z2.min()) / (Z2.max() - Z2.min() + 1e-12)
-            Ny = min(Z1.shape[0], Z2.shape[0])
-            Nx = min(Z1.shape[1], Z2.shape[1])
-            rgb = np.zeros((Ny, Nx, 3), dtype=np.uint8)
-            rgb[..., 1] = (Z1_n[:Ny, :Nx] * 255).astype(np.uint8)  # Verde
-            rgb[..., 0] = (Z2_n[:Ny, :Nx] * 255).astype(np.uint8)  # Rojo
+        # Seleccionar matrices según modo
+        if mode == "Imágenes Originales":
+            M1 = self.ch1_panel.Z
+            M2 = self.ch2_panel.Z
+        elif mode == "Imágenes Filtradas (Filtro Ruido)" and self.ch1_panel.fit_results:
+            M1 = self.ch1_panel.fit_results["Zf"]
+            M2 = self.ch2_panel.fit_results["Zf"] if self.ch2_panel.fit_results else None
+        elif mode == "Modelos Ajustados (Fits)" and self.ch1_panel.fit_results:
+            M1 = self.ch1_panel.fit_results["Z_fit"]
+            M2 = self.ch2_panel.fit_results["Z_fit"] if self.ch2_panel.fit_results else None
         else:
-            Ny, Nx = Z1.shape
+            M1 = self.ch1_panel.Z
+            M2 = self.ch2_panel.Z
+
+        M1_n = (M1 - M1.min()) / (M1.max() - M1.min() + 1e-12)
+
+        if M2 is not None:
+            M2_n = (M2 - M2.min()) / (M2.max() - M2.min() + 1e-12)
+            Ny = min(M1.shape[0], M2.shape[0])
+            Nx = min(M1.shape[1], M2.shape[1])
             rgb = np.zeros((Ny, Nx, 3), dtype=np.uint8)
-            rgb[..., 1] = (Z1_n * 255).astype(np.uint8)
+            rgb[..., 1] = (M1_n[:Ny, :Nx] * 255).astype(np.uint8)  # Verde
+            rgb[..., 0] = (M2_n[:Ny, :Nx] * 255).astype(np.uint8)  # Rojo
+        else:
+            Ny, Nx = M1.shape
+            rgb = np.zeros((Ny, Nx, 3), dtype=np.uint8)
+            rgb[..., 1] = (M1_n * 255).astype(np.uint8)
 
         self.img_overlay.setImage(np.transpose(rgb, (1, 0, 2)))
 
@@ -562,6 +687,6 @@ class PSFAnalyzerWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("PSF Analyzer — Caracterización & Alineación Dual PSF")
-        self.resize(1200, 750)
+        self.resize(1300, 850)
         self.widget = PSFAnalyzerWidget(self)
         self.setCentralWidget(self.widget)

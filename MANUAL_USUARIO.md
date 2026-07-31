@@ -344,11 +344,13 @@ El panel **Printing control** cuenta con una disposición matricial de 4 columna
 |---|---|---|
 | **`Cargar Confocal (.tiff)`** | `QPushButton` | Carga imágenes confocales individuales para el Canal 1 (excitación verde) o Canal 2 (donut rojo). |
 | **`Modelo`** | `QComboBox` | Selecciona el modelo analítico de ajuste 2D (`Gaussiana 2D` o `Donut (Laguerre-Gauss)`). |
-| **`Filtro (%)`** | `QLineEdit` | Porcentaje de umbral de filtrado de fondo para desestimar ruido antes de ajustar el modelo (por defecto 30%). |
-| **`Dirección del Perfil`** | `QComboBox` | Selecciona la orientación del perfil de corte 1D pasante por el centro $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`. |
+| **`Filtro (%)` + `Aplicar` / `Enter`** | `QLineEdit` + `QPushButton` | Porcentaje de umbral de filtrado de fondo ($Z_n < P/100 \implies Z_f = 0$). Presionar `Enter` o `Aplicar` recalcula inmediatamente los ajustes, residuales y métricas. |
+| **Vistas Triples por Canal** | `pg.PlotWidget` ($\times 3$) | Despliega 3 visores por canal: **Original/Filtrada** (con centro $x_0,y_0$ y elipse superpuesta), **Modelo Ajustado (Fit $Z_{\text{fit}}$)** y **Mapa de Residuales ($|Z_n - Z_{\text{fit}}|$)**. |
+| **Selector de Unidades** | `QComboBox` | Alterna las etiquetas de los ejes graduados de todas las imágenes entre **micrómetros ($\mu\text{m}$)** y **píxeles ($\text{px}$)**. |
+| **`Limpiar Canal 1` / `Canal 2`** | `QPushButton` | Vacía y reinicia los paneles del Canal 1 o Canal 2 de forma independiente. |
+| **Canal y Dirección en Perfiles 1D** | `QComboBox` ($\times 2$) | Selecciona el canal a graficar (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y la orientación del corte 1D pasante por $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`. |
+| **Modo de Falso Color RGB** | `QComboBox` | Elige el origen para la imagen compuesta RGB: `Imágenes Originales`, `Originales con Filtro de Ruido` o `Modelos Ajustados (Fits)`. |
 | **Pestaña `Métricas de Ajuste`** | `QTableWidget` | Despliega la tabla comparativa con las métricas de alineación ($x_0, y_0$, radio $r_0$, semi-ejes $a, b$, elipticidad $a/b$, calidad del cero $I_{\min}/I_{\max}$, uniformidad angular $\sigma_{\theta}/\bar{I}$ y desalineación dual $\Delta r_{\text{nm}}$). |
-| **Pestaña `Perfiles 1D`** | `pg.PlotWidget` | Gráfica los cortes 1D de intensidad normalizada pasantes por el centro ajustado para ambos canales. |
-| **Pestaña `Superposición Falso Color`**| `pg.GraphicsLayoutWidget` | Renderiza la vista combinada RGB en falso color (Verde = Canal 1, Rojo = Canal 2) con los centros marcados. |
 
 ---
 
