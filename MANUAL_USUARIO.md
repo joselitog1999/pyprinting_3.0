@@ -207,6 +207,7 @@ La barra superior de menús proporciona accesos directos globales a la gestión 
 | **`Save Frame`** | `QPushButton` | Guarda las matrices de la imagen actual (`.tiff` y `.txt`) en el directorio de trabajo. |
 | **`Go to NP1`** | `QPushButton` | Posiciona la platina en las coordenadas del pico ajustado para la Nanopartícula 1. |
 | **`Go to NP2`** | `QPushButton` | Posiciona la platina en las coordenadas calculadas para la Nanopartícula 2 (si aplica). |
+| **Filtro (%)** | `QLineEdit` | Porcentaje de umbral de intensidad para el filtro de fondo en la búsqueda del centro (por defecto 30%). Ubicado abajo de `Go to NP2`. |
 | **Auto CM** | `QCheckBox` | Si está activo, tras un escaneo el piezo se desplaza automáticamente al centro de masa. |
 | **Scan Image Combo** | `QComboBox` | Define el contraste dinámico (`NPs maximum`, `NPs minimum`, `choose`). |
 | **Method Center Combo**| `QComboBox` | Algoritmo de ajuste de centro (`center of mass`, `center of gauss`, `two NP: center of gauss`, `donut (Laguerre-Gauss)`). |

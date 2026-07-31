@@ -63,14 +63,23 @@ class Frontend(QFrame):
     CMautoSignal         = pyqtSignal(bool)
     CMSignal_NP2         = pyqtSignal()
     driftSignal          = pyqtSignal(bool, int, float, float)
+    threshold_filterSignal = pyqtSignal(float)
     saveSignal           = pyqtSignal()
     closeSignal          = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._setup_gui()
+        self._set_threshold_filter()
 
     # ── Acciones ──────────────────────────────────────────────────────────────
+
+    def _set_threshold_filter(self):
+        try:
+            val = float(self.threshold_filterEdit.text()) / 100.0
+            self.threshold_filterSignal.emit(val)
+        except ValueError:
+            pass
 
     def _set_parameters(self):
         params = [float(self.scanrangeEdit.text()),
@@ -182,6 +191,11 @@ class Frontend(QFrame):
         self.CMcheck     = QPushButton("Go to NP1")
         self.CMcheck_NP2 = QPushButton("Go to NP2")
         self.CMcheck_auto = QCheckBox("Auto CM")
+        self.threshold_filterEdit = QLineEdit("30")
+        self.threshold_filterEdit.setFixedWidth(40)
+        self.threshold_filterEdit.setToolTip("Porcentaje de umbral de intensidad para el filtro de fondo (por defecto 30%)")
+        self.threshold_filterEdit.textChanged.connect(self._set_threshold_filter)
+
         self.scan_image   = QComboBox(); self.scan_image.addItems(SCAN_IMAGE);   self.scan_image.setFixedWidth(150)
         self.method_center= QComboBox(); self.method_center.addItems(METHOD_CENTER); self.method_center.setFixedWidth(150)
         self.CxValue_1 = QLabel("NaN"); self.CyValue_1 = QLabel("NaN")
@@ -196,11 +210,19 @@ class Frontend(QFrame):
         self.point_graph_CM   = pg.ScatterPlotItem(size=10, symbol="+", pen="m")
         self.point_graph_CM_2 = pg.ScatterPlotItem(size=5,  symbol="+", pen="b")
 
+        filterBox = QWidget()
+        flo = QHBoxLayout(filterBox)
+        flo.setContentsMargins(0, 0, 0, 0)
+        flo.setSpacing(2)
+        flo.addWidget(QLabel("Filtro (%):"))
+        flo.addWidget(self.threshold_filterEdit)
+
         goCMWidget = QWidget()
         lo3 = QGridLayout(goCMWidget)
         lo3.addWidget(self.CMcheck,       1, 1); lo3.addWidget(self.CMcheck_auto, 1, 2)
         lo3.addWidget(self.CMcheck_NP2,   1, 3)
         lo3.addWidget(self.scan_image,    2, 1); lo3.addWidget(self.method_center, 2, 2)
+        lo3.addWidget(filterBox,          2, 3)
         lo3.addWidget(QLabel("NP 1:"),    3, 2); lo3.addWidget(QLabel("NP 2:"),    3, 3)
         lo3.addWidget(QLabel("Cx:"),      4, 1); lo3.addWidget(self.CxValue_1,    4, 2); lo3.addWidget(self.CxValue_2, 4, 3)
         lo3.addWidget(QLabel("Cy:"),      5, 1); lo3.addWidget(self.CyValue_1,    5, 2); lo3.addWidget(self.CyValue_2, 5, 3)
@@ -680,12 +702,17 @@ class Backend(QObject):
                 self.mode_printing, self.number_scan,
             )
 
+    @pyqtSlot(float)
+    def set_threshold_filter(self, val: float):
+        self.threshold_filter_val = val
+
     # ── CM ────────────────────────────────────────────────────────────────────
 
     def _CMmeasure(self) -> tuple[float, float]:
         Z  = self.image
         Zn = self._norm_image(Z)
-        Zf = self._filter_image(Z, Zn, 0.3)
+        thr = getattr(self, "threshold_filter_val", 0.3)
+        Zf = self._filter_image(Z, Zn, thr)
         if self.method_center_opt == METHOD_CENTER[0]:
             xo, yo = center_of_mass(Zf)
         elif self.method_center_opt == METHOD_CENTER[1]:
@@ -841,6 +868,7 @@ class Backend(QObject):
         frontend.CMautoSignal.connect(self.goCM_auto)
         frontend.CMSignal_NP2.connect(self.goCM_NP2)
         frontend.driftSignal.connect(self.measurment_drift)
+        frontend.threshold_filterSignal.connect(self.set_threshold_filter)
         frontend.saveSignal.connect(self.saveFrame)
         frontend.closeSignal.connect(self.close)
 
