@@ -282,11 +282,7 @@ class Frontend(QFrame):
             self.powerBSWindow.update_bs_data(t, bs, mean_BS)
 
     def make_connection(self, backend: Backend):
-        backend.dataSignal.connect(self.get_data)
-        self.startSignal.connect(backend.play_pause)
-        self.stopSignal.connect(backend.stop)
-        self.saveSignal.connect(lambda: backend.save_trace())
-        self.calibrationBS_Signal.connect(backend.set_calibration_bs)
+        backend.make_connection(self)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -307,6 +303,12 @@ class Backend(QObject):
         self.mode_printing = "none"
 
     def make_connection(self, frontend: QObject):
+        try:
+            frontend.startSignal.disconnect(self.play_pause)
+            frontend.stopSignal.disconnect(self.stop)
+            self.dataSignal.disconnect(frontend.get_data)
+        except Exception:
+            pass
         frontend.startSignal.connect(self.play_pause)
         frontend.stopSignal.connect(self.stop)
         frontend.saveSignal.connect(lambda: self.save_trace())
@@ -342,7 +344,6 @@ class Backend(QObject):
 
     def _stop_and_save(self):
         self.pointtimer.stop()
-        close_all_tasks()
         close_shutter(self.laser)
 
     @pyqtSlot(list)
