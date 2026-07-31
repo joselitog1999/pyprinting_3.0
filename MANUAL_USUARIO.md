@@ -133,24 +133,24 @@ donde los tamaños de paso espacial son $dx = \frac{\text{Range}_x}{N_x}$ y $dy 
 
 ---
 
-## 2. Modos de Operación: Producción vs. Modo Seguro
+## 2. Lanzador Principal (`main.py`) y Modos de Operación
 
-El sistema cuenta con dos modos de arranque configurables:
+### 🏠 Lanzador Interactivo (`main.py`)
+El punto de entrada principal para el laboratorio es **`main.py`**. Al ejecutarse, despliega una ventana de inicio titulada **"Bienvenidos al printing"** con un diseño moderno tipo tarjetas que permite lanzar los distintos módulos del sistema de forma independiente:
 
-### 🔴 Modo Producción (Hardware Real)
-Conecta directamente con la platina piezoeléctrica **Physik Instrumente (PI E-517/E-736)** vía USB, la tarjeta **National Instruments (NI-DAQmx PCIe/USB-6353)** y la cámara física Canon EOS por SDK.
+* **🔬 Microscopio Derecho** (`app.py`): Inicia la plataforma completa de microscopía confocal, espectroscopía, impresión óptica, dímeros y trazas.
+* **🧬 PSF Analyzer** (`psf_analyzer.py`): Inicia el analizador analítico 2D de PSF (Gaussiana 7-param / Donut $LG_{01}$), mapas de residuales, perfiles 1D y falsos colores.
+* **🖼️ Analizador de Imágenes** (`image_analyzer.py`): Inicia la herramienta gráfica de medición en imágenes estáticas, calibración $\mu\text{m/px}$ y tracking `trackpy`.
+* **📷 Cámara Réflex Live View** (`camera.py` / `canon_test.py`): Inicia el control de cámara Canon EOS 500D, balance de blancos, paletas LUT y modulación láser.
+
+### 🔴 Modo Producción (Hardware Real) vs. 🟢 Modo Seguro (`SAFE_MODE`)
+En el encabezado del lanzador `main.py` se incluye una casilla interactiva **`Modo Seguro (Simulación)`**:
+- **Desmarcada (Modo Producción)**: Conecta con la platina piezoeléctrica **Physik Instrumente (PI E-517/E-736)** vía USB, la tarjeta **National Instruments (NI-DAQmx PCIe/USB-6353)** y la cámara física Canon EOS.
+- **Marcada (Modo Seguro)**: Permite ejecutar el 100% de los programas sin hardware conectado emulando el piezo PI, la tarjeta DAQmx y la transmisión de video sintética.
+
 ```powershell
-.\.venv\Scripts\python.exe app.py
-```
-
-### 🟢 Modo Seguro (`SAFE_MODE` — Simulación)
-Permite ejecutar el 100% de la interfaz gráfica, botones, ventanas y algoritmos de mediciones/impresión en cualquier computadora sin hardware conectado.
-* **Platina PI**: Emulada con actualización coherente de coordenadas.
-* **NI-DAQ**: Generación de señales analógicas sintéticas con ruido gaussiano.
-* **Cámara**: Transmisión sintética Live View ($1056 \times 704$) a 25 FPS con patrón en movimiento.
-```powershell
-$env:PYPRINTING_SAFE="1"
-.\.venv\Scripts\python.exe app.py
+# Lanzar Panel Principal de Inicio:
+.\.venv\Scripts\python.exe main.py
 ```
 
 ---

@@ -9,7 +9,7 @@ Esta versión (**PyPrinting 3.0**) refactoriza y moderniza por completo la arqui
 * **Modo Seguro (`SAFE_MODE`) con simulación completa de hardware**: Simulación coherente de platina piezoeléctrica PI E-517, tarjetas NI-DAQmx y transmisión de video sintética.
 * **Configuración centralizada (`config.py`)**: Parametrización unificada de valores típicos (*typical values*) y desacoplamiento limpio multihilo.
 
-El punto de entrada principal del sistema es **`app.py`**.
+El punto de entrada principal del sistema es **`main.py`** (Panel de Inicio "Bienvenidos al printing") o **`app.py`** ("Microscopio derecho").
 
 ---
 
@@ -17,7 +17,8 @@ El punto de entrada principal del sistema es **`app.py`**.
 
 ```
 printing3/
-├── app.py                # 🚀 PUNTO DE ENTRADA PRINCIPAL. Orquestador PyQt6, GUI y gestión de QThreads.
+├── main.py               # 🏠 LANZADOR PRINCIPAL "Bienvenidos al printing". Ventana de inicio interactiva.
+├── app.py                # 🚀 MICROSCOPIO DERECHO (PyPrinting 3.0 completo). Orquestador PyQt6 y QThreads.
 ├── config.py             # ⚙️ Configuración global, constantes de hardware, singleton PI y MOCKs (SAFE_MODE).
 ├── psf_analyzer.py       # 🧬 Analizador de PSF 2D (Gaussiana 2D / Donut LG01, residuales, perfiles 1D y RGB).
 ├── requirements.txt      # 📦 Lista de dependencias de Python para producción y desarrollo.
