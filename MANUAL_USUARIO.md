@@ -358,7 +358,7 @@ La barra superior de menús proporciona accesos directos globales a la gestión 
 
 | Elemento | Tipo | Función / Descripción |
 |---|---|---|
-| **Shutter 532 nm** | `QCheckBox` | Abre o cierra el obturador digital del láser verde de 532 nm (Canal DO 12, PD ai0). |
+| **Shutter 532 nm** | `QCheckBox` / `QPushButton` | Abre o cierra el obturador digital del láser verde de 532 nm (`open_shutter("532 nm (green)")` / `close_shutter("532 nm (green)")`). En `Laser532Window`, conmuta dinámicamente entre abrir y cerrar el obturador. |
 | **Shutter 637 nm** | `QCheckBox` | Abre o cierra el obturador digital del láser rojo de 637 nm (Canal DO 11, PD ai1). |
 | **Shutter 592 nm** | `QCheckBox` | Abre o cierra el obturador digital del láser amarillo de 592 nm (Canal DO 10, PD ai3). |
 | **Low power** | `QCheckBox` | Activa/Desactiva el atenuador óptico de baja potencia. |

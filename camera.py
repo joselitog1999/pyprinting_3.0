@@ -35,7 +35,7 @@ from config import (SAFE_MODE, CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT,
                     DEFAULT_DATA_PATH, PI_STAGE_RANGE_UM,
                     DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
                     DEFAULT_TRACKPY_SEPARATION_PX)
-from nidaq import set_laser532_voltage
+from nidaq import set_laser532_voltage, open_shutter, close_shutter, SHUTTERS
 
 if not SAFE_MODE:
     import cv2
@@ -1416,17 +1416,21 @@ class Backend(QObject):
 
 class Laser532Window(QWidget):
     voltageChangedSignal = pyqtSignal(float)
+    shutter532Signal     = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Láser 532 nm — Dev1/ao2")
         self.setWindowFlags(
             Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        self.setFixedSize(420, 180)
+        self.setFixedSize(440, 200)
+        self._shutter_open = False
+
         lo = QVBoxLayout(self)
         lbl = QLabel("Láser 532 nm  —  Dev1/ao2")
-        lbl.setStyleSheet("font-weight: bold; color: #55cc55;")
+        lbl.setStyleSheet("font-weight: bold; color: #55cc55; font-size: 11pt;")
         lo.addWidget(lbl)
+
         row = QWidget(); rlo = QHBoxLayout(row)
         self._slider = QSlider(Qt.Orientation.Horizontal)
         self._slider.setMinimum(int(LASER_532_V_MIN * 100))
@@ -1435,23 +1439,55 @@ class Laser532Window(QWidget):
         self._slider.setTickInterval(50)
         self._slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self._slider.valueChanged.connect(self._on_slider)
+
         self._spin = QDoubleSpinBox()
         self._spin.setRange(LASER_532_V_MIN, LASER_532_V_MAX)
         self._spin.setSingleStep(0.05); self._spin.setDecimals(3)
         self._spin.setSuffix(" V"); self._spin.setValue(LASER_532_V_MIN)
         self._spin.valueChanged.connect(self._on_spin)
+
         rlo.addWidget(QLabel("Potencia:")); rlo.addWidget(self._slider, 1)
         rlo.addWidget(self._spin); lo.addWidget(row)
+
         presets = QWidget(); plo = QHBoxLayout(presets)
         for v in [1.0, 2.0, 3.0, 4.0, 5.0]:
             b = QPushButton(f"{v:.1f}V")
             b.clicked.connect(lambda _, val=v: self._spin.setValue(val))
             plo.addWidget(b)
         lo.addWidget(presets)
-        btn_off = QPushButton(f"Apagar ({LASER_532_V_MIN:.1f} V mínimo)")
-        btn_off.setStyleSheet("color: #cc4444;")
-        btn_off.clicked.connect(lambda: self._spin.setValue(LASER_532_V_MIN))
-        lo.addWidget(btn_off)
+
+        # Botón de Shutter 532 nm (Abrir / Cerrar)
+        self.btn_shutter = QPushButton("► Abrir Shutter 532 nm (Cerrado)")
+        self.btn_shutter.setCheckable(True)
+        self.btn_shutter.setChecked(False)
+        self.btn_shutter.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_shutter.setStyleSheet(
+            "background-color: #2e7d32; color: white; font-weight: bold; padding: 7px; border-radius: 4px;"
+        )
+        self.btn_shutter.toggled.connect(self._toggle_shutter_532)
+        lo.addWidget(self.btn_shutter)
+
+    def _toggle_shutter_532(self, checked: bool):
+        self._shutter_open = checked
+        if checked:
+            self.btn_shutter.setText("■ Cerrar Shutter 532 nm (Abierto)")
+            self.btn_shutter.setStyleSheet(
+                "background-color: #c62828; color: white; font-weight: bold; padding: 7px; border-radius: 4px;"
+            )
+            try:
+                open_shutter(SHUTTERS[0])
+            except Exception as e:
+                print(f"[Laser532] Error abriendo shutter: {e}")
+        else:
+            self.btn_shutter.setText("► Abrir Shutter 532 nm (Cerrado)")
+            self.btn_shutter.setStyleSheet(
+                "background-color: #2e7d32; color: white; font-weight: bold; padding: 7px; border-radius: 4px;"
+            )
+            try:
+                close_shutter(SHUTTERS[0])
+            except Exception as e:
+                print(f"[Laser532] Error cerrando shutter: {e}")
+        self.shutter532Signal.emit(checked)
 
     def _on_slider(self, val: int):
         v = val / 100.0

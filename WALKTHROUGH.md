@@ -6,29 +6,26 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Ampliación del Lanzador Principal (`main.py`)**:
-   - **8 Tarjetas de Aplicación & Módulos**:
-     - **🔬 Microscopio Derecho** (`app.py`): Inicia PyPrinting 3.0 completo.
-     - **🧬 PSF Analyzer** (`psf_analyzer.py`): Caracterización 2D de PSF (Gaussiana 7-param / Donut LG01).
-     - **🖼️ Analizador de Imágenes** (`image_analyzer.py`): Medición en imágenes estáticas ($\mu\text{m/px}$) y tracking.
-     - **📷 Cámara Live View** (`camera.py`): Transmisión Live View en tiempo real (reemplazando temporalmente a `canon_test.py` mientras concluye su fase de pruebas).
-     - **⚡ Modulación Láser 532 nm**: Lanzamiento directo de la ventana flotante `Laser532Window` (voltaje analógico DAC Dev1/ao2).
-     - **🏛️ PyPrinting 2 (Legacy)** (`../printing2/PyPrinting_UNSAM.py`): Lanzamiento de la versión previa para consulta de protocolos históricos.
-     - **🔮 PySpectrum** (*Próximamente / Roadmap*): Módulo reservado para espectrometría (reemplazo extendido de Andor Solis), nano-termometría y scattering.
-     - **🔍 Microscopio Contrapropagante** (*Próximamente / Roadmap*): Módulo reservado para microscopía con objetivo invertido y excitación dual contrapropagante.
+1. **Accionamiento Directo del Shutter 532 nm en `Laser532Window` (`camera.py`)**:
+   - Reemplazada la funcionalidad anterior del botón (que fijaba el voltaje a $1.0\text{ V}$) por un botón interactivo de conmutación de obturador:
+     - **`► Abrir Shutter 532 nm (Cerrado)`** (Verde `#2e7d32`): Llama a `open_shutter("532 nm (green)")`.
+     - **`■ Cerrar Shutter 532 nm (Abierto)`** (Rojo `#c62828`): Llama a `close_shutter("532 nm (green)")`.
+   - Incorporación de la señal `shutter532Signal(bool)` para notificar cambios de estado del obturador.
 
-2. **Documentación del Roadmap Futuro**:
-   - Actualización de [README.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md) y [MANUAL_USUARIO.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/MANUAL_USUARIO.md) detallando la visión de desarrollo de **PySpectrum** y el **Microscopio Contrapropagante**.
+2. **Lanzador Principal `main.py` ("Bienvenidos al printing")**:
+   - Configurado para lanzar `camera.py` en la tarjeta de cámara Live View (mientras `canon_test.py` continúa en fase de pruebas).
+   - Incorporadas tarjetas ejecutables para `Laser532Window` y `PyPrinting 2 (Legacy)`.
+   - Reservadas tarjetas y documentación de Roadmap para **PySpectrum** y el **Microscopio Contrapropagante**.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba del Lanzador `main.py`**:
+- **Prueba de Conmutación de Shutter 532 nm**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import sys; from PyQt6.QtWidgets import QApplication; from main import MainWindowLauncher; app = QApplication(sys.argv); win = MainWindowLauncher(); win.show(); print('ENHANCED MAIN LAUNCHER WITH 8 CARDS VERIFIED!')"
+  .\.venv\Scripts\python.exe -c "import sys; from PyQt6.QtWidgets import QApplication; from camera import Laser532Window; app = QApplication(sys.argv); win = Laser532Window(); win.show(); win._toggle_shutter_532(True); win._toggle_shutter_532(False); print('LASER 532 SHUTTER TOGGLE VERIFIED!')"
   ```
-  *(Resultado: `ENHANCED MAIN LAUNCHER WITH 8 CARDS VERIFIED!`)*
+  *(Resultado: `[NI MOCK] open_shutter(532 nm (green))`, `[NI MOCK] close_shutter(532 nm (green))` — `LASER 532 SHUTTER TOGGLE VERIFIED!`)*
 
 - **Prueba Ejecutable de la Aplicación**:
   ```powershell
