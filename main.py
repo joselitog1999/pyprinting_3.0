@@ -4,20 +4,25 @@
 PyPrinting 3.0 — Panel de Inicio Principal (main.py)
 UNSAM — Nanofotónica
 
-Launcher principal interactivo con interfaz gráfica moderna PyQt6 para lanzar:
-1. Microscopio Derecho (app.py — PyPrinting 3.0 completo)
-2. PSF Analyzer (psf_analyzer.py)
-3. Analizador de Imágenes (image_analyzer.py)
-4. Cámara Live View (camera.py)
-5. Modulación Láser 532 nm (camera.py / Laser532Window)
-6. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
-7. PySpectrum (Próximamente — Espectrometría, Termometría y Scattering)
-8. Microscopio Contrapropagante (Próximamente — Excitación Doble & Objetivo Invertido)
+Launcher principal interactivo con interfaz gráfica moderna PyQt6 (3 opciones por fila):
+Fila 1:
+  1. Microscopio Derecho (app.py — PyPrinting 3.0 completo)
+  2. PSF Analyzer (psf_analyzer.py)
+  3. Analizador de Imágenes (image_analyzer.py)
+Fila 2:
+  4. Cámara Live View (camera.py)
+  5. Modulación Láser 532 nm (camera.py / Laser532Window)
+  6. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
+Fila 3:
+  7. PySpectrum (Próximamente — Espectrometría, Termometría y Scattering)
+  8. Microscopio Contrapropagante (Próximamente — Excitación Doble & Objetivo Invertido)
+  9. Documentación y Créditos (Manual de Usuario, README y Créditos del Autor)
 """
 
 import sys
 import os
 import subprocess
+import webbrowser
 from pathlib import Path
 from typing import List, Optional
 
@@ -77,7 +82,7 @@ class ApplicationCard(QFrame):
 
         lbl_title = QLabel(title)
         title_color = "#A6ADC8" if is_disabled else "#CDD6F4"
-        lbl_title.setStyleSheet(f"font-size: 12pt; font-weight: bold; color: {title_color}; background: transparent; border: none;")
+        lbl_title.setStyleSheet(f"font-size: 11.5pt; font-weight: bold; color: {title_color}; background: transparent; border: none;")
 
         lbl_sub = QLabel(subtitle)
         sub_color = "#6C7086" if is_disabled else "#A6ADC8"
@@ -110,9 +115,9 @@ class ApplicationCard(QFrame):
                     background-color: #313244;
                     color: #7F849C;
                     font-weight: bold;
-                    font-size: 9.5pt;
+                    font-size: 9pt;
                     padding: 8px;
-                    border-radius: 8px;
+                    border-radius: 7px;
                     border: none;
                 }
             """)
@@ -123,9 +128,9 @@ class ApplicationCard(QFrame):
                     background-color: {button_color};
                     color: #11111B;
                     font-weight: bold;
-                    font-size: 9.5pt;
-                    padding: 9px;
-                    border-radius: 8px;
+                    font-size: 9pt;
+                    padding: 8px;
+                    border-radius: 7px;
                     border: none;
                 }}
                 QPushButton:hover {{
@@ -141,13 +146,130 @@ class ApplicationCard(QFrame):
         layout.addWidget(btn_launch)
 
 
+class DocAndCreditsCard(QFrame):
+    """Tarjeta especial de Documentación, Guías de Usuario y Créditos del Autor."""
+
+    def __init__(self, open_doc_callback, show_credits_callback, parent=None):
+        super().__init__(parent)
+        self.open_doc_callback = open_doc_callback
+        self.show_credits_callback = show_credits_callback
+
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #1E1E2E;
+                border: 1px solid #B4BEFE;
+                border-radius: 12px;
+                padding: 14px;
+            }
+            QFrame:hover {
+                border: 1px solid #89B4FA;
+                background-color: #252538;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        # Header
+        header_hlo = QHBoxLayout()
+        lbl_icon = QLabel("📚")
+        lbl_icon.setStyleSheet("font-size: 26pt; background: transparent; border: none;")
+
+        title_vlo = QVBoxLayout()
+        title_vlo.setSpacing(2)
+
+        lbl_title = QLabel("Documentación y Créditos")
+        lbl_title.setStyleSheet("font-size: 11.5pt; font-weight: bold; color: #B4BEFE; background: transparent; border: none;")
+
+        lbl_sub = QLabel("Manual, README & Créditos")
+        lbl_sub.setStyleSheet("font-size: 8.5pt; color: #A6ADC8; background: transparent; border: none;")
+
+        title_vlo.addWidget(lbl_title)
+        title_vlo.addWidget(lbl_sub)
+
+        header_hlo.addWidget(lbl_icon)
+        header_hlo.addLayout(title_vlo)
+        header_hlo.addStretch()
+
+        layout.addLayout(header_hlo)
+
+        # Descripción con Crédito explícito
+        lbl_desc = QLabel(
+            "Desarrollado por <b>José Luis González Peñafiel</b> (Becario Doctoral CONICET, INS-UNSAM, San Martín, Buenos Aires, Argentina). Acceda al manual de usuario y documentación técnica."
+        )
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setStyleSheet("font-size: 8.5pt; color: #BAC2DE; line-height: 1.3; background: transparent; border: none;")
+        layout.addWidget(lbl_desc)
+
+        layout.addStretch()
+
+        # Fila de Botones
+        btns_hlo = QHBoxLayout()
+        btns_hlo.setSpacing(6)
+
+        btn_manual = QPushButton("📘 Manual")
+        btn_manual.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_manual.setStyleSheet("""
+            QPushButton {
+                background-color: #89B4FA;
+                color: #11111B;
+                font-weight: bold;
+                font-size: 8.5pt;
+                padding: 7px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #B4BEFE; }
+        """)
+        btn_manual.clicked.connect(lambda: self.open_doc_callback("MANUAL_USUARIO.md"))
+
+        btn_readme = QPushButton("📖 README")
+        btn_readme.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_readme.setStyleSheet("""
+            QPushButton {
+                background-color: #74C7EC;
+                color: #11111B;
+                font-weight: bold;
+                font-size: 8.5pt;
+                padding: 7px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #89DCEB; }
+        """)
+        btn_readme.clicked.connect(lambda: self.open_doc_callback("README.md"))
+
+        btn_credits = QPushButton("🎓 Créditos")
+        btn_credits.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_credits.setStyleSheet("""
+            QPushButton {
+                background-color: #F5C2E7;
+                color: #11111B;
+                font-weight: bold;
+                font-size: 8.5pt;
+                padding: 7px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #CBA6F7; }
+        """)
+        btn_credits.clicked.connect(self.show_credits_callback)
+
+        btns_hlo.addWidget(btn_manual)
+        btns_hlo.addWidget(btn_readme)
+        btns_hlo.addWidget(btn_credits)
+
+        layout.addLayout(btns_hlo)
+
+
 class MainWindowLauncher(QMainWindow):
     """Ventana de Inicio Principal — Bienvenidos al Printing."""
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PyPrinting 3.0 — Panel de Inicio Principal")
-        self.resize(1100, 780)
+        self.resize(1200, 780)
         self.processes: List[subprocess.Popen] = []
 
         self._setup_styles()
@@ -234,16 +356,17 @@ class MainWindowLauncher(QMainWindow):
 
         main_vlo.addWidget(banner_box)
 
-        # ── Grilla de Aplicaciones (Cards) ────────────────────────────────────
+        # ── Grilla de Aplicaciones (3 opciones por fila) ──────────────────────
         grid = QGridLayout()
         grid.setSpacing(16)
 
+        # ── FILA 1 ──
         # 1. Microscopio Derecho (app.py)
         card_app = ApplicationCard(
             icon_str="🔬",
             title="Microscopio Derecho",
             subtitle="PyPrinting 3.0 Suite Completa",
-            description="Plataforma orquestadora principal: microscopía confocal 2D/3D síncrona, impresión óptica fototérmica, ensamblado de dímeros plasmónicos, autofoco Z y trazas.",
+            description="Plataforma orquestadora principal: microscopía confocal 2D/3D síncrona, impresión óptica, dímeros plasmónicos, autofoco Z y trazas.",
             button_text="🚀 Iniciar Microscopio Derecho",
             button_color="#89B4FA",
             launch_callback=lambda: self._launch_script("app.py", "Microscopio Derecho")
@@ -254,7 +377,7 @@ class MainWindowLauncher(QMainWindow):
             icon_str="🧬",
             title="PSF Analyzer",
             subtitle="Caracterización Analítica 2D",
-            description="Ajuste analítico no lineal de 7 parámetros (Gaussiana 2D y Donut LG01), mapa de residuales, perfiles 1D por canal, barras Z dinámicas y métricas sub-nanométricas.",
+            description="Ajuste analítico no lineal de 7 parámetros (Gaussiana 2D y Donut LG01), residuales, perfiles 1D por canal y métricas sub-nanométricas.",
             button_text="📊 Iniciar PSF Analyzer",
             button_color="#A6E3A1",
             launch_callback=lambda: self._launch_script("psf_analyzer.py", "PSF Analyzer")
@@ -265,18 +388,19 @@ class MainWindowLauncher(QMainWindow):
             icon_str="🖼️",
             title="Analizador de Imágenes",
             subtitle="Procesamiento y Detección Estática",
-            description="Visualización y análisis gráfico sobre fotos estáticas (.tiff, .png, .jpg), calibración de escala µm/píxel, reglas tri-estado, regiones ROI y seguimiento trackpy.",
+            description="Visualización y análisis gráfico sobre fotos estáticas (.tiff, .png, .jpg), calibración de escala µm/píxel, reglas tri-estado y tracking trackpy.",
             button_text="📐 Iniciar Analizador de Imágenes",
             button_color="#F9E2AF",
             launch_callback=lambda: self._launch_script("image_analyzer.py", "Analizador de Imágenes")
         )
 
+        # ── FILA 2 ──
         # 4. Cámara Live View (camera.py)
         card_cam = ApplicationCard(
             icon_str="📷",
             title="Cámara Live View",
             subtitle="Control Réflex & OpenCV (camera.py)",
-            description="Transmisión Live View en tiempo real, balance de blancos, contraste CLim, paletas LUT (Thermal, Viridis, Inferno) y captura fotográfica de alta resolución.",
+            description="Transmisión Live View en tiempo real, balance de blancos, contraste CLim, paletas LUT (Thermal, Viridis, Inferno) y captura fotográfica.",
             button_text="📷 Iniciar Cámara Live View",
             button_color="#FAB387",
             launch_callback=lambda: self._launch_script("camera.py", "Cámara Live View")
@@ -286,8 +410,8 @@ class MainWindowLauncher(QMainWindow):
         card_laser = ApplicationCard(
             icon_str="⚡",
             title="Modulación Láser 532 nm",
-            subtitle="Control de Potencia Analógica DAC",
-            description="Ventana flotante de calibración y control de voltaje analógico DAC (1.0 V a 5.0 V) en tarjeta NI-DAQmx (Dev1/ao2) para el láser verde continuo de 532 nm.",
+            subtitle="Control de Potencia & Shutter 532",
+            description="Ventana flotante de control de voltaje analógico DAC (1.0 V a 5.0 V) y conmutador directo del obturador verde de 532 nm.",
             button_text="⚡ Iniciar Control Láser 532",
             button_color="#CBA6F7",
             launch_callback=self._launch_laser_532
@@ -298,18 +422,19 @@ class MainWindowLauncher(QMainWindow):
             icon_str="🏛️",
             title="PyPrinting 2 (Legacy)",
             subtitle="Versión Previa (PyPrinting_UNSAM.py)",
-            description="Acceso directo a la versión previa del software de impresión (PyPrinting_UNSAM) para consulta y ejecución de protocolos antiguos de laboratorio.",
+            description="Acceso directo a la versión previa del software de impresión (PyPrinting_UNSAM) para consulta y ejecución de protocolos antiguos.",
             button_text="🏛️ Iniciar PyPrinting 2",
             button_color="#89DCEB",
             launch_callback=self._launch_pyprinting_2
         )
 
+        # ── FILA 3 ──
         # 7. PySpectrum (En desarrollo futuro)
         card_pyspectrum = ApplicationCard(
             icon_str="🔮",
             title="PySpectrum",
-            subtitle="Próximamente — Espectrometría & Termometría",
-            description="Manejo integrado de espectrómetro (equivalente a Andor Solis), rutinas de nano-termometría fotónica, espectros de dispersión (scattering), escaneo de muestra y control láser.",
+            subtitle="Próximamente — Espectrometría",
+            description="Manejo integrado de espectrómetro (extensión de Andor Solis), rutinas de nano-termometría fotónica, espectros de scattering y escaneo.",
             button_text="🔮 En Desarrollo Futuro",
             button_color="#585B70",
             is_disabled=True
@@ -319,21 +444,31 @@ class MainWindowLauncher(QMainWindow):
         card_contra = ApplicationCard(
             icon_str="🔍",
             title="Microscopio Contrapropagante",
-            subtitle="Próximamente — Excitación Doble & Invertida",
-            description="Plataforma extendida basada en PyPrinting 3.0 adaptada para observación simultánea con objetivo invertido y excitación dual por haces contrapropagantes.",
+            subtitle="Próximamente — Excitación Doble",
+            description="Plataforma extendida basada en PyPrinting 3.0 adaptada para observación simultánea por objetivo invertido y excitación dual contrapropagante.",
             button_text="🔍 En Desarrollo Futuro",
             button_color="#585B70",
             is_disabled=True
         )
 
+        # 9. Documentación y Créditos
+        card_docs = DocAndCreditsCard(
+            open_doc_callback=self._open_document,
+            show_credits_callback=self._show_credits
+        )
+
+        # Ubicación en grilla 3x3
         grid.addWidget(card_app, 0, 0)
         grid.addWidget(card_psf, 0, 1)
-        grid.addWidget(card_img, 1, 0)
-        grid.addWidget(card_cam, 1, 1)
-        grid.addWidget(card_laser, 2, 0)
-        grid.addWidget(card_p2, 2, 1)
-        grid.addWidget(card_pyspectrum, 3, 0)
-        grid.addWidget(card_contra, 3, 1)
+        grid.addWidget(card_img, 0, 2)
+
+        grid.addWidget(card_cam, 1, 0)
+        grid.addWidget(card_laser, 1, 1)
+        grid.addWidget(card_p2, 1, 2)
+
+        grid.addWidget(card_pyspectrum, 2, 0)
+        grid.addWidget(card_contra, 2, 1)
+        grid.addWidget(card_docs, 2, 2)
 
         main_vlo.addLayout(grid)
 
@@ -398,6 +533,38 @@ class MainWindowLauncher(QMainWindow):
             self.statusBar().showMessage(f"Lanzado 'PyPrinting 2 (Legacy)' con PID {proc.pid}.")
         except Exception as e:
             QMessageBox.critical(self, "Error de Ejecución", f"Fallo al ejecutar PyPrinting 2:\n{e}")
+
+    def _open_document(self, filename: str):
+        doc_path = Path(__file__).parent / filename
+        if not doc_path.exists():
+            QMessageBox.warning(self, "Archivo No Encontrado", f"No se encontró el archivo de documentación:\n{doc_path}")
+            return
+
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(doc_path))
+            else:
+                webbrowser.open(doc_path.as_uri())
+            self.statusBar().showMessage(f"Abierto documento: {filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error al abrir documento", f"No se pudo abrir el archivo {filename}:\n{e}")
+
+    def _show_credits(self):
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Créditos e Información Institucional")
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText("""
+            <h3>🔬 PyPrinting 3.0 — UNSAM Nanofotónica</h3>
+            <p><b>Autor Principal:</b> José Luis González Peñafiel</p>
+            <p><b>Cargo:</b> Becario Doctoral CONICET</p>
+            <p><b>Institución:</b> Instituto de Nanosistemas (INS-UNSAM)</p>
+            <p><b>Ubicación:</b> San Martín, Buenos Aires, Argentina</p>
+            <hr>
+            <p><b>Contacto:</b> <a href="mailto:jose.lito.g.1999@gmail.com">jose.lito.g.1999@gmail.com</a></p>
+            <p><b>Repositorio GitHub:</b> <a href="https://github.com/joselitog1999/pyprinting_3.0">github.com/joselitog1999/pyprinting_3.0</a></p>
+        """)
+        msg.exec()
 
     def closeEvent(self, event):
         event.accept()

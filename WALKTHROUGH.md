@@ -6,26 +6,27 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Accionamiento Directo del Shutter 532 nm en `Laser532Window` (`camera.py`)**:
-   - Reemplazada la funcionalidad anterior del botón (que fijaba el voltaje a $1.0\text{ V}$) por un botón interactivo de conmutación de obturador:
-     - **`► Abrir Shutter 532 nm (Cerrado)`** (Verde `#2e7d32`): Llama a `open_shutter("532 nm (green)")`.
-     - **`■ Cerrar Shutter 532 nm (Abierto)`** (Rojo `#c62828`): Llama a `close_shutter("532 nm (green)")`.
-   - Incorporación de la señal `shutter532Signal(bool)` para notificar cambios de estado del obturador.
+1. **Reorganización Geométrica en Grilla $3 \times 3$ y Tarjeta de Créditos en `main.py`**:
+   - **Distribución de 3 Opciones por Fila**:
+     - **Fila 1**: 🔬 *Microscopio Derecho* (`app.py`), 🧬 *PSF Analyzer* (`psf_analyzer.py`), 🖼️ *Analizador de Imágenes* (`image_analyzer.py`).
+     - **Fila 2**: 📷 *Cámara Live View* (`camera.py`), ⚡ *Modulación Láser 532 nm* (`Laser532Window`), 🏛️ *PyPrinting 2 (Legacy)* (`PyPrinting_UNSAM.py`).
+     - **Fila 3**: 🔮 *PySpectrum* (Roadmap), 🔍 *Microscopio Contrapropagante* (Roadmap), 📚 *Documentación y Créditos del Autor*.
+   - **Panel de Documentación y Créditos del Autor**:
+     - Botones de acceso directo a `MANUAL_USUARIO.md` y `README.md`.
+     - Cuadro modal de **Créditos Institucionales**: **José Luis González Peñafiel** (Becario Doctoral CONICET, Instituto de Nanosistemas INS-UNSAM, San Martín, Buenos Aires, Argentina).
 
-2. **Lanzador Principal `main.py` ("Bienvenidos al printing")**:
-   - Configurado para lanzar `camera.py` en la tarjeta de cámara Live View (mientras `canon_test.py` continúa en fase de pruebas).
-   - Incorporadas tarjetas ejecutables para `Laser532Window` y `PyPrinting 2 (Legacy)`.
-   - Reservadas tarjetas y documentación de Roadmap para **PySpectrum** y el **Microscopio Contrapropagante**.
+2. **Accionamiento Directo del Shutter 532 nm en `Laser532Window` (`camera.py`)**:
+   - Conmutación directa entre `open_shutter("532 nm (green)")` y `close_shutter("532 nm (green)")`.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba de Conmutación de Shutter 532 nm**:
+- **Prueba del Lanzador `main.py` en Grilla $3 \times 3$**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import sys; from PyQt6.QtWidgets import QApplication; from camera import Laser532Window; app = QApplication(sys.argv); win = Laser532Window(); win.show(); win._toggle_shutter_532(True); win._toggle_shutter_532(False); print('LASER 532 SHUTTER TOGGLE VERIFIED!')"
+  .\.venv\Scripts\python.exe -c "import sys; from PyQt6.QtWidgets import QApplication; from main import MainWindowLauncher; app = QApplication(sys.argv); win = MainWindowLauncher(); win.show(); win._show_credits(); print('MAIN LAUNCHER 3x3 GRID & CREDITS CARD VERIFIED!')"
   ```
-  *(Resultado: `[NI MOCK] open_shutter(532 nm (green))`, `[NI MOCK] close_shutter(532 nm (green))` — `LASER 532 SHUTTER TOGGLE VERIFIED!`)*
+  *(Resultado: `MAIN LAUNCHER 3x3 GRID & CREDITS CARD VERIFIED!`)*
 
 - **Prueba Ejecutable de la Aplicación**:
   ```powershell
