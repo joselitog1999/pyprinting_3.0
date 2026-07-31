@@ -584,4 +584,23 @@ La ventana **PSF Analyzer** (`psf_analyzer.py`) genera un informe analítico mul
 
 ---
 
+## 8. Roadmap Futuro de Proyectos (En Desarrollo)
+
+El panel principal de inicio **`main.py`** reserva dos módulos de software científico para desarrollo futuro en el laboratorio de Nanofotónica:
+
+### 🔮 8.1 PySpectrum (Espectrometría, Nano-termometría & Scattering)
+* **Propósito**: Manejo integrado de espectrómetros de rejilla CCD/EMCCD (diseñado como extensión avanzada del software comercial *Andor Solis*).
+* **Funcionalidades Clave**:
+  - Rutinas automatizadas de **nano-termometría fotónica** por fluorescencia/luminiscencia dependiente de la temperatura.
+  - Adquisición de espectros de dispersión (*scattering*) de nanopartículas individuales.
+  - Sincronización continua de lectura de espectros con movimiento de platinas piezoeléctricas y excitación láser sintonizable.
+
+### 🔍 8.2 Microscopio Contrapropagante
+* **Propósito**: Adaptación de la arquitectura PyPrinting 3.0 para microscopía de doble iluminación y detección.
+* **Funcionalidades Clave**:
+  - Observación simultánea por objetivo superior e invertido.
+  - Excitación coordinada por haces láser contrapropagantes para trampas fotónicas y pinzas ópticas.
+
+---
+
 *Manual de Usuario de PyPrinting 3.0 — UNSAM Nanofotónica.*

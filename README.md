@@ -300,20 +300,44 @@ pip install -r requirements.txt
 ```
 
 ### 4. Ejecución del Sistema
-* **Modo Seguro / Simulación (Sin Hardware)**:
+
+* **🏠 Panel Principal de Inicio ("Bienvenidos al printing")**:
   ```powershell
-  $env:PYPRINTING_SAFE="1"; python app.py
+  python main.py
   ```
-* **Modo Laboratorio Real**:
-  ```powershell
-  python app.py
-  ```
-* **Herramientas Independientes**:
+* **🚀 Microscopio Derecho (PyPrinting 3.0 directo)**:
+  - **Modo Seguro / Simulación (Sin Hardware)**:
+    ```powershell
+    $env:PYPRINTING_SAFE="1"; python app.py
+    ```
+  - **Modo Laboratorio Real**:
+    ```powershell
+    python app.py
+    ```
+* **🛠️ Módulos Independientes**:
   ```powershell
   python psf_analyzer.py     # Ventana independiente PSF Analyzer
   python image_analyzer.py   # Analizador de Imágenes estáticas
-  python canon_test.py       # Prueba de Cámara Réflex Canon EOS
+  python camera.py           # Cámara Live View en tiempo real
   ```
+
+---
+
+## 🔮 Roadmap Futuro de Proyectos (En Desarrollo)
+
+La plataforma `main.py` reserva dos módulos de software científico para desarrollo futuro en el laboratorio:
+
+1. **🔮 PySpectrum (Espectrometría, Termometría & Scattering)**:
+   - Reemplazo y extensión inteligente del programa comercial *Andor Solis*.
+   - Control directo de espectrómetros de rejilla CCD/EMCCD.
+   - Rutinas automatizadas de **nano-termometría fotónica** por fluorescencia/luminiscencia.
+   - Adquisición de espectros de dispersión (*scattering*) de nanopartículas individuales.
+   - Sincronización síncrona con el movimiento de platinas piezoeléctricas y excitación láser.
+
+2. **🔍 Microscopio Contrapropagante**:
+   - Plataforma basada en la arquitectura PyPrinting 3.0 adaptada para microscopía dual.
+   - Integración de observación simultánea por objetivo superior e invertido.
+   - Excitación coordinada por haces láser contrapropagantes para pinzas ópticas y trampas fotónicas.
 
 ---
 
