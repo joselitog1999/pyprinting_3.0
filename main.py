@@ -7,15 +7,15 @@ UNSAM — Nanofotónica
 Launcher principal interactivo con interfaz gráfica moderna PyQt6 (3 opciones por fila):
 Fila 1:
   1. Microscopio Derecho (app.py — PyPrinting 3.0 completo)
-  2. PSF Analyzer (psf_analyzer.py)
-  3. Analizador de Imágenes (image_analyzer.py)
+  2. PySpectrum (Próximamente — Espectrometría, Termometría y Scattering)
+  3. Microscopio Contrapropagante (Próximamente — Excitación Doble & Objetivo Invertido)
 Fila 2:
-  4. Cámara Live View (camera.py)
-  5. Modulación Láser 532 nm (camera.py / Laser532Window)
-  6. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
+  4. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
+  5. Cámara Live View (camera.py)
+  6. Modulación Láser 532 nm (camera.py / Laser532Window)
 Fila 3:
-  7. PySpectrum (Próximamente — Espectrometría, Termometría y Scattering)
-  8. Microscopio Contrapropagante (Próximamente — Excitación Doble & Objetivo Invertido)
+  7. PSF Analyzer (psf_analyzer.py)
+  8. Analizador de Imágenes (image_analyzer.py)
   9. Documentación y Créditos (Manual de Usuario, README y Créditos del Autor)
 """
 
@@ -360,7 +360,7 @@ class MainWindowLauncher(QMainWindow):
         grid = QGridLayout()
         grid.setSpacing(16)
 
-        # ── FILA 1 ──
+        # ── FILA 1 ── (Microscopio derecho, PySpectrum, Contrapropagante)
         # 1. Microscopio Derecho (app.py)
         card_app = ApplicationCard(
             icon_str="🔬",
@@ -372,64 +372,7 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("app.py", "Microscopio Derecho")
         )
 
-        # 2. PSF Analyzer (psf_analyzer.py)
-        card_psf = ApplicationCard(
-            icon_str="🧬",
-            title="PSF Analyzer",
-            subtitle="Caracterización Analítica 2D",
-            description="Ajuste analítico no lineal de 7 parámetros (Gaussiana 2D y Donut LG01), residuales, perfiles 1D por canal y métricas sub-nanométricas.",
-            button_text="📊 Iniciar PSF Analyzer",
-            button_color="#A6E3A1",
-            launch_callback=lambda: self._launch_script("psf_analyzer.py", "PSF Analyzer")
-        )
-
-        # 3. Analizador de Imágenes (image_analyzer.py)
-        card_img = ApplicationCard(
-            icon_str="🖼️",
-            title="Analizador de Imágenes",
-            subtitle="Procesamiento y Detección Estática",
-            description="Visualización y análisis gráfico sobre fotos estáticas (.tiff, .png, .jpg), calibración de escala µm/píxel, reglas tri-estado y tracking trackpy.",
-            button_text="📐 Iniciar Analizador de Imágenes",
-            button_color="#F9E2AF",
-            launch_callback=lambda: self._launch_script("image_analyzer.py", "Analizador de Imágenes")
-        )
-
-        # ── FILA 2 ──
-        # 4. Cámara Live View (camera.py)
-        card_cam = ApplicationCard(
-            icon_str="📷",
-            title="Cámara Live View",
-            subtitle="Control Réflex & OpenCV (camera.py)",
-            description="Transmisión Live View en tiempo real, balance de blancos, contraste CLim, paletas LUT (Thermal, Viridis, Inferno) y captura fotográfica.",
-            button_text="📷 Iniciar Cámara Live View",
-            button_color="#FAB387",
-            launch_callback=lambda: self._launch_script("camera.py", "Cámara Live View")
-        )
-
-        # 5. Modulación Láser 532 nm (camera.py Laser532Window)
-        card_laser = ApplicationCard(
-            icon_str="⚡",
-            title="Modulación Láser 532 nm",
-            subtitle="Control de Potencia & Shutter 532",
-            description="Ventana flotante de control de voltaje analógico DAC (1.0 V a 5.0 V) y conmutador directo del obturador verde de 532 nm.",
-            button_text="⚡ Iniciar Control Láser 532",
-            button_color="#CBA6F7",
-            launch_callback=self._launch_laser_532
-        )
-
-        # 6. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
-        card_p2 = ApplicationCard(
-            icon_str="🏛️",
-            title="PyPrinting 2 (Legacy)",
-            subtitle="Versión Previa (PyPrinting_UNSAM.py)",
-            description="Acceso directo a la versión previa del software de impresión (PyPrinting_UNSAM) para consulta y ejecución de protocolos antiguos.",
-            button_text="🏛️ Iniciar PyPrinting 2",
-            button_color="#89DCEB",
-            launch_callback=self._launch_pyprinting_2
-        )
-
-        # ── FILA 3 ──
-        # 7. PySpectrum (En desarrollo futuro)
+        # 2. PySpectrum (En desarrollo futuro)
         card_pyspectrum = ApplicationCard(
             icon_str="🔮",
             title="PySpectrum",
@@ -440,7 +383,7 @@ class MainWindowLauncher(QMainWindow):
             is_disabled=True
         )
 
-        # 8. Microscopio Contrapropagante (En desarrollo futuro)
+        # 3. Microscopio Contrapropagante (En desarrollo futuro)
         card_contra = ApplicationCard(
             icon_str="🔍",
             title="Microscopio Contrapropagante",
@@ -451,23 +394,83 @@ class MainWindowLauncher(QMainWindow):
             is_disabled=True
         )
 
+        # ── FILA 2 ── (PyPrinting 2, Cámara Live, Módulo Láser)
+        # 4. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
+        card_p2 = ApplicationCard(
+            icon_str="🏛️",
+            title="PyPrinting 2 (Legacy)",
+            subtitle="Versión Previa (PyPrinting_UNSAM.py)",
+            description="Acceso directo a la versión previa del software de impresión (PyPrinting_UNSAM) para consulta y ejecución de protocolos antiguos.",
+            button_text="🏛️ Iniciar PyPrinting 2",
+            button_color="#89DCEB",
+            launch_callback=self._launch_pyprinting_2
+        )
+
+        # 5. Cámara Live View (camera.py)
+        card_cam = ApplicationCard(
+            icon_str="📷",
+            title="Cámara Live View",
+            subtitle="Control Réflex & OpenCV (camera.py)",
+            description="Transmisión Live View en tiempo real, balance de blancos, contraste CLim, paletas LUT (Thermal, Viridis, Inferno) y captura fotográfica.",
+            button_text="📷 Iniciar Cámara Live View",
+            button_color="#FAB387",
+            launch_callback=lambda: self._launch_script("camera.py", "Cámara Live View")
+        )
+
+        # 6. Modulación Láser 532 nm (camera.py Laser532Window)
+        card_laser = ApplicationCard(
+            icon_str="⚡",
+            title="Modulación Láser 532 nm",
+            subtitle="Control de Potencia & Shutter 532",
+            description="Ventana flotante de control de voltaje analógico DAC (1.0 V a 5.0 V) y conmutador directo del obturador verde de 532 nm.",
+            button_text="⚡ Iniciar Control Láser 532",
+            button_color="#CBA6F7",
+            launch_callback=self._launch_laser_532
+        )
+
+        # ── FILA 3 ── (PSF Analyzer, Analizador de Imágenes, Créditos)
+        # 7. PSF Analyzer (psf_analyzer.py)
+        card_psf = ApplicationCard(
+            icon_str="🧬",
+            title="PSF Analyzer",
+            subtitle="Caracterización Analítica 2D",
+            description="Ajuste analítico no lineal de 7 parámetros (Gaussiana 2D y Donut LG01), residuales, perfiles 1D por canal y métricas sub-nanométricas.",
+            button_text="📊 Iniciar PSF Analyzer",
+            button_color="#A6E3A1",
+            launch_callback=lambda: self._launch_script("psf_analyzer.py", "PSF Analyzer")
+        )
+
+        # 8. Analizador de Imágenes (image_analyzer.py)
+        card_img = ApplicationCard(
+            icon_str="🖼️",
+            title="Analizador de Imágenes",
+            subtitle="Procesamiento y Detección Estática",
+            description="Visualización y análisis gráfico sobre fotos estáticas (.tiff, .png, .jpg), calibración de escala µm/píxel, reglas tri-estado y tracking trackpy.",
+            button_text="📐 Iniciar Analizador de Imágenes",
+            button_color="#F9E2AF",
+            launch_callback=lambda: self._launch_script("image_analyzer.py", "Analizador de Imágenes")
+        )
+
         # 9. Documentación y Créditos
         card_docs = DocAndCreditsCard(
             open_doc_callback=self._open_document,
             show_credits_callback=self._show_credits
         )
 
-        # Ubicación en grilla 3x3
+        # Ubicación en grilla 3x3 según orden exacto solicitado:
+        # Fila 1: Microscopio derecho, PySpectrum, Contrapropagante
         grid.addWidget(card_app, 0, 0)
-        grid.addWidget(card_psf, 0, 1)
-        grid.addWidget(card_img, 0, 2)
+        grid.addWidget(card_pyspectrum, 0, 1)
+        grid.addWidget(card_contra, 0, 2)
 
-        grid.addWidget(card_cam, 1, 0)
-        grid.addWidget(card_laser, 1, 1)
-        grid.addWidget(card_p2, 1, 2)
+        # Fila 2: PyPrinting 2, Cámara live, Módulo láser
+        grid.addWidget(card_p2, 1, 0)
+        grid.addWidget(card_cam, 1, 1)
+        grid.addWidget(card_laser, 1, 2)
 
-        grid.addWidget(card_pyspectrum, 2, 0)
-        grid.addWidget(card_contra, 2, 1)
+        # Fila 3: PSF Analyzer, Analizador de imágenes, Créditos
+        grid.addWidget(card_psf, 2, 0)
+        grid.addWidget(card_img, 2, 1)
         grid.addWidget(card_docs, 2, 2)
 
         main_vlo.addLayout(grid)
