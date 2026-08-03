@@ -69,7 +69,7 @@ class CanonWorker(QObject):
     statusSignal     = pyqtSignal(str)
     logSignal        = pyqtSignal(str)
     connectedSignal  = pyqtSignal(bool)
-    propsReadySignal = pyqtSignal(list, list, int) # iso_vals, tv_vals, ae_mode
+    propsReadySignal = pyqtSignal(list, list, int, int, int) # iso_vals, tv_vals, ae_mode, curr_iso, curr_tv
 
     def __init__(self):
         super().__init__()
@@ -102,31 +102,58 @@ class CanonWorker(QObject):
         self._emit_log("Iniciando conexión USB con cámara Canon EOS...")
         ok = self._cam.open_session()
         if ok:
-            # 1. Leer propiedades e ISO/Tv ANTES de encender Live View (Cero colisiones USB)
-            ae_mode = self._cam.get_property_value(kEdsPropID_AEMode)
-            cam_iso = self._cam.get_property_desc(kEdsPropID_ISOSpeed)
-            cam_tv  = self._cam.get_property_desc(kEdsPropID_Tv)
-
-            final_iso = cam_iso if len(cam_iso) > 0 else FULL_ISO_LIST
-            final_tv  = cam_tv  if len(cam_tv)  > 0 else FULL_TV_LIST
-
-            self.propsReadySignal.emit(final_iso, final_tv, ae_mode)
+            # 1. Emitir inmediatamente lista completa para asegurar disponibilidad instantánea
+            self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0, 0, 0)
             self.statusSignal.emit("Cámara Canon EOS 500D Conectada | Opciones Habilitadas")
-            self._emit_log("Propiedades de cámara sincronizadas de inmediato. Controles ISO y Tv habilitados.")
 
             # 2. Habilitar Live View y arrancar timer de lectura de frames
             self._cam.enable_live_view()
             self._running = True
             self._timer.start()
             self.connectedSignal.emit(True)
+
+            # 3. Programar temporizador de 5 segundos para consulta segura de hardware
+            QTimer.singleShot(5000, self._query_properties_after_delay)
         else:
             self.connectedSignal.emit(False)
             msg = "⚠ No se detectó cámara Canon EOS por USB — Modo Simulación MOCK Activo"
             self.statusSignal.emit(msg)
             self._emit_log(msg)
             self._running = True
-            self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0)
+            self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0, 0, 0)
             self._timer.start()
+
+    def _query_properties_after_delay(self):
+        if not self._running or not self._cam._is_session_open: return
+
+        # Pausar timer de frames por 50ms para evitar colisión en el bus USB de EDSDK
+        was_running = self._timer is not None and self._timer.isActive()
+        if was_running: self._timer.stop()
+        time.sleep(0.05)
+
+        try:
+            ae_mode  = self._cam.get_property_value(kEdsPropID_AEMode)
+            cam_iso = self._cam.get_property_desc(kEdsPropID_ISOSpeed)
+            cam_tv  = self._cam.get_property_desc(kEdsPropID_Tv)
+            curr_iso = self._cam.get_property_value(kEdsPropID_ISOSpeed)
+            curr_tv  = self._cam.get_property_value(kEdsPropID_Tv)
+
+            # Fusionar asegurando que AL MENOS estén disponibles todas las opciones estándar
+            combined_iso = list(FULL_ISO_LIST)
+            for v in cam_iso:
+                if v not in combined_iso: combined_iso.append(v)
+
+            combined_tv = list(FULL_TV_LIST)
+            for v in cam_tv:
+                if v not in combined_tv: combined_tv.append(v)
+
+            self.propsReadySignal.emit(combined_iso, combined_tv, ae_mode, curr_iso, curr_tv)
+            self.statusSignal.emit("Cámara Canon EOS 500D | Opciones ISO y Tv Actualizadas (5s)")
+            self._emit_log("Sincronización diferida de 5 segundos completada. Opciones de cámara actualizadas.")
+        except Exception as _e:
+            self._emit_log(f"Advertencia durante consulta diferida: {_e}")
+        finally:
+            if was_running: self._timer.start()
 
     @pyqtSlot()
     def stop_camera(self):
@@ -515,26 +542,36 @@ class CanonTestWindow(QMainWindow):
     def _append_log(self, msg: str):
         self._txt_log.append(msg)
 
-    @pyqtSlot(list, list, int)
-    def _populate_properties(self, iso_vals: list, tv_vals: list, ae_mode: int):
+    @pyqtSlot(list, list, int, int, int)
+    def _populate_properties(self, iso_vals: list, tv_vals: list, ae_mode: int, curr_iso: int = 0, curr_tv: int = 0):
         mode_str = AE_MODE_MAP.get(ae_mode, f"Modo 0x{ae_mode:02X}")
         self._lbl_mode.setText(f"Modo Cámara: {mode_str}")
 
         # Poblar ISO
         self._combo_iso.blockSignals(True)
         self._combo_iso.clear()
-        for v in iso_vals:
+        target_iso_idx = 0
+        for idx, v in enumerate(iso_vals):
             lbl = ISO_MAP.get(v, f"0x{v:02X}")
             self._combo_iso.addItem(lbl, userData=v)
+            if curr_iso != 0 and v == curr_iso:
+                target_iso_idx = idx
+        if curr_iso != 0:
+            self._combo_iso.setCurrentIndex(target_iso_idx)
         self._combo_iso.blockSignals(False)
         self._combo_iso.setEnabled(True)
 
         # Poblar Tv (Velocidad de Obturación)
         self._combo_tv.blockSignals(True)
         self._combo_tv.clear()
-        for v in tv_vals:
+        target_tv_idx = 0
+        for idx, v in enumerate(tv_vals):
             lbl = TV_MAP.get(v, f"0x{v:02X}")
             self._combo_tv.addItem(lbl, userData=v)
+            if curr_tv != 0 and v == curr_tv:
+                target_tv_idx = idx
+        if curr_tv != 0:
+            self._combo_tv.setCurrentIndex(target_tv_idx)
         self._combo_tv.blockSignals(False)
         self._combo_tv.setEnabled(True)
 
