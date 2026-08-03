@@ -9,6 +9,7 @@ Mapeo de coordenadas para Confocal:
   - Rango físico platina PI: 0.0 a 100.0 µm
 """
 import sys
+import os
 import math
 import time
 from datetime import datetime
@@ -1376,18 +1377,24 @@ class Backend(QObject):
         super().__init__(*args, **kwargs)
         self._cap      = None
         self._running  = False
-        self._timer    = QTimer(self)
-        self._timer.setInterval(FRAME_INTERVAL_MS)
-        self._timer.timeout.connect(self._capture_frame)
+        self._timer    = None
         self._last_frame = None
+
     @pyqtSlot(str)
     def set_directory(self, path: str):
         self._save_dir = path
         print(f"[Camera Backend] Directorio de guardado actualizado: {path}")
 
+    def _ensure_timer(self):
+        if self._timer is None:
+            self._timer = QTimer(self)
+            self._timer.setInterval(FRAME_INTERVAL_MS)
+            self._timer.timeout.connect(self._capture_frame)
+
     @pyqtSlot()
     def start_stream(self):
         if self._running: return
+        self._ensure_timer()
         if SAFE_MODE:
             self._cap = _MockCapture()
         else:
@@ -1402,13 +1409,15 @@ class Backend(QObject):
 
     @pyqtSlot()
     def stop_stream(self):
-        self._timer.stop()
+        if self._timer is not None and self._timer.isActive():
+            self._timer.stop()
         self._running = False
         if self._cap:
             self._cap.release(); self._cap = None
 
     def close(self):
-        self.stop_stream()
+        from PyQt6.QtCore import QMetaObject, Qt
+        QMetaObject.invokeMethod(self, "stop_stream", Qt.ConnectionType.QueuedConnection)
 
     def _capture_frame(self):
         if not self._cap or not self._running: return

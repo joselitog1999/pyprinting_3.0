@@ -75,9 +75,7 @@ class CanonWorker(QObject):
         super().__init__()
         self._cam = CanonCamera(log_callback=self._emit_log)
         self._running = False
-        self._timer = QTimer(self)
-        self._timer.setInterval(40) # Frecuencia fija de 25 FPS fijos nativa del sensor DIGIC 4
-        self._timer.timeout.connect(self._fetch_frame)
+        self._timer = None
         self._last_valid_frame = None
         self._mock_n = 0
         self._mode_color = "Color RGB"
@@ -91,8 +89,15 @@ class CanonWorker(QObject):
     def _emit_log(self, msg: str):
         self.logSignal.emit(msg)
 
+    def _ensure_timer(self):
+        if self._timer is None:
+            self._timer = QTimer(self)
+            self._timer.setInterval(40)  # ~25 FPS nativo
+            self._timer.timeout.connect(self._fetch_frame)
+
     @pyqtSlot()
     def start_camera(self):
+        self._ensure_timer()
         self.statusSignal.emit("Conectando con cámara Canon EOS por USB...")
         self._emit_log("Iniciando conexión USB con cámara Canon EOS...")
         ok = self._cam.open_session()
@@ -136,7 +141,8 @@ class CanonWorker(QObject):
 
     @pyqtSlot()
     def stop_camera(self):
-        self._timer.stop()
+        if self._timer is not None and self._timer.isActive():
+            self._timer.stop()
         self._running = False
         self._cam.close_session()
         self._cam.terminate_sdk()

@@ -15,6 +15,7 @@ Permite cargar y analizar 1 o 2 imágenes confocales (.tiff o .txt) para caracte
   - Co-alineación espacial dual entre 2 confocales en nanómetros (Δr_nm, Δx_nm, Δy_nm, PCC)
 """
 import sys
+import os
 import math
 from pathlib import Path
 from typing import Optional

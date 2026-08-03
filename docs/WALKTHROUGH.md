@@ -6,29 +6,26 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Remoción de PyPrinting 2 y Reorganización de la Grilla Principal (`main.py`)**:
-   - Se eliminó la tarjeta legacy de PyPrinting 2 de la grilla de `main.py` para evitar ejecuciones accidentales con versiones antiguas de Python/PyQt5.
-   - La grilla principal ahora cuenta con 8 tarjetas integradas limpiamente:
-     - **Fila 1**: Microscopio Derecho (`app.py`), PySpectrum (Próximamente), Microscopio Contrapropagante (`contrapropagante.py`).
-     - **Fila 2**: Cámara Live View (`camera.py`), Modulación Láser 532 nm, PSF Analyzer (`psf_analyzer.py`).
-     - **Fila 3**: Analizador de Imágenes (`image_analyzer.py`), Documentación y Créditos Institucionales.
+1. **Resolución de Advertencias de Hilos y `QTimer`**:
+   - **Causa**: Las advertencias `QObject::killTimer: Timers cannot be stopped from another thread` y `QObject::~QObject: Timers cannot be stopped from another thread` ocurrían cuando un `QTimer` se instanciaba en el hilo principal de la GUI antes de llamar a `moveToThread()`, o cuando se invocaba `.stop()` desde el hilo de la interfaz.
+   - **Solución Aplicada**:
+     - Instanciación perezosa (*lazy initialization*) de los objetos `QTimer` dentro de slots ejecutados directamente en el hilo de trabajo (`CanonWorker`, `CameraBackend`, `ConfocalBackend`, `ConfocalDualBackend`, `TraceBackend`).
+     - Detención segura utilizando `QMetaObject.invokeMethod(self, "stop_stream", Qt.ConnectionType.QueuedConnection)` para asegurar que las llamadas a `.stop()` ocurran dentro de la cola del mismo hilo propietario.
 
-2. **Protección de Exclusión Mutua para Hardware Real (Modo Laboratorio)**:
-   - Se implementó un control en `_launch_script` en `main.py` que previene lanzar **Microscopio Derecho** (`app.py`) y **Microscopio Contrapropagante** (`contrapropagante.py`) simultáneamente cuando el **Modo Seguro (Simulación)** está desmarcado.
-   - Si se intenta lanzar un segundo microscopio en Modo Laboratorio, el sistema interrumpe el lanzamiento y despliega una advertencia modal:
-     > *"No es posible iniciar el microscopio en MODO LABORATORIO mientras la otra suite se encuentra en ejecución para evitar conflictos de competencia física por la platina PI E-517 y la tarjeta NI-DAQmx."*
-   - En **Modo Seguro (Simulación)** se permite la ejecución simultánea de ambas instancias para depuración sin hardware.
+2. **Carga Segura y Dinámica de `EDSDK.dll`**:
+   - `_find_edsdk_dll()` en `core/canon_edsdk.py` ahora localiza dinámicamente el archivo DLL buscando hacia arriba en el directorio raíz del proyecto y usando `rglob`.
+   - Si `EDSDK.dll` no está disponible o se ejecuta en Modo Seguro, la importación se completa limpiamente con `edsdk = None` sin arrojar excepciones no capturadas.
 
-3. **Verificación de Delimitadores ($0.0 - 100.0\ \mu\text{m}$)**:
-   - Clampeo estricto de límites en `nanopositioning.py` y `contrapropagante.py`.
+3. **Reorganización Estructural Modular**:
+   - El proyecto fue estructurado en paquetes organizados (`core/`, `modules/`, `analysis/`, `docs/`, `assets/`, `reportes/`).
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética en MODO SEGURO (SAFE_MODE)**:
+- **Prueba Sintética de Hilos y Timers**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from main import MainWindowLauncher; win = MainWindowLauncher(); print('Lanzador OK')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; from modules.camera import Backend; from contrapropagante import ContrapropaganteMainWindow; print('QTimer thread safety OK')"
   ```
 - **Ejecución del Lanzador Principal**:
   ```powershell

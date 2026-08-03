@@ -307,8 +307,7 @@ class Backend(QObject):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.file_path = str(DEFAULT_DATA_PATH)
-        self.pointtimer = QTimer(self)
-        self.pointtimer.timeout.connect(self._trace_update)
+        self.pointtimer = None
         self._init_params()
         self.steps_after  = DEFAULT_TRACE_STEPS_AFTER
         self.steps_before = DEFAULT_TRACE_STEPS_BEFORE
@@ -358,6 +357,9 @@ class Backend(QObject):
         self._stop_and_save()
 
     def _start(self):
+        if self.pointtimer is None:
+            self.pointtimer = QTimer(self)
+            self.pointtimer.timeout.connect(self._trace_update)
         if hasattr(self, 'laser1') and self.laser1 != "None":
             open_shutter(self.laser1)
         if hasattr(self, 'laser2') and self.laser2 != "None":
@@ -370,7 +372,8 @@ class Backend(QObject):
         self.pointtimer.start(int(1000 / self.rate))
 
     def _stop_and_save(self):
-        self.pointtimer.stop()
+        if self.pointtimer and self.pointtimer.isActive():
+            self.pointtimer.stop()
         if hasattr(self, 'laser1') and self.laser1 != "None":
             close_shutter(self.laser1)
         if hasattr(self, 'laser2') and self.laser2 != "None":

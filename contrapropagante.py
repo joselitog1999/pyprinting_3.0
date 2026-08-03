@@ -434,9 +434,12 @@ class ConfocalDualBackend(QObject):
         self.cm_top = [0.0, 0.0]
         self.cm_bot = [0.0, 0.0]
         self.signal_scan_stop = False
+        self.PDtimer_rampxy = None
 
-        self.PDtimer_rampxy = QTimer()
-        self.PDtimer_rampxy.timeout.connect(self._scan_ramp_xy)
+    def _ensure_timer(self):
+        if self.PDtimer_rampxy is None:
+            self.PDtimer_rampxy = QTimer(self)
+            self.PDtimer_rampxy.timeout.connect(self._scan_ramp_xy)
 
     def make_connection(self, frontend: ConfocalDualFrontend):
         frontend.startSignal.connect(self.start_scan)
@@ -501,6 +504,7 @@ class ConfocalDualBackend(QObject):
 
     @pyqtSlot(int, int)
     def start_scan(self, top_laser_idx: int, bot_laser_idx: int):
+        self._ensure_timer()
         self.signal_scan_stop = False
         self.top_laser_idx = top_laser_idx
         self.bot_laser_idx = bot_laser_idx
@@ -519,6 +523,8 @@ class ConfocalDualBackend(QObject):
     @pyqtSlot()
     def stop_scan(self):
         self.signal_scan_stop = True
+        if self.PDtimer_rampxy and self.PDtimer_rampxy.isActive():
+            self.PDtimer_rampxy.stop()
 
     def _read_pos(self) -> tuple[float, float, float]:
         if SAFE_MODE:

@@ -370,12 +370,12 @@ class Backend(QObject):
         self.number_scan       = "none"
         self.signal_scan_stop  = False
 
-        self.PDtimer_stepxy = QTimer(self); self.PDtimer_stepxy.timeout.connect(self._scan_step_xy)
-        self.PDtimer_rampxy = QTimer(self); self.PDtimer_rampxy.timeout.connect(self._scan_ramp_xy)
-        self.PDtimer_rampxz = QTimer(self); self.PDtimer_rampxz.timeout.connect(self._scan_ramp_xz)
-        self.PDtimer_rampyx = QTimer(self); self.PDtimer_rampyx.timeout.connect(self._scan_ramp_yx)
-        self.PDtimer_rampyz = QTimer(self); self.PDtimer_rampyz.timeout.connect(self._scan_ramp_yz)
-        self.drifttimer     = QTimer(self); self.drifttimer.timeout.connect(self._drift_tick)
+        self.PDtimer_stepxy = None
+        self.PDtimer_rampxy = None
+        self.PDtimer_rampxz = None
+        self.PDtimer_rampyx = None
+        self.PDtimer_rampyz = None
+        self.drifttimer     = None
 
         self._scan_ramp_parameters([2, 2, 34, 34])
         # Inicializar posición para evitar AttributeError en stop_scan
@@ -385,6 +385,15 @@ class Backend(QObject):
         except Exception:
             self.x_pos = self.y_pos = 50.0
             self.z_pos = 10.0
+
+    def _ensure_timers(self):
+        if self.PDtimer_rampxy is None:
+            self.PDtimer_stepxy = QTimer(self); self.PDtimer_stepxy.timeout.connect(self._scan_step_xy)
+            self.PDtimer_rampxy = QTimer(self); self.PDtimer_rampxy.timeout.connect(self._scan_ramp_xy)
+            self.PDtimer_rampxz = QTimer(self); self.PDtimer_rampxz.timeout.connect(self._scan_ramp_xz)
+            self.PDtimer_rampyx = QTimer(self); self.PDtimer_rampyx.timeout.connect(self._scan_ramp_yx)
+            self.PDtimer_rampyz = QTimer(self); self.PDtimer_rampyz.timeout.connect(self._scan_ramp_yz)
+            self.drifttimer     = QTimer(self); self.drifttimer.timeout.connect(self._drift_tick)
 
     # ── Slots de configuración ────────────────────────────────────────────────
 
@@ -462,6 +471,7 @@ class Backend(QObject):
         self._start_scan()
 
     def _start_scan(self):
+        self._ensure_timers()
         self.signal_scan_stop = False
         self.image      = np.zeros((self.Ny, self.Nx))
         self.image_gone = np.zeros((self.Ny, self.Nx))
@@ -492,7 +502,8 @@ class Backend(QObject):
         key = (self.scan_mode_option, self.psf_mode_option)
         if key in timers:
             timer, axes, targets = timers[key]
-            timer.stop()
+            if timer is not None and timer.isActive():
+                timer.stop()
             if self.mode_printing == "none":
                 pi.MOV(axes, targets)
 
