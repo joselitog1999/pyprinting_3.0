@@ -21,15 +21,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
-# ── Registrar directorio raíz para resolver config ────────────────────────────
-_curr = Path(__file__).resolve().parent
-while _curr != _curr.parent:
-    if (_curr / "config.py").exists():
-        for _p in [str(_curr), str(_curr / "core"), str(_curr / "modules"), str(_curr / "analysis")]:
-            if _p not in sys.path:
-                sys.path.insert(0, _p)
-        break
-    _curr = _curr.parent
+# ── Registrar directorio raíz incondicionalmente en sys.path ───────────────────
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+_parent1 = os.path.dirname(_this_dir)
+_parent2 = os.path.dirname(_parent1)
+
+for _p in [_parent1, _parent2, os.path.join(_parent1, "core"), os.path.join(_parent1, "modules"), os.path.join(_parent1, "analysis")]:
+    if os.path.exists(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import numpy as np
 import cv2
@@ -42,7 +41,15 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QStackedWidget, QSlider, QDoubleSpinBox)
 from PyQt6.QtGui     import QFont, QColor
 
-from config import DEFAULT_DATA_PATH, CAMERA_WIDTH, CAMERA_HEIGHT
+try:
+    from config import DEFAULT_DATA_PATH, CAMERA_WIDTH, CAMERA_HEIGHT
+except ImportError:
+    try:
+        from ..config import DEFAULT_DATA_PATH, CAMERA_WIDTH, CAMERA_HEIGHT
+    except ImportError:
+        # Fallback valores por defecto en caso extremo
+        DEFAULT_DATA_PATH = Path("C:/Data")
+        CAMERA_WIDTH, CAMERA_HEIGHT = 1280, 720
 try:
     from canon_edsdk import (CanonCamera, ISO_MAP, REV_ISO_MAP, FULL_ISO_LIST,
                              TV_MAP, REV_TV_MAP, FULL_TV_LIST, ZOOM_MAP, REV_ZOOM_MAP,

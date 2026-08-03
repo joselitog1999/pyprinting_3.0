@@ -19,15 +19,14 @@ import math
 from pathlib import Path
 from typing import Optional
 
-# ── Registrar directorio raíz para resolver config y librerías ─────────────────
-_curr = Path(__file__).resolve().parent
-while _curr != _curr.parent:
-    if (_curr / "config.py").exists():
-        for _p in [str(_curr), str(_curr / "core"), str(_curr / "modules"), str(_curr / "analysis")]:
-            if _p not in sys.path:
-                sys.path.insert(0, _p)
-        break
-    _curr = _curr.parent
+# ── Registrar directorio raíz incondicionalmente en sys.path ───────────────────
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+_parent1 = os.path.dirname(_this_dir)
+_parent2 = os.path.dirname(_parent1)
+
+for _p in [_parent1, _parent2, os.path.join(_parent1, "core"), os.path.join(_parent1, "modules"), os.path.join(_parent1, "analysis")]:
+    if os.path.exists(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import numpy as np
 from PIL import Image
@@ -42,8 +41,17 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSplitter, QTabWidget, QFormLayout)
 from PyQt6.QtGui import QFont, QColor
 
-from config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
-                    DEFAULT_CONFOCAL_FILTER_PERCENT)
+try:
+    from config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
+                        DEFAULT_CONFOCAL_FILTER_PERCENT)
+except ImportError:
+    try:
+        from ..config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
+                              DEFAULT_CONFOCAL_FILTER_PERCENT)
+    except ImportError:
+        DEFAULT_DATA_PATH = Path("C:/Data")
+        PIXEL_SIZE_UM = 0.059
+        DEFAULT_CONFOCAL_FILTER_PERCENT = 30.0
 try:
     from psf import (gaussian2D, donut2D, center_of_mass, center_of_gauss2D,
                      center_of_donut2D)

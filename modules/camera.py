@@ -15,15 +15,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# ── Registrar directorio raíz para resolver config y librerías ─────────────────
-_curr = Path(__file__).resolve().parent
-while _curr != _curr.parent:
-    if (_curr / "config.py").exists():
-        for _p in [str(_curr), str(_curr / "core"), str(_curr / "modules"), str(_curr / "analysis")]:
-            if _p not in sys.path:
-                sys.path.insert(0, _p)
-        break
-    _curr = _curr.parent
+# ── Registrar directorio raíz incondicionalmente en sys.path ───────────────────
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+_parent1 = os.path.dirname(_this_dir)
+_parent2 = os.path.dirname(_parent1)
+
+for _p in [_parent1, _parent2, os.path.join(_parent1, "core"), os.path.join(_parent1, "modules"), os.path.join(_parent1, "analysis")]:
+    if os.path.exists(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import numpy as np
 import pyqtgraph as pg
@@ -39,11 +38,24 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QFrame, QWidget,
                                QInputDialog, QSplitter)
 from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 
-from config import (SAFE_MODE, CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT,
-                    PIXEL_SIZE_UM, LASER_532_V_MIN, LASER_532_V_MAX,
-                    DEFAULT_DATA_PATH, PI_STAGE_RANGE_UM,
-                    DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
-                    DEFAULT_TRACKPY_SEPARATION_PX)
+try:
+    from config import (SAFE_MODE, CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT,
+                        PIXEL_SIZE_UM, LASER_532_V_MIN, LASER_532_V_MAX,
+                        DEFAULT_DATA_PATH, PI_STAGE_RANGE_UM,
+                        DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
+                        DEFAULT_TRACKPY_SEPARATION_PX)
+except ImportError:
+    try:
+        from ..config import (SAFE_MODE, CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT,
+                              PIXEL_SIZE_UM, LASER_532_V_MIN, LASER_532_V_MAX,
+                              DEFAULT_DATA_PATH, PI_STAGE_RANGE_UM,
+                              DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
+                              DEFAULT_TRACKPY_SEPARATION_PX)
+    except ImportError:
+        SAFE_MODE = True; CAMERA_INDEX = 1; CAMERA_WIDTH = 1280; CAMERA_HEIGHT = 720
+        PIXEL_SIZE_UM = 0.059; LASER_532_V_MIN = 1.0; LASER_532_V_MAX = 5.0
+        DEFAULT_DATA_PATH = Path("C:/Data"); PI_STAGE_RANGE_UM = 100.0
+        DEFAULT_TRACKPY_DIAMETER_PX = 9; DEFAULT_TRACKPY_MINMASS = 100; DEFAULT_TRACKPY_SEPARATION_PX = 5
 try:
     from nidaq import set_laser532_voltage, open_shutter, close_shutter, SHUTTERS
 except ImportError:
