@@ -469,22 +469,30 @@ class CanonTestWindow(QMainWindow):
         self.setSaveDirSignal.connect(self._worker.set_save_dir)
         self.setLiveAdjustmentsSignal.connect(self._worker.set_live_adjustments)
 
+        self._is_camera_active = False
         self._thread.start()
 
     def _toggle_camera(self):
-        if self._btn_connect.text().startswith("▶"):
+        if not self._is_camera_active:
             self._combo_iso.setEnabled(False)
             self._combo_tv.setEnabled(False)
+            self._btn_connect.setText("⏹ Desconectar Cámara Canon")
+            self._btn_connect.setStyleSheet("font-weight: bold; color: #ff6666; background-color: #3a1c1c; padding: 8px; border: 1px solid #ff4444;")
+            self._is_camera_active = True
             self.startCameraSignal.emit()
         else:
             self.stopCameraSignal.emit()
             self._combo_iso.setEnabled(False)
             self._combo_tv.setEnabled(False)
+            self._lbl_mode.setText("Modo Cámara: Desconectado")
             self._btn_connect.setText("▶ Iniciar Cámara Canon")
+            self._btn_connect.setStyleSheet("font-weight: bold; color: #4a9eff; padding: 8px;")
+            self._is_camera_active = False
 
     def _on_connected(self, connected: bool):
-        if connected:
-            self._btn_connect.setText("⏹ Desconectar Cámara")
+        self._is_camera_active = True
+        self._btn_connect.setText("⏹ Desconectar Cámara Canon")
+        self._btn_connect.setStyleSheet("font-weight: bold; color: #ff6666; background-color: #3a1c1c; padding: 8px; border: 1px solid #ff4444;")
 
     @pyqtSlot(np.ndarray)
     def _update_frame(self, frame: np.ndarray):
