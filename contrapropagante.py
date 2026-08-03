@@ -7,8 +7,19 @@ Permite la iluminación simultánea por arriba (Derecho) y por abajo (Invertido)
 adquiriendo dos confocales en paralelo (Confocal TOP y Confocal BOT) con el mismo
 movimiento de la platina piezoeléctrica PI.
 
-Layout Horizontal:
-  [ DISPLAY CONFOCAL TOP (Izquierda) ] | [ CONTROLES COMPARTIDOS (Centro) ] | [ DISPLAY CONFOCAL BOT (Derecha) ]
+Disposición Visual de la Ventana Principal (DockArea simétrico a app.py):
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                    Confocal Contrapropagante Dual                          │
+  │ [TOP (PD1/ai0)]   |   [CONTROLES & CM DUAL]   |   [BOT (PD2/ai1)]          │
+  ├──────────┬────────────────────────────────────┬─────────────────────────────┤
+  │ Nano     │ Focus z                            │ Shutters / Flipper / 532    │
+  └──────────┴────────────────────────────────────┴─────────────────────────────┘
+  │ Trace (Ancho completo)                                                      │
+  └─────────────────────────────────────────────────────────────────────────────┘
+
+Modelos de Ajuste Diferenciados:
+  - TOP (Arriba / Derecho): ["center of mass", "center of gauss"]
+  - BOT (Abajo / Invertido): ["center of mass", "center of gauss", "donut (Laguerre-Gauss)"]
 """
 from __future__ import annotations
 
@@ -48,11 +59,12 @@ from psf_analyzer import PSFAnalyzerWindow
 SCAN_MODES = ["Ramp", "Step by step"]
 PSF_MODES = ["x/y", "x/z", "y/x", "y/z"]
 SCAN_IMAGE = ["NPs maximum", "NPs minimum"]
-METHOD_CENTER = ["center of mass", "center of gauss", "donut (Laguerre-Gauss)"]
+METHOD_CENTER_TOP = ["center of mass", "center of gauss"]
+METHOD_CENTER_BOT = ["center of mass", "center of gauss", "donut (Laguerre-Gauss)"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND: INTERFAZ DEL MICROSCOPIO CONTRAPROPAGANTE
+#  FRONTEND: INTERFAZ DEL MICROSCOPIO CONTRAPROPAGANTE DUAL
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ConfocalDualFrontend(QWidget):
@@ -64,7 +76,8 @@ class ConfocalDualFrontend(QWidget):
     scan_modeSignal = pyqtSignal(str)
     psf_modeSignal = pyqtSignal(str)
     image_scanSignal = pyqtSignal(str)
-    method_centerSignal = pyqtSignal(str)
+    method_center_topSignal = pyqtSignal(str)
+    method_center_botSignal = pyqtSignal(str)
     CMSignal = pyqtSignal()
     CMautoSignal = pyqtSignal(bool)
     filterTopSignal = pyqtSignal(float)
@@ -129,8 +142,11 @@ class ConfocalDualFrontend(QWidget):
     def _set_image_scan(self):
         self.image_scanSignal.emit(self.scan_image.currentText())
 
-    def _set_method_center(self):
-        self.method_centerSignal.emit(self.method_center.currentText())
+    def _set_method_center_top(self):
+        self.method_center_topSignal.emit(self.method_center_top.currentText())
+
+    def _set_method_center_bot(self):
+        self.method_center_botSignal.emit(self.method_center_bot.currentText())
 
     def _on_ref_change(self, val: int):
         self.refPreferenceSignal.emit(val)
@@ -143,8 +159,8 @@ class ConfocalDualFrontend(QWidget):
 
     def _setup_gui(self):
         main_hlo = QHBoxLayout(self)
-        main_hlo.setContentsMargins(6, 6, 6, 6)
-        main_hlo.setSpacing(8)
+        main_hlo.setContentsMargins(4, 4, 4, 4)
+        main_hlo.setSpacing(6)
 
         # ── 1. DISPLAY CONFOCAL TOP (Izquierda) ──────────────────────────────
         top_widget = pg.GraphicsLayoutWidget()
@@ -159,7 +175,7 @@ class ConfocalDualFrontend(QWidget):
         self.xlabel_top.setScale(scale=px0)
         self.ylabel_top.setScale(scale=px0)
 
-        # Fotodiodo 1 (ai0) acoplado ópticamente al láser TOP por espejo dicroico/notch
+        # Fotodiodo 1 (ai0) acoplado al láser TOP seleccionado
         self.vb_top = top_widget.addPlot(title="Confocal TOP (Derecho — Fotodiodo 1 / ai0)", axisItems={"bottom": self.ylabel_top, "left": self.xlabel_top})
         self.vb_top.addItem(self.img_top)
         self.vb_top.invertY()
@@ -179,10 +195,10 @@ class ConfocalDualFrontend(QWidget):
         controls_container = QWidget()
         controls_vlo = QVBoxLayout(controls_container)
         controls_vlo.setContentsMargins(4, 0, 4, 0)
-        controls_vlo.setSpacing(8)
+        controls_vlo.setSpacing(6)
 
-        # Panel 2.1: Láseres Duales
-        laser_box = QGroupBox("Iluminación Dual (Filtros Dicroicos & Notch)")
+        # Panel 2.1: Láseres Duales & Mapeo Directo a Fotodiodos
+        laser_box = QGroupBox("Iluminación Dual (Filtros Dicroicos / Notch)")
         laser_glo = QGridLayout(laser_box)
         self.scan_laser_top = QComboBox()
         self.scan_laser_top.addItems(["532 nm (green)", "637 nm (red)", "592 nm (yellow)"])
@@ -241,31 +257,32 @@ class ConfocalDualFrontend(QWidget):
 
         # Botón PSF Analyzer
         self.btn_psf_analyzer = QPushButton("📊 Analyze with PSF Analyzer")
-        self.btn_psf_analyzer.setStyleSheet("QPushButton { background-color: #89B4FA; color: #11111B; font-weight: bold; padding: 8px; font-size: 9.5pt; }")
+        self.btn_psf_analyzer.setStyleSheet("QPushButton { background-color: #89B4FA; color: #11111B; font-weight: bold; padding: 7px; font-size: 9pt; }")
         self.btn_psf_analyzer.clicked.connect(lambda: self.analyzePSFSignal.emit())
         controls_vlo.addWidget(self.btn_psf_analyzer)
 
-        # Panel 2.4: CM Dual & Selector de Referencia
+        # Panel 2.4: CM Dual (Modelos Diferenciados TOP / BOT) & Selector de Referencia
         cm_box = QGroupBox("Centrado Sub-nanométrico & Referencia Dual")
         cm_glo = QGridLayout(cm_box)
 
         self.scan_image = QComboBox(); self.scan_image.addItems(SCAN_IMAGE)
-        self.method_center = QComboBox(); self.method_center.addItems(METHOD_CENTER)
+        self.method_center_top = QComboBox(); self.method_center_top.addItems(METHOD_CENTER_TOP)
+        self.method_center_bot = QComboBox(); self.method_center_bot.addItems(METHOD_CENTER_BOT)
         self.scan_image.currentIndexChanged.connect(self._set_image_scan)
-        self.method_center.currentIndexChanged.connect(self._set_method_center)
+        self.method_center_top.currentIndexChanged.connect(self._set_method_center_top)
+        self.method_center_bot.currentIndexChanged.connect(self._set_method_center_bot)
 
         self.filter_top_edit = QLineEdit(str(int(DEFAULT_CONFOCAL_FILTER_PERCENT)))
-        self.filter_top_edit.setFixedWidth(40)
-        self.filter_top_edit.textChanged.connect(self._set_filters)
+        self.filter_top_edit.setFixedWidth(40); self.filter_top_edit.textChanged.connect(self._set_filters)
 
         self.filter_bot_edit = QLineEdit(str(int(DEFAULT_CONFOCAL_FILTER_PERCENT)))
-        self.filter_bot_edit.setFixedWidth(40)
-        self.filter_bot_edit.textChanged.connect(self._set_filters)
+        self.filter_bot_edit.setFixedWidth(40); self.filter_bot_edit.textChanged.connect(self._set_filters)
 
         cm_glo.addWidget(QLabel("Detección:"), 0, 0); cm_glo.addWidget(self.scan_image, 0, 1)
-        cm_glo.addWidget(QLabel("Modelo:"), 0, 2); cm_glo.addWidget(self.method_center, 0, 3)
-        cm_glo.addWidget(QLabel("Filtro TOP (%):"), 1, 0); cm_glo.addWidget(self.filter_top_edit, 1, 1)
-        cm_glo.addWidget(QLabel("Filtro BOT (%):"), 1, 2); cm_glo.addWidget(self.filter_bot_edit, 1, 3)
+        cm_glo.addWidget(QLabel("Modelo TOP:"), 1, 0); cm_glo.addWidget(self.method_center_top, 1, 1)
+        cm_glo.addWidget(QLabel("Modelo BOT:"), 1, 2); cm_glo.addWidget(self.method_center_bot, 1, 3)
+        cm_glo.addWidget(QLabel("Filtro TOP (%):"), 2, 0); cm_glo.addWidget(self.filter_top_edit, 2, 1)
+        cm_glo.addWidget(QLabel("Filtro BOT (%):"), 2, 2); cm_glo.addWidget(self.filter_bot_edit, 2, 3)
 
         # Deslizador de Referencia (2 posiciones)
         ref_box = QWidget()
@@ -275,34 +292,34 @@ class ConfocalDualFrontend(QWidget):
         self.slider_ref = QSlider(Qt.Orientation.Horizontal)
         self.slider_ref.setRange(0, 1)
         self.slider_ref.setSingleStep(1)
-        self.slider_ref.setFixedWidth(60)
+        self.slider_ref.setFixedWidth(50)
         self.slider_ref.valueChanged.connect(self._on_ref_change)
         ref_hlo.addWidget(self.slider_ref)
         ref_hlo.addWidget(QLabel("Ref BOT"))
-        cm_glo.addWidget(ref_box, 2, 0, 1, 2)
+        cm_glo.addWidget(ref_box, 3, 0, 1, 2)
 
         self.lbl_ref_status = QLabel("Referencia Activa: TOP (Derecho)")
         self.lbl_ref_status.setStyleSheet("color: #A6E3A1; font-weight: bold;")
-        cm_glo.addWidget(self.lbl_ref_status, 2, 2, 1, 2)
+        cm_glo.addWidget(self.lbl_ref_status, 3, 2, 1, 2)
 
         self.CMcheck = QPushButton("📍 Go to NP (Referencia)")
-        self.CMcheck.setStyleSheet("QPushButton { background-color: #CBA6F7; color: #11111B; font-weight: bold; padding: 5px; }")
+        self.CMcheck.setStyleSheet("QPushButton { background-color: #CBA6F7; color: #11111B; font-weight: bold; padding: 4px; }")
         self.CMcheck_auto = QCheckBox("Auto CM")
         self.CMcheck.clicked.connect(self._get_CM)
         self.CMcheck_auto.clicked.connect(self._get_CM_auto)
 
-        cm_glo.addWidget(self.CMcheck, 3, 0, 1, 2)
-        cm_glo.addWidget(self.CMcheck_auto, 3, 2, 1, 2)
+        cm_glo.addWidget(self.CMcheck, 4, 0, 1, 2)
+        cm_glo.addWidget(self.CMcheck_auto, 4, 2, 1, 2)
 
         # Despliegue de Resultados Sub-nanométricos
         self.lbl_center_top = QLabel("Centro TOP: NaN, NaN µm")
         self.lbl_center_bot = QLabel("Centro BOT: NaN, NaN µm")
-        self.lbl_diff_vector = QLabel("Diferencia r_TOP - r_BOT: Δx=0 nm, Δy=0 nm, |Δr|=0.0 nm")
+        self.lbl_diff_vector = QLabel("Vector r_TOP - r_BOT: Δx=0 nm, Δy=0 nm, |Δr|=0.0 nm")
         self.lbl_diff_vector.setStyleSheet("color: #89B4FA; font-weight: bold;")
 
-        cm_glo.addWidget(self.lbl_center_top, 4, 0, 1, 4)
-        cm_glo.addWidget(self.lbl_center_bot, 5, 0, 1, 4)
-        cm_glo.addWidget(self.lbl_diff_vector, 6, 0, 1, 4)
+        cm_glo.addWidget(self.lbl_center_top, 5, 0, 1, 4)
+        cm_glo.addWidget(self.lbl_center_bot, 6, 0, 1, 4)
+        cm_glo.addWidget(self.lbl_diff_vector, 7, 0, 1, 4)
 
         controls_vlo.addWidget(cm_box)
         controls_vlo.addStretch()
@@ -318,7 +335,7 @@ class ConfocalDualFrontend(QWidget):
         self.xlabel_bot.setScale(scale=px0)
         self.ylabel_bot.setScale(scale=px0)
 
-        # Fotodiodo 2 (ai1) acoplado ópticamente al láser BOT por espejo dicroico/notch
+        # Fotodiodo 2 (ai1) acoplado al láser BOT
         self.vb_bot = bot_widget.addPlot(title="Confocal BOT (Invertido — Fotodiodo 2 / ai1)", axisItems={"bottom": self.ylabel_bot, "left": self.xlabel_bot})
         self.vb_bot.addItem(self.img_bot)
         self.vb_bot.invertY()
@@ -397,7 +414,8 @@ class ConfocalDualBackend(QObject):
         self.scan_mode_opt = SCAN_MODES[0]
         self.psf_mode_opt = PSF_MODES[0]
         self.image_scan_opt = SCAN_IMAGE[0]
-        self.method_center_opt = METHOD_CENTER[0]
+        self.method_center_top_opt = METHOD_CENTER_TOP[0]
+        self.method_center_bot_opt = METHOD_CENTER_BOT[0]
         self.filter_top = DEFAULT_CONFOCAL_FILTER_PERCENT / 100.0
         self.filter_bot = DEFAULT_CONFOCAL_FILTER_PERCENT / 100.0
         self.ref_pref = 0  # 0: TOP, 1: BOT
@@ -420,7 +438,8 @@ class ConfocalDualBackend(QObject):
         frontend.scan_modeSignal.connect(self.scan_mode)
         frontend.psf_modeSignal.connect(self.psf_mode)
         frontend.image_scanSignal.connect(self.image_scan)
-        frontend.method_centerSignal.connect(self.method_center)
+        frontend.method_center_topSignal.connect(self.method_center_top)
+        frontend.method_center_botSignal.connect(self.method_center_bot)
         frontend.filterTopSignal.connect(self.set_filter_top)
         frontend.filterBotSignal.connect(self.set_filter_bot)
         frontend.refPreferenceSignal.connect(self.set_ref_preference)
@@ -446,7 +465,9 @@ class ConfocalDualBackend(QObject):
     @pyqtSlot(str)
     def image_scan(self, v: str): self.image_scan_opt = v
     @pyqtSlot(str)
-    def method_center(self, v: str): self.method_center_opt = v
+    def method_center_top(self, v: str): self.method_center_top_opt = v
+    @pyqtSlot(str)
+    def method_center_bot(self, v: str): self.method_center_bot_opt = v
 
     @pyqtSlot(list)
     def scan_ramp_parameters(self, p: list):
@@ -479,7 +500,7 @@ class ConfocalDualBackend(QObject):
         self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         self._configure_ramp_x(self.x_pos)
         open_shutter(SHUTTERS[top_laser_idx])
-        open_shutter(SHUTTERS[0])  # Verde 532 nm por abajo
+        open_shutter(SHUTTERS[bot_laser_idx])  # Verde 532 nm por abajo
         self.PDtimer_rampxy.start(0)
 
     @pyqtSlot()
@@ -557,25 +578,25 @@ class ConfocalDualBackend(QObject):
 
     @pyqtSlot()
     def measure_CM(self):
-        # Calcular centro TOP
-        self.cm_top = self._compute_center(self.image_top, self.filter_top)
-        # Calcular centro BOT
-        self.cm_bot = self._compute_center(self.image_bot, self.filter_bot)
+        # Calcular centro TOP (center of mass o center of gauss)
+        self.cm_top = self._compute_center(self.image_top, self.filter_top, self.method_center_top_opt)
+        # Calcular centro BOT (center of mass, center of gauss o donut)
+        self.cm_bot = self._compute_center(self.image_bot, self.filter_bot, self.method_center_bot_opt)
 
         self.cmDualSignal.emit(self.cm_top, self.cm_bot)
 
         if self.cm_auto:
             self._goto_ref()
 
-    def _compute_center(self, img: np.ndarray, thr: float) -> list[float]:
+    def _compute_center(self, img: np.ndarray, thr: float, method: str) -> list[float]:
         if img is None or img.max() == 0:
             return [self.x_pos, self.y_pos]
         Zn = (img - img.min()) / (img.max() - img.min() + 1e-12)
         Zf = np.where(Zn >= thr, Zn, 0.0)
 
-        if self.method_center_opt == "center of mass":
+        if method == "center of mass":
             xo_px, yo_px = center_of_mass(Zf)
-        elif self.method_center_opt == "center of gauss":
+        elif method == "center of gauss":
             fit = center_of_gauss2D(Zf)
             xo_px, yo_px = fit[0], fit[1]
         else:
@@ -598,10 +619,17 @@ class ConfocalDualBackend(QObject):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  VENTANA PRINCIPAL DEL MICROSCOPIO CONTRAPROPAGANTE
+#  VENTANA PRINCIPAL DEL MICROSCOPIO CONTRAPROPAGANTE CON DOCKAREA COMPLETA
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ContrapropaganteMainWindow(QMainWindow):
+
+    selectDirSignal = pyqtSignal()
+    createDirSignal = pyqtSignal()
+    openDirSignal = pyqtSignal()
+    loadPositionSignal = pyqtSignal()
+    loadGridSignal = pyqtSignal()
+    closeSignal = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -609,36 +637,13 @@ class ContrapropaganteMainWindow(QMainWindow):
         if SAFE_MODE:
             title += "  [MODO SEGURO — sin hardware]"
         self.setWindowTitle(title)
-        self.resize(1550, 920)
-
         self._cwidget = QWidget()
         self.setCentralWidget(self._cwidget)
+        self.setMinimumSize(1000, 600)
+        self.resize(1440, 900)
+
         self._setup_menu()
-
-        # Layout Principal
-        vlo = QVBoxLayout(self._cwidget)
-        vlo.setContentsMargins(4, 4, 4, 4)
-
-        self.dual_frontend = ConfocalDualFrontend()
-        vlo.addWidget(self.dual_frontend)
-
-        # Flotantes
-        self.cameraWindow = CameraWindow()
-        self.imageAnalyzerWindow = ImageAnalyzerWindow()
-        self.psfAnalyzerWindow = PSFAnalyzerWindow()
-        self.laser532Window = Laser532Window()
-        self.printingWidget = MeasFrontend(mode="printing")
-        self.dimersWidget = MeasFrontend(mode="dimers")
-
-        # Conectar acción PSF Analyzer integrada
-        self.dual_frontend.analyzePSFSignal.connect(self._on_analyze_psf)
-
-        # Threading del Backend Dual
-        self.backendThread = QThread()
-        self.dualBackend = ConfocalDualBackend()
-        self.dualBackend.moveToThread(self.backendThread)
-        self.dualBackend.make_connection(self.dual_frontend)
-        self.backendThread.start()
+        self._setup_docks()
 
     def _add_action(self, menu, label, slot, shortcut=None):
         a = QAction(label, self)
@@ -650,19 +655,71 @@ class ContrapropaganteMainWindow(QMainWindow):
     def _setup_menu(self):
         mb = self.menuBar()
         fm = mb.addMenu("&Files")
-        self._add_action(fm, "Seleccionar directorio", lambda: None, "Ctrl+A")
-        self._add_action(fm, "Crear directorio diario", lambda: None, "Ctrl+S")
-        self._add_action(fm, "Abrir directorio", lambda: None, "Ctrl+D")
+        self._add_action(fm, "Seleccionar directorio", lambda: self.selectDirSignal.emit(), "Ctrl+A")
+        self._add_action(fm, "Crear directorio diario", lambda: self.createDirSignal.emit(), "Ctrl+S")
+        self._add_action(fm, "Abrir directorio", lambda: self.openDirSignal.emit(), "Ctrl+D")
+        self._add_action(fm, "Cargar última posición", lambda: self.loadPositionSignal.emit())
 
         tm = mb.addMenu("&Tools")
-        self._add_action(tm, "Cámara", lambda: self.cameraWindow.show())
-        self._add_action(tm, "Analizador de Imágenes", lambda: self.imageAnalyzerWindow.show())
-        self._add_action(tm, "PSF Analyzer", lambda: self.psfAnalyzerWindow.show())
+        self._add_action(tm, "Cámara", lambda: (self.cameraWindow.show(), self.cameraWindow.raise_()))
+        self._add_action(tm, "Analizador de Imágenes", lambda: (self.imageAnalyzerWindow.show(), self.imageAnalyzerWindow.raise_()))
+        self._add_action(tm, "PSF Analyzer", lambda: (self.psfAnalyzerWindow.show(), self.psfAnalyzerWindow.raise_()))
         self._add_action(tm, "Láser 532", lambda: self.laser532Window.show())
+        self._add_action(tm, "Load Grid", lambda: self.loadGridSignal.emit())
 
         mm = mb.addMenu("&Measurements")
         self._add_action(mm, "Printing", lambda: self.printingWidget.show())
         self._add_action(mm, "Dimers", lambda: self.dimersWidget.show())
+
+        dm = mb.addMenu("&Docks")
+        self._add_action(dm, "Guardar configuración", self.save_docks)
+        self._add_action(dm, "Restaurar configuración", self.load_docks)
+
+    def _setup_docks(self):
+        grid = QGridLayout(self._cwidget)
+        grid.setContentsMargins(0, 0, 0, 0)
+        self.dockArea = DockArea()
+        grid.addWidget(self.dockArea)
+
+        # 1. Confocal Contrapropagante (TOP | CONTROLES | BOT) — Arriba ocupando ancho principal
+        confocalDock = Dock("Confocal Contrapropagante Dual (TOP / BOT)", size=(1200, 480))
+        self.dual_frontend = ConfocalDualFrontend()
+        confocalDock.addWidget(self.dual_frontend)
+        self.dockArea.addDock(confocalDock)
+
+        # 2. Focus z — bajo el confocal
+        focusDock = Dock("Focus z", size=(260, 180))
+        self.focusWidget = FocusFrontend()
+        focusDock.addWidget(self.focusWidget)
+        self.dockArea.addDock(focusDock, "bottom", confocalDock)
+
+        # 3. Shutters / Flipper / Láser 532 — a la derecha de focus
+        shuttersDock = Dock("Shutters / Flipper / Láser 532", size=(360, 180))
+        self.shuttersWidget = ShuttersFrontend()
+        shuttersDock.addWidget(self.shuttersWidget)
+        self.dockArea.addDock(shuttersDock, "right", focusDock)
+
+        # 4. Nanopositioning — a la izquierda de focus
+        nanoDock = Dock("Nanopositioning", size=(200, 180))
+        self.nanoWidget = NanoFrontend()
+        nanoDock.addWidget(self.nanoWidget)
+        self.dockArea.addDock(nanoDock, "left", focusDock)
+
+        # 5. Trace — abajo de todo ocupando todo el ancho
+        traceDock = Dock("Trace", size=(1400, 240))
+        self.traceWidget = TraceFrontend()
+        traceDock.addWidget(self.traceWidget)
+        self.dockArea.addDock(traceDock, "bottom")
+
+        # Flotantes
+        self.cameraWindow = CameraWindow()
+        self.imageAnalyzerWindow = ImageAnalyzerWindow()
+        self.psfAnalyzerWindow = PSFAnalyzerWindow()
+        self.laser532Window = Laser532Window()
+        self.printingWidget = MeasFrontend(mode="printing")
+        self.dimersWidget = MeasFrontend(mode="dimers")
+
+        self.dual_frontend.analyzePSFSignal.connect(self._on_analyze_psf)
 
     def _on_analyze_psf(self):
         img_t = self.dual_frontend.image_top
@@ -673,17 +730,122 @@ class ContrapropaganteMainWindow(QMainWindow):
         px_size = round(float(self.dual_frontend.scanrangeEdit.text()) / int(self.dual_frontend.NxEdit.text()), 4)
         self.psfAnalyzerWindow.load_dual_images(img_t, img_b, px_size)
 
+    def save_docks(self):
+        self._dock_state = self.dockArea.saveState()
+
+    def load_docks(self):
+        if hasattr(self, "_dock_state"):
+            self.dockArea.restoreState(self._dock_state)
+
     def closeEvent(self, event):
-        self.backendThread.quit()
-        self.backendThread.wait()
-        event.accept()
+        reply = QMessageBox.question(
+            self, "Salir", "¿Cerrar Microscopio Contrapropagante?",
+            QMessageBox.StandardButton.No | QMessageBox.StandardButton.Yes)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.closeSignal.emit()
+            event.accept()
+        else:
+            event.ignore()
+
+    def make_connection(self, backend: Backend):
+        backend.nanoWorker.make_connection(self.nanoWidget)
+        backend.shuttersWorker.make_connection(self.shuttersWidget)
+        backend.focusWorker.make_connection(self.focusWidget)
+        backend.traceWorker.make_connection(self.traceWidget)
+        backend.confocalDualWorker.make_connection(self.dual_frontend)
+        backend.cameraWorker.make_connection(self.cameraWindow)
+        backend.laser532Backend.make_connection(self.laser532Window)
+        backend.printingWorker.make_connection(self.printingWidget)
+        backend.dimersWorker.make_connection(self.dimersWidget)
+
+        def _on_set_reference(fx: float, fy: float):
+            try:
+                pos = pi.qPOS()
+                x_um = round(pos["1"], 3)
+                y_um = round(pos["2"], 3)
+                self.cameraWindow.set_ref_pos_um([x_um, y_um, 0])
+            except Exception as e:
+                print(f"[Contrapropagante] Error leyendo posición PI para referencia: {e}")
+
+        self.cameraWindow.setReferenceSignal.connect(_on_set_reference)
+
+        def _on_file_signal(path: str):
+            self.cameraWindow.directorySignal.emit(path)
+        backend.fileSignal.connect(_on_file_signal)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  BACKEND PRINCIPAL Y THREADS (Síncrono con app.py)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class Backend(QObject):
+
+    fileSignal = pyqtSignal(str)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        pi.connect()
+
+        self.nanoWorker = NanoBackend()
+        self.shuttersWorker = ShuttersBackend()
+        self.focusWorker = FocusBackend()
+        self.traceWorker = TraceBackend()
+        self.confocalDualWorker = ConfocalDualBackend()
+        self.printingWorker = MeasBackend(mode="printing")
+        self.dimersWorker = MeasBackend(mode="dimers")
+        self.cameraWorker = CameraBackend()
+        self.laser532Backend = Laser532Backend()
+
+        self._connect_backends()
+
+    def _connect_backends(self):
+        for sig in (self.focusWorker.gotomaxdoneSignal,
+                    self.focusWorker.lockdoneSignal,
+                    self.focusWorker.autodoneSignal,
+                    self.confocalDualWorker.scanfinishedSignal,
+                    self.printingWorker.grid_move_finishSignal,
+                    self.printingWorker.goSignal,
+                    self.dimersWorker.grid_move_finishSignal,
+                    self.dimersWorker.goSignal):
+            sig.connect(self.nanoWorker.read_pos)
 
 
 def main():
     app = QApplication(sys.argv)
+
+    # Inicializar Hilos e Instrumentos
+    instrumentThread = QThread()
+    confocalThread = QThread()
+    cameraThread = QThread()
+
+    backend = Backend()
     win = ContrapropaganteMainWindow()
+    win.make_connection(backend)
+
+    backend.nanoWorker.moveToThread(instrumentThread)
+    backend.shuttersWorker.moveToThread(instrumentThread)
+    backend.laser532Backend.moveToThread(instrumentThread)
+
+    backend.confocalDualWorker.moveToThread(confocalThread)
+    backend.focusWorker.moveToThread(confocalThread)
+    backend.traceWorker.moveToThread(confocalThread)
+    backend.printingWorker.moveToThread(confocalThread)
+    backend.dimersWorker.moveToThread(confocalThread)
+
+    backend.cameraWorker.moveToThread(cameraThread)
+
+    instrumentThread.start()
+    confocalThread.start()
+    cameraThread.start()
+
     win.show()
-    sys.exit(app.exec())
+    ret = app.exec()
+
+    instrumentThread.quit(); instrumentThread.wait()
+    confocalThread.quit();   confocalThread.wait()
+    cameraThread.quit();     cameraThread.wait()
+
+    sys.exit(ret)
 
 
 if __name__ == "__main__":

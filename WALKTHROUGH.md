@@ -6,37 +6,28 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Creación e Integración del Módulo "Microscopio Contrapropagante" (`contrapropagante.py`)**:
-   - Diseñada e implementada la suite completa para microscopía con excitación e iluminación dual síncrona por objetivo derecho (TOP) e invertido (BOT).
-   - **Mapeo Óptico Dicroico / Notch & Fotodiodos Acoplados**:
-     - **Fotodiodo 1 (`ai0`)**: Acoplado ópticamente al láser TOP seleccionado (`532 nm green`, `637 nm red`, `592 nm yellow`).
-     - **Fotodiodo 2 (`ai1`)**: Acoplado ópticamente al láser BOT de excitación inferior (`532 nm green`).
-   - **Disposición Visual Horizontal**:
-     - **Izquierda**: `Display Confocal TOP (Derecho — Fotodiodo 1 / ai0)` con mapa de falso color, histograma LUT y marcas del centrado.
-     - **Centro**: `Controles Compartidos` (selectores de láser TOP `Green/Red/Yellow` y BOT `Green`, rango, píxeles, modo rampa/paso, botón `Analyze with PSF Analyzer` y widget de centrado sub-nanométrico CM Dual).
-     - **Derecha**: `Display Confocal BOT (Invertido — Fotodiodo 2 / ai1)` con mapa de falso color e histograma LUT.
-   - **Adquisición Dual en Paralelo**: Adquisición síncrona de 2 canales analógicos de fotodiodo (Canal AI0 TOP y Canal AI1 BOT) mediante la misma trayectoria rampa de la platina PI.
-   - **Módulo de Centrado CM Dual & Selector de Referencia Preferencial**:
-     - Eliminado `Go to NP2` (microscopio de nanopartícula única en el foco).
-     - Casilleros de filtro independientes: `Filtro TOP (%)` y `Filtro BOT (%)`.
-     - Deslizador de 2 posiciones para elegir la referencia activa (`TOP` vs `BOT`).
-     - Botón `Go to NP`: Mueve la platina PI a las coordenadas $(x_{\text{ref}}, y_{\text{ref}})$ de la partícula detectada en la referencia activa.
-     - **Despliegue del Vector Diferencia Sub-nanométrico**: Calcula y visualiza en tiempo real $(x_{\text{TOP}}, y_{\text{TOP}})$, $(x_{\text{BOT}}, y_{\text{BOT}})$ y la diferencia vectorial $\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$ ($\Delta x, \Delta y, \|\mathbf{\Delta r}\|$ en nm).
-   - **Integración Directa con PSF Analyzer**: El botón `Analyze with PSF Analyzer` transfiere las imágenes recien adquiridas TOP y BOT a `PSFAnalyzerWindow` como Canal 1 y Canal 2 para caracterización analítica y superposición RGB.
+1. **Restauración de Drift Measurement en el Microscopio Derecho (`confocal.py` & `app.py`)**:
+   - Se restauró el dock `driftDock` ("Drift measurement") dentro de `ConfocalFrontend` en `confocal.py`, asegurando que la herramienta de deriva y estabilización térmica permanezca $100\%$ accesible en el Microscopio Derecho (`app.py`).
 
-2. **Reubicación de Drift Measurement**:
-   - Eliminado `Drift Measurement` del dock confocal predeterminado en `confocal.py` para mantener la interfaz centrada en la inspección visual.
-
-3. **Habilitación en el Lanzador Principal (`main.py`)**:
-   - Habilitada la tarjeta 3 de la Fila 1 en el lanzador 3x3 de `main.py` ("Microscopio Contrapropagante"), apuntando directamente a `contrapropagante.py`.
+2. **Perfeccionamiento del Módulo "Microscopio Contrapropagante" (`contrapropagante.py`)**:
+   - **Modelos de Ajuste Diferenciados**:
+     - **TOP (Arriba / Derecho)**: Opciones de ajuste `center of mass` y `center of gauss` (excitación Gaussiana típica).
+     - **BOT (Abajo / Invertido)**: Opciones de ajuste `center of mass`, `center of gauss` y `donut (Laguerre-Gauss)`.
+   - **Arquitectura de Docks Completa Simétrica a `app.py`**:
+     - `confocalDualDock`: Confocal TOP (Fotodiodo 1 / `ai0`), Controles Compartidos & CM Dual en el centro, y Confocal BOT (Fotodiodo 2 / `ai1`).
+     - `focusDock` ("Focus z"): `FocusFrontend()` ubicado bajo el confocal dual.
+     - `shuttersDock` ("Shutters / Flipper / Láser 532"): `ShuttersFrontend()` ubicado a la derecha de focus z.
+     - `nanoDock` ("Nanopositioning"): `NanoFrontend()` ubicado a la izquierda de focus z.
+     - `traceDock` ("Trace"): `TraceFrontend()` ubicado abajo ocupando todo el ancho de la ventana.
+   - **Manejo de Hilos Multicapa**: Integración completa con `instrumentThread` (Nano, Shutters, Láser 532), `confocalThread` (Confocal Dual, Focus z, Trace, Printing, Dimers) y `cameraThread`.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética en MODO SEGURO (SAFE_MODE)**:
+- **Prueba de Instanciación de Docks**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "import contrapropagante; print('Contrapropagante OK')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from contrapropagante import ContrapropaganteMainWindow; win = ContrapropaganteMainWindow(); print('Contrapropagante OK')"
   ```
 - **Ejecución del Lanzador Principal**:
   ```powershell

@@ -282,6 +282,10 @@ class Frontend(QFrame):
         goCMDock.addWidget(goCMWidget)
         dock_area.addDock(goCMDock, "right", scanDock)
 
+        driftDock = Dock("Drift measurement")
+        driftDock.addWidget(driftWidget)
+        dock_area.addDock(driftDock, "bottom", goCMDock)
+
         hbox.addWidget(dock_area)
         self.setLayout(hbox)
 
