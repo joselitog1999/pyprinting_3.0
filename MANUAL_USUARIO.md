@@ -535,9 +535,50 @@ GitHub: https://github.com/joselitog1999/pyprinting_3.0
 5. Ingrese `30` en `Filtro (%)` y presione **`Enter`**.
 6. Inspeccione en la pestaña **`Métricas de Ajuste`** el valor de la desalineación espacial dual $\Delta r_{\text{nm}}$, el elipticidad $a/b$, la calidad del cero $I_{\min}/I_{\max}$ y el coeficiente $R^2$.
 
+### 13.4 Protocolo D: Operación del Microscopio Contrapropagante (`contrapropagante.py`)
+1. Inicie la suite **Microscopio Contrapropagante** desde el lanzador `main.py`.
+2. Configure las fuentes de iluminación superior e inferior:
+   - **`Laser TOP`**: Seleccione la línea deseada para la vía superior (`532 nm (green)`, `637 nm (red)` o `592 nm (yellow)`). El sistema enlazará automáticamente la adquisición al fotodiodo correspondiente (`ai0`, `ai1` o `ai3`).
+   - **`Laser BOT`**: Seleccione la línea inferior (predeterminado `532 nm (green)`).
+3. Establezca la geometría de escaneo:
+   - `Range x / Range y`: `4.0` $\mu\text{m}$
+   - `Pixels x / Pixels y`: `50 x 50`
+   - `Mode`: `Ramp`
+   - `Model TOP`: `center of gauss`
+   - `Model BOT`: `center of gauss` o `donut (Laguerre-Gauss)`
+4. Haga clic en **`Start Dual Scan`**. Se iniciará el barrido síncrono por hardware.
+5. Al finalizar, inspeccione la pantalla dividida:
+   - **Izquierda**: Confocal TOP (Derecho).
+   - **Derecha**: Confocal BOT (Invertido).
+   - **Centro**: Posiciones numéricas $(x_{\text{TOP}}, y_{\text{TOP}})$, $(x_{\text{BOT}}, y_{\text{BOT}})$ y el vector diferencia $\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$ en nanómetros.
+6. Haga clic en **`Analyze with PSF Analyzer`** para transferir instantáneamente ambas imágenes a la suite analítica 2D.
+
 ---
 
-## 14. Tabla de Atajos de Teclado (Shortcuts)
+## 14. Modelo Metrológico de Incertidumbre y Criterios Sub-píxel
+
+Para consultar el análisis físico formal según la norma **ISO/GUM**, remítase al archivo:
+`reportes/Incertidumbre_Metrologica_PyPrinting3.md`
+
+### Resumen Metrológico:
+* **Cadena Óptica**: Objetivo de agua $60\times$ ($\text{NA}=1.0$), pinhole confocal de $50\ \mu\text{m}$ ($1.23\ \text{AU}$), focal de enfoque $f=150\ \text{mm}$.
+* **Incertidumbre Combinada Estándar**: $u_c \approx 0.35\ \text{nm}$.
+* **Incertidumbre Expandida**: $U = 0.70\ \text{nm}$ ($k=2$, $95\%$ nivel de confianza).
+* **Criterio de Muestreo Espacial**: Para garantizar la resolución sub-píxel sin aliasing, el tamaño de píxel óptimo debe situarse en:
+  $$\Delta x \in [15, 25]\ \text{nm/píxel}$$
+
+---
+
+## 15. Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)
+
+Cuando la casilla **`Modo Seguro (Simulación)`** en `main.py` se encuentra **desmarcada** (Modo Laboratorio):
+* El sistema activa una regla de **exclusión mutua** entre `app.py` (Microscopio Derecho) y `contrapropagante.py` (Microscopio Contrapropagante).
+* Si intenta lanzar `contrapropagante.py` mientras `app.py` está en ejecución (o viceversa), `main.py` desplegará un cuadro de advertencia bloqueando la apertura.
+* **Motivo**: Ambos programas compiten directamente por las direcciones físicas de la platina PI E-517 y los canales de reloj/trigger de la tarjeta NI-DAQmx PCIe-6353.
+
+---
+
+## 16. Tabla de Atajos de Teclado (Shortcuts)
 
 | Tecla de Acceso Directo | Acción Asociada | Ámbito / Módulo |
 |---|---|---|
@@ -553,32 +594,32 @@ GitHub: https://github.com/joselitog1999/pyprinting_3.0
 
 ---
 
-## 15. Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)
+## 17. Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)
 
 > [!CAUTION]
 > Ante cualquier anomalía de hardware, asegúrese primero de verificar el indicador **`Modo Seguro (Simulación)`** en la esquina superior derecha del panel principal `main.py`.
 
-### 15.1 La platina PI no responde o arroja error de comunicación
+### 17.1 La platina PI no responde o arroja error de comunicación
 * **Causa**: La controladora PI E-517/E-736 no está encendida o los controladores USB/GPIB están ocupados.
 * **Solución**: Verifique los cables físicamente, encienda la controladora y asegúrese de que no haya otra sesión de software abierta (como PyPrinting 2 o PI Terminal). Active el **Modo Seguro** en `main.py` para continuar trabajando en simulación.
 
-### 15.2 La cámara réflex Canon no inicia Live View
+### 17.2 La cámara réflex Canon no inicia Live View
 * **Causa**: La cámara se apaga automáticamente por ahorro de energía o la sesión USB EDSDK se cerró incorrectamente.
 * **Solución**: Apague y encienda la cámara Canon EOS 500D, verifique que el dial esté en modo **M (Manual)** y vuelva a presionar **`Iniciar Cámara`**.
 
-### 15.3 El ajuste Gaussiano o Donut en PSF Analyzer devuelve valores irreales
+### 17.3 El ajuste Gaussiano o Donut en PSF Analyzer devuelve valores irreales
 * **Causa**: Ruido de fondo lejano distorsionando la optimización por mínimos cuadrados.
 * **Solución**: Incremente el porcentaje en el casillero **`Filtro (%)`** (ej. de $10\%$ a $30\%$) y presione **`Enter`** para eliminar el fondo aleatorio.
 
 ---
 
-## 16. Preguntas Frecuentes (FAQ)
+## 18. Preguntas Frecuentes (FAQ)
 
-### 16.1 ¿Cómo se determina la posición sub-píxel de una nanopartícula durante el escaneo confocal?
+### 18.1 ¿Cómo se determina la posición sub-píxel de una nanopartícula durante el escaneo confocal?
 El sistema normaliza la matriz de intensidad entre $0.0$ y $1.0$, aplica el filtrado umbral no lineal al $30\%$ ($Z_f = 0$ si $Z_n < 0.30$) e integra un ajuste no lineal por mínimos cuadrados (`scipy.optimize.curve_fit`) sobre la función Gaussiana 2D anisotropica de 7 parámetros. Las coordenadas $(x_0, y_0)$ resultantes poseen precisión sub-nanométrica.
 
-### 16.2 ¿Cómo funciona el botón de Shutter 532 nm en la ventana de Modulación Láser?
-En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 3 del lanzador), el botón conmuta dinámicamente:
+### 18.2 ¿Cómo funciona el botón de Shutter 532 nm en la ventana de Modulación Láser?
+En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 2 del lanzador), el botón conmuta dinámicamente:
 - **`► Abrir Shutter 532 nm (Cerrado)`** (Verde): Invoca `open_shutter("532 nm (green)")` enviando un nivel TTL alto a la tarjeta NI-DAQ.
 - **`■ Cerrar Shutter 532 nm (Abierto)`** (Rojo): Invoca `close_shutter("532 nm (green)")` enviando un nivel TTL bajo.
 
