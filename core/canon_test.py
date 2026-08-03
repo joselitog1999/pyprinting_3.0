@@ -102,42 +102,31 @@ class CanonWorker(QObject):
         self._emit_log("Iniciando conexión USB con cámara Canon EOS...")
         ok = self._cam.open_session()
         if ok:
+            # 1. Leer propiedades e ISO/Tv ANTES de encender Live View (Cero colisiones USB)
+            ae_mode = self._cam.get_property_value(kEdsPropID_AEMode)
+            cam_iso = self._cam.get_property_desc(kEdsPropID_ISOSpeed)
+            cam_tv  = self._cam.get_property_desc(kEdsPropID_Tv)
+
+            final_iso = cam_iso if len(cam_iso) > 0 else FULL_ISO_LIST
+            final_tv  = cam_tv  if len(cam_tv)  > 0 else FULL_TV_LIST
+
+            self.propsReadySignal.emit(final_iso, final_tv, ae_mode)
+            self.statusSignal.emit("Cámara Canon EOS 500D Conectada | Opciones Habilitadas")
+            self._emit_log("Propiedades de cámara sincronizadas de inmediato. Controles ISO y Tv habilitados.")
+
+            # 2. Habilitar Live View y arrancar timer de lectura de frames
             self._cam.enable_live_view()
             self._running = True
             self._timer.start()
             self.connectedSignal.emit(True)
-            msg = "Conectado. Estabilizando sesión USB (esperando 5s para habilitar ISO y Velocidad)..."
-            self.statusSignal.emit(msg)
-            self._emit_log(msg)
-
-            # Iniciar temporizador de 5 segundos antes de leer y habilitar propiedades
-            QTimer.singleShot(5000, self._query_properties_after_delay)
         else:
             self.connectedSignal.emit(False)
             msg = "⚠ No se detectó cámara Canon EOS por USB — Modo Simulación MOCK Activo"
             self.statusSignal.emit(msg)
             self._emit_log(msg)
             self._running = True
+            self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0)
             self._timer.start()
-            # En modo simulación habilitar inmediatamente con listas completas
-            QTimer.singleShot(1000, self._query_properties_after_delay)
-
-    def _query_properties_after_delay(self):
-        if not self._running: return
-
-        ae_mode = self._cam.get_property_value(kEdsPropID_AEMode) if self._cam._is_session_open else 0
-
-        # Consultar propiedades a Canon EDSDK
-        cam_iso = self._cam.get_property_desc(kEdsPropID_ISOSpeed) if self._cam._is_session_open else []
-        cam_tv  = self._cam.get_property_desc(kEdsPropID_Tv) if self._cam._is_session_open else []
-
-        # Regla de fallback: si la cámara devuelve menos propiedades que nuestra lista completa, usar lista completa de respaldo
-        final_iso = cam_iso if len(cam_iso) >= len(FULL_ISO_LIST) else FULL_ISO_LIST
-        final_tv  = cam_tv  if len(cam_tv)  >= len(FULL_TV_LIST)  else FULL_TV_LIST
-
-        self.propsReadySignal.emit(final_iso, final_tv, ae_mode)
-        self.statusSignal.emit("Cámara Canon EOS 500D Lista | Opciones de ISO y Velocidad Habilitadas")
-        self._emit_log("Propiedades de cámara sincronizadas. Controles de ISO y Velocidad Habilitados.")
 
     @pyqtSlot()
     def stop_camera(self):
@@ -214,12 +203,26 @@ class CanonWorker(QObject):
     @pyqtSlot(int)
     def set_iso(self, val: int):
         if self._cam._is_session_open:
-            self._cam.set_property_value(kEdsPropID_ISOSpeed, val)
+            was_running = self._timer is not None and self._timer.isActive()
+            if was_running: self._timer.stop()
+            ok = self._cam.set_property_value(kEdsPropID_ISOSpeed, val)
+            if ok:
+                lbl = ISO_MAP.get(val, f"0x{val:02X}")
+                self.statusSignal.emit(f"ISO configurado a: {lbl}")
+                self._emit_log(f"ISO cambiado exitosamente a {lbl}")
+            if was_running: self._timer.start()
 
     @pyqtSlot(int)
     def set_tv(self, val: int):
         if self._cam._is_session_open:
-            self._cam.set_property_value(kEdsPropID_Tv, val)
+            was_running = self._timer is not None and self._timer.isActive()
+            if was_running: self._timer.stop()
+            ok = self._cam.set_property_value(kEdsPropID_Tv, val)
+            if ok:
+                lbl = TV_MAP.get(val, f"0x{val:02X}")
+                self.statusSignal.emit(f"Velocidad (Tv) configurada a: {lbl}")
+                self._emit_log(f"Velocidad Tv cambiada exitosamente a {lbl}")
+            if was_running: self._timer.start()
 
     @pyqtSlot()
     def take_photo(self):
