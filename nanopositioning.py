@@ -267,6 +267,8 @@ class Backend(QObject):
         frontend.move_signal.connect(self.move)
         frontend.set_reference_signal.connect(self.set_reference)
         frontend.go_to_pos_signal.connect(self.goto)
+        self.read_pos_signal.connect(frontend.read_pos_list)
+        self.reference_signal.connect(frontend.get_go_to_reference)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

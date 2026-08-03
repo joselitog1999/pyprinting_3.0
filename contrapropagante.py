@@ -411,6 +411,14 @@ class ConfocalDualBackend(QObject):
         self.range_y = DEFAULT_CONFOCAL_RANGE_Y
         self.Nx = int(DEFAULT_CONFOCAL_PIXELS_X)
         self.Ny = int(DEFAULT_CONFOCAL_PIXELS_Y)
+        self.extra = self.range_x / 6
+        self.range_total = self.range_x + 2 * self.extra
+        self.frequency = RATE_MULTICHANNEL / 100
+        self.frequency_ramp = (1 / 1200) * RATE_MULTICHANNEL / 100
+        self.Nramp = 2400
+
+        self.top_laser_idx = 0
+        self.bot_laser_idx = 0
         self.scan_mode_opt = SCAN_MODES[0]
         self.psf_mode_opt = PSF_MODES[0]
         self.image_scan_opt = SCAN_IMAGE[0]
@@ -494,13 +502,18 @@ class ConfocalDualBackend(QObject):
     @pyqtSlot(int, int)
     def start_scan(self, top_laser_idx: int, bot_laser_idx: int):
         self.signal_scan_stop = False
+        self.top_laser_idx = top_laser_idx
+        self.bot_laser_idx = bot_laser_idx
+        self.scan_ramp_parameters([self.range_x, self.range_y, self.Nx, self.Ny])
+
         self.image_top = np.zeros((self.Ny, self.Nx))
         self.image_bot = np.zeros((self.Ny, self.Nx))
         self.i = 0
         self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         self._configure_ramp_x(self.x_pos)
-        open_shutter(SHUTTERS[top_laser_idx])
-        open_shutter(SHUTTERS[bot_laser_idx])  # Verde 532 nm por abajo
+
+        open_shutter(SHUTTERS[self.top_laser_idx])
+        open_shutter(SHUTTERS[self.bot_laser_idx])
         self.PDtimer_rampxy.start(0)
 
     @pyqtSlot()
@@ -544,7 +557,7 @@ class ConfocalDualBackend(QObject):
         dy = self.range_y / self.Ny
         pi.MOV(2, self.y_pos - self.range_y / 2 + dy / 2 + self.i * dy)
 
-        # Adquisición multicanal real / mock
+        # Adquisición multicanal mapeando canal láser -> canal fotodiodo
         task = channels_photodiodos(self.frequency, self.Nramp)
         channels_triggers(task, "X")
         pi.WGO(1, 1)
@@ -557,10 +570,20 @@ class ConfocalDualBackend(QObject):
             self.image_top[self.i, :] = g_top[self.i, :]
             self.image_bot[self.i, :] = g_bot[self.i, :]
         else:
+            from config import PD_CHANNELS, TRIGGER_CHANNELS
             data = task.read(number_of_samples_per_channel=self.Nramp)
             data = np.array(data)
-            # data[0] -> Top PD, data[1] -> Bot PD, data[2] -> Trigger
-            ph_top, ph_bot, trig = data[0], data[1], data[2]
+
+            top_laser_name = SHUTTERS[self.top_laser_idx]
+            bot_laser_name = SHUTTERS[self.bot_laser_idx]
+            top_pd_chan = PD_CHANNELS.get(top_laser_name, 0)
+            bot_pd_chan = PD_CHANNELS.get(bot_laser_name, 0)
+
+            ph_top = data[top_pd_chan]
+            ph_bot = data[bot_pd_chan]
+            trig_chan = TRIGGER_CHANNELS.get("X", 4)
+            trig = data[trig_chan] if len(data) > trig_chan else data[-1]
+
             d = np.diff(trig); L = len(trig)
             asc = np.where(d >= 1.5)[0]; dsc = np.where(d <= -1.5)[0]
             if len(asc) and len(dsc):

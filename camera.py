@@ -1383,6 +1383,9 @@ class Backend(QObject):
         if self._cap:
             self._cap.release(); self._cap = None
 
+    def close(self):
+        self.stop_stream()
+
     def _capture_frame(self):
         if not self._cap or not self._running: return
         ret, frame = self._cap.read()
