@@ -640,22 +640,29 @@ class ContrapropaganteMainWindow(QMainWindow):
         self.dualBackend.make_connection(self.dual_frontend)
         self.backendThread.start()
 
+    def _add_action(self, menu, label, slot, shortcut=None):
+        a = QAction(label, self)
+        a.triggered.connect(slot)
+        if shortcut:
+            a.setShortcut(QKeySequence(shortcut))
+        menu.addAction(a)
+
     def _setup_menu(self):
         mb = self.menuBar()
         fm = mb.addMenu("&Files")
-        fm.addAction("Seleccionar directorio (Ctrl+A)", lambda: None, QKeySequence("Ctrl+A"))
-        fm.addAction("Crear directorio diario (Ctrl+S)", lambda: None, QKeySequence("Ctrl+S"))
-        fm.addAction("Abrir directorio (Ctrl+D)", lambda: None, QKeySequence("Ctrl+D"))
+        self._add_action(fm, "Seleccionar directorio", lambda: None, "Ctrl+A")
+        self._add_action(fm, "Crear directorio diario", lambda: None, "Ctrl+S")
+        self._add_action(fm, "Abrir directorio", lambda: None, "Ctrl+D")
 
         tm = mb.addMenu("&Tools")
-        tm.addAction("Cámara", lambda: self.cameraWindow.show())
-        tm.addAction("Analizador de Imágenes", lambda: self.imageAnalyzerWindow.show())
-        tm.addAction("PSF Analyzer", lambda: self.psfAnalyzerWindow.show())
-        tm.addAction("Láser 532", lambda: self.laser532Window.show())
+        self._add_action(tm, "Cámara", lambda: self.cameraWindow.show())
+        self._add_action(tm, "Analizador de Imágenes", lambda: self.imageAnalyzerWindow.show())
+        self._add_action(tm, "PSF Analyzer", lambda: self.psfAnalyzerWindow.show())
+        self._add_action(tm, "Láser 532", lambda: self.laser532Window.show())
 
         mm = mb.addMenu("&Measurements")
-        mm.addAction("Printing", lambda: self.printingWidget.show())
-        mm.addAction("Dimers", lambda: self.dimersWidget.show())
+        self._add_action(mm, "Printing", lambda: self.printingWidget.show())
+        self._add_action(mm, "Dimers", lambda: self.dimersWidget.show())
 
     def _on_analyze_psf(self):
         img_t = self.dual_frontend.image_top
