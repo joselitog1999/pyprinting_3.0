@@ -255,6 +255,23 @@ $$v_{\text{scan}} = \frac{Range_{\text{total}}}{\tau / 2} = 2 \cdot Range_{\text
 
 ---
 
+### 2.10 Módulo de Microscopía Contrapropagante (`contrapropagante.py`)
+
+El módulo **Microscopio Contrapropagante** está diseñado para experimentos de iluminación síncrona por arriba (objetivo derecho) y por abajo (objetivo invertido):
+
+1. **Disposición Visual Horizontal**:
+   - **Izquierda**: `Display Confocal TOP (Derecho)` con mapa de falso color, histograma LUT y marcas de centrado.
+   - **Centro**: `Controles Compartidos` (menús desplegables de láseres duales TOP/BOT, parámetros de rango y píxeles, botón `Analyze with PSF Analyzer` y widget de centrado CM Dual con selector de preferencia TOP/BOT).
+   - **Derecha**: `Display Confocal BOT (Invertido)` con mapa de falso color e histograma LUT.
+2. **Adquisición Dual Síncrona**: Un único movimiento de la platina piezoeléctrica PI dispara las lecturas analógicas de dos fotodiodos independientes (Canal AI0 para TOP y Canal AI1 para BOT), generando dos imágenes confocales alineadas temporalmente.
+3. **Caracterización de Centrado Sub-nanométrico y Vector Diferencia**:
+   - Mide de forma independiente la posición central $(x_{\text{TOP}}, y_{\text{TOP}})$ y $(x_{\text{BOT}}, y_{\text{BOT}})$.
+   - Calcula el vector diferencia $\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$ en nanómetros ($\Delta x, \Delta y, \|\mathbf{\Delta r}\|$).
+   - Permite conmutar la referencia de posición mediante el deslizador `TOP` / `BOT` y centrar la platina en la partícula de interés mediante `Go to NP`.
+4. **Integración con PSF Analyzer**: Al presionar `📊 Analyze with PSF Analyzer`, se transfieren ambas imágenes confocales a la suite de caracterización 2D (`PSFAnalyzerWindow`), cargando TOP como Canal 1 y BOT como Canal 2 para la evaluación de perfiles 1D y superposición RGB.
+
+---
+
 ## 3. Módulo 1: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)
 
 ### 3.1 Menú Principal (`Files`, `Tools`, `Measurements`, `Help`)

@@ -731,6 +731,13 @@ class PSFAnalyzerWidget(QWidget):
         self.img_overlay.setImage(np.transpose(rgb, (1, 0, 2)))
 
 
+    def load_dual_images(self, Z1: np.ndarray, Z2: np.ndarray, px_size_um: float):
+        self.px_size_edit.setText(str(px_size_um))
+        self.ch1_panel.set_data(Z1, px_size_um)
+        self.ch2_panel.set_data(Z2, px_size_um)
+        self._update_analysis()
+
+
 class PSFAnalyzerWindow(QMainWindow):
     """Ventana independiente que aloja PSFAnalyzerWidget."""
 
@@ -738,5 +745,10 @@ class PSFAnalyzerWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("PSF Analyzer — Caracterización & Alineación Dual PSF")
         self.resize(1300, 850)
-        self.widget = PSFAnalyzerWidget(self)
+        self.widget = PSFAnalyzerWidget()
         self.setCentralWidget(self.widget)
+
+    def load_dual_images(self, Z1: np.ndarray, Z2: np.ndarray, px_size_um: float):
+        self.widget.load_dual_images(Z1, Z2, px_size_um)
+        self.show()
+        self.raise_()

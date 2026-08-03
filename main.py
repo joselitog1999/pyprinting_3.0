@@ -383,15 +383,15 @@ class MainWindowLauncher(QMainWindow):
             is_disabled=True
         )
 
-        # 3. Microscopio Contrapropagante (En desarrollo futuro)
+        # 3. Microscopio Contrapropagante (contrapropagante.py)
         card_contra = ApplicationCard(
             icon_str="🔍",
             title="Microscopio Contrapropagante",
-            subtitle="Próximamente — Excitación Doble",
-            description="Plataforma extendida basada en PyPrinting 3.0 adaptada para observación simultánea por objetivo invertido y excitación dual contrapropagante.",
-            button_text="🔍 En Desarrollo Futuro",
-            button_color="#585B70",
-            is_disabled=True
+            subtitle="Excitación Dual & Confocales TOP/BOT",
+            description="Plataforma extendida para observación e iluminación síncrona por objetivo derecho (TOP) e invertido (BOT), centrado sub-nanométrico y vector diferencia.",
+            button_text="🔍 Iniciar Contrapropagante",
+            button_color="#F38BA8",
+            launch_callback=lambda: self._launch_script("contrapropagante.py", "Microscopio Contrapropagante")
         )
 
         # ── FILA 2 ── (PyPrinting 2, Cámara Live, Módulo Láser)

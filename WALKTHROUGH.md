@@ -6,28 +6,36 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Inclusión de la Sección de Dependencia del Tamaño de Píxel y Resolución Sub-píxel en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`**:
-   - Agregada la **Sección 7 (Dependencia del Tamaño de Píxel ($\Delta x$) con la Resolución Sub-píxel y la Incertidumbre Combinada)**:
-     - **Relación de Escala Haz vs. Nanopartícula:** Modelado de convolución espacial entre el haz de excitación ($\text{FWHM}_{\text{spot}} \approx 266\,\text{nm}$) y la nanopartícula típica de Au ($d_{\text{NP}} \approx 100\,\text{nm}$), resultando en una envolvente Gaussiana efectiva de $\text{FWHM}_{\text{efectivo}} \approx 284\,\text{nm}$.
-     - **Criterio de Nyquist-Shannon vs. Ajuste Sub-píxel Centroidal:** Nyquist exige $\Delta x \le 142\,\text{nm/px}$ para evitar aliasing, mientras que el ajuste sub-píxel no lineal sub-nanométrico ($u_{\text{fit}} < 0.6\,\text{nm}$) exige $\Delta x \le 28 - 56\,\text{nm/px}$ ($5 - 10$ píxeles a lo largo de la FWHM).
-     - **Curva de Compromiso Metrológico y Tamaño de Píxel Óptimo:** Demostración cuantitativa de que el tamaño de píxel óptimo para el sistema iSCAT/Confocal en PyPrinting 3.0 es **$\Delta x_{\text{óptimo}} = 15 - 25\,\text{nm/px}$**, logrando una **incertidumbre combinada mínima de $7.10\,\text{nm}$**.
-   - **Correcciones Físicas de Hardware Solicitadas**:
-     - Removida la aberración por interfaz vidrio/agua ($u_{\text{aberration}} = 0$) debido a que el objetivo $60\times$ agua observa las nanopartículas montadas directamente sobre la superficie del cubreobjetos en medio líquido.
-     - Removida la desalineación vectorial inter-láser ($\Delta r_{\text{nm}}$) puesto que cada línea láser posee su propio fotodiodo y pinhole alineados de forma independiente.
+1. **Creación e Integración del Módulo "Microscopio Contrapropagante" (`contrapropagante.py`)**:
+   - Diseñada e implementada la suite completa para microscopía con excitación e iluminación dual síncrona por objetivo derecho (TOP) e invertido (BOT).
+   - **Disposición Visual Horizontal**:
+     - **Izquierda**: `Display Confocal TOP (Derecho)` con gráfica PyQtGraph, escala en micrómetros e histograma de falso color.
+     - **Centro**: `Controles Compartidos` (selectores de láser TOP `Green/Red/Yellow` y BOT `Green`, rango, píxeles, modo rampa/paso, botón `Analyze with PSF Analyzer` y widget de centrado sub-nanométrico CM Dual).
+     - **Derecha**: `Display Confocal BOT (Invertido)` con gráfica PyQtGraph, escala en micrómetros e histograma de falso color.
+   - **Adquisición Dual en Paralelo**: Adquisición síncrona de 2 canales analógicos de fotodiodo (Canal AI0 TOP y Canal AI1 BOT) mediante la misma trayectoria rampa de la platina PI.
+   - **Módulo de Centrado CM Dual & Selector de Referencia Preferencial**:
+     - Eliminado `Go to NP2` (microscopio de nanopartícula única en el foco).
+     - Casilleros de filtro independientes: `Filtro TOP (%)` y `Filtro BOT (%)`.
+     - Deslizador de 2 posiciones para elegir la referencia activa (`TOP` vs `BOT`).
+     - Botón `Go to NP`: Mueve la platina PI a las coordenadas $(x_{\text{ref}}, y_{\text{ref}})$ de la partícula detectada en la referencia activa.
+     - **Despliegue del Vector Diferencia Sub-nanométrico**: Calcula y visualiza en tiempo real $(x_{\text{TOP}}, y_{\text{TOP}})$, $(x_{\text{BOT}}, y_{\text{BOT}})$ y la diferencia vectorial $\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$ ($\Delta x, \Delta y, \|\mathbf{\Delta r}\|$ en nm).
+   - **Integración Directa con PSF Analyzer**: El botón `Analyze with PSF Analyzer` transfiere las imágenes recien adquiridas TOP y BOT a `PSFAnalyzerWindow` como Canal 1 y Canal 2 para caracterización analítica y superposición RGB.
 
-2. **Optimizaciones de Seguridad y Estructura Adaptativa en Modo Ramp (`confocal.py`)**:
-   - Implementado el patrón adaptativo `if self.Nx <= 50 and self.range_x <= 5.0:` para escaneos típicos ($2 \times 2\ \mu\text{m}$, $34 \times 34\ \text{px}$).
-   - Escalado adaptativo `Nramp` y clampeo dinámico de puntos de onda `Npoints = min(4000, ...)` para campos grandes ($20 \times 20\ \mu\text{m}$, $400 \times 400\ \text{px}$).
-   - Clampeo de origen de rampa a límites físicos piezoeléctricos $X_{\text{inicio}}, Y_{\text{inicio}} \in [0.0, 100.0 - Range_{\text{total}}]\ \mu\text{m}$.
+2. **Reubicación de Drift Measurement**:
+   - Eliminado `Drift Measurement` del dock confocal predeterminado en `confocal.py` para mantener la interfaz centrada en la inspección visual.
+
+3. **Habilitación en el Lanzador Principal (`main.py`)**:
+   - Habilitada la tarjeta 3 de la Fila 1 en el lanzador 3x3 de `main.py` ("Microscopio Contrapropagante"), apuntando directamente a `contrapropagante.py`.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Documentación Metrológica iSCAT**:
-  - `reportes/Incertidumbre_Metrologica_PyPrinting3.md` actualizado y validado con cálculos ópticos completos y gráficos de compromiso de píxel.
-
-- **Prueba Ejecutable de la Aplicación**:
+- **Prueba Sintética en MODO SEGURO (SAFE_MODE)**:
+  ```powershell
+  .\.venv\Scripts\python.exe -c "import contrapropagante; print('Contrapropagante OK')"
+  ```
+- **Ejecución del Lanzador Principal**:
   ```powershell
   .\.venv\Scripts\python.exe main.py
   ```
