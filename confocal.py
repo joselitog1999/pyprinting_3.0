@@ -410,15 +410,31 @@ class Backend(QObject):
 
     def _scan_ramp_parameters(self, p: list):
         self.range_x, self.range_y, self.Nx, self.Ny = p[0], p[1], int(p[2]), int(p[3])
+        # Limitar rango útil por seguridad física (máximo 75.0 µm para permitir 33% extra dentro de 100 µm)
+        self.range_x = min(75.0, max(0.1, self.range_x))
+        self.range_y = min(75.0, max(0.1, self.range_y))
+
         self.extra         = self.range_x / 6
         self.range_total   = self.range_x + 2 * self.extra
         self.extra_y       = self.range_y / 6
         self.range_total_y = self.range_y + 2 * self.extra_y
-        self.frequency     = RATE_MULTICHANNEL / 100
-        factor_ramp        = 1 / 1200
-        self.frequency_ramp = factor_ramp * RATE_MULTICHANNEL / 100
-        self.tau            = 1 / self.frequency_ramp
-        self.Nramp          = 2 * int(self.frequency / self.frequency_ramp)
+
+        if self.Nx <= 50 and self.range_x <= 5.0:
+            # ── COMPORTAMIENTO 100% IDENTICO AL ORIGINAL PARA MEDICIONES TIPICAS (2x2 µm, 34x34 px) ──
+            self.frequency      = RATE_MULTICHANNEL / 100
+            factor_ramp        = 1 / 1200
+            self.frequency_ramp = factor_ramp * RATE_MULTICHANNEL / 100
+            self.tau            = 1 / self.frequency_ramp
+            self.Nramp          = 2 * int(self.frequency / self.frequency_ramp)
+        else:
+            # ── ESCALADO DINAMICO ADAPTATIVO PARA IMAGENES GRANDES (ej. 20x20 µm, 400x400 px) ──
+            self.frequency      = RATE_MULTICHANNEL / 100
+            pixels_total_line   = int(self.Nx * (self.range_total / self.range_x))
+            samples_per_pixel   = 4
+            self.Nramp          = 2 * pixels_total_line * samples_per_pixel
+            self.frequency_ramp = self.frequency / (self.Nramp / 2)
+            self.tau            = 1 / self.frequency_ramp
+
         self.scaleSignal.emit(round(self.range_x / self.Nx, 3),
                               round(self.range_y / self.Ny, 3))
 
@@ -550,14 +566,19 @@ class Backend(QObject):
     def _configure_ramp_x(self, x_pos: float):
         sp       = self.range_x / self.Nx
         Npoints  = int(self.range_total / sp) * 20
+        # Clampear Npoints para no desbordar la memoria de la tabla de ondas de la PI (máximo 4000)
+        Npoints  = max(100, min(4000, Npoints))
         Nspeed   = int(Npoints / 4)
         from config import PI_SERVO_TIME
         WTRtime  = int(1 / (self.frequency_ramp * PI_SERVO_TIME * Npoints))
+        WTRtime  = max(1, WTRtime)
         pi.WTR(0, WTRtime, 0)
         pi.WAV_LIN(1, 0, Npoints, "X",  Nspeed,  self.range_total, 0, Npoints)
         pi.WAV_LIN(1, 0, Npoints, "&",  Nspeed, -self.range_total, self.range_total, Npoints)
         pi.WSL(1, 1); pi.WGC(1, 1)
         xo = x_pos - self.range_total / 2
+        # Clampear seguro a límites físicos de la platina PI [0.0, 100.0]
+        xo = max(0.0, min(100.0 - self.range_total, xo))
         pi.MOV(1, xo); pi.WOS(1, xo)
         pi.TWC(); pi.CTO(1, 3, 3)
         pi.CTO(1, 5, xo + self.extra)
@@ -566,15 +587,18 @@ class Backend(QObject):
     def _configure_ramp_y(self, y_pos: float):
         sp       = self.range_y / self.Ny
         Npoints  = int(self.range_total_y / sp) * 20
+        Npoints  = max(100, min(4000, Npoints))
         Nspeed   = int(Npoints / 4)
         from config import PI_SERVO_TIME
         WTRtime  = int(1 / (self.frequency_ramp * PI_SERVO_TIME * Npoints))
+        WTRtime  = max(1, WTRtime)
         pi.WTR(0, WTRtime, 0)
         pi.WAV_LIN(2, 0, Npoints, "X",  Nspeed,  self.range_total_y, 0,                  Npoints)
         pi.WAV_LIN(2, 0, Npoints, "&",  Nspeed, -self.range_total_y, self.range_total_y,  Npoints)
         pi.WSL(2, 2); pi.WGC(2, 1)
         yo = y_pos - self.range_total_y / 2
-        pi.MOV(2, yo); pi.WOS(2, yo)   # bug original: pi_device.MOV('2', xo) → corregido
+        yo = max(0.0, min(100.0 - self.range_total_y, yo))
+        pi.MOV(2, yo); pi.WOS(2, yo)
         pi.TWC(); pi.CTO(2, 3, 3)
         pi.CTO(2, 5, yo + self.extra_y)
         pi.CTO(2, 6, yo + self.range_total_y - self.extra_y)

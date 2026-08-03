@@ -107,8 +107,8 @@ El lanzador organiza los 9 módulos del laboratorio en una grilla simétrica de 
 
 ## 2. Fundamentos Físicos, Formulación Matemática & Mapeo de Hardware
 
-### 2.1 Impresión Óptica Fototérmica de Nanopartículas Coloidales
-La **impresión óptica fototérmica** logra la deposición espacial dirigida de nanopartículas coloidales metálicas (Au, Ag) desde una solución líquida sobre sustratos transparentes (vidrio o silicio). La interacción electromagnética está dominada por la fuerza de gradiente óptico $\mathbf{F}_{\text{grad}}$ y la fuerza de dispersión/absorción $\mathbf{F}_{\text{scat}}$:
+### 2.1 Impresión Óptica de Nanopartículas Coloidales
+La **impresión óptica** logra la deposición espacial dirigida de nanopartículas coloidales metálicas (Au, Ag) desde una solución líquida sobre sustratos transparentes (vidrio o silicio). La interacción electromagnética está dominada por la fuerza de gradiente óptico $\mathbf{F}_{\text{grad}}$ y la fuerza de dispersión/absorción $\mathbf{F}_{\text{scat}}$:
 
 $$\mathbf{F}_{\text{grad}} = \frac{1}{4} \varepsilon_m \operatorname{Re}(\alpha) \nabla |\mathbf{E}|^2$$
 
@@ -212,6 +212,46 @@ $$X_{\text{físico}} = X_{\text{centro}} - \frac{\text{Range}_x}{2} + \frac{dx}{
 $$Y_{\text{físico}} = Y_{\text{centro}} - \frac{\text{Range}_y}{2} + \frac{dy}{2} + (y_p \cdot dy)$$
 
 donde los pasajes de paso espacial por píxel son $dx = \frac{\text{Range}_x}{N_x}$ y $dy = \frac{\text{Range}_y}{N_y}$.
+
+---
+
+### 2.9 Arquitectura del Escaneo en Modo Ramp Adaptativo, Seguridad y Puntos de Onda (`Npoints`)
+
+El **Modo Ramp** realiza un escaneo síncrono continuo por hardware utilizando el generador de funciones de la platina piezoeléctrica **Physik Instrumente (PI)** y la lectura por reloj de la tarjeta **National Instruments (NI-DAQmx)** a $10\ \text{kHz}$.
+
+#### 1. Mecanismo de Seguridad Físico (Rango de Aceleración y Frenado)
+Para evitar distorsiones o no-linealidades causadas por la inercia del actuador piezoeléctrico al inicio y final de cada línea, el sistema añade automáticamente un margen extra de aceleración/frenado del $33\%$ fuera del área de adquisición útil:
+
+$$\text{Extra} = \frac{Range_X}{6}, \quad Range_{\text{total}} = Range_X + 2 \cdot \text{Extra} = 1.33333 \cdot Range_X$$
+
+* **Clampeo Dinámico de Seguridad ($[0.0, 100.0]\ \mu\text{m}$)**:
+  La posición de origen de la rampa $X_{\text{inicio}} = X_{\text{centro}} - \frac{Range_{\text{total}}}{2}$ está acotada por software:
+  $$X_{\text{inicio, seguro}} = \max\left(0.0, \min\left(100.0 - Range_{\text{total}}, X_{\text{inicio}}\right)\right)$$
+  Esto garantiza que el piezoeléctrico **nunca intente desplazarse a coordenadas negativas ($<0.0\ \mu\text{m}$) ni superiores a $100.0\ \mu\text{m}$**, protegiendo los actuadores mecánicos y evitando fallos de firmware.
+
+#### 2. ¿Qué son los Puntos de Onda (`Npoints`) y el Tiempo de Servo (`WTRtime`)?
+* **Puntos de Onda (`Npoints`)**: Son las muestras discretas generadas en la tabla de memoria RAM de la controladora PI (`pi.WAV_LIN`). La controladora lee estas muestras e interpola una señal analógica continua para el amplificador del piezo.
+* **Capacidad Máxima de Hardware**: La memoria de la tabla de ondas en la controladora PI E-517/E-736 tiene un límite estricto de **$4096$ puntos por canal**.
+* **Clampeo Adaptativo de Puntos**: Para evitar desbordamientos de buffer en resoluciones grandes ($400 \times 400\ \text{px}$ o superiores), el sistema acota automáticamente:
+  $$N_{\text{points}} = \max\left(100, \min\left(4000, \text{int}\left( \frac{Range_{\text{total}}}{\Delta x} \right) \times 20\right)\right)$$
+* **Tiempo de Servo (`WTRtime`)**: Es la constante del temporizador del generador de ondas (`pi.WTR(0, WTRtime, 0)`), definiendo el intervalo entre puntos de la tabla:
+  $$WTRtime = \max\left(1, \text{int}\left( \frac{1}{f_{\text{ramp}} \cdot T_{\text{servo}} \cdot N_{\text{points}}} \right)\right)$$
+  donde $T_{\text{servo}} = 50\ \mu\text{s}$ ($50 \times 10^{-6}\ \text{s}$).
+
+#### 3. Velocidad Lineal de Escaneo ($v_{\text{scan}}$)
+La velocidad de desplazamiento continuo del haz sobre la muestra durante la línea de rampa es:
+
+$$v_{\text{scan}} = \frac{Range_{\text{total}}}{\tau / 2} = 2 \cdot Range_{\text{total}} \cdot f_{\text{ramp}} \quad [\mu\text{m/s}]$$
+
+* Para un escaneo típico ($2 \times 2\ \mu\text{m}$, $34 \times 34\ \text{px}$), $v_{\text{scan}} \approx 0.44\ \mu\text{m/s}$.
+* Para un escaneo amplio ($20 \times 20\ \mu\text{m}$, $400 \times 400\ \text{px}$), $v_{\text{scan}} \approx 125\ \mu\text{m/s}$.
+
+#### 4. Límites Máximos de Medición Segura
+
+| Modo de Escaneo | Rango Físico Máximo Útil ($Range_{\text{max}}$) | Excursión Total con Frenado | Resolución Máxima Segura | Tiempo Estimado |
+|---|---|---|---|---|
+| **Modo Ramp (Síncrono por Hardware)** | **$75.0\ \mu\text{m} \times 75.0\ \mu\text{m}$** | $100.0\ \mu\text{m}$ *(Límite PI)* | **$800 \times 800\ \text{px}$** | $\approx 4.2\ \text{minutos}$ |
+| **Modo Step by Step (Paso a Paso Discreto)** | **$100.0\ \mu\text{m} \times 100.0\ \mu\text{m}$** | $100.0\ \mu\text{m}$ | **$1000 \times 1000\ \text{px}$** | $\approx 2.2\ \text{horas}$ |
 
 ---
 
