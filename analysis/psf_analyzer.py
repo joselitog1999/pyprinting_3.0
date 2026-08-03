@@ -14,11 +14,15 @@ Permite cargar y analizar 1 o 2 imágenes confocales (.tiff o .txt) para caracte
   - Superposición RGB en Falso Color con modos (Originales, Filtradas, Fits)
   - Co-alineación espacial dual entre 2 confocales en nanómetros (Δr_nm, Δx_nm, Δy_nm, PCC)
 """
-from __future__ import annotations
-
+import sys
 import math
 from pathlib import Path
 from typing import Optional
+
+# ── Registrar directorio raíz para resolver config y librerías ─────────────────
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 import numpy as np
 from PIL import Image
@@ -35,8 +39,12 @@ from PyQt6.QtGui import QFont, QColor
 
 from config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
                     DEFAULT_CONFOCAL_FILTER_PERCENT)
-from psf import (gaussian2D, donut2D, center_of_mass, center_of_gauss2D,
-                 center_of_donut2D)
+try:
+    from psf import (gaussian2D, donut2D, center_of_mass, center_of_gauss2D,
+                     center_of_donut2D)
+except ImportError:
+    from analysis.psf import (gaussian2D, donut2D, center_of_mass, center_of_gauss2D,
+                              center_of_donut2D)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

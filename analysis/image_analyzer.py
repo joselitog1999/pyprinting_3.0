@@ -8,12 +8,16 @@ ajustar niveles de intensidad (CLim) y paleta de falso color (LUT) para TIFF (es
 o Brillo/Contraste/Gamma/RGB para JPG/PNG, aplicar reglas tri-estado, medir distancias (px / µm adaptativo),
 guardar mediciones y exportar partículas e imagen final anotada.
 """
-from __future__ import annotations
-
+import sys
 import math
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# ── Registrar directorio raíz para resolver config y librerías ─────────────────
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 import cv2
 import numpy as np
@@ -30,7 +34,10 @@ from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 from config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
                     DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
                     DEFAULT_TRACKPY_SEPARATION_PX)
-from camera import OverlayWidget, SetScaleDialog, TrackpyDialog
+try:
+    from camera import OverlayWidget, SetScaleDialog, TrackpyDialog
+except ImportError:
+    from modules.camera import OverlayWidget, SetScaleDialog, TrackpyDialog
 
 
 COLORMAP_MODES = ["Gris (Original)", "Thermal (Confocal/Láser)", "Viridis", "Plasma", "Inferno", "Jet / Arcoíris"]

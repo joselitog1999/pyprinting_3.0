@@ -8,13 +8,17 @@ Mapeo de coordenadas para Confocal:
   - Cámara Hacia ABAJO   = Platina +X
   - Rango físico platina PI: 0.0 a 100.0 µm
 """
-from __future__ import annotations
-
+import sys
 import math
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# ── Registrar directorio raíz para resolver config y librerías ─────────────────
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 import numpy as np
 import pyqtgraph as pg
@@ -35,7 +39,10 @@ from config import (SAFE_MODE, CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT,
                     DEFAULT_DATA_PATH, PI_STAGE_RANGE_UM,
                     DEFAULT_TRACKPY_DIAMETER_PX, DEFAULT_TRACKPY_MINMASS,
                     DEFAULT_TRACKPY_SEPARATION_PX)
-from nidaq import set_laser532_voltage, open_shutter, close_shutter, SHUTTERS
+try:
+    from nidaq import set_laser532_voltage, open_shutter, close_shutter, SHUTTERS
+except ImportError:
+    from core.nidaq import set_laser532_voltage, open_shutter, close_shutter, SHUTTERS
 
 if not SAFE_MODE:
     import cv2

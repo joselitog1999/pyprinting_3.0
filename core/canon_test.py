@@ -21,6 +21,11 @@ import time
 from pathlib import Path
 from typing import Optional
 
+# ── Registrar directorio raíz para resolver config ────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import numpy as np
 import cv2
 import pyqtgraph as pg
