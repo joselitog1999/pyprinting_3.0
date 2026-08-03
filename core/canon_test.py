@@ -432,6 +432,11 @@ class CanonTestWindow(QMainWindow):
         self._btn_connect.setStyleSheet("font-weight: bold; color: #4a9eff; padding: 8px;")
         p_lo.addWidget(self._btn_connect)
 
+        # Botón Diagnóstico & Cierre Forzado de Obturador
+        self._btn_diag = QPushButton("🛡️ Diagnóstico & Cierre Forzado Obturador")
+        self._btn_diag.setStyleSheet("font-size: 11px; color: #ffaa00; background-color: #221c11; border: 1px solid #775500; padding: 6px;")
+        p_lo.addWidget(self._btn_diag)
+
         splitter.addWidget(panel)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
@@ -443,6 +448,7 @@ class CanonTestWindow(QMainWindow):
 
         # Conectar Señales UI
         self._btn_connect.clicked.connect(self._toggle_camera)
+        self._btn_diag.clicked.connect(self._force_shutter_cleanup)
         self._btn_photo.clicked.connect(lambda: self.takePhotoSignal.emit())
         self._btn_dir.clicked.connect(self._select_save_dir)
         self._combo_zoom.currentIndexChanged.connect(self._on_zoom_changed)
@@ -547,11 +553,51 @@ class CanonTestWindow(QMainWindow):
             self._lbl_dir.setText(f"Guardando en: {d}")
             self.setSaveDirSignal.emit(d)
 
+    def _force_shutter_cleanup(self):
+        self._append_log("🛡️ Ejecutando Diagnóstico & Cierre Forzado del Obturador Físico...")
+        self.statusBar().showMessage("Cerrando obturador físico y restableciendo sesión USB...")
+        
+        # 1. Detener temporizador de frames
+        if hasattr(self._worker, '_timer') and self._worker._timer is not None:
+            if self._worker._timer.isActive():
+                self._worker._timer.stop()
+
+        # 2. Forzar deshabilitación de Live View (espejo/obturador a reposo) y cierre de sesión
+        if hasattr(self._worker, '_cam') and self._worker._cam is not None:
+            cam = self._worker._cam
+            cam.disable_live_view()
+            cam.close_session()
+
+        self._combo_iso.setEnabled(False)
+        self._combo_tv.setEnabled(False)
+        self._lbl_mode.setText("Modo Cámara: Desconectado")
+        self._btn_connect.setText("▶ Iniciar Cámara Canon")
+        self._btn_connect.setStyleSheet("font-weight: bold; color: #4a9eff; padding: 8px;")
+        self._is_camera_active = False
+        
+        msg = "✅ Diagnóstico completado: Obturador físico en posición de reposo y sesión de cámara restablecida."
+        self.statusBar().showMessage(msg)
+        self._append_log(msg)
+        QMessageBox.information(self, "Diagnóstico & Cierre Obturador", msg)
+
     def closeEvent(self, event):
-        self.stopCameraSignal.emit()
-        self._thread.quit()
-        self._thread.wait(1000)
-        event.accept()
+        try:
+            self.statusBar().showMessage("Cerrando sesión de cámara y asegurando obturador...")
+            if hasattr(self, '_worker') and self._worker is not None:
+                if getattr(self._worker, '_timer', None) is not None:
+                    if self._worker._timer.isActive():
+                        self._worker._timer.stop()
+                if getattr(self._worker, '_cam', None) is not None:
+                    self._worker._cam.close_session()
+                    self._worker._cam.terminate_sdk()
+
+            if hasattr(self, '_thread') and self._thread.isRunning():
+                self._thread.quit()
+                self._thread.wait(2000)
+        except Exception as e:
+            print(f"[CanonTestWindow] Error durante closeEvent: {e}")
+        finally:
+            event.accept()
 
 
 if __name__ == "__main__":
