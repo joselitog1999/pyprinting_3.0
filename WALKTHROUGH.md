@@ -8,10 +8,13 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 1. **Creación e Integración del Módulo "Microscopio Contrapropagante" (`contrapropagante.py`)**:
    - Diseñada e implementada la suite completa para microscopía con excitación e iluminación dual síncrona por objetivo derecho (TOP) e invertido (BOT).
+   - **Mapeo Óptico Dicroico / Notch & Fotodiodos Acoplados**:
+     - **Fotodiodo 1 (`ai0`)**: Acoplado ópticamente al láser TOP seleccionado (`532 nm green`, `637 nm red`, `592 nm yellow`).
+     - **Fotodiodo 2 (`ai1`)**: Acoplado ópticamente al láser BOT de excitación inferior (`532 nm green`).
    - **Disposición Visual Horizontal**:
-     - **Izquierda**: `Display Confocal TOP (Derecho)` con gráfica PyQtGraph, escala en micrómetros e histograma de falso color.
+     - **Izquierda**: `Display Confocal TOP (Derecho — Fotodiodo 1 / ai0)` con mapa de falso color, histograma LUT y marcas del centrado.
      - **Centro**: `Controles Compartidos` (selectores de láser TOP `Green/Red/Yellow` y BOT `Green`, rango, píxeles, modo rampa/paso, botón `Analyze with PSF Analyzer` y widget de centrado sub-nanométrico CM Dual).
-     - **Derecha**: `Display Confocal BOT (Invertido)` con gráfica PyQtGraph, escala en micrómetros e histograma de falso color.
+     - **Derecha**: `Display Confocal BOT (Invertido — Fotodiodo 2 / ai1)` con mapa de falso color e histograma LUT.
    - **Adquisición Dual en Paralelo**: Adquisición síncrona de 2 canales analógicos de fotodiodo (Canal AI0 TOP y Canal AI1 BOT) mediante la misma trayectoria rampa de la platina PI.
    - **Módulo de Centrado CM Dual & Selector de Referencia Preferencial**:
      - Eliminado `Go to NP2` (microscopio de nanopartícula única en el foco).

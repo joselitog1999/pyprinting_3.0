@@ -159,7 +159,8 @@ class ConfocalDualFrontend(QWidget):
         self.xlabel_top.setScale(scale=px0)
         self.ylabel_top.setScale(scale=px0)
 
-        self.vb_top = top_widget.addPlot(title="Confocal TOP (Derecho)", axisItems={"bottom": self.ylabel_top, "left": self.xlabel_top})
+        # Fotodiodo 1 (ai0) acoplado ópticamente al láser TOP por espejo dicroico/notch
+        self.vb_top = top_widget.addPlot(title="Confocal TOP (Derecho — Fotodiodo 1 / ai0)", axisItems={"bottom": self.ylabel_top, "left": self.xlabel_top})
         self.vb_top.addItem(self.img_top)
         self.vb_top.invertY()
         self.vb_top.setAspectLocked(True)
@@ -181,16 +182,16 @@ class ConfocalDualFrontend(QWidget):
         controls_vlo.setSpacing(8)
 
         # Panel 2.1: Láseres Duales
-        laser_box = QGroupBox("Iluminación Dual")
+        laser_box = QGroupBox("Iluminación Dual (Filtros Dicroicos & Notch)")
         laser_glo = QGridLayout(laser_box)
         self.scan_laser_top = QComboBox()
         self.scan_laser_top.addItems(["532 nm (green)", "637 nm (red)", "592 nm (yellow)"])
         self.scan_laser_bot = QComboBox()
         self.scan_laser_bot.addItems(["532 nm (green)"])
 
-        laser_glo.addWidget(QLabel("Láser TOP (Derecho):"), 0, 0)
+        laser_glo.addWidget(QLabel("Láser TOP (Derecho → PD1):"), 0, 0)
         laser_glo.addWidget(self.scan_laser_top, 0, 1)
-        laser_glo.addWidget(QLabel("Láser BOT (Invertido):"), 1, 0)
+        laser_glo.addWidget(QLabel("Láser BOT (Invertido → PD2):"), 1, 0)
         laser_glo.addWidget(self.scan_laser_bot, 1, 1)
         controls_vlo.addWidget(laser_box)
 
@@ -317,7 +318,8 @@ class ConfocalDualFrontend(QWidget):
         self.xlabel_bot.setScale(scale=px0)
         self.ylabel_bot.setScale(scale=px0)
 
-        self.vb_bot = bot_widget.addPlot(title="Confocal BOT (Invertido)", axisItems={"bottom": self.ylabel_bot, "left": self.xlabel_bot})
+        # Fotodiodo 2 (ai1) acoplado ópticamente al láser BOT por espejo dicroico/notch
+        self.vb_bot = bot_widget.addPlot(title="Confocal BOT (Invertido — Fotodiodo 2 / ai1)", axisItems={"bottom": self.ylabel_bot, "left": self.xlabel_bot})
         self.vb_bot.addItem(self.img_bot)
         self.vb_bot.invertY()
         self.vb_bot.setAspectLocked(True)
