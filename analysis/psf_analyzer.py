@@ -20,9 +20,14 @@ from pathlib import Path
 from typing import Optional
 
 # ── Registrar directorio raíz para resolver config y librerías ─────────────────
-BASE_DIR = Path(__file__).resolve().parent.parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
+_curr = Path(__file__).resolve().parent
+while _curr != _curr.parent:
+    if (_curr / "config.py").exists():
+        for _p in [str(_curr), str(_curr / "core"), str(_curr / "modules"), str(_curr / "analysis")]:
+            if _p not in sys.path:
+                sys.path.insert(0, _p)
+        break
+    _curr = _curr.parent
 
 import numpy as np
 from PIL import Image
