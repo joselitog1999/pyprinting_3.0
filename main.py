@@ -472,10 +472,23 @@ class MainWindowLauncher(QMainWindow):
             os.environ["PYPRINTING_SAFE"] = "0"
             self.statusBar().showMessage("Modo Laboratorio activado (Hardware físico requerido).")
 
+    def _find_script(self, script_name: str) -> Optional[Path]:
+        root = Path(__file__).parent
+        candidates = [
+            root / script_name,
+            root / "modules" / script_name,
+            root / "analysis" / script_name,
+            root / "core" / script_name,
+        ]
+        for c in candidates:
+            if c.exists():
+                return c
+        return None
+
     def _launch_script(self, script_name: str, app_title: str):
-        script_path = Path(__file__).parent / script_name
-        if not script_path.exists():
-            QMessageBox.critical(self, "Error de Lanzamiento", f"No se encontró el archivo ejecutable:\n{script_path}")
+        script_path = self._find_script(script_name)
+        if not script_path or not script_path.exists():
+            QMessageBox.critical(self, "Error de Lanzamiento", f"No se encontró el archivo ejecutable:\n{script_name}")
             return
 
         # Limpiar lista de procesos terminados
@@ -503,7 +516,7 @@ class MainWindowLauncher(QMainWindow):
             env["PYPRINTING_SAFE"] = "1"
 
         try:
-            proc = subprocess.Popen([sys.executable, str(script_path)], env=env, cwd=str(script_path.parent))
+            proc = subprocess.Popen([sys.executable, str(script_path)], env=env, cwd=str(Path(__file__).parent))
             proc._script_name = script_name
             self.processes.append(proc)
             self.statusBar().showMessage(f"Lanzado '{app_title}' con PID {proc.pid}.")
@@ -517,7 +530,7 @@ class MainWindowLauncher(QMainWindow):
 
         code = (
             "import sys; from PyQt6.QtWidgets import QApplication; "
-            "from camera import Laser532Window; app = QApplication(sys.argv); "
+            "from modules.camera import Laser532Window; app = QApplication(sys.argv); "
             "win = Laser532Window(); win.show(); sys.exit(app.exec())"
         )
         try:
@@ -528,7 +541,8 @@ class MainWindowLauncher(QMainWindow):
             QMessageBox.critical(self, "Error de Ejecución", f"Fallo al ejecutar Modulación Láser 532 nm:\n{e}")
 
     def _open_document(self, filename: str):
-        doc_path = Path(__file__).parent / filename
+        root = Path(__file__).parent
+        doc_path = root / filename if (root / filename).exists() else root / "docs" / filename
         if not doc_path.exists():
             QMessageBox.warning(self, "Archivo No Encontrado", f"No se encontró el archivo de documentación:\n{doc_path}")
             return

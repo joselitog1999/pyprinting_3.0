@@ -16,8 +16,16 @@ O directamente aquí para desarrollo:
 """
 from __future__ import annotations
 import os
+import sys
 import threading
 from pathlib import Path
+
+# ── Registro de Rutas del Proyecto en sys.path ─────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+for sub in [BASE_DIR, BASE_DIR / "core", BASE_DIR / "modules", BASE_DIR / "analysis"]:
+    sub_str = str(sub)
+    if sub_str not in sys.path:
+        sys.path.insert(0, sub_str)
 
 # ── Modo seguro ───────────────────────────────────────────────────────────────
 #SAFE_MODE: bool = os.getenv("PYPRINTING_SAFE", "0") == "1"
