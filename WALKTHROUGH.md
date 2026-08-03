@@ -6,12 +6,10 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Organización de Generación de PDFs en la Carpeta `pdfs/`**:
-   - Todo lo referente a la documentación metrológica y la compilación PDF ha sido trasladado a la carpeta dedicada `pdfs/`.
-   - **`pdfs/Incertidumbre_Metrologica_PyPrinting3.tex`**: Documento fuente en **LaTeX nativo** formateado para publicación académica (`amsmath`, `amssymb`, `booktabs`, `tcolorbox`, `fancyhdr`, `geometry`).
-   - **`pdfs/compile_latex.py`**: Script de automatización que compila el código LaTeX utilizando **MiKTeX (`pdflatex`)** instalado en el sistema.
-   - **`pdfs/Incertidumbre_Metrologica_PyPrinting3.pdf`**: Documento PDF final de alta calidad vectorial (4 páginas, 294 KB).
-   - **`pdfs/build_pdf.py`**: Script alternativo de generación mediante ReportLab y Matplotlib Mathtext.
+1. **Creación de la Carpeta de Reportes (`reportes/`) y Documentación Metrológica Markdown**:
+   - Eliminada la carpeta `pdfs/` y sus archivos auxiliares a petición del usuario.
+   - Creada la carpeta dedicada `reportes/`.
+   - **`reportes/Incertidumbre_Metrologica_PyPrinting3.md`**: Documento completo en formato Markdown con notación matemática LaTeX estandarizada (`$ ... $` y `$$ ... $$`), tablas formateadas, alertas de GitHub e información física metrológica rigurosa basada en la norma **ISO/IEC Guide 98-3 (GUM)**.
 
 2. **Optimizaciones de Seguridad y Estructura Adaptativa en Modo Ramp (`confocal.py`)**:
    - Implementado el patrón adaptativo `if self.Nx <= 50 and self.range_x <= 5.0:` para escaneos típicos ($2 \times 2\ \mu\text{m}$, $34 \times 34\ \text{px}$).
@@ -22,11 +20,8 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Compilación Nativa MiKTeX en `pdfs/`**:
-  ```powershell
-  .\.venv\Scripts\python.exe pdfs/compile_latex.py
-  ```
-  *(Resultado: `Output written on pdfs/Incertidumbre_Metrologica_PyPrinting3.pdf (4 pages, 294396 bytes)` — Éxito absoluto)*
+- **Estructura del Proyecto**:
+  - `reportes/Incertidumbre_Metrologica_PyPrinting3.md` creado y listo para su consulta en Markdown/Obsidian.
 
 - **Prueba Ejecutable de la Aplicación**:
   ```powershell
