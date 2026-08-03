@@ -634,9 +634,12 @@ class ConfocalDualBackend(QObject):
         return [round(xo_um, 3), round(yo_um, 3)]
 
     def _goto_ref(self):
+        from config import PI_STAGE_RANGE_UM
         ref_cm = self.cm_top if self.ref_pref == 0 else self.cm_bot
         xr, yr = ref_cm[0], ref_cm[1]
         if not math.isnan(xr) and not math.isnan(yr):
+            xr = max(0.0, min(PI_STAGE_RANGE_UM, xr))
+            yr = max(0.0, min(PI_STAGE_RANGE_UM, yr))
             pi.MOV([1, 2], [xr, yr])
             self.x_pos, self.y_pos = xr, yr
 

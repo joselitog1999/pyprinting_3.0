@@ -236,14 +236,15 @@ class Backend(QObject):
 
     @pyqtSlot(str, float)
     def move(self, axis: str, dist: float):
-        """Movimiento relativo en el eje indicado."""
+        """Movimiento relativo en el eje indicado clampeado al rango físico de la platina (0 a 100 µm)."""
+        from config import PI_STAGE_RANGE_UM
         x_pos, y_pos, z_pos = self.read_pos()
         axis_map = {"x": (1, x_pos), "y": (2, y_pos), "z": (3, z_pos)}
         if axis not in axis_map:
             print(f"[Nano] Eje desconocido: {axis}")
             return
         ax_num, current = axis_map[axis]
-        target = current + dist
+        target = max(0.0, min(PI_STAGE_RANGE_UM, current + dist))
         pi.MOV(ax_num, target)
         while not all(pi.qONT(ax_num).values()):
             time.sleep(0.01)
@@ -251,10 +252,13 @@ class Backend(QObject):
 
     @pyqtSlot(list)
     def goto(self, go_to_pos: list):
-        if go_to_pos[2] < 0:
-            print("[Nano] Z no puede ser negativo.")
-            return
-        self._moveto(go_to_pos)
+        from config import PI_STAGE_RANGE_UM
+        target = [
+            max(0.0, min(PI_STAGE_RANGE_UM, float(go_to_pos[0]))),
+            max(0.0, min(PI_STAGE_RANGE_UM, float(go_to_pos[1]))),
+            max(0.0, min(PI_STAGE_RANGE_UM, float(go_to_pos[2]))),
+        ]
+        self._moveto(target)
         self.read_pos()
 
     def _moveto(self, pos: list):
