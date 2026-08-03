@@ -6,15 +6,14 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Incorporación del Modelo Óptico iSCAT / Confocal (60x Agua, NA=1.0) en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`**:
-   - Agregada la derivación completa de la **Magnificación Óptica Total del Sistema**:
-     $$M_{\text{total}} = \left(\frac{f_1}{f_{\text{obj}}}\right) \times \left(\frac{f_3}{f_2}\right) = \left(\frac{250\,\text{mm}}{3.0\,\text{mm}}\right) \times \left(\frac{150\,\text{mm}}{200\,\text{mm}}\right) = \mathbf{62.5\times}$$
-   - Deducción del **Disco de Airy proyectado** ($D_{\text{Airy, img}} = 40.56\,\mu\text{m}$) y normalización del **Pinhole de $50\,\mu\text{m}$** a **$1.23\ \text{Unidades de Airy (AU)}$** (transmisión del $85\%$ de luz central).
-   - Cálculo del **seccionado óptico axial** ($\text{FWHM}_z = 1.165\,\mu\text{m}$).
-   - Cálculo de incertidumbres ópticas adicionales:
-     - **Incertidumbre por desalineación mecánica del pinhole ($u_{\text{pinhole\_shift}} = 4.62\,\text{nm}$)**.
-     - **Incertidumbre por desacople de índice agua/vidrio / aberración esférica ($u_{\text{aberration}} = 1.80\,\text{nm}$)**.
-   - Tabla GUM completa de incertidumbre combinada ($15.48\,\text{nm}$ para $\Delta x = 50\,\text{nm}$ y **$6.08\,\text{nm}$** para escaneo fino $\Delta x = 10\,\text{nm}$).
+1. **Inclusión de la Sección de Dependencia del Tamaño de Píxel y Resolución Sub-píxel en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`**:
+   - Agregada la **Sección 7 (Dependencia del Tamaño de Píxel ($\Delta x$) con la Resolución Sub-píxel y la Incertidumbre Combinada)**:
+     - **Relación de Escala Haz vs. Nanopartícula:** Modelado de convolución espacial entre el haz de excitación ($\text{FWHM}_{\text{spot}} \approx 266\,\text{nm}$) y la nanopartícula típica de Au ($d_{\text{NP}} \approx 100\,\text{nm}$), resultando en una envolvente Gaussiana efectiva de $\text{FWHM}_{\text{efectivo}} \approx 284\,\text{nm}$.
+     - **Criterio de Nyquist-Shannon vs. Ajuste Sub-píxel Centroidal:** Nyquist exige $\Delta x \le 142\,\text{nm/px}$ para evitar aliasing, mientras que el ajuste sub-píxel no lineal sub-nanométrico ($u_{\text{fit}} < 0.6\,\text{nm}$) exige $\Delta x \le 28 - 56\,\text{nm/px}$ ($5 - 10$ píxeles a lo largo de la FWHM).
+     - **Curva de Compromiso Metrológico y Tamaño de Píxel Óptimo:** Demostración cuantitativa de que el tamaño de píxel óptimo para el sistema iSCAT/Confocal en PyPrinting 3.0 es **$\Delta x_{\text{óptimo}} = 15 - 25\,\text{nm/px}$**, logrando una **incertidumbre combinada mínima de $7.10\,\text{nm}$**.
+   - **Correcciones Físicas de Hardware Solicitadas**:
+     - Removida la aberración por interfaz vidrio/agua ($u_{\text{aberration}} = 0$) debido a que el objetivo $60\times$ agua observa las nanopartículas montadas directamente sobre la superficie del cubreobjetos en medio líquido.
+     - Removida la desalineación vectorial inter-láser ($\Delta r_{\text{nm}}$) puesto que cada línea láser posee su propio fotodiodo y pinhole alineados de forma independiente.
 
 2. **Optimizaciones de Seguridad y Estructura Adaptativa en Modo Ramp (`confocal.py`)**:
    - Implementado el patrón adaptativo `if self.Nx <= 50 and self.range_x <= 5.0:` para escaneos típicos ($2 \times 2\ \mu\text{m}$, $34 \times 34\ \text{px}$).
@@ -26,7 +25,7 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 ## 🧪 Validación y Estado del Proyecto
 
 - **Documentación Metrológica iSCAT**:
-  - `reportes/Incertidumbre_Metrologica_PyPrinting3.md` actualizado y validado con cálculos ópticos completos.
+  - `reportes/Incertidumbre_Metrologica_PyPrinting3.md` actualizado y validado con cálculos ópticos completos y gráficos de compromiso de píxel.
 
 - **Prueba Ejecutable de la Aplicación**:
   ```powershell
