@@ -394,19 +394,7 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("contrapropagante.py", "Microscopio Contrapropagante")
         )
 
-        # ── FILA 2 ── (PyPrinting 2, Cámara Live, Módulo Láser)
-        # 4. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
-        card_p2 = ApplicationCard(
-            icon_str="🏛️",
-            title="PyPrinting 2 (Legacy)",
-            subtitle="Versión Previa (PyPrinting_UNSAM.py)",
-            description="Acceso directo a la versión previa del software de impresión (PyPrinting_UNSAM) para consulta y ejecución de protocolos antiguos.",
-            button_text="🏛️ Iniciar PyPrinting 2",
-            button_color="#89DCEB",
-            launch_callback=self._launch_pyprinting_2
-        )
-
-        # 5. Cámara Live View (camera.py)
+        # 4. Cámara Live View (camera.py)
         card_cam = ApplicationCard(
             icon_str="📷",
             title="Cámara Live View",
@@ -417,7 +405,7 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("camera.py", "Cámara Live View")
         )
 
-        # 6. Modulación Láser 532 nm (camera.py Laser532Window)
+        # 5. Modulación Láser 532 nm (camera.py Laser532Window)
         card_laser = ApplicationCard(
             icon_str="⚡",
             title="Modulación Láser 532 nm",
@@ -428,8 +416,7 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=self._launch_laser_532
         )
 
-        # ── FILA 3 ── (PSF Analyzer, Analizador de Imágenes, Créditos)
-        # 7. PSF Analyzer (psf_analyzer.py)
+        # 6. PSF Analyzer (psf_analyzer.py)
         card_psf = ApplicationCard(
             icon_str="🧬",
             title="PSF Analyzer",
@@ -440,7 +427,7 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("psf_analyzer.py", "PSF Analyzer")
         )
 
-        # 8. Analizador de Imágenes (image_analyzer.py)
+        # 7. Analizador de Imágenes (image_analyzer.py)
         card_img = ApplicationCard(
             icon_str="🖼️",
             title="Analizador de Imágenes",
@@ -451,27 +438,26 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("image_analyzer.py", "Analizador de Imágenes")
         )
 
-        # 9. Documentación y Créditos
+        # 8. Documentación y Créditos
         card_docs = DocAndCreditsCard(
             open_doc_callback=self._open_document,
             show_credits_callback=self._show_credits
         )
 
-        # Ubicación en grilla 3x3 según orden exacto solicitado:
-        # Fila 1: Microscopio derecho, PySpectrum, Contrapropagante
+        # Ubicación en grilla:
+        # Fila 1: Microscopio Derecho, PySpectrum, Contrapropagante
         grid.addWidget(card_app, 0, 0)
         grid.addWidget(card_pyspectrum, 0, 1)
         grid.addWidget(card_contra, 0, 2)
 
-        # Fila 2: PyPrinting 2, Cámara live, Módulo láser
-        grid.addWidget(card_p2, 1, 0)
-        grid.addWidget(card_cam, 1, 1)
-        grid.addWidget(card_laser, 1, 2)
+        # Fila 2: Cámara Live, Modulación Láser 532, PSF Analyzer
+        grid.addWidget(card_cam, 1, 0)
+        grid.addWidget(card_laser, 1, 1)
+        grid.addWidget(card_psf, 1, 2)
 
-        # Fila 3: PSF Analyzer, Analizador de imágenes, Créditos
-        grid.addWidget(card_psf, 2, 0)
-        grid.addWidget(card_img, 2, 1)
-        grid.addWidget(card_docs, 2, 2)
+        # Fila 3: Analizador de imágenes, Créditos y Guías
+        grid.addWidget(card_img, 2, 0)
+        grid.addWidget(card_docs, 2, 1, 1, 2)
 
         main_vlo.addLayout(grid)
 
@@ -492,12 +478,33 @@ class MainWindowLauncher(QMainWindow):
             QMessageBox.critical(self, "Error de Lanzamiento", f"No se encontró el archivo ejecutable:\n{script_path}")
             return
 
+        # Limpiar lista de procesos terminados
+        self.processes = [p for p in self.processes if p.poll() is None]
+
+        # Protección de exclusión mutua de hardware físico en Modo Laboratorio
+        is_safe_mode = self.chk_safe_mode.isChecked()
+        if not is_safe_mode and script_name in ("app.py", "contrapropagante.py"):
+            other_script = "contrapropagante.py" if script_name == "app.py" else "app.py"
+            other_title = "Microscopio Contrapropagante" if script_name == "app.py" else "Microscopio Derecho"
+
+            for proc in self.processes:
+                if proc.poll() is None and getattr(proc, "_script_name", None) == other_script:
+                    QMessageBox.warning(
+                        self,
+                        "Recurso de Hardware Bloqueado",
+                        f"No es posible iniciar '{app_title}' en MODO LABORATORIO mientras '{other_title}' se encuentra en ejecución.\n\n"
+                        f"Ambos programas compiten de forma directa por los recursos físicos de la platina PI E-517 y la tarjeta NI-DAQmx.\n\n"
+                        f"Por favor, cierre la sesión de '{other_title}' antes de continuar o active la casilla de 'Modo Seguro (Simulación)'."
+                    )
+                    return
+
         env = os.environ.copy()
-        if self.chk_safe_mode.isChecked():
+        if is_safe_mode:
             env["PYPRINTING_SAFE"] = "1"
 
         try:
             proc = subprocess.Popen([sys.executable, str(script_path)], env=env, cwd=str(script_path.parent))
+            proc._script_name = script_name
             self.processes.append(proc)
             self.statusBar().showMessage(f"Lanzado '{app_title}' con PID {proc.pid}.")
         except Exception as e:
@@ -519,23 +526,6 @@ class MainWindowLauncher(QMainWindow):
             self.statusBar().showMessage(f"Lanzado 'Modulación Láser 532 nm' con PID {proc.pid}.")
         except Exception as e:
             QMessageBox.critical(self, "Error de Ejecución", f"Fallo al ejecutar Modulación Láser 532 nm:\n{e}")
-
-    def _launch_pyprinting_2(self):
-        p2_path = Path(__file__).parent.parent / "printing2" / "PyPrinting_UNSAM.py"
-        if not p2_path.exists():
-            QMessageBox.warning(self, "Proyecto No Encontrado", f"No se encontró el archivo de PyPrinting 2 en:\n{p2_path}")
-            return
-
-        env = os.environ.copy()
-        if self.chk_safe_mode.isChecked():
-            env["PYPRINTING_SAFE"] = "1"
-
-        try:
-            proc = subprocess.Popen([sys.executable, str(p2_path)], env=env, cwd=str(p2_path.parent))
-            self.processes.append(proc)
-            self.statusBar().showMessage(f"Lanzado 'PyPrinting 2 (Legacy)' con PID {proc.pid}.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error de Ejecución", f"Fallo al ejecutar PyPrinting 2:\n{e}")
 
     def _open_document(self, filename: str):
         doc_path = Path(__file__).parent / filename

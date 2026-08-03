@@ -6,17 +6,21 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Verificación y Delimitación Física de la Platina PI ($0.0 - 100.0\ \mu\text{m}$)**:
-   - Se verificó y reforzó la protección de bordes en todos los controles de posicionamiento en `nanopositioning.py` y `contrapropagante.py`.
-   - En `nanopositioning.py`, tanto los movimientos relativos (`move(axis, dist)`) como absolutos (`goto(go_to_pos)`) quedan estrictamente clampeados al rango físico de la platina Physik Instrumente:
-     $$0.0\ \mu\text{m} \le X, Y, Z \le 100.0\ \mu\text{m} \quad (\text{definido en } \texttt{PI\_STAGE\_RANGE\_UM})$$
-   - En `contrapropagante.py`, la acción `Go to NP (Referencia)` clampea las coordenadas $(x_{\text{ref}}, y_{\text{ref}})$ calculadas dentro del intervalo $[0.0, 100.0]\ \mu\text{m}$ antes de ejecutar el movimiento del piezoeléctrico.
+1. **Remoción de PyPrinting 2 y Reorganización de la Grilla Principal (`main.py`)**:
+   - Se eliminó la tarjeta legacy de PyPrinting 2 de la grilla de `main.py` para evitar ejecuciones accidentales con versiones antiguas de Python/PyQt5.
+   - La grilla principal ahora cuenta con 8 tarjetas integradas limpiamente:
+     - **Fila 1**: Microscopio Derecho (`app.py`), PySpectrum (Próximamente), Microscopio Contrapropagante (`contrapropagante.py`).
+     - **Fila 2**: Cámara Live View (`camera.py`), Modulación Láser 532 nm, PSF Analyzer (`psf_analyzer.py`).
+     - **Fila 3**: Analizador de Imágenes (`image_analyzer.py`), Documentación y Créditos Institucionales.
 
-2. **Integración Completa y Corrección de Bugs**:
-   - Mapeo directo de fotodiodos acoplado a `PD_CHANNELS`.
-   - Soporte para modelos de ajuste diferenciados (TOP: Gauss, BOT: Gauss/Donut).
-   - Solucionado el refresco de UI al presionar `Read position`.
-   - Solucionados errores de atributos no inicializados (`range_total`, `cameraWorker.close()`).
+2. **Protección de Exclusión Mutua para Hardware Real (Modo Laboratorio)**:
+   - Se implementó un control en `_launch_script` en `main.py` que previene lanzar **Microscopio Derecho** (`app.py`) y **Microscopio Contrapropagante** (`contrapropagante.py`) simultáneamente cuando el **Modo Seguro (Simulación)** está desmarcado.
+   - Si se intenta lanzar un segundo microscopio en Modo Laboratorio, el sistema interrumpe el lanzamiento y despliega una advertencia modal:
+     > *"No es posible iniciar el microscopio en MODO LABORATORIO mientras la otra suite se encuentra en ejecución para evitar conflictos de competencia física por la platina PI E-517 y la tarjeta NI-DAQmx."*
+   - En **Modo Seguro (Simulación)** se permite la ejecución simultánea de ambas instancias para depuración sin hardware.
+
+3. **Verificación de Delimitadores ($0.0 - 100.0\ \mu\text{m}$)**:
+   - Clampeo estricto de límites en `nanopositioning.py` y `contrapropagante.py`.
 
 ---
 
@@ -24,7 +28,7 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 - **Prueba Sintética en MODO SEGURO (SAFE_MODE)**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from contrapropagante import ContrapropaganteMainWindow; win = ContrapropaganteMainWindow(); print('Delimitadores 0-100um OK')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from main import MainWindowLauncher; win = MainWindowLauncher(); print('Lanzador OK')"
   ```
 - **Ejecución del Lanzador Principal**:
   ```powershell
