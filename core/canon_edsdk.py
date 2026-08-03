@@ -18,6 +18,7 @@ import os
 import sys
 import time
 import threading
+from pathlib import Path
 from typing import Optional, Callable, Tuple, List, Dict
 
 import numpy as np
@@ -28,20 +29,49 @@ if not sys.platform.startswith("win"):
 
 # ── Búsqueda y Carga de EDSDK.dll ──────────────────────────────────────────────
 
-def _find_edsdk_dll() -> str:
-    possible_paths = [
-        os.path.abspath("ESDK_CANON/EDSDK_v13.20.21_Windows/EDSDK_64/Dll/EDSDK.dll"),
-        os.path.abspath("ESDK_CANON/EDSDK_v13.20.10_Raw_Win/EDSDK_64/Dll/EDSDK.dll"),
-        os.path.abspath("EDSDK.dll"),
+def _find_edsdk_dll() -> Optional[str]:
+    # Buscar dinámicamente desde el directorio raíz del proyecto
+    _curr = Path(__file__).resolve().parent
+    root_dir = _curr.parent
+    while _curr != _curr.parent:
+        if (_curr / "config.py").exists():
+            root_dir = _curr
+            break
+        _curr = _curr.parent
+
+    candidate_paths = [
+        root_dir / "ESDK_CANON" / "EDSDK_v13.20.21_Windows" / "EDSDK_64" / "Dll" / "EDSDK.dll",
+        root_dir / "ESDK_CANON" / "EDSDK_v13.20.10_Raw_Win" / "EDSDK_64" / "Dll" / "EDSDK.dll",
+        root_dir / "EDSDK.dll",
+        Path.cwd() / "ESDK_CANON" / "EDSDK_v13.20.21_Windows" / "EDSDK_64" / "Dll" / "EDSDK.dll",
+        Path.cwd() / "EDSDK.dll",
     ]
-    for p in possible_paths:
-        if os.path.exists(p):
-            return p
-    raise FileNotFoundError("No se encontró EDSDK.dll en las rutas del proyecto.")
+
+    for p in candidate_paths:
+        if p.exists():
+            return str(p)
+
+    # Búsqueda recursiva en ESDK_CANON o root_dir
+    try:
+        for match in root_dir.rglob("EDSDK.dll"):
+            if match.exists():
+                return str(match)
+    except Exception:
+        pass
+
+    return None
 
 _DLL_PATH = _find_edsdk_dll()
-os.add_dll_directory(os.path.dirname(_DLL_PATH))
-edsdk = ctypes.cdll.LoadLibrary(_DLL_PATH)
+edsdk = None
+
+if _DLL_PATH and os.path.exists(_DLL_PATH):
+    try:
+        os.add_dll_directory(os.path.dirname(_DLL_PATH))
+        edsdk = ctypes.cdll.LoadLibrary(_DLL_PATH)
+    except Exception as _e:
+        print(f"[Canon EDSDK] Advertencia al cargar DLL {_DLL_PATH}: {_e}")
+else:
+    print("[Canon EDSDK] EDSDK.dll no fue encontrado en el proyecto. Modo seguro/MOCK activo para la cámara Canon.")
 
 # Lock de exclusión mutua para llamadas ctypes a la DLL de EDSDK
 _edsdk_lock = threading.Lock()
@@ -168,32 +198,33 @@ EdsObjectEventHandler = ctypes.WINFUNCTYPE(
 
 # ── Firmas de Funciones DLL EDSDK ─────────────────────────────────────────────
 
-edsdk.EdsInitializeSDK.restype = EdsError
-edsdk.EdsTerminateSDK.restype  = EdsError
-edsdk.EdsGetCameraList.restype = EdsError
-edsdk.EdsGetChildCount.restype = EdsError
-edsdk.EdsGetChildAtIndex.restype = EdsError
-edsdk.EdsOpenSession.restype   = EdsError
-edsdk.EdsCloseSession.restype  = EdsError
-edsdk.EdsRelease.restype       = EdsError
+if edsdk is not None:
+    edsdk.EdsInitializeSDK.restype = EdsError
+    edsdk.EdsTerminateSDK.restype  = EdsError
+    edsdk.EdsGetCameraList.restype = EdsError
+    edsdk.EdsGetChildCount.restype = EdsError
+    edsdk.EdsGetChildAtIndex.restype = EdsError
+    edsdk.EdsOpenSession.restype   = EdsError
+    edsdk.EdsCloseSession.restype  = EdsError
+    edsdk.EdsRelease.restype       = EdsError
 
-edsdk.EdsGetPropertyData.restype = EdsError
-edsdk.EdsSetPropertyData.restype = EdsError
-edsdk.EdsGetPropertyDesc.restype = EdsError
+    edsdk.EdsGetPropertyData.restype = EdsError
+    edsdk.EdsSetPropertyData.restype = EdsError
+    edsdk.EdsGetPropertyDesc.restype = EdsError
 
-edsdk.EdsSendCommand.restype                    = EdsError
-edsdk.EdsCreateMemoryStream.restype             = EdsError
-edsdk.EdsCreateMemoryStreamFromPointer.restype = EdsError
-edsdk.EdsCreateFileStreamEx.restype             = EdsError
-edsdk.EdsCreateEvfImageRef.restype             = EdsError
-edsdk.EdsDownloadEvfImage.restype              = EdsError
-edsdk.EdsGetPointer.restype                    = EdsError
-edsdk.EdsGetLength.restype                    = EdsError
+    edsdk.EdsSendCommand.restype                    = EdsError
+    edsdk.EdsCreateMemoryStream.restype             = EdsError
+    edsdk.EdsCreateMemoryStreamFromPointer.restype = EdsError
+    edsdk.EdsCreateFileStreamEx.restype             = EdsError
+    edsdk.EdsCreateEvfImageRef.restype             = EdsError
+    edsdk.EdsDownloadEvfImage.restype              = EdsError
+    edsdk.EdsGetPointer.restype                    = EdsError
+    edsdk.EdsGetLength.restype                    = EdsError
 
-edsdk.EdsSetObjectEventHandler.restype = EdsError
-edsdk.EdsDownload.restype              = EdsError
-edsdk.EdsDownloadComplete.restype      = EdsError
-edsdk.EdsGetDirectoryItemInfo.restype  = EdsError
+    edsdk.EdsSetObjectEventHandler.restype = EdsError
+    edsdk.EdsDownload.restype              = EdsError
+    edsdk.EdsDownloadComplete.restype      = EdsError
+    edsdk.EdsGetDirectoryItemInfo.restype  = EdsError
 
 # ── Tablas de Conversión para Canon EOS 500D ──────────────────────────────────
 
