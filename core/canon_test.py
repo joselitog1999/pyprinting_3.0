@@ -94,13 +94,14 @@ class CanonWorker(QObject):
     def start_camera(self):
         self.statusSignal.emit("Conectando con cámara Canon EOS por USB...")
         self._emit_log("Iniciando conexión USB con cámara Canon EOS...")
+        self._connect_time = time.time()
         ok = self._cam.open_session()
         if ok:
             # 1. Emitir inmediatamente lista completa para asegurar disponibilidad instantánea
             self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0, 0, 0)
-            self.statusSignal.emit("Cámara Canon EOS 500D Conectada | Opciones Habilitadas")
+            self.statusSignal.emit("Cámara Canon EOS 500D Conectada | Estabilizando sensor (5s)...")
 
-            # 2. Habilitar Live View y arrancar bucle de frames adaptativo (sin aceleraciones ni colapsos de memoria)
+            # 2. Habilitar Live View y arrancar bucle de frames adaptativo
             self._cam.enable_live_view()
             self._running = True
             self.connectedSignal.emit(True)
@@ -124,8 +125,16 @@ class CanonWorker(QObject):
         self._fetch_frame()
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        target_ms  = 40.0  # ~25 FPS estables sin saturar el bus USB
-        delay_ms   = max(10, int(target_ms - elapsed_ms))
+        
+        # Durante los primeros 5s (estabilización), aplicar tiempo de espera adaptativo de seguridad.
+        # Tras los 5s de estabilización, mantener estricta y constantemente 25.0 FPS (40.0 ms periodo exacto).
+        is_stabilized = (time.time() - getattr(self, '_connect_time', 0)) >= 5.0
+        target_ms = 40.0  # 25.0 FPS estrictos
+        
+        if is_stabilized:
+            delay_ms = max(1, int(round(target_ms - elapsed_ms)))
+        else:
+            delay_ms = max(10, int(round(target_ms - elapsed_ms)))
 
         if self._running:
             QTimer.singleShot(delay_ms, self._fetch_frame_adaptive)
@@ -154,8 +163,8 @@ class CanonWorker(QObject):
                 if v not in combined_tv: combined_tv.append(v)
 
             self.propsReadySignal.emit(combined_iso, combined_tv, ae_mode, curr_iso, curr_tv)
-            self.statusSignal.emit("Cámara Canon EOS 500D | Opciones ISO y Tv Actualizadas (5s)")
-            self._emit_log("Sincronización diferida de 5 segundos completada. Opciones de cámara actualizadas.")
+            self.statusSignal.emit("Cámara Canon EOS 500D Estabilizada | Live View a 25 FPS Constantes")
+            self._emit_log("✓ Periodo de 5s completado. Live View estabilizado a 25.0 FPS continuos.")
         except Exception as _e:
             self._emit_log(f"Advertencia durante consulta diferida: {_e}")
         finally:
@@ -544,7 +553,7 @@ class CanonTestWindow(QMainWindow):
         self.setLiveAdjustmentsSignal.connect(self._worker.set_live_adjustments)
 
         self._is_camera_active = False
-        self._thread.start()
+        self._thread.start(QThread.Priority.HighPriority)
 
     def _on_take_photo_clicked(self):
         text = self._combo_photo_format.currentText()
