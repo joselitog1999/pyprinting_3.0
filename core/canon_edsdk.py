@@ -597,23 +597,41 @@ class CanonCamera:
 
     # ── Captura Inteligente con Pausa de Live View ────────────────────────────
 
-    def take_photo(self) -> bool:
+    # ── Captura Inteligente con Pausa de Live View y Guardado Multi-Formato ───
+
+    def take_photo(self, target_format: str = "jpg") -> Tuple[bool, Optional[str]]:
         """
         Pausa el Live View temporalmente para liberar el sensor réflex DIGIC 4,
-        ejecuta el disparo TakePicture en resolución completa de 15 MP y reactiva el Live View.
+        ejecuta el disparo TakePicture en resolución completa de 15 MP (4752x3168),
+        descarga el archivo a la PC en el formato solicitado (.jpg, .png, .tiff, .bmp),
+        y reactiva el Live View.
         """
-        if not self._is_session_open:
+        if not self._is_session_open or edsdk is None:
             self.log("⚠ No se puede tomar foto: Sesión USB no abierta.")
-            return False
+            return False, None
 
-        self.log("📸 Pausando Live View para disparar captura en alta resolución (15 MP)...")
+        self.log(f"📸 Pausando Live View para disparo en resolución completa de 15 MP (4752×3168)... Formato objetivo: .{target_format.upper()}")
         was_evf = self._evf_enabled
         if was_evf:
             self.disable_live_view()
             time.sleep(0.15) # Pausa necesaria para liberar buffer de sensor
 
+        save_dir = self._save_dir
+        os.makedirs(save_dir, exist_ok=True)
+        t_str = time.strftime("%Y%m%d_%H%M%S")
+        ext = target_format.lower().strip(".")
+        if ext not in ("jpg", "jpeg", "png", "tiff", "tif", "bmp"):
+            ext = "jpg"
+
+        final_filename = f"CANON_EOS500D_{t_str}.{ext}"
+        final_save_path = os.path.join(save_dir, final_filename)
+
         with _edsdk_lock:
-            self.log("📸 Enviando orden de disparo del obturador (TakePicture)...")
+            # Configurar guardado directo en PC (Host)
+            save_to = EdsUInt32(kEdsSaveTo_Host)
+            edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_SaveTo, 0, ctypes.sizeof(save_to), ctypes.byref(save_to))
+
+            self.log(f"📸 Enviando orden de disparo del obturador (TakePicture)...")
             err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_TakePicture, 0)
             if err != EDS_ERR_OK:
                 self.log(f"⚠ TakePicture retornó {get_edsdk_error_msg(err)}. Reintentando con PressShutterButton...")
@@ -621,13 +639,61 @@ class CanonCamera:
                 time.sleep(0.08)
                 edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF)
 
-        time.sleep(0.3) # Dar tiempo a que el sensor grabe la foto
+        # Esperar la foto creada en el buffer C++ o descargarla directamente
+        time.sleep(0.5)
+
+        # Buscar foto descargada en save_dir o convertir si fue descargada como JPG/CR2
+        downloaded_file = None
+        for attempt in range(30):
+            if os.path.exists(final_save_path) and os.path.getsize(final_save_path) > 0:
+                downloaded_file = final_save_path
+                break
+            for fname in os.listdir(save_dir):
+                if fname.startswith("IMG_") or fname.startswith("CANON_"):
+                    fpath = os.path.join(save_dir, fname)
+                    if os.path.exists(fpath) and (time.time() - os.path.getmtime(fpath)) < 15:
+                        downloaded_file = fpath
+                        break
+            if downloaded_file: break
+            time.sleep(0.1)
+
+        saved_path = None
+        if downloaded_file:
+            if ext in ("jpg", "jpeg") and downloaded_file.lower().endswith((".jpg", ".jpeg")):
+                if downloaded_file != final_save_path:
+                    try:
+                        os.rename(downloaded_file, final_save_path)
+                        saved_path = final_save_path
+                    except Exception:
+                        saved_path = downloaded_file
+                else:
+                    saved_path = final_save_path
+            else:
+                try:
+                    img = cv2.imread(downloaded_file, cv2.IMREAD_UNCHANGED)
+                    if img is not None:
+                        cv2.imwrite(final_save_path, img)
+                        saved_path = final_save_path
+                        self.log(f"✅ Conversión a formato .{ext.upper()} completada en 15 MP (4752×3168): {final_save_path}")
+                        if downloaded_file != final_save_path:
+                            try: os.remove(downloaded_file)
+                            except Exception: pass
+                    else:
+                        saved_path = downloaded_file
+                except Exception as _e:
+                    self.log(f"⚠ Error convirtiendo formato: {_e}")
+                    saved_path = downloaded_file
+
+            if saved_path:
+                self.log(f"✅ ¡FOTO DE ALTA RESOLUCIÓN GUARDADA EN DISCO!: {saved_path}")
+        else:
+            self.log("⚠ Foto tomada en hardware pero no se detectó el archivo descargado por USB.")
 
         if was_evf:
             self.log("🎥 Reactivando Live View...")
             self.enable_live_view()
 
-        return True
+        return (saved_path is not None), saved_path
 
     def set_save_directory(self, path: str):
         self._save_dir = os.path.abspath(path)
@@ -655,7 +721,7 @@ class CanonCamera:
                         edsdk.EdsDownload(item_ref, info.size, stream)
                         edsdk.EdsDownloadComplete(item_ref)
                         edsdk.EdsRelease(stream)
-                        self.log(f"✅ ¡FOTO GUARDADA EXITOSAMENTE!: {save_path}")
+                        self.log(f"✅ Descarga completada desde cámara: {save_path}")
                     else:
                         self.log(f"❌ Error al crear archivo de descarga: {get_edsdk_error_msg(err_st)}")
                 else:

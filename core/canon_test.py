@@ -70,6 +70,7 @@ class CanonWorker(QObject):
     logSignal        = pyqtSignal(str)
     connectedSignal  = pyqtSignal(bool)
     propsReadySignal = pyqtSignal(list, list, int, int, int) # iso_vals, tv_vals, ae_mode, curr_iso, curr_tv
+    photoSavedSignal = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -89,15 +90,8 @@ class CanonWorker(QObject):
     def _emit_log(self, msg: str):
         self.logSignal.emit(msg)
 
-    def _ensure_timer(self):
-        if self._timer is None:
-            self._timer = QTimer(self)
-            self._timer.setInterval(40)  # ~25 FPS nativo
-            self._timer.timeout.connect(self._fetch_frame)
-
     @pyqtSlot()
     def start_camera(self):
-        self._ensure_timer()
         self.statusSignal.emit("Conectando con cámara Canon EOS por USB...")
         self._emit_log("Iniciando conexión USB con cámara Canon EOS...")
         ok = self._cam.open_session()
@@ -106,11 +100,11 @@ class CanonWorker(QObject):
             self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0, 0, 0)
             self.statusSignal.emit("Cámara Canon EOS 500D Conectada | Opciones Habilitadas")
 
-            # 2. Habilitar Live View y arrancar timer de lectura de frames
+            # 2. Habilitar Live View y arrancar bucle de frames adaptativo (sin aceleraciones ni colapsos de memoria)
             self._cam.enable_live_view()
             self._running = True
-            self._timer.start()
             self.connectedSignal.emit(True)
+            QTimer.singleShot(10, self._fetch_frame_adaptive)
 
             # 3. Programar temporizador de 5 segundos para consulta segura de hardware
             QTimer.singleShot(5000, self._query_properties_after_delay)
@@ -121,14 +115,26 @@ class CanonWorker(QObject):
             self._emit_log(msg)
             self._running = True
             self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0, 0, 0)
-            self._timer.start()
+            QTimer.singleShot(10, self._fetch_frame_adaptive)
+
+    def _fetch_frame_adaptive(self):
+        if not self._running: return
+        t0 = time.perf_counter()
+
+        self._fetch_frame()
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        target_ms  = 40.0  # ~25 FPS estables sin saturar el bus USB
+        delay_ms   = max(10, int(target_ms - elapsed_ms))
+
+        if self._running:
+            QTimer.singleShot(delay_ms, self._fetch_frame_adaptive)
 
     def _query_properties_after_delay(self):
         if not self._running or not self._cam._is_session_open: return
 
-        # Pausar timer de frames por 50ms para evitar colisión en el bus USB de EDSDK
-        was_running = self._timer is not None and self._timer.isActive()
-        if was_running: self._timer.stop()
+        # Pausar temporalmente la bandera para evitar colisión de bus USB durante la lectura
+        self._running = False
         time.sleep(0.05)
 
         try:
@@ -153,12 +159,11 @@ class CanonWorker(QObject):
         except Exception as _e:
             self._emit_log(f"Advertencia durante consulta diferida: {_e}")
         finally:
-            if was_running: self._timer.start()
+            self._running = True
+            QTimer.singleShot(10, self._fetch_frame_adaptive)
 
     @pyqtSlot()
     def stop_camera(self):
-        if self._timer is not None and self._timer.isActive():
-            self._timer.stop()
         self._running = False
         self._cam.close_session()
         self._cam.terminate_sdk()
@@ -230,51 +235,70 @@ class CanonWorker(QObject):
     @pyqtSlot(int)
     def set_iso(self, val: int):
         if self._cam._is_session_open:
-            was_running = self._timer is not None and self._timer.isActive()
-            if was_running: self._timer.stop()
+            was_running = self._running
+            self._running = False
             ok = self._cam.set_property_value(kEdsPropID_ISOSpeed, val)
             if ok:
                 lbl = ISO_MAP.get(val, f"0x{val:02X}")
                 self.statusSignal.emit(f"ISO configurado a: {lbl}")
                 self._emit_log(f"ISO cambiado exitosamente a {lbl}")
-            if was_running: self._timer.start()
+            self._running = was_running
+            if self._running:
+                QTimer.singleShot(10, self._fetch_frame_adaptive)
 
     @pyqtSlot(int)
     def set_tv(self, val: int):
         if self._cam._is_session_open:
-            was_running = self._timer is not None and self._timer.isActive()
-            if was_running: self._timer.stop()
+            was_running = self._running
+            self._running = False
             ok = self._cam.set_property_value(kEdsPropID_Tv, val)
             if ok:
                 lbl = TV_MAP.get(val, f"0x{val:02X}")
                 self.statusSignal.emit(f"Velocidad (Tv) configurada a: {lbl}")
                 self._emit_log(f"Velocidad Tv cambiada exitosamente a {lbl}")
-            if was_running: self._timer.start()
+            self._running = was_running
+            if self._running:
+                QTimer.singleShot(10, self._fetch_frame_adaptive)
 
-    @pyqtSlot()
-    def take_photo(self):
+    @pyqtSlot(str)
+    def take_photo(self, target_format: str = "jpg"):
+        ext = target_format.lower().strip(".")
+        if ext not in ("jpg", "jpeg", "png", "tiff", "tif", "bmp"):
+            ext = "jpg"
+
         if self._cam._is_session_open:
-            self.statusSignal.emit("📸 Disparando foto en alta resolución...")
-            ok = self._cam.take_photo()
-            if not ok:
+            was_running = self._running
+            self._running = False
+            self.statusSignal.emit(f"📸 Capturando foto de 15 MP (4752×3168)... Formato .{ext.upper()}")
+            ok, saved_path = self._cam.take_photo(target_format=ext)
+            if ok and saved_path:
+                self.statusSignal.emit(f"✅ ¡Foto 15 MP guardada!: {saved_path}")
+                self._emit_log(f"✅ ¡FOTO GUARDADA EN DISCO!: {saved_path}")
+                self.photoSavedSignal.emit(saved_path)
+            else:
                 self._emit_log("❌ Error en el comando de obturación de foto.")
+            self._running = was_running
+            if self._running:
+                QTimer.singleShot(10, self._fetch_frame_adaptive)
         else:
             # En modo MOCK simulación crear foto de prueba en carpeta destino
             save_dir = self._cam._save_dir
             os.makedirs(save_dir, exist_ok=True)
             t_str = time.strftime("%Y%m%d_%H%M%S")
-            mock_photo_path = os.path.join(save_dir, f"CANON_MOCK_PHOTO_{t_str}.jpg")
-            
-            # Generar foto sintética de alta resolución (4752x3168)
-            img = np.full((1080, 1620, 3), 50, dtype=np.uint8)
-            cv2.circle(img, (810, 540), 120, (62, 207, 142), -1)
-            cv2.putText(img, f"CANON EOS 500D MOCK PHOTO - {t_str}", (100, 100),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+            mock_photo_path = os.path.join(save_dir, f"CANON_EOS500D_MOCK_{t_str}.{ext}")
+
+            # Generar foto sintética de alta resolución de 15 MP (4752x3168)
+            img = np.full((3168, 4752, 3), 45, dtype=np.uint8)
+            cv2.circle(img, (2376, 1584), 350, (62, 207, 142), -1)
+            cv2.circle(img, (2376, 1584), 800, (74, 158, 255), 4)
+            cv2.putText(img, f"CANON EOS 500D - MOCK PHOTO 15.1 MP (4752x3168) - .{ext.upper()}", (150, 200),
+                        cv2.FONT_HERSHEY_SIMPLEX, 2.2, (255, 255, 255), 4)
             cv2.imwrite(mock_photo_path, img)
 
-            msg = f"✅ FOTO SIMULACIÓN MOCK CREADA EXITOSAMENTE EN: {mock_photo_path}"
+            msg = f"✅ FOTO SIMULACIÓN MOCK 15.1 MP CREADA EXITOSAMENTE EN: {mock_photo_path}"
             self.statusSignal.emit(msg)
             self._emit_log(msg)
+            self.photoSavedSignal.emit(mock_photo_path)
 
     @pyqtSlot(str)
     def set_save_dir(self, path: str):
@@ -291,7 +315,7 @@ class CanonTestWindow(QMainWindow):
     setZoomSignal            = pyqtSignal(int)
     setIsoSignal             = pyqtSignal(int)
     setTvSignal              = pyqtSignal(int)
-    takePhotoSignal          = pyqtSignal()
+    takePhotoSignal          = pyqtSignal(str) # ext
     setSaveDirSignal         = pyqtSignal(str)
     setLiveAdjustmentsSignal = pyqtSignal(str, int, int, int, float, float, float)
 
@@ -430,10 +454,23 @@ class CanonTestWindow(QMainWindow):
             s.valueChanged.connect(self._sync_live_adjustments)
         self._combo_live_lut.currentIndexChanged.connect(self._sync_live_adjustments)
 
-        p_lo.addSpacing(10)
+        p_lo.addSpacing(6)
+
+        # ── Selector de Formato de Foto (15.1 MP Nativo) ──────────────────────
+        form_fmt = QFormLayout()
+        form_fmt.setContentsMargins(0, 0, 0, 0)
+        self._combo_photo_format = QComboBox()
+        self._combo_photo_format.addItems([
+            "JPG (Máxima Res 15.1 MP - 4752×3168)",
+            "PNG (Sin Pérdida 15.1 MP - 4752×3168)",
+            "TIFF (Metrología 15.1 MP - 4752×3168)",
+            "BMP (Mapa de Bits sin comprimir)"
+        ])
+        form_fmt.addRow("Formato de Salida:", self._combo_photo_format)
+        p_lo.addLayout(form_fmt)
 
         # Botón Disparar Foto
-        self._btn_photo = QPushButton("📸 Disparar Foto (Alta Res)")
+        self._btn_photo = QPushButton("📸 Disparar Foto (Alta Res 15.1 MP)")
         self._btn_photo.setStyleSheet("font-weight: bold; background-color: #3ecf8e; color: #111; padding: 12px; font-size: 14px;")
         p_lo.addWidget(self._btn_photo)
 
@@ -479,7 +516,7 @@ class CanonTestWindow(QMainWindow):
         # Conectar Señales UI
         self._btn_connect.clicked.connect(self._toggle_camera)
         self._btn_diag.clicked.connect(self._force_shutter_cleanup)
-        self._btn_photo.clicked.connect(lambda: self.takePhotoSignal.emit())
+        self._btn_photo.clicked.connect(self._on_take_photo_clicked)
         self._btn_dir.clicked.connect(self._select_save_dir)
         self._combo_zoom.currentIndexChanged.connect(self._on_zoom_changed)
         self._combo_iso.currentIndexChanged.connect(self._on_iso_changed)
@@ -495,6 +532,7 @@ class CanonTestWindow(QMainWindow):
         self._worker.logSignal.connect(self._append_log)
         self._worker.propsReadySignal.connect(self._populate_properties)
         self._worker.connectedSignal.connect(self._on_connected)
+        self._worker.photoSavedSignal.connect(self._on_photo_saved)
 
         self.startCameraSignal.connect(self._worker.start_camera)
         self.stopCameraSignal.connect(self._worker.stop_camera)
@@ -507,6 +545,18 @@ class CanonTestWindow(QMainWindow):
 
         self._is_camera_active = False
         self._thread.start()
+
+    def _on_take_photo_clicked(self):
+        text = self._combo_photo_format.currentText()
+        if "PNG" in text: ext = "png"
+        elif "TIFF" in text: ext = "tiff"
+        elif "BMP" in text: ext = "bmp"
+        else: ext = "jpg"
+        self.takePhotoSignal.emit(ext)
+
+    def _on_photo_saved(self, saved_path: str):
+        msg = f"📸 ¡Foto de 15.1 MP guardada exitosamente!\n\nRuta del archivo:\n{saved_path}"
+        QMessageBox.information(self, "Foto Guardada Exitosa", msg)
 
     def _toggle_camera(self):
         if not self._is_camera_active:
