@@ -47,3 +47,4 @@ nidaqmx>=1.0.0          # API de NI-DAQmx para tarjetas National Instruments
 pipython>=2.11.0         # API GCS para platinas piezoeléctricas Physik Instrumente
 pyserial>=3.5            # Comunicación Serie RS-232 / USB
 pyusb>=1.2.1             # Control USB de bajo nivel
+    
