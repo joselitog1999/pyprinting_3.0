@@ -288,7 +288,7 @@ class CanonWorker(QObject):
                 self._emit_log("❌ Error en el comando de obturación de foto.")
             self._running = was_running
             if self._running:
-                QTimer.singleShot(10, self._fetch_frame_adaptive)
+                QTimer.singleShot(350, self._fetch_frame_adaptive)
         else:
             # En modo MOCK simulación crear foto de prueba en carpeta destino
             save_dir = self._cam._save_dir

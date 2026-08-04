@@ -83,6 +83,7 @@ EdsError            = ctypes.c_uint32
 EdsBaseRef          = ctypes.c_void_p
 EdsCameraListRef    = ctypes.c_void_p
 EdsCameraRef        = ctypes.c_void_p
+EdsVolumeRef        = ctypes.c_void_p
 EdsStreamRef        = ctypes.c_void_p
 EdsEvfImageRef      = ctypes.c_void_p
 EdsDirectoryItemRef = ctypes.c_void_p
@@ -838,13 +839,13 @@ class CanonCamera:
                 vol_list_count = EdsUInt32(0)
                 err = edsdk.EdsGetChildCount(self._camera_ref, ctypes.byref(vol_list_count))
                 if err == EDS_ERR_OK and vol_list_count.value > 0:
-                    vol_ref = EdsVolumeRef()
+                    vol_ref = ctypes.c_void_p()
                     err_v = edsdk.EdsGetChildAtIndex(self._camera_ref, 0, ctypes.byref(vol_ref))
                     if err_v == EDS_ERR_OK and vol_ref:
                         dir_count = EdsUInt32(0)
                         edsdk.EdsGetChildCount(vol_ref, ctypes.byref(dir_count))
                         for i in range(dir_count.value):
-                            folder_ref = EdsDirectoryItemRef()
+                            folder_ref = ctypes.c_void_p()
                             err_f = edsdk.EdsGetChildAtIndex(vol_ref, i, ctypes.byref(folder_ref))
                             if err_f == EDS_ERR_OK and folder_ref:
                                 info = EdsDirectoryItemInfo()
@@ -854,7 +855,7 @@ class CanonCamera:
                                     item_count = EdsUInt32(0)
                                     edsdk.EdsGetChildCount(folder_ref, ctypes.byref(item_count))
                                     if item_count.value > 0:
-                                        last_item = EdsDirectoryItemRef()
+                                        last_item = ctypes.c_void_p()
                                         err_l = edsdk.EdsGetChildAtIndex(folder_ref, item_count.value - 1, ctypes.byref(last_item))
                                         if err_l == EDS_ERR_OK and last_item:
                                             l_info = EdsDirectoryItemInfo()
