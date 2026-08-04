@@ -283,6 +283,10 @@ Mapeo de transformación de ejes espaciales entre la imagen de cámara réflex y
 * **Pestaña `Dimers` (Ensamblado de Dímeros)**:
   - Posicionamiento guiado a distancia gap sub-100 nm asistido por escaneo confocal local.
 
+> [!NOTE]
+> Para consultar la formulación matemática completa, el diagrama de flujo multihilo y el tiempo de respuesta del obturador TTL (< 1 ms), consulte el reporte técnico dedicado:
+> [Reporte Técnico: Algoritmo de Impresión Óptica y Ensamblado de Nanodímeros (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
+
 ---
 
 ## 4. Módulo 2: PySpectrum *(En Desarrollo: Espectrometría, Termometría & Scattering)*

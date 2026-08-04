@@ -53,7 +53,7 @@ printing3/
     ├── README.md         # 📖 Documentación exhaustiva y fundamentos físicos/matemáticos.
     ├── MANUAL_USUARIO.md # 📘 Manual detallado de usuario, protocolos y FAQ.
     ├── WALKTHROUGH.md    # 📝 Registro continuo de cambios y validaciones.
-    └── reportes/         # 📑 Informes metrológicos (Incertidumbre_Metrologica_PyPrinting3.md).
+    └── reportes/         # 📑 Informes (Incertidumbre_Metrologica_PyPrinting3.md, Algoritmo_Printing_y_Dimers_PyPrinting3.md).
 ```
 
 ---
