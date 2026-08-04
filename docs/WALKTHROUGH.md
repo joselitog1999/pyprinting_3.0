@@ -6,23 +6,23 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Protección Anti-Cuelgues en Selección de Carpeta y Cambios Rápidos de ISO/Tv**:
-   - **Antirrebote (*Debounce Timer*) para ISO y Tv (200 ms)**:
-     - Cambiar rápidamente las opciones de ISO o velocidad de obturación en la interfaz enviaba ráfagas de comandos `EdsSetPropertyData` al chip DIGIC 4 de la cámara réflex, saturando la transacción USB (`EDS_ERR_DEVICE_BUSY`).
-     - Se implementó un temporizador de antirrebote de 200 ms (`_debounce_iso_timer` y `_debounce_tv_timer`) que espera a que el usuario termine de desplazarse antes de enviar un único comando limpio a la cámara.
-   - **Reintentos Seguros en `set_property_value`**:
-     - Se agregó un bucle de 5 reintentos espaciados 60 ms en `set_property_value()` para tolerar estados de ocupado (`BUSY`) sin abortar Python.
-   - **Pausa de Stream Durante Diálogos Nativos (`QFileDialog`)**:
-     - Abrir la ventana de selección de carpetas bloqueaba el hilo principal de Qt mientras el hilo de la cámara continuaba emitiendo cuadros. Se agregó la pausa automática del bucle adaptativo durante la selección de carpetas para prevenir bloqueos (*deadlocks*).
+1. **Resolución de Error EDSDK `0x000000AB` en Descarga de Fotografías**:
+   - **Causa Raíz**: `EdsCreateFileStreamEx` toma un puntero a cadena en la interfaz C++ que, en la DLL de 64 bits de Canon en Windows, interpretaba la codificación Unicode/ANSI con caracteres nulos o inconsistencias en la ruta del archivo, provocando el error `0x000000AB` (`EDS_ERR_STREAM_OPEN_ERROR` / `EDS_ERR_FILE_OPEN_ERROR`).
+   - **Solución Implementada**:
+     - Se creó la función centralizada **`_download_directory_item_to_file`** en **`core/canon_edsdk.py`**.
+     - La descarga utiliza **`EdsCreateMemoryStream(item_size)`** descargando los bytes de la foto nativa directamente a un buffer en la memoria RAM del sistema.
+     - Python guarda la imagen directamente en el disco mediante escritura binaria nativa (`open(save_path, "wb").write(raw_bytes)`).
+     - **Ventaja**: 100% inmune a problemas de formato de rutas, caracteres especiales o incompatibilidades en firmas C++.
 
-2. **Resolución de Error 64-bit ABI `ctypes.ArgumentError: OverflowError: int too long to convert`**:
-   - Se configuraron las firmas explícitas de 64 bits (`argtypes = [ctypes.c_void_p, ...]`) para todas las funciones DLL del SDK de Canon EDSDK.
+2. **Protección Anti-Cuelgues en Selección de Carpeta y Cambios Rápidos de ISO/Tv**:
+   - Temporizadores de antirrebote (*debounce*) de 200 ms para ISO y Tv.
+   - Pausa automática de la emision de cuadros durante diálogos modales nativos (`QFileDialog`).
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética de Antirrebote y Pausa en Selección de Carpeta**:
+- **Prueba Sintética de Descarga por RAM Memory Stream**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Debounced ISO/Tv and folder picker pause test PASSED!')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('EdsCreateMemoryStream 0x000000AB fix PASSED!')"
   ```

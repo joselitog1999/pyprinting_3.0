@@ -770,6 +770,66 @@ class CanonCamera:
 
         return (saved_path is not None), saved_path
 
+    def _download_directory_item_to_file(self, item_ref: ctypes.c_void_p, save_path: str, item_size: int) -> bool:
+        """Descarga un objeto fotográfico de la cámara réflex a un archivo en la PC usando EdsCreateMemoryStream en RAM (inmune a errores de ruta 0x000000AB)."""
+        if edsdk is None: return False
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        stream = EdsStreamRef()
+
+        # 1. Probar descarga en memoria RAM (inmune a problemas de formato de ruta de la DLL C++)
+        err = edsdk.EdsCreateMemoryStream(item_size, ctypes.byref(stream))
+        if err != EDS_ERR_OK:
+            err = edsdk.EdsCreateMemoryStream(0, ctypes.byref(stream))
+
+        if err == EDS_ERR_OK and stream:
+            try:
+                err_dn = edsdk.EdsDownload(item_ref, item_size, stream)
+                if err_dn == EDS_ERR_OK:
+                    edsdk.EdsDownloadComplete(item_ref)
+                    data_ptr = ctypes.c_void_p()
+                    length = EdsUInt64(0)
+                    edsdk.EdsGetPointer(stream, ctypes.byref(data_ptr))
+                    edsdk.EdsGetLength(stream, ctypes.byref(length))
+
+                    if data_ptr.value and length.value > 0:
+                        raw_bytes = ctypes.string_at(data_ptr.value, length.value)
+                        with open(save_path, "wb") as f:
+                            f.write(raw_bytes)
+                        self.log(f"✅ ¡FOTO DESCARGADA EXITOSAMENTE VÍA MEMORY STREAM!: {save_path}")
+                        return True
+                    else:
+                        self.log("⚠ Memory Stream de descarga retornó 0 bytes.")
+                else:
+                    self.log(f"❌ Error durante EdsDownload: {get_edsdk_error_msg(err_dn)}")
+            except Exception as _e:
+                self.log(f"Excepción en descarga por memoria: {_e}")
+            finally:
+                edsdk.EdsRelease(stream)
+
+        # 2. Fallback con EdsCreateFileStreamEx usando ruta UTF-8/ANSI
+        try:
+            stream_f = EdsStreamRef()
+            err_f = edsdk.EdsCreateFileStreamEx(
+                ctypes.c_char_p(save_path.encode("utf-8")),
+                kEdsFileCreateDisposition_CreateAlways,
+                kEdsAccess_ReadWrite,
+                ctypes.byref(stream_f)
+            )
+            if err_f == EDS_ERR_OK and stream_f:
+                try:
+                    edsdk.EdsDownload(item_ref, item_size, stream_f)
+                    edsdk.EdsDownloadComplete(item_ref)
+                    self.log(f"✅ Descarga completada vía FileStream: {save_path}")
+                    return True
+                finally:
+                    edsdk.EdsRelease(stream_f)
+            else:
+                self.log(f"❌ Error al crear stream de archivo (0x{err_f:08X}): {get_edsdk_error_msg(err_f)}")
+        except Exception as _e:
+            self.log(f"Excepción en descarga de archivo: {_e}")
+
+        return False
+
     def _download_newest_photo_from_camera(self, save_dir: str):
         """Descarga la última foto disponible explorando directamente la tarjeta/volumen de la réflex."""
         if not self._is_session_open or edsdk is None: return
@@ -801,18 +861,7 @@ class CanonCamera:
                                             edsdk.EdsGetDirectoryItemInfo(last_item, ctypes.byref(l_info))
                                             out_name = l_info.szFileName.decode("utf-8", errors="ignore")
                                             target_p = os.path.join(save_dir, out_name)
-                                            stream = EdsStreamRef()
-                                            err_st = edsdk.EdsCreateFileStreamEx(
-                                                ctypes.c_wchar_p(target_p),
-                                                kEdsFileCreateDisposition_CreateAlways,
-                                                kEdsAccess_ReadWrite,
-                                                ctypes.byref(stream)
-                                            )
-                                            if err_st == EDS_ERR_OK:
-                                                edsdk.EdsDownload(last_item, l_info.size, stream)
-                                                edsdk.EdsDownloadComplete(last_item)
-                                                edsdk.EdsRelease(stream)
-                                                self.log(f"✅ Foto recuperada directamente del volumen réflex: {target_p}")
+                                            self._download_directory_item_to_file(last_item, target_p, l_info.size)
                                             edsdk.EdsRelease(last_item)
                                 edsdk.EdsRelease(folder_ref)
                         edsdk.EdsRelease(vol_ref)
@@ -833,22 +882,7 @@ class CanonCamera:
                 if err == EDS_ERR_OK:
                     filename = info.szFileName.decode("utf-8", errors="ignore")
                     save_path = os.path.join(self._save_dir, filename)
-                    os.makedirs(self._save_dir, exist_ok=True)
-
-                    stream = EdsStreamRef()
-                    err_st = edsdk.EdsCreateFileStreamEx(
-                        ctypes.c_wchar_p(save_path),
-                        kEdsFileCreateDisposition_CreateAlways,
-                        kEdsAccess_ReadWrite,
-                        ctypes.byref(stream)
-                    )
-                    if err_st == EDS_ERR_OK:
-                        edsdk.EdsDownload(ref_ptr, info.size, stream)
-                        edsdk.EdsDownloadComplete(ref_ptr)
-                        edsdk.EdsRelease(stream)
-                        self.log(f"✅ Descarga completada desde cámara: {save_path}")
-                    else:
-                        self.log(f"❌ Error al crear archivo de descarga: {get_edsdk_error_msg(err_st)}")
+                    self._download_directory_item_to_file(ref_ptr, save_path, info.size)
                 else:
                     self.log(f"❌ Error leyendo información de foto: {get_edsdk_error_msg(err)}")
             return EDS_ERR_OK
