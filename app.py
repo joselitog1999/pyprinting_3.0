@@ -34,7 +34,7 @@ from focus           import Frontend as FocusFrontend,    Backend as FocusBacken
 from trace           import Frontend as TraceFrontend,    Backend as TraceBackend
 from confocal        import Frontend as ConfocalFrontend, Backend as ConfocalBackend
 from measurements    import Frontend as MeasFrontend,     Backend as MeasBackend
-from camera          import (CameraWindow, Backend as CameraBackend,
+from camera          import (CameraWindow, CanonWorker as CameraBackend,
                               Laser532Window, Laser532Backend)
 from image_analyzer  import ImageAnalyzerWidget, ImageAnalyzerWindow
 from psf_analyzer    import PSFAnalyzerWidget, PSFAnalyzerWindow
