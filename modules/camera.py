@@ -465,6 +465,18 @@ class CanonWorker(QObject):
         if self._cam:
             self._cam.set_save_directory(path)
 
+    @pyqtSlot(str)
+    def set_directory(self, path: str):
+        self.set_save_dir(path)
+
+    @pyqtSlot()
+    def start_stream(self):
+        self.start_camera()
+
+    @pyqtSlot()
+    def stop_stream(self):
+        self.stop_camera()
+
     def make_connection(self, window: 'CameraWindow'):
         """Conecta este worker a la CameraWindow."""
         window.startCameraSignal.connect(self.start_camera)
