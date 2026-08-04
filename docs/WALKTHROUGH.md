@@ -6,22 +6,29 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Definición de `EdsVolumeRef` y Suavizado en la Reanudación de Live View**:
-   - **Corrección de `NameError: name 'EdsVolumeRef' is not defined`**:
-     - Se definió la constante de tipo de puntero de 64 bits `EdsVolumeRef = ctypes.c_void_p` en **`core/canon_edsdk.py`**.
-     - Se actualizaron las referencias de volumen (`vol_ref`, `folder_ref`, `last_item`) a `ctypes.c_void_p()`.
-   - **Estabilización en la Transición de Retorno a Live View**:
-     - Al tomar una fotografía y reactivar el visor en vivo (`enable_live_view()`), el procesador réflex DIGIC 4 requiere ~300-350 ms para levantar el espejo y comenzar a generar cuadros EVF.
-     - Se ajustó el temporizador de reanudación a 350 ms (`QTimer.singleShot(350, self._fetch_frame_adaptive)`). Esto evita solicitar cuadros mientras la cámara aún conmuta el espejo, eliminando el cuelgue post-captura.
+1. **Guardado Único de Fotografías e Inmunidad a Sobreescritura (`get_unique_save_path`)**:
+   - Se implementó la función **`get_unique_save_path`** en **`core/canon_edsdk.py`**.
+   - Cada foto capturada o transferida recibe un nombre formateado con fecha y hora (`CANON_EOS500D_YYYYMMDD_HHMMSS.[ext]`).
+   - Si ya existe un archivo con el mismo nombre en la carpeta seleccionada, se añade automáticamente un contador secuencial (`_01`, `_02`, etc.) impidiendo que **ninguna foto sea sobreescrita**.
 
-2. **Resolución de Error EDSDK `0x000000AB` en Descarga de Fotografías**:
-   - Descarga directa a RAM Memory Stream (`EdsCreateMemoryStream`) y escritura binaria nativa en Python.
+2. **Sincronización de Retorno y Eliminación de Falsos Errores**:
+   - `take_photo()` aguarda de forma síncrona la entrega del archivo por hasta 2.5 segundos.
+   - Al reactivar el Live View post-fotografía, se actualiza la referencia temporal `_connect_time` y se aplica una pausa de 400 ms, eliminando la ráfaga o aceleración de video post-captura.
+
+3. **Visor con Fondo Negro 100% Estático (PyQtGraph)**:
+   - Se configuró el `ViewBox` con `enableMouse=False` y `autoLevels=False` en `_update_frame` dentro de **`core/canon_test.py`**.
+   - La imagen permanece completamente **fija, estática y centrada** sobre el fondo negro sin vibraciones ni desplazamientos automáticos.
+
+4. **Navegación Panorámica en el Campo de Visión (FOV Pan X/Y)**:
+   - Se incorporó la función **`set_zoom_center(cx, cy)`** en **`core/canon_edsdk.py`**.
+   - Se agregaron controles deslizantes **Navegar FOV (Eje X)** y **Navegar FOV (Eje Y)** en la interfaz gráfica.
+   - Permiten desplazarse libremente por todo el campo de visión (FOV) del sensor de 15.1 MP al utilizar Zoom 2x, 5x o 10x.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética de Definición `EdsVolumeRef` y Suavizado Live View**:
+- **Prueba Sintética Completa (Nombres Únicos, Navegación FOV y Visor Estático)**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('EdsVolumeRef and EVF resumption delay fix PASSED!')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Unique Naming, FOV Pan, and Static Canvas fix PASSED!')"
   ```

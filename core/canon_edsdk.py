@@ -544,6 +544,11 @@ class CanonCamera:
             err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
             return err == EDS_ERR_OK
 
+    def set_zoom_center(self, cx: float, cy: float):
+        """Configura el centro del ROI para navegación panorámica en el sensor FOV (0.0 a 1.0)."""
+        self._zoom_center_x = max(0.0, min(1.0, cx))
+        self._zoom_center_y = max(0.0, min(1.0, cy))
+
     def process_frame_zoom_and_orientation(self, frame_rgb: np.ndarray) -> np.ndarray:
         if frame_rgb is None: return frame_rgb
 
@@ -551,12 +556,24 @@ class CanonCamera:
         corrected = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
         corrected = cv2.flip(corrected, 1)
 
-        # Aplicar Zoom 2x de alta resolución por corte central e interpolación cúbica
-        if self._active_zoom == 2:
+        # Aplicar Zoom digital 2x/5x/10x por corte ROI con navegación panorámica FOV
+        if self._active_zoom in (2, 5, 10):
             H, W, C = corrected.shape
-            ch, cw = H // 2, W // 2
-            y1, y2 = ch - H // 4, ch + H // 4
-            x1, x2 = cw - W // 4, cw + W // 4
+            scale = float(self._active_zoom)
+            crop_h = max(10, int(H / scale))
+            crop_w = max(10, int(W / scale))
+
+            cx = getattr(self, '_zoom_center_x', 0.5)
+            cy = getattr(self, '_zoom_center_y', 0.5)
+
+            center_y = int(cy * H)
+            center_x = int(cx * W)
+
+            y1 = max(0, min(H - crop_h, center_y - crop_h // 2))
+            y2 = y1 + crop_h
+            x1 = max(0, min(W - crop_w, center_x - crop_w // 2))
+            x2 = x1 + crop_w
+
             crop = corrected[y1:y2, x1:x2]
             return cv2.resize(crop, (W, H), interpolation=cv2.INTER_CUBIC)
 
@@ -668,8 +685,9 @@ class CanonCamera:
         if ext not in ("jpg", "jpeg", "png", "tiff", "tif", "bmp"):
             ext = "jpg"
 
-        final_filename = f"CANON_EOS500D_{t_str}.{ext}"
-        final_save_path = os.path.join(save_dir, final_filename)
+        desired_filename = f"CANON_EOS500D_{t_str}.{ext}"
+        final_save_path = self.get_unique_save_path(save_dir, desired_filename)
+        self._last_saved_photo = None
 
         with _edsdk_lock:
             # 1. Re-asegurar Host PC save destination
@@ -689,7 +707,7 @@ class CanonCamera:
             self.log(f"📸 Enviando orden de disparo del obturador (TakePicture / ShutterButton)...")
             err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_TakePicture, 0)
             
-            # Si TakePicture falla por AF o BUSY, reintentar con obturación manual sin foco automático (NonAF)
+            # Si TakePicture retorna error de AF o BUSY, reintentar con obturación manual sin foco automático (NonAF)
             if err != EDS_ERR_OK:
                 self.log(f"⚠ TakePicture retornó {get_edsdk_error_msg(err)}. Reintentando con PressShutterButton (modo NonAF directo)...")
                 try:
@@ -705,12 +723,12 @@ class CanonCamera:
                     edsdk.EdsSendStatusCommand(self._camera_ref, kEdsCameraStatusCommand_UILock, 0)
                 except Exception: pass
 
-        # Dar 0.6s para que la cámara complete la exposición y la transferencia por USB
-        time.sleep(0.6)
-
-        # Buscar foto recién guardada en el directorio local
+        # Esperar hasta 2.5s a que el evento de transferencia o la recuperacion de volumen entreguen el archivo
         downloaded_file = None
-        for attempt in range(40):
+        for attempt in range(25):
+            if hasattr(self, '_last_saved_photo') and self._last_saved_photo and os.path.exists(self._last_saved_photo):
+                downloaded_file = self._last_saved_photo
+                break
             if os.path.exists(final_save_path) and os.path.getsize(final_save_path) > 0:
                 downloaded_file = final_save_path
                 break
@@ -723,7 +741,7 @@ class CanonCamera:
             if downloaded_file: break
             time.sleep(0.1)
 
-        # Si el evento C++ tardó en llegar, realizar exploración directa del volumen de la cámara réflex
+        # Si aún no se detectó el archivo descargado, realizar exploración directa del volumen réflex
         if not downloaded_file:
             self._download_newest_photo_from_camera(save_dir)
             for fname in os.listdir(save_dir):
@@ -869,6 +887,17 @@ class CanonCamera:
             except Exception as _e:
                 self.log(f"Advertencia durante descarga manual de volumen: {_e}")
 
+    def get_unique_save_path(self, base_dir: str, desired_filename: str) -> str:
+        """Garantiza un nombre de archivo único agregando contadores numéricos para evitar sobreescrituras."""
+        os.makedirs(base_dir, exist_ok=True)
+        root, ext = os.path.splitext(desired_filename)
+        save_path = os.path.join(base_dir, desired_filename)
+        counter = 1
+        while os.path.exists(save_path):
+            save_path = os.path.join(base_dir, f"{root}_{counter:02d}{ext}")
+            counter += 1
+        return save_path
+
     def set_save_directory(self, path: str):
         self._save_dir = os.path.abspath(path)
         self.log(f"Directorio de guardado configurado en: {self._save_dir}")
@@ -882,8 +911,14 @@ class CanonCamera:
                 err = edsdk.EdsGetDirectoryItemInfo(ref_ptr, ctypes.byref(info))
                 if err == EDS_ERR_OK:
                     filename = info.szFileName.decode("utf-8", errors="ignore")
-                    save_path = os.path.join(self._save_dir, filename)
-                    self._download_directory_item_to_file(ref_ptr, save_path, info.size)
+                    t_str = time.strftime("%Y%m%d_%H%M%S")
+                    ext_str = os.path.splitext(filename)[1]
+                    if not ext_str: ext_str = ".jpg"
+                    desired = f"CANON_EOS500D_{t_str}{ext_str}"
+                    save_path = self.get_unique_save_path(self._save_dir, desired)
+                    ok_dn = self._download_directory_item_to_file(ref_ptr, save_path, info.size)
+                    if ok_dn:
+                        self._last_saved_photo = save_path
                 else:
                     self.log(f"❌ Error leyendo información de foto: {get_edsdk_error_msg(err)}")
             return EDS_ERR_OK

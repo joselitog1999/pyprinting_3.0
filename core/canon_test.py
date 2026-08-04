@@ -368,11 +368,12 @@ class CanonTestWindow(QMainWindow):
         # ── Splitter Principal ───────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 1. Visor de Live View con PyQtGraph (Filtrado Bilinear Activo)
+        # 1. Visor de Live View con PyQtGraph (Fondo Negro Estático y Filtrado Bilinear)
         visor_box = QGroupBox("Live View Óptico Nativo (Calidad Réflex EDSDK)")
         v_lo = QVBoxLayout(visor_box)
         self._view = pg.GraphicsLayoutWidget()
-        self._vb   = self._view.addViewBox(lockAspect=True)
+        self._vb   = self._view.addViewBox(lockAspect=True, enableMouse=False)
+        self._vb.disableAutoRange()
         self._vb.invertY(True)
         # Activar suavizado bilinear en la imagen para máxima definición óptica
         self._img_item = pg.ImageItem()
@@ -406,6 +407,14 @@ class CanonTestWindow(QMainWindow):
         for val, label in ZOOM_MAP.items():
             self._combo_zoom.addItem(label, userData=val)
         form.addRow("Zoom Live View:", self._combo_zoom)
+
+        # Navegación Panorámica en FOV (Navegar por el campo de visión del sensor)
+        self._slider_fov_x = QSlider(Qt.Orientation.Horizontal); self._slider_fov_x.setRange(0, 100); self._slider_fov_x.setValue(50)
+        self._slider_fov_y = QSlider(Qt.Orientation.Horizontal); self._slider_fov_y.setRange(0, 100); self._slider_fov_y.setValue(50)
+        self._slider_fov_x.valueChanged.connect(self._on_fov_center_changed)
+        self._slider_fov_y.valueChanged.connect(self._on_fov_center_changed)
+        form.addRow("Navegar FOV (Eje X):", self._slider_fov_x)
+        form.addRow("Navegar FOV (Eje Y):", self._slider_fov_y)
 
         # Selector de Modo de Color (RGB vs Grises Transmisión)
         self._combo_color_mode = QComboBox()
@@ -602,7 +611,8 @@ class CanonTestWindow(QMainWindow):
 
     @pyqtSlot(np.ndarray)
     def _update_frame(self, frame: np.ndarray):
-        self._img_item.setImage(frame.transpose(1, 0, 2))
+        # Desactivar autoLevels para que la imagen permanezca 100% estática sobre el fondo negro
+        self._img_item.setImage(frame.transpose(1, 0, 2), autoLevels=False)
 
     @pyqtSlot(str)
     def _update_status(self, msg: str):
@@ -648,6 +658,11 @@ class CanonTestWindow(QMainWindow):
     def _on_zoom_changed(self, idx: int):
         val = self._combo_zoom.itemData(idx)
         if val is not None: self.setZoomSignal.emit(val)
+
+    def _on_fov_center_changed(self):
+        cx = self._slider_fov_x.value() / 100.0
+        cy = self._slider_fov_y.value() / 100.0
+        self._cam.set_zoom_center(cx, cy)
 
     def _on_iso_changed(self, idx: int):
         val = self._combo_iso.itemData(idx)
