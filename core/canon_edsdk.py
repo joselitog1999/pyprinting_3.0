@@ -789,22 +789,32 @@ class CanonCamera:
 
         return (saved_path is not None), saved_path
 
-    def _download_directory_item_to_file(self, item_ref: ctypes.c_void_p, save_path: str, item_size: int) -> bool:
+    def _download_directory_item_to_file(self, item_ref: ctypes.c_void_p, save_path: str, item_size: int = 0) -> bool:
         """Descarga un objeto fotográfico de la cámara réflex a un archivo en la PC usando EdsCreateMemoryStream en RAM (inmune a errores de ruta 0x000000AB)."""
         if edsdk is None: return False
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        ref_ptr = ctypes.c_void_p(item_ref) if isinstance(item_ref, int) else item_ref
+
+        # Obtener información real del objeto si item_size <= 0
+        real_size = item_size
+        if real_size <= 0:
+            info = EdsDirectoryItemInfo()
+            err_i = edsdk.EdsGetDirectoryItemInfo(ref_ptr, ctypes.byref(info))
+            if err_i == EDS_ERR_OK:
+                real_size = info.size
+
         stream = EdsStreamRef()
 
         # 1. Probar descarga en memoria RAM (inmune a problemas de formato de ruta de la DLL C++)
-        err = edsdk.EdsCreateMemoryStream(item_size, ctypes.byref(stream))
+        err = edsdk.EdsCreateMemoryStream(real_size, ctypes.byref(stream))
         if err != EDS_ERR_OK:
             err = edsdk.EdsCreateMemoryStream(0, ctypes.byref(stream))
 
         if err == EDS_ERR_OK and stream:
             try:
-                err_dn = edsdk.EdsDownload(item_ref, item_size, stream)
+                err_dn = edsdk.EdsDownload(ref_ptr, real_size, stream)
                 if err_dn == EDS_ERR_OK:
-                    edsdk.EdsDownloadComplete(item_ref)
+                    edsdk.EdsDownloadComplete(ref_ptr)
                     data_ptr = ctypes.c_void_p()
                     length = EdsUInt64(0)
                     edsdk.EdsGetPointer(stream, ctypes.byref(data_ptr))
@@ -815,30 +825,32 @@ class CanonCamera:
                         with open(save_path, "wb") as f:
                             f.write(raw_bytes)
                         self.log(f"✅ ¡FOTO DESCARGADA EXITOSAMENTE VÍA MEMORY STREAM!: {save_path}")
+                        self._last_saved_photo = save_path
                         return True
                     else:
                         self.log("⚠ Memory Stream de descarga retornó 0 bytes.")
                 else:
-                    self.log(f"❌ Error durante EdsDownload: {get_edsdk_error_msg(err_dn)}")
+                    self.log(f"❌ Error durante EdsDownload (0x{err_dn:08X}): {get_edsdk_error_msg(err_dn)}")
             except Exception as _e:
                 self.log(f"Excepción en descarga por memoria: {_e}")
             finally:
                 edsdk.EdsRelease(stream)
 
-        # 2. Fallback con EdsCreateFileStreamEx usando ruta UTF-8/ANSI
+        # 2. Fallback con EdsCreateFileStreamEx usando ctypes.c_wchar_p
         try:
             stream_f = EdsStreamRef()
             err_f = edsdk.EdsCreateFileStreamEx(
-                ctypes.c_char_p(save_path.encode("utf-8")),
+                ctypes.c_wchar_p(save_path),
                 kEdsFileCreateDisposition_CreateAlways,
                 kEdsAccess_ReadWrite,
                 ctypes.byref(stream_f)
             )
             if err_f == EDS_ERR_OK and stream_f:
                 try:
-                    edsdk.EdsDownload(item_ref, item_size, stream_f)
-                    edsdk.EdsDownloadComplete(item_ref)
+                    edsdk.EdsDownload(ref_ptr, real_size, stream_f)
+                    edsdk.EdsDownloadComplete(ref_ptr)
                     self.log(f"✅ Descarga completada vía FileStream: {save_path}")
+                    self._last_saved_photo = save_path
                     return True
                 finally:
                     edsdk.EdsRelease(stream_f)

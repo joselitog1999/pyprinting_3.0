@@ -6,19 +6,23 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Restauración del Visor ViewBox y Ajuste Horizontal (Estilo `camera.py`)**:
-   - **Visibilidad Restablecida**: Se revirtieron `enableMouse=False`, `disableAutoRange()` y `autoLevels=False` en **`core/canon_test.py`**, permitiendo que PyQtGraph procese y renderice los niveles de brillo/contraste de forma dinámica sin dejar la pantalla en negro.
-   - **Ajuste Horizontal**: Se implementó `self._view.setMinimumSize(480, 360)` con `self._vb.setRange(xRange=(0, W), padding=0)` idéntico a la arquitectura de `reserva/camera.py`, logrando que la transmisión en vivo se adapte horizontalmente al contenedor de la subventana.
+1. **Resolución del Error EDSDK `0x00000061` y Excepción `TypeError: c_char_p`**:
+   - **Corrección de Tamaño `item_size` en `_download_directory_item_to_file`**:
+     - Si `item_size` llega en 0 o no inicializado, se consulta automáticamente la estructura `EdsGetDirectoryItemInfo` para extraer el tamaño exacto en bytes (`info.size`).
+     - Se asigna este tamaño a `EdsCreateMemoryStream(real_size)` y `EdsDownload(ref_ptr, real_size, stream)`, eliminando el error `0x00000061` (`EDS_ERR_NOT_SUPPORTED`).
+   - **Corrección de Firma `ctypes.c_wchar_p`**:
+     - Se reemplazó `ctypes.c_char_p` por `ctypes.c_wchar_p(save_path)` en el *fallback* de `EdsCreateFileStreamEx`, eliminando el `TypeError` de tipos en Python.
+   - **Confirmación Síncrona**:
+     - Al completarse la descarga, se registra `self._last_saved_photo = save_path`, permitiendo que la interfaz notifique el éxito al instante sin emitir falsos avisos.
 
-2. **Navegación Panorámica FOV (X/Y) y Nombres Únicos**:
-   - Controles deslizantes **Navegar FOV (Eje X)** y **Navegar FOV (Eje Y)** para exploración de todo el sensor de 15.1 MP.
-   - Algoritmo de nombres únicos `get_unique_save_path` impidiendo sobreescrituras.
+2. **Restauración del Visor ViewBox y Ajuste Horizontal (Estilo `camera.py`)**:
+   - Visor visible y ajustado horizontalmente al contenedor de la subventana.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética de Visor y Ajuste Horizontal**:
+- **Prueba Sintética de Corrección de Tamaño y Firma `c_wchar_p`**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Horizontal ViewBox Fit like camera.py PASSED!')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Download size resolution and c_wchar_p fix PASSED!')"
   ```
