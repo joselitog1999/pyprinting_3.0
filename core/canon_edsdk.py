@@ -204,7 +204,7 @@ class EdsCapacity(ctypes.Structure):
 EdsObjectEventHandler = ctypes.WINFUNCTYPE(
     EdsError, EdsUInt32, EdsDirectoryItemRef, ctypes.c_void_p)
 
-# ── Firmas de Funciones DLL EDSDK ─────────────────────────────────────────────
+# ── Firmas de Funciones DLL EDSDK (Compatibilidad 64-bit) ──────────────────────
 
 if edsdk is not None:
     edsdk.EdsInitializeSDK.restype = EdsError
@@ -221,21 +221,37 @@ if edsdk is not None:
     edsdk.EdsGetPropertyDesc.restype = EdsError
 
     edsdk.EdsSendCommand.restype                    = EdsError
+    edsdk.EdsSendCommand.argtypes                   = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32]
+
     edsdk.EdsSendStatusCommand.restype              = EdsError
+    edsdk.EdsSendStatusCommand.argtypes             = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32]
+
     edsdk.EdsCreateMemoryStream.restype             = EdsError
     edsdk.EdsCreateMemoryStreamFromPointer.restype = EdsError
+
     edsdk.EdsCreateFileStreamEx.restype             = EdsError
+    edsdk.EdsCreateFileStreamEx.argtypes            = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+
     edsdk.EdsCreateEvfImageRef.restype             = EdsError
     edsdk.EdsDownloadEvfImage.restype              = EdsError
     edsdk.EdsGetPointer.restype                    = EdsError
     edsdk.EdsGetLength.restype                    = EdsError
 
-    edsdk.EdsSetObjectEventHandler.restype = EdsError
-    edsdk.EdsDownload.restype              = EdsError
-    edsdk.EdsDownloadComplete.restype      = EdsError
-    edsdk.EdsGetDirectoryItemInfo.restype  = EdsError
+    edsdk.EdsSetObjectEventHandler.restype         = EdsError
+    edsdk.EdsSetObjectEventHandler.argtypes        = [ctypes.c_void_p, ctypes.c_uint32, EdsObjectEventHandler, ctypes.c_void_p]
+
+    edsdk.EdsDownload.restype                      = EdsError
+    edsdk.EdsDownload.argtypes                     = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_void_p]
+
+    edsdk.EdsDownloadComplete.restype              = EdsError
+    edsdk.EdsDownloadComplete.argtypes             = [ctypes.c_void_p]
+
+    edsdk.EdsGetDirectoryItemInfo.restype          = EdsError
+    edsdk.EdsGetDirectoryItemInfo.argtypes         = [ctypes.c_void_p, ctypes.c_void_p]
+
     if hasattr(edsdk, "EdsSetCapacity"):
-        edsdk.EdsSetCapacity.restype       = EdsError
+        edsdk.EdsSetCapacity.restype               = EdsError
+        edsdk.EdsSetCapacity.argtypes              = [ctypes.c_void_p, EdsCapacity]
 
 # ── Tablas de Conversión para Canon EOS 500D ──────────────────────────────────
 
@@ -803,11 +819,12 @@ class CanonCamera:
         self.log(f"Directorio de guardado configurado en: {self._save_dir}")
 
     def _register_photo_handler(self):
-        def _on_dir_item_created(event: int, item_ref: EdsDirectoryItemRef, context: ctypes.c_void_p) -> int:
+        def _on_dir_item_created(event: int, item_ref: Any, context: ctypes.c_void_p) -> int:
             self.log("📸 Evento detectado: Nueva foto lista en la réflex. Iniciando transferencia a PC...")
             with _edsdk_lock:
+                ref_ptr = ctypes.c_void_p(item_ref) if isinstance(item_ref, int) else item_ref
                 info = EdsDirectoryItemInfo()
-                err = edsdk.EdsGetDirectoryItemInfo(item_ref, ctypes.byref(info))
+                err = edsdk.EdsGetDirectoryItemInfo(ref_ptr, ctypes.byref(info))
                 if err == EDS_ERR_OK:
                     filename = info.szFileName.decode("utf-8", errors="ignore")
                     save_path = os.path.join(self._save_dir, filename)
@@ -821,8 +838,8 @@ class CanonCamera:
                         ctypes.byref(stream)
                     )
                     if err_st == EDS_ERR_OK:
-                        edsdk.EdsDownload(item_ref, info.size, stream)
-                        edsdk.EdsDownloadComplete(item_ref)
+                        edsdk.EdsDownload(ref_ptr, info.size, stream)
+                        edsdk.EdsDownloadComplete(ref_ptr)
                         edsdk.EdsRelease(stream)
                         self.log(f"✅ Descarga completada desde cámara: {save_path}")
                     else:
