@@ -368,12 +368,12 @@ class CanonTestWindow(QMainWindow):
         # ── Splitter Principal ───────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 1. Visor de Live View con PyQtGraph (Fondo Negro Estático y Filtrado Bilinear)
+        # 1. Visor de Live View con PyQtGraph (Fondo Negro y Filtrado Bilinear Estilo camera.py)
         visor_box = QGroupBox("Live View Óptico Nativo (Calidad Réflex EDSDK)")
         v_lo = QVBoxLayout(visor_box)
         self._view = pg.GraphicsLayoutWidget()
-        self._vb   = self._view.addViewBox(lockAspect=True, enableMouse=False)
-        self._vb.disableAutoRange()
+        self._view.setMinimumSize(480, 360)
+        self._vb   = self._view.addViewBox(row=0, col=0, lockAspect=True)
         self._vb.invertY(True)
         # Activar suavizado bilinear en la imagen para máxima definición óptica
         self._img_item = pg.ImageItem()
@@ -611,8 +611,11 @@ class CanonTestWindow(QMainWindow):
 
     @pyqtSlot(np.ndarray)
     def _update_frame(self, frame: np.ndarray):
-        # Desactivar autoLevels para que la imagen permanezca 100% estática sobre el fondo negro
-        self._img_item.setImage(frame.transpose(1, 0, 2), autoLevels=False)
+        self._img_item.setImage(frame.transpose(1, 0, 2))
+        if not hasattr(self, '_range_initialized'):
+            H, W = frame.shape[:2]
+            self._vb.setRange(xRange=(0, W), padding=0)
+            self._range_initialized = True
 
     @pyqtSlot(str)
     def _update_status(self, msg: str):

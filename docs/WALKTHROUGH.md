@@ -6,29 +6,19 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Guardado Único de Fotografías e Inmunidad a Sobreescritura (`get_unique_save_path`)**:
-   - Se implementó la función **`get_unique_save_path`** en **`core/canon_edsdk.py`**.
-   - Cada foto capturada o transferida recibe un nombre formateado con fecha y hora (`CANON_EOS500D_YYYYMMDD_HHMMSS.[ext]`).
-   - Si ya existe un archivo con el mismo nombre en la carpeta seleccionada, se añade automáticamente un contador secuencial (`_01`, `_02`, etc.) impidiendo que **ninguna foto sea sobreescrita**.
+1. **Restauración del Visor ViewBox y Ajuste Horizontal (Estilo `camera.py`)**:
+   - **Visibilidad Restablecida**: Se revirtieron `enableMouse=False`, `disableAutoRange()` y `autoLevels=False` en **`core/canon_test.py`**, permitiendo que PyQtGraph procese y renderice los niveles de brillo/contraste de forma dinámica sin dejar la pantalla en negro.
+   - **Ajuste Horizontal**: Se implementó `self._view.setMinimumSize(480, 360)` con `self._vb.setRange(xRange=(0, W), padding=0)` idéntico a la arquitectura de `reserva/camera.py`, logrando que la transmisión en vivo se adapte horizontalmente al contenedor de la subventana.
 
-2. **Sincronización de Retorno y Eliminación de Falsos Errores**:
-   - `take_photo()` aguarda de forma síncrona la entrega del archivo por hasta 2.5 segundos.
-   - Al reactivar el Live View post-fotografía, se actualiza la referencia temporal `_connect_time` y se aplica una pausa de 400 ms, eliminando la ráfaga o aceleración de video post-captura.
-
-3. **Visor con Fondo Negro 100% Estático (PyQtGraph)**:
-   - Se configuró el `ViewBox` con `enableMouse=False` y `autoLevels=False` en `_update_frame` dentro de **`core/canon_test.py`**.
-   - La imagen permanece completamente **fija, estática y centrada** sobre el fondo negro sin vibraciones ni desplazamientos automáticos.
-
-4. **Navegación Panorámica en el Campo de Visión (FOV Pan X/Y)**:
-   - Se incorporó la función **`set_zoom_center(cx, cy)`** en **`core/canon_edsdk.py`**.
-   - Se agregaron controles deslizantes **Navegar FOV (Eje X)** y **Navegar FOV (Eje Y)** en la interfaz gráfica.
-   - Permiten desplazarse libremente por todo el campo de visión (FOV) del sensor de 15.1 MP al utilizar Zoom 2x, 5x o 10x.
+2. **Navegación Panorámica FOV (X/Y) y Nombres Únicos**:
+   - Controles deslizantes **Navegar FOV (Eje X)** y **Navegar FOV (Eje Y)** para exploración de todo el sensor de 15.1 MP.
+   - Algoritmo de nombres únicos `get_unique_save_path` impidiendo sobreescrituras.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética Completa (Nombres Únicos, Navegación FOV y Visor Estático)**:
+- **Prueba Sintética de Visor y Ajuste Horizontal**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Unique Naming, FOV Pan, and Static Canvas fix PASSED!')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Horizontal ViewBox Fit like camera.py PASSED!')"
   ```
