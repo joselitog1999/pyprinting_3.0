@@ -15,14 +15,15 @@
 #    python -m pip install --upgrade pip
 #    pip install -r requirements.txt
 #
-# 4. Ejecutar PyPrinting 3.0 en Modo Seguro / Simulación:
-#    $env:PYPRINTING_SAFE="1"; python app.py
+# 4. Ejecutar Lanzador Principal ("Bienvenidos al printing"):
+#    python main.py
 #
-# 5. Ejecutar la Suite de Pruebas Nativas Canon EOS 500D (EDSDK):
-#    python canon_test.py
-#
-# 6. Ejecutar el Analizador de Imágenes Independiente:
-#    python image_analyzer.py
+# 5. Ejecutar Módulos Individuales:
+#    python app.py               # Microscopio Derecho (Suite Completa)
+#    python contrapropagante.py  # Microscopio Contrapropagante (Excitación Dual)
+#    python camera.py            # Suite de Cámara Réflex Canon EOS (EDSDK) & Microfotónica
+#    python psf_analyzer.py      # Caracterización 2D de PSF (Gaussiana / Donut LG01)
+#    python image_analyzer.py    # Analizador de Imágenes Estáticas & Tracking
 # ==============================================================================
 
 # ── Interfaz Gráfica y Gráficos en Tiempo Real ────────────────────────────────
