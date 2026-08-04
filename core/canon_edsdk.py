@@ -623,15 +623,20 @@ class CanonCamera:
             return val.value if err == EDS_ERR_OK else 0
 
     def set_property_value(self, prop_id: int, val: int) -> bool:
-        if not self._is_session_open: return False
-        with _edsdk_lock:
-            v = EdsUInt32(val)
-            err = edsdk.EdsSetPropertyData(self._camera_ref, prop_id, 0, ctypes.sizeof(v), ctypes.byref(v))
+        if not self._is_session_open or edsdk is None: return False
+        v = EdsUInt32(val)
+        for attempt in range(5):
+            with _edsdk_lock:
+                try:
+                    err = edsdk.EdsSetPropertyData(self._camera_ref, prop_id, 0, ctypes.sizeof(v), ctypes.byref(v))
+                except Exception as _e:
+                    err = -1
             if err == EDS_ERR_OK:
                 self.log(f"Propiedad 0x{prop_id:04X} actualizada a 0x{val:02X}")
                 return True
-            self.log(f"⚠ Error al cambiar propiedad 0x{prop_id:04X}: {get_edsdk_error_msg(err)}")
-            return False
+            time.sleep(0.06)
+        self.log(f"⚠ Error al cambiar propiedad 0x{prop_id:04X} tras reintentos: {get_edsdk_error_msg(err)}")
+        return False
 
     # ── Captura Inteligente con Pausa de Live View ────────────────────────────
 

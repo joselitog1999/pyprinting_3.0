@@ -6,21 +6,23 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Resolución de Error 64-bit ABI `ctypes.ArgumentError: OverflowError: int too long to convert`**:
-   - **Causa Raíz**: En Python de 64 bits en Windows (`x64`), la función `EdsGetDirectoryItemInfo` y otras funciones DLL de EDSDK carecían de la firma explícita `argtypes = [ctypes.c_void_p, ...]`. Al recibir `item_ref` como una dirección de memoria de 64 bits (ej. `0x000001C17458E560`), `ctypes` intentaba empaquetarla en un `int` C de 32 bits, desbordando y abortando el callback de transferencia.
-   - **Solución Implementada**:
-     - Se definieron tipos explícitos de puntero de 64 bits (`argtypes = [ctypes.c_void_p, ...]`) para todas las firmas EDSDK (`EdsGetDirectoryItemInfo`, `EdsCreateFileStreamEx`, `EdsDownload`, `EdsDownloadComplete`, `EdsSetObjectEventHandler`, `EdsSetCapacity`).
-     - Se envolvió `ref_ptr = ctypes.c_void_p(item_ref)` en el callback de recepción `_on_dir_item_created` para garantizar la conversión transparente sin excepciones en 64 bits.
+1. **Protección Anti-Cuelgues en Selección de Carpeta y Cambios Rápidos de ISO/Tv**:
+   - **Antirrebote (*Debounce Timer*) para ISO y Tv (200 ms)**:
+     - Cambiar rápidamente las opciones de ISO o velocidad de obturación en la interfaz enviaba ráfagas de comandos `EdsSetPropertyData` al chip DIGIC 4 de la cámara réflex, saturando la transacción USB (`EDS_ERR_DEVICE_BUSY`).
+     - Se implementó un temporizador de antirrebote de 200 ms (`_debounce_iso_timer` y `_debounce_tv_timer`) que espera a que el usuario termine de desplazarse antes de enviar un único comando limpio a la cámara.
+   - **Reintentos Seguros en `set_property_value`**:
+     - Se agregó un bucle de 5 reintentos espaciados 60 ms en `set_property_value()` para tolerar estados de ocupado (`BUSY`) sin abortar Python.
+   - **Pausa de Stream Durante Diálogos Nativos (`QFileDialog`)**:
+     - Abrir la ventana de selección de carpetas bloqueaba el hilo principal de Qt mientras el hilo de la cámara continuaba emitiendo cuadros. Se agregó la pausa automática del bucle adaptativo durante la selección de carpetas para prevenir bloqueos (*deadlocks*).
 
-2. **Captura y Guardado de Fotos en Resolución Nativa de 15.1 MP (4752×3168)**:
-   - **Registro de Capacidad Host PC (`EdsSetCapacity`)**: Notificación de 2 TB virtuales en la apertura de sesión y pre-disparo.
-   - **Disparo NonAF y Recuperación de Volumen**: Fallback a `ShutterButton_Completely_NonAF` y exploración manual del volumen réflex.
+2. **Resolución de Error 64-bit ABI `ctypes.ArgumentError: OverflowError: int too long to convert`**:
+   - Se configuraron las firmas explícitas de 64 bits (`argtypes = [ctypes.c_void_p, ...]`) para todas las funciones DLL del SDK de Canon EDSDK.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética de Corrección 64-bit `ctypes.ArgumentError`**:
+- **Prueba Sintética de Antirrebote y Pausa en Selección de Carpeta**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('64-bit ctypes ArgumentError fix PASSED!')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Debounced ISO/Tv and folder picker pause test PASSED!')"
   ```

@@ -522,6 +522,17 @@ class CanonTestWindow(QMainWindow):
         # Barra de Estado
         self.statusBar().showMessage("Inicializando controlador Canon EDSDK...")
 
+        # Temporizadores de Antirrebote (Debounce 200 ms) para ISO y Tv
+        self._debounce_iso_timer = QTimer(self)
+        self._debounce_iso_timer.setSingleShot(True)
+        self._debounce_iso_timer.setInterval(200)
+        self._debounce_iso_timer.timeout.connect(self._apply_debounced_iso)
+
+        self._debounce_tv_timer = QTimer(self)
+        self._debounce_tv_timer.setSingleShot(True)
+        self._debounce_tv_timer.setInterval(200)
+        self._debounce_tv_timer.timeout.connect(self._apply_debounced_tv)
+
         # Conectar Señales UI
         self._btn_connect.clicked.connect(self._toggle_camera)
         self._btn_diag.clicked.connect(self._force_shutter_cleanup)
@@ -640,17 +651,40 @@ class CanonTestWindow(QMainWindow):
 
     def _on_iso_changed(self, idx: int):
         val = self._combo_iso.itemData(idx)
-        if val is not None: self.setIsoSignal.emit(val)
+        if val is not None:
+            self._pending_iso = val
+            self._debounce_iso_timer.start()
+
+    def _apply_debounced_iso(self):
+        if hasattr(self, '_pending_iso') and self._pending_iso is not None:
+            self.setIsoSignal.emit(self._pending_iso)
 
     def _on_tv_changed(self, idx: int):
         val = self._combo_tv.itemData(idx)
-        if val is not None: self.setTvSignal.emit(val)
+        if val is not None:
+            self._pending_tv = val
+            self._debounce_tv_timer.start()
+
+    def _apply_debounced_tv(self):
+        if hasattr(self, '_pending_tv') and self._pending_tv is not None:
+            self.setTvSignal.emit(self._pending_tv)
 
     def _select_save_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de guardado", str(DEFAULT_DATA_PATH))
-        if d:
-            self._lbl_dir.setText(f"Guardando en: {d}")
-            self.setSaveDirSignal.emit(d)
+        # Pausar temporalmente la emision de frames mientras se muestra el dialogo nativo de Windows
+        was_running = False
+        if hasattr(self._worker, '_running'):
+            was_running = self._worker._running
+            self._worker._running = False
+
+        try:
+            d = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de guardado", str(DEFAULT_DATA_PATH))
+            if d:
+                self._lbl_dir.setText(f"Guardando en: {d}")
+                self.setSaveDirSignal.emit(d)
+        finally:
+            if was_running and hasattr(self._worker, '_running'):
+                self._worker._running = True
+                QTimer.singleShot(10, self._worker._fetch_frame_adaptive)
 
     def _force_shutter_cleanup(self):
         self._append_log("🛡️ Ejecutando Diagnóstico & Cierre Forzado del Obturador Físico...")
