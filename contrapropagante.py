@@ -51,7 +51,7 @@ from shutters import Frontend as ShuttersFrontend, Backend as ShuttersBackend
 from focus import Frontend as FocusFrontend, Backend as FocusBackend
 from trace import Frontend as TraceFrontend, Backend as TraceBackend
 from measurements import Frontend as MeasFrontend, Backend as MeasBackend
-from camera import (CameraWindow, Backend as CameraBackend,
+from camera import (CameraWindow, CanonWorker as CameraBackend,
                     Laser532Window, Laser532Backend)
 from image_analyzer import ImageAnalyzerWindow
 from psf_analyzer import PSFAnalyzerWindow
