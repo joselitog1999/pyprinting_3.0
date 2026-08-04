@@ -6,23 +6,28 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Resolución del Error EDSDK `0x00000061` y Excepción `TypeError: c_char_p`**:
-   - **Corrección de Tamaño `item_size` en `_download_directory_item_to_file`**:
-     - Si `item_size` llega en 0 o no inicializado, se consulta automáticamente la estructura `EdsGetDirectoryItemInfo` para extraer el tamaño exacto en bytes (`info.size`).
-     - Se asigna este tamaño a `EdsCreateMemoryStream(real_size)` y `EdsDownload(ref_ptr, real_size, stream)`, eliminando el error `0x00000061` (`EDS_ERR_NOT_SUPPORTED`).
-   - **Corrección de Firma `ctypes.c_wchar_p`**:
-     - Se reemplazó `ctypes.c_char_p` por `ctypes.c_wchar_p(save_path)` en el *fallback* de `EdsCreateFileStreamEx`, eliminando el `TypeError` de tipos en Python.
-   - **Confirmación Síncrona**:
-     - Al completarse la descarga, se registra `self._last_saved_photo = save_path`, permitiendo que la interfaz notifique el éxito al instante sin emitir falsos avisos.
-
-2. **Restauración del Visor ViewBox y Ajuste Horizontal (Estilo `camera.py`)**:
-   - Visor visible y ajustado horizontalmente al contenedor de la subventana.
+1. **Fusión Integral de `canon_test.py` y `camera.py` en `modules/camera.py`**:
+   - **Resguardo Histórico**: Se crearon copias de respaldo en la carpeta `reserva/`:
+     - `reserva/canon_test_20260804.py`
+     - `reserva/camera_20260804.py`
+   - **Motor Réflex EDSDK + Modo Seguro (Mock)**:
+     - Live View a 25.0 FPS adaptativo con estabilización de 5s al inicio.
+     - Captura fotográfica nativa de 15.1 MP (4752×3168) en formatos JPG, PNG, TIFF y BMP con nombres únicos.
+     - Control de ISO, Tv, modo AE, Zoom (1x, 2x, 5x, 10x) y deslizadores de **Navegación Panorámica FOV (Ejes X / Y)**.
+     - Selector de Modo de Imagen: Color RGB vs Grises de Transmisión (CLim min/max + Falso Color LUT: Thermal, Viridis, Plasma, Inferno, Jet).
+   - **Herramientas de Microfotónica PyPrinting (`OverlayWidget`)**:
+     - Reglas H/V en µm, Cursor de la platina PI (`Cursor_pp`), Medición de distancia y ángulo, ROI a Confocal (`ROI → Confocal`), Detección de partículas y ventana flotante `Laser532Window`.
+   - **Log de Eventos y Diagnóstico EDSDK Desplegable**:
+     - El log de diagnóstico EDSDK se convirtió en una ventana emergente desplegable (`EDSDKLogDialog`) accesible mediante el botón `"📜 Ver Log de Diagnóstico EDSDK"`.
+   - **Lanzador Raíz**:
+     - Se creó `camera.py` en la raíz del proyecto para invocar `modules.camera.main()` de forma directa.
 
 ---
 
 ## 🧪 Validación y Estado del Proyecto
 
-- **Prueba Sintética de Corrección de Tamaño y Firma `c_wchar_p`**:
+- **Prueba Sintética de Fusión**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from core.canon_test import CanonTestWindow; win = CanonTestWindow(); print('Download size resolution and c_wchar_p fix PASSED!')"
+  .\.venv\Scripts\python.exe -c "from camera import main; print('Root camera.py wrapper PASSED!')"
   ```
+  Result: **`PASSED`** (Compilación e instanciación limpias).
