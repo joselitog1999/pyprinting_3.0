@@ -2121,6 +2121,22 @@ class Laser532Backend(QObject):
 #  PUNTO DE ENTRADA (Ejecución directa)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def main():
+    """Punto de entrada público — llamado por el launcher raíz camera.py."""
+    qapp = QApplication.instance() or QApplication(sys.argv)
+
+    worker = CanonWorker()
+    thread = QThread()
+    worker.moveToThread(thread)
+
+    win = CameraWindow()
+    worker.make_connection(win)
+    thread.start(QThread.Priority.HighPriority)
+
+    win.show()
+    sys.exit(qapp.exec())
+
+
 if __name__ == "__main__":
     import sys
     qapp = QApplication(sys.argv)
