@@ -193,6 +193,13 @@ class EdsDirectoryItemInfo(ctypes.Structure):
         ("dateTime", ctypes.c_uint32)
     ]
 
+class EdsCapacity(ctypes.Structure):
+    _fields_ = [
+        ("numberOfFreeClusters", ctypes.c_int32),
+        ("bytesPerSector", ctypes.c_int32),
+        ("reset", ctypes.c_int32)
+    ]
+
 # Function Callbacks
 EdsObjectEventHandler = ctypes.WINFUNCTYPE(
     EdsError, EdsUInt32, EdsDirectoryItemRef, ctypes.c_void_p)
@@ -214,6 +221,7 @@ if edsdk is not None:
     edsdk.EdsGetPropertyDesc.restype = EdsError
 
     edsdk.EdsSendCommand.restype                    = EdsError
+    edsdk.EdsSendStatusCommand.restype              = EdsError
     edsdk.EdsCreateMemoryStream.restype             = EdsError
     edsdk.EdsCreateMemoryStreamFromPointer.restype = EdsError
     edsdk.EdsCreateFileStreamEx.restype             = EdsError
@@ -226,6 +234,8 @@ if edsdk is not None:
     edsdk.EdsDownload.restype              = EdsError
     edsdk.EdsDownloadComplete.restype      = EdsError
     edsdk.EdsGetDirectoryItemInfo.restype  = EdsError
+    if hasattr(edsdk, "EdsSetCapacity"):
+        edsdk.EdsSetCapacity.restype       = EdsError
 
 # ── Tablas de Conversión para Canon EOS 500D ──────────────────────────────────
 
@@ -398,6 +408,18 @@ class CanonCamera:
             # Configurar guardado directo en PC (Host)
             save_to = EdsUInt32(kEdsSaveTo_Host)
             edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_SaveTo, 0, ctypes.sizeof(save_to), ctypes.byref(save_to))
+
+            # Notificar capacidad de almacenamiento del Host PC a la cámara réflex
+            try:
+                cap = EdsCapacity()
+                cap.numberOfFreeClusters = 0x7FFFFFFF
+                cap.bytesPerSector = 512
+                cap.reset = 1
+                if hasattr(edsdk, "EdsSetCapacity"):
+                    edsdk.EdsSetCapacity(self._camera_ref, cap)
+                    self.log("Capacidad ilimitada de almacenamiento Host PC registrada en la réflex.")
+            except Exception as _e:
+                self.log(f"Advertencia al notificar EdsSetCapacity: {_e}")
 
             # Registrar handlers para eventos de fotos creadas o listas para transferencia
             self._register_photo_handler()
@@ -602,19 +624,20 @@ class CanonCamera:
     def take_photo(self, target_format: str = "jpg") -> Tuple[bool, Optional[str]]:
         """
         Pausa el Live View temporalmente para liberar el sensor réflex DIGIC 4,
-        ejecuta el disparo TakePicture en resolución completa de 15 MP (4752x3168),
-        descarga el archivo a la PC en el formato solicitado (.jpg, .png, .tiff, .bmp),
+        configura la capacidad de Host PC, ejecuta el disparo del obturador
+        en resolución completa de 15.1 MP (4752x3168), descarga y convierte
+        el archivo a la PC en el formato solicitado (.jpg, .png, .tiff, .bmp),
         y reactiva el Live View.
         """
         if not self._is_session_open or edsdk is None:
             self.log("⚠ No se puede tomar foto: Sesión USB no abierta.")
             return False, None
 
-        self.log(f"📸 Pausando Live View para disparo en resolución completa de 15 MP (4752×3168)... Formato objetivo: .{target_format.upper()}")
+        self.log(f"📸 Pausando Live View para disparo en resolución completa de 15.1 MP (4752×3168)... Formato objetivo: .{target_format.upper()}")
         was_evf = self._evf_enabled
         if was_evf:
             self.disable_live_view()
-            time.sleep(0.15) # Pausa necesaria para liberar buffer de sensor
+            time.sleep(0.35) # Pausa necesaria para liberar sensor réflex DIGIC 4 antes de obturar
 
         save_dir = self._save_dir
         os.makedirs(save_dir, exist_ok=True)
@@ -627,35 +650,66 @@ class CanonCamera:
         final_save_path = os.path.join(save_dir, final_filename)
 
         with _edsdk_lock:
-            # Configurar guardado directo en PC (Host)
+            # 1. Re-asegurar Host PC save destination
             save_to = EdsUInt32(kEdsSaveTo_Host)
             edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_SaveTo, 0, ctypes.sizeof(save_to), ctypes.byref(save_to))
 
-            self.log(f"📸 Enviando orden de disparo del obturador (TakePicture)...")
+            # 2. Re-notificar capacidad de almacenamiento del Host PC a la cámara réflex
+            try:
+                cap = EdsCapacity()
+                cap.numberOfFreeClusters = 0x7FFFFFFF
+                cap.bytesPerSector = 512
+                cap.reset = 1
+                if hasattr(edsdk, "EdsSetCapacity"):
+                    edsdk.EdsSetCapacity(self._camera_ref, cap)
+            except Exception: pass
+
+            self.log(f"📸 Enviando orden de disparo del obturador (TakePicture / ShutterButton)...")
             err = edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_TakePicture, 0)
+            
+            # Si TakePicture falla por AF o BUSY, reintentar con obturación manual sin foco automático (NonAF)
             if err != EDS_ERR_OK:
-                self.log(f"⚠ TakePicture retornó {get_edsdk_error_msg(err)}. Reintentando con PressShutterButton...")
+                self.log(f"⚠ TakePicture retornó {get_edsdk_error_msg(err)}. Reintentando con PressShutterButton (modo NonAF directo)...")
+                try:
+                    edsdk.EdsSendStatusCommand(self._camera_ref, kEdsCameraStatusCommand_UIUnLock, 0)
+                    time.sleep(0.05)
+                except Exception: pass
+
                 edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF)
-                time.sleep(0.08)
+                time.sleep(0.12)
                 edsdk.EdsSendCommand(self._camera_ref, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF)
+                
+                try:
+                    edsdk.EdsSendStatusCommand(self._camera_ref, kEdsCameraStatusCommand_UILock, 0)
+                except Exception: pass
 
-        # Esperar la foto creada en el buffer C++ o descargarla directamente
-        time.sleep(0.5)
+        # Dar 0.6s para que la cámara complete la exposición y la transferencia por USB
+        time.sleep(0.6)
 
-        # Buscar foto descargada en save_dir o convertir si fue descargada como JPG/CR2
+        # Buscar foto recién guardada en el directorio local
         downloaded_file = None
-        for attempt in range(30):
+        for attempt in range(40):
             if os.path.exists(final_save_path) and os.path.getsize(final_save_path) > 0:
                 downloaded_file = final_save_path
                 break
             for fname in os.listdir(save_dir):
                 if fname.startswith("IMG_") or fname.startswith("CANON_"):
                     fpath = os.path.join(save_dir, fname)
-                    if os.path.exists(fpath) and (time.time() - os.path.getmtime(fpath)) < 15:
+                    if os.path.exists(fpath) and (time.time() - os.path.getmtime(fpath)) < 25:
                         downloaded_file = fpath
                         break
             if downloaded_file: break
             time.sleep(0.1)
+
+        # Si el evento C++ tardó en llegar, realizar exploración directa del volumen de la cámara réflex
+        if not downloaded_file:
+            self._download_newest_photo_from_camera(save_dir)
+            for fname in os.listdir(save_dir):
+                if fname.startswith("IMG_") or fname.startswith("CANON_"):
+                    fpath = os.path.join(save_dir, fname)
+                    if os.path.exists(fpath) and (time.time() - os.path.getmtime(fpath)) < 25:
+                        downloaded_file = fpath
+                        break
 
         saved_path = None
         if downloaded_file:
@@ -674,7 +728,7 @@ class CanonCamera:
                     if img is not None:
                         cv2.imwrite(final_save_path, img)
                         saved_path = final_save_path
-                        self.log(f"✅ Conversión a formato .{ext.upper()} completada en 15 MP (4752×3168): {final_save_path}")
+                        self.log(f"✅ Conversión a formato .{ext.upper()} completada en 15.1 MP (4752×3168): {final_save_path}")
                         if downloaded_file != final_save_path:
                             try: os.remove(downloaded_file)
                             except Exception: pass
@@ -687,13 +741,62 @@ class CanonCamera:
             if saved_path:
                 self.log(f"✅ ¡FOTO DE ALTA RESOLUCIÓN GUARDADA EN DISCO!: {saved_path}")
         else:
-            self.log("⚠ Foto tomada en hardware pero no se detectó el archivo descargado por USB.")
+            self.log("⚠ No se detectó el archivo descargado por USB tras reintentos.")
 
         if was_evf:
             self.log("🎥 Reactivando Live View...")
             self.enable_live_view()
 
         return (saved_path is not None), saved_path
+
+    def _download_newest_photo_from_camera(self, save_dir: str):
+        """Descarga la última foto disponible explorando directamente la tarjeta/volumen de la réflex."""
+        if not self._is_session_open or edsdk is None: return
+        with _edsdk_lock:
+            try:
+                vol_list_count = EdsUInt32(0)
+                err = edsdk.EdsGetChildCount(self._camera_ref, ctypes.byref(vol_list_count))
+                if err == EDS_ERR_OK and vol_list_count.value > 0:
+                    vol_ref = EdsVolumeRef()
+                    err_v = edsdk.EdsGetChildAtIndex(self._camera_ref, 0, ctypes.byref(vol_ref))
+                    if err_v == EDS_ERR_OK and vol_ref:
+                        dir_count = EdsUInt32(0)
+                        edsdk.EdsGetChildCount(vol_ref, ctypes.byref(dir_count))
+                        for i in range(dir_count.value):
+                            folder_ref = EdsDirectoryItemRef()
+                            err_f = edsdk.EdsGetChildAtIndex(vol_ref, i, ctypes.byref(folder_ref))
+                            if err_f == EDS_ERR_OK and folder_ref:
+                                info = EdsDirectoryItemInfo()
+                                edsdk.EdsGetDirectoryItemInfo(folder_ref, ctypes.byref(info))
+                                fname_str = info.szFileName.decode("utf-8", errors="ignore")
+                                if info.isFolder and fname_str.upper() in ("DCIM", "100CANON", "101CANON", "MISC"):
+                                    item_count = EdsUInt32(0)
+                                    edsdk.EdsGetChildCount(folder_ref, ctypes.byref(item_count))
+                                    if item_count.value > 0:
+                                        last_item = EdsDirectoryItemRef()
+                                        err_l = edsdk.EdsGetChildAtIndex(folder_ref, item_count.value - 1, ctypes.byref(last_item))
+                                        if err_l == EDS_ERR_OK and last_item:
+                                            l_info = EdsDirectoryItemInfo()
+                                            edsdk.EdsGetDirectoryItemInfo(last_item, ctypes.byref(l_info))
+                                            out_name = l_info.szFileName.decode("utf-8", errors="ignore")
+                                            target_p = os.path.join(save_dir, out_name)
+                                            stream = EdsStreamRef()
+                                            err_st = edsdk.EdsCreateFileStreamEx(
+                                                ctypes.c_wchar_p(target_p),
+                                                kEdsFileCreateDisposition_CreateAlways,
+                                                kEdsAccess_ReadWrite,
+                                                ctypes.byref(stream)
+                                            )
+                                            if err_st == EDS_ERR_OK:
+                                                edsdk.EdsDownload(last_item, l_info.size, stream)
+                                                edsdk.EdsDownloadComplete(last_item)
+                                                edsdk.EdsRelease(stream)
+                                                self.log(f"✅ Foto recuperada directamente del volumen réflex: {target_p}")
+                                            edsdk.EdsRelease(last_item)
+                                edsdk.EdsRelease(folder_ref)
+                        edsdk.EdsRelease(vol_ref)
+            except Exception as _e:
+                self.log(f"Advertencia durante descarga manual de volumen: {_e}")
 
     def set_save_directory(self, path: str):
         self._save_dir = os.path.abspath(path)
