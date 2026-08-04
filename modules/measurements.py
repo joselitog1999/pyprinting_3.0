@@ -9,31 +9,26 @@ Ambos módulos comparten ~80% del código; la diferencia está en:
   - mode='dimers':   ciclo mover→autofoco→center_scan→(pree_scan)→traza→(post_scan)→detect
     con los booleanos preescanbool y postscanbool que habilitan los scans extra.
 
-La señal scanfinishedSignal de Confocal.Backend (unificada) emite:
-    (image, center_mass, image_gone, image_back, mode, number_scan)
-y este módulo la recibe en _on_scan_finished() para dispatchar correctamente.
-
-Correcciones respecto a los originales:
-  - isChecked() con paréntesis
-  - pi importado desde config (singleton)
-  - open_shutter/close_shutter/up_flipper/down_flipper desde nidaq
-  - parametersSignal de Printing y Dimers tenían firmas distintas (int,list,bool)
-    vs (int,list,bool,bool) → ahora ambos usan (int, list, bool, bool)
-    donde el cuarto bool es postscanbool (ignorado en modo printing)
+Incorpora 5 Modos de Criterio de Parada Seleccionables en Tiempo Real:
+  - Modo 0: Legacy (Salto Relativo Estándar I_new / I_old > Umbral)
+  - Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso (N_hold steps)
+  - Modo 2: Derivada Temporal Adaptativa & Aplanamiento (dI/dt -> 0 post-pico)
+  - Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado (K_scale, P%)
+  - Modo 4: Criterio Híbrido Tri-Factor (All-In-One)
 """
 from __future__ import annotations
 import os
 import time
 import numpy as np
 from PIL import Image
-from tkinter import filedialog
 import tkinter as tk
+from tkinter import filedialog
 
 import pyqtgraph as pg
 from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QWidget, QFrame, QGridLayout,
-                              QHBoxLayout, QLabel, QLineEdit, QComboBox,
-                              QPushButton, QCheckBox)
+                               QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QComboBox,
+                               QPushButton, QCheckBox, QGroupBox)
 from PyQt6.QtGui     import QIntValidator
 from pyqtgraph.dockarea import DockArea, Dock
 
@@ -54,20 +49,14 @@ from nidaq  import (open_shutter, close_shutter,
 # ══════════════════════════════════════════════════════════════════════════════
 
 class Frontend(QFrame):
-    """
-    Pasar mode='printing' o mode='dimers' al instanciar.
-    El modo controla qué campos extras se muestran (pre/post scan para dimers).
-    """
-
     setreferenceSignal  = pyqtSignal()
     goreferenceSignal   = pyqtSignal()
     readgridSignal      = pyqtSignal()
     gridcreateSignal    = pyqtSignal(list)
     foldergridSignal    = pyqtSignal()
     gridSignal          = pyqtSignal()
-    # (color_laser, [umbral, umbral_down, tmax, autofoc, shiftx, shifty, dx, dy],
-    #  scanbool, postscanbool)
-    parametersSignal    = pyqtSignal(int, list, bool, bool)
+    # (color_laser, stopping_mode, params, scanbool, postscanbool)
+    parametersSignal    = pyqtSignal(int, int, list, bool, bool)
     pauseSignal         = pyqtSignal()
     next_index_Signal   = pyqtSignal()
     new_index_Signal    = pyqtSignal(int)
@@ -77,8 +66,6 @@ class Frontend(QFrame):
         super().__init__(*args, **kwargs)
         self.mode = mode
         self._setup_gui()
-
-    # ── GUI ───────────────────────────────────────────────────────────────────
 
     def _setup_gui(self):
         label = "Printing" if self.mode == "printing" else "Dimers"
@@ -92,12 +79,32 @@ class Frontend(QFrame):
             lambda: self._color_menu(self.grid_laser))
         self._color_menu(self.grid_laser)
 
-        # ── Parámetros de detección ───────────────────────────────────────────
-        self.umbralEdit      = QLineEdit(str(DEFAULT_PRINTING_UMBRAL))
-        self.umbral_downEdit = QLineEdit(str(int(DEFAULT_PRINTING_UMBRAL_DOWN) if DEFAULT_PRINTING_UMBRAL_DOWN.is_integer() else DEFAULT_PRINTING_UMBRAL_DOWN))
-        self.tmaxEdit        = QLineEdit(str(int(DEFAULT_PRINTING_TMAX) if DEFAULT_PRINTING_TMAX.is_integer() else DEFAULT_PRINTING_TMAX))
+        # ── Selector de 5 Modos de Criterio de Parada ─────────────────────────
+        self.stop_mode_combo = QComboBox()
+        self.stop_mode_combo.addItems([
+            "Modo 0: Legacy (Salto Relativo Estándar)",
+            "Modo 1: Salto Relativo + Umbral Absoluto & Anti-Paso",
+            "Modo 2: Derivada Temporal Adaptativa & Aplanamiento (dI/dt)",
+            "Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado",
+            "Modo 4: Criterio Híbrido Tri-Factor (All-In-One)"
+        ])
+        self.stop_mode_combo.currentIndexChanged.connect(self._on_stopping_mode_changed)
+
+        # ── Parámetros de detección estándar y avanzados ──────────────────────
+        self.umbralEdit       = QLineEdit(str(DEFAULT_PRINTING_UMBRAL)); self.umbralEdit.setFixedWidth(55)
+        self.umbral_downEdit  = QLineEdit(str(int(DEFAULT_PRINTING_UMBRAL_DOWN) if DEFAULT_PRINTING_UMBRAL_DOWN.is_integer() else DEFAULT_PRINTING_UMBRAL_DOWN)); self.umbral_downEdit.setFixedWidth(55)
+        self.tmaxEdit         = QLineEdit(str(int(DEFAULT_PRINTING_TMAX) if DEFAULT_PRINTING_TMAX.is_integer() else DEFAULT_PRINTING_TMAX)); self.tmaxEdit.setFixedWidth(55)
         self.steps_beforeEdit = QLineEdit(str(DEFAULT_PRINTING_STEPS_BEFORE)); self.steps_beforeEdit.setFixedWidth(44)
         self.steps_afterEdit  = QLineEdit(str(DEFAULT_PRINTING_STEPS_AFTER)); self.steps_afterEdit.setFixedWidth(44)
+        
+        # Parámetros dinámicos para Modos 1-4
+        self.umbral_absEdit   = QLineEdit("2.500"); self.umbral_absEdit.setFixedWidth(55)
+        self.n_holdEdit       = QLineEdit("5");     self.n_holdEdit.setFixedWidth(44)
+        self.slope_minEdit    = QLineEdit("15.0");  self.slope_minEdit.setFixedWidth(55)
+        self.slope_flatEdit   = QLineEdit("2.0");   self.slope_flatEdit.setFixedWidth(55)
+        self.ratio_kEdit      = QLineEdit("10.0");  self.ratio_kEdit.setFixedWidth(55)
+        self.percent_threshEdit = QLineEdit("50.0"); self.percent_threshEdit.setFixedWidth(55)
+
         self.autofocEdit     = QLineEdit(str(DEFAULT_PRINTING_AUTOFOCUS_EVERY));  self.autofocEdit.setFixedWidth(44)
         self.shiftxEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_X) if DEFAULT_PRINTING_SHIFT_X.is_integer() else DEFAULT_PRINTING_SHIFT_X));  self.shiftxEdit.setFixedWidth(44)
         self.shiftyEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_Y) if DEFAULT_PRINTING_SHIFT_Y.is_integer() else DEFAULT_PRINTING_SHIFT_Y));  self.shiftyEdit.setFixedWidth(44)
@@ -209,38 +216,54 @@ class Frontend(QFrame):
         pcW = QWidget(); plo = QGridLayout(pcW)
         plo.setContentsMargins(6, 6, 6, 6)
         plo.setHorizontalSpacing(10)
-        plo.setVerticalSpacing(6)
+        plo.setVerticalSpacing(4)
 
         # Fila 0: Botón de directorio + Nombre de ruta
         plo.addWidget(self.imprimir_button,    0, 0, 1, 2)
         plo.addWidget(self.NameDirValue,       0, 2, 1, 2)
 
-        # Fila 1: Láser | Umbral
-        plo.addWidget(QLabel("Láser:"),        1, 0); plo.addWidget(self.grid_laser,       1, 1)
-        plo.addWidget(QLabel("Umbral:"),       1, 2); plo.addWidget(self.umbralEdit,        1, 3)
+        # Fila 1: Selector de Criterio de Parada
+        plo.addWidget(QLabel("Criterio Parada:"), 1, 0)
+        plo.addWidget(self.stop_mode_combo,       1, 1, 1, 3)
 
-        # Fila 2: Umbral down | T max (s)
-        plo.addWidget(QLabel("Umbral down:"),  2, 0); plo.addWidget(self.umbral_downEdit,   2, 1)
-        plo.addWidget(QLabel("T max (s):"),    2, 2); plo.addWidget(self.tmaxEdit,          2, 3)
+        # Fila 2: Láser | Umbral Relativo
+        plo.addWidget(QLabel("Láser:"),        2, 0); plo.addWidget(self.grid_laser,       2, 1)
+        self.lbl_umbral_rel = QLabel("Umbral rel:"); plo.addWidget(self.lbl_umbral_rel, 2, 2); plo.addWidget(self.umbralEdit, 2, 3)
 
-        # Fila 3: Steps before | Steps after
-        plo.addWidget(QLabel("Steps before:"), 3, 0); plo.addWidget(self.steps_beforeEdit, 3, 1)
-        plo.addWidget(QLabel("Steps after:"),  3, 2); plo.addWidget(self.steps_afterEdit,  3, 3)
+        # Fila 3: Umbral Absoluto (V) | N hold steps
+        self.lbl_umbral_abs = QLabel("Umbral Abs (V):"); plo.addWidget(self.lbl_umbral_abs, 3, 0); plo.addWidget(self.umbral_absEdit, 3, 1)
+        self.lbl_n_hold     = QLabel("N hold steps:");  plo.addWidget(self.lbl_n_hold,     3, 2); plo.addWidget(self.n_holdEdit,     3, 3)
 
-        # Fila 4: Scan pre-print | Post scan
-        plo.addWidget(self.scan_check,         4, 0, 1, 2)
+        # Fila 4: Slope Min (V/s) | Slope Flat (V/s)
+        self.lbl_slope_min  = QLabel("Slope Min:");     plo.addWidget(self.lbl_slope_min,  4, 0); plo.addWidget(self.slope_minEdit,  4, 1)
+        self.lbl_slope_flat = QLabel("Slope Flat:");    plo.addWidget(self.lbl_slope_flat, 4, 2); plo.addWidget(self.slope_flatEdit, 4, 3)
+
+        # Fila 5: Ratio K (P_print/P_scan) | Porcentaje Umbral (%)
+        self.lbl_ratio_k    = QLabel("Ratio K (P/S):"); plo.addWidget(self.lbl_ratio_k,    5, 0); plo.addWidget(self.ratio_kEdit,    5, 1)
+        self.lbl_pct_thresh = QLabel("Umbral (%):");    plo.addWidget(self.lbl_pct_thresh, 5, 2); plo.addWidget(self.percent_threshEdit, 5, 3)
+
+        # Fila 6: Umbral down | T max (s)
+        plo.addWidget(QLabel("Umbral down:"),  6, 0); plo.addWidget(self.umbral_downEdit,   6, 1)
+        plo.addWidget(QLabel("T max (s):"),    6, 2); plo.addWidget(self.tmaxEdit,          6, 3)
+
+        # Fila 7: Steps before | Steps after
+        self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 7, 0); plo.addWidget(self.steps_beforeEdit, 7, 1)
+        self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  7, 2); plo.addWidget(self.steps_afterEdit,  7, 3)
+
+        # Fila 8: Scan pre-print | Post scan
+        plo.addWidget(self.scan_check,         8, 0, 1, 2)
         if self.mode == "dimers":
-            plo.addWidget(self.postscan_check, 4, 2, 1, 2)
+            plo.addWidget(self.postscan_check, 8, 2, 1, 2)
 
-        # Fila 5: Controles de reproducción Play / Pause / Next Index
-        plo.addWidget(self.play_button,        5, 0); plo.addWidget(self.pause_button,      5, 1)
-        plo.addWidget(self.next_button,        5, 2, 1, 2)
+        # Fila 9: Controles de reproducción Play / Pause / Next Index
+        plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
+        plo.addWidget(self.next_button,        9, 2, 1, 2)
 
-        # Fila 6: Total targets | Target Index
-        plo.addWidget(QLabel("Total targets:"),6, 0); plo.addWidget(self.particulasEdit,    6, 1)
-        plo.addWidget(QLabel("Target Index:"), 6, 2); plo.addWidget(self.indice_impresionEdit,6,3)
+        # Fila 10: Total targets | Target Index
+        plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,     10, 1)
+        plo.addWidget(QLabel("Target Index:"),  10, 2); plo.addWidget(self.indice_impresionEdit,10, 3)
 
-        pcDock = Dock(f"{label} control", size=(640, 360))
+        pcDock = Dock(f"{label} control", size=(640, 420))
         pcDock.addWidget(pcW)
         dock_area.addDock(pcDock, "right", gcDock)
 
@@ -260,39 +283,62 @@ class Frontend(QFrame):
         ei_rows = [("Power BFP (mW)", self.powerlaser),
                    ("NP type",        self.typeNP),
                    ("Substrate",      self.substrate),
-                   ("Total events (%)", self.NPevents),
-                   ("Success (%)",    self.NPsuccess),
+                   ("NP events",      self.NPevents),
+                   ("NP success",     self.NPsuccess),
                    ("Comments",       self.extra_info)]
-        for row, (lbl, w) in enumerate(ei_rows):
-            elo.addWidget(QLabel(lbl), row, 0); elo.addWidget(w, row, 1)
-        elo.addWidget(self.grid_save_info_button, len(ei_rows), 0)
+        for r, (lbl, w) in enumerate(ei_rows):
+            elo.addWidget(QLabel(lbl), r, 0); elo.addWidget(w, r, 1)
+        elo.addWidget(self.grid_save_info_button, len(ei_rows), 0, 1, 2)
         eiDock = Dock("Extra info"); eiDock.addWidget(eiW)
         dock_area.addDock(eiDock, "right", fsDock)
 
         hbox.addWidget(dock_area)
-        self.setLayout(hbox)
 
-    # ── Helpers GUI ──────────────────────────────────────────────────────────
+        # Inicializar visibilidad dinámica de casilleros según Modo 0 por defecto
+        self._on_stopping_mode_changed(0)
+
+    def _on_stopping_mode_changed(self, idx: int):
+        """Muestra u oculta los casilleros de la interfaz según el Modo de Parada seleccionado."""
+        # Modo 0: Legacy (Salto Relativo Estándar)
+        # Modo 1: Salto Relativo + Absoluto & Anti-Paso
+        # Modo 2: Derivada dI/dt
+        # Modo 3: Calibración Confocal Raw
+        # Modo 4: Criterio Híbrido Tri-Factor
+        show_rel     = idx in (0, 1, 4)
+        show_abs     = idx in (1, 2, 4)
+        show_hold    = idx in (1, 2, 3, 4)
+        show_slope   = idx in (2, 4)
+        show_confocal= idx in (3,)
+        show_steps   = idx in (0, 1, 4)
+
+        self.lbl_umbral_rel.setVisible(show_rel);      self.umbralEdit.setVisible(show_rel)
+        self.lbl_umbral_abs.setVisible(show_abs);      self.umbral_absEdit.setVisible(show_abs)
+        self.lbl_n_hold.setVisible(show_hold);         self.n_holdEdit.setVisible(show_hold)
+        self.lbl_slope_min.setVisible(show_slope);     self.slope_minEdit.setVisible(show_slope)
+        self.lbl_slope_flat.setVisible(show_slope);    self.slope_flatEdit.setVisible(show_slope)
+        self.lbl_ratio_k.setVisible(show_confocal);    self.ratio_kEdit.setVisible(show_confocal)
+        self.lbl_pct_thresh.setVisible(show_confocal); self.percent_threshEdit.setVisible(show_confocal)
+        self.lbl_steps_before.setVisible(show_steps);  self.steps_beforeEdit.setVisible(show_steps)
+        self.lbl_steps_after.setVisible(show_steps);   self.steps_afterEdit.setVisible(show_steps)
 
     def _color_menu(self, combo: QComboBox):
-        colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: blue;", "color: darkred;"]
+        colors = ["#2e7d32", "#c62828", "#f57f17"] # verde, rojo, amarillo
         idx = combo.currentIndex()
-        if 0 <= idx < len(colors):
-            combo.setStyleSheet(f"QComboBox {{ {colors[idx]} }}")
+        c = colors[idx] if idx < len(colors) else "#ffffff"
+        combo.setStyleSheet(f"background-color: {c}; color: white; font-weight: bold;")
 
     def _scan_change(self):
-        checked = self.scan_check.isChecked()
-        self.scan_check.setText("Scan? YES" if checked else "Scan? NO")
-        self.scan_check.setStyleSheet("color: orange;" if checked else "color: blue;")
+        v = self.scan_check.isChecked()
+        self.scan_check.setText("Scan pre-print? (ON)" if v else "Scan pre-print? (OFF)")
 
-    def _new_index_target(self):
-        try:
-            self.new_index_Signal.emit(int(self.indice_impresionEdit.text()))
-        except ValueError:
-            pass
+    def _new_index_target(self, text: str):
+        try: self.new_index_Signal.emit(int(text))
+        except ValueError: pass
 
     def _get_create_folder(self):
-        self.foldergridSignal.emit()
+        root = tk.Tk(); root.withdraw()
+        path = filedialog.askdirectory()
+        if path: self.foldergridSignal.emit()
 
     def _get_grid_create(self):
         try:
@@ -301,8 +347,7 @@ class Frontend(QFrame):
                     float(self.distance_files.text()),
                     float(self.distance_columns.text())]
             self.gridcreateSignal.emit(grid)
-        except ValueError:
-            pass
+        except ValueError: pass
 
     def _get_grid_measurement(self):
         self._emit_parameters()
@@ -310,30 +355,39 @@ class Frontend(QFrame):
 
     def _emit_parameters(self):
         color = self.grid_laser.currentIndex()
-        params = [float(self.umbralEdit.text()),
-                  float(self.umbral_downEdit.text()),
-                  float(self.tmaxEdit.text()),
-                  float(self.autofocEdit.text()),
-                  float(self.shiftxEdit.text()),
-                  float(self.shiftyEdit.text()),
-                  float(self.dxEdit.text()),
-                  float(self.dyEdit.text()),
-                  int(self.steps_beforeEdit.text()),
-                  int(self.steps_afterEdit.text())]
+        stop_mode = self.stop_mode_combo.currentIndex()
+        params = [
+            float(self.umbralEdit.text() or DEFAULT_PRINTING_UMBRAL),
+            float(self.umbral_downEdit.text() or DEFAULT_PRINTING_UMBRAL_DOWN),
+            float(self.tmaxEdit.text() or DEFAULT_PRINTING_TMAX),
+            float(self.autofocEdit.text() or DEFAULT_PRINTING_AUTOFOCUS_EVERY),
+            float(self.shiftxEdit.text() or 0.0),
+            float(self.shiftyEdit.text() or 0.0),
+            float(self.dxEdit.text() or 0.0),
+            float(self.dyEdit.text() or 0.0),
+            int(self.steps_beforeEdit.text() or DEFAULT_PRINTING_STEPS_BEFORE),
+            int(self.steps_afterEdit.text() or DEFAULT_PRINTING_STEPS_AFTER),
+            float(self.umbral_absEdit.text() or 2.5),
+            int(self.n_holdEdit.text() or 5),
+            float(self.slope_minEdit.text() or 15.0),
+            float(self.slope_flatEdit.text() or 2.0),
+            float(self.ratio_kEdit.text() or 10.0),
+            float(self.percent_threshEdit.text() or 50.0)
+        ]
         scanbool     = self.scan_check.isChecked()
         postscanbool = self.postscan_check.isChecked() if self.mode == "dimers" else False
-        self.parametersSignal.emit(color, params, scanbool, postscanbool)
+        self.parametersSignal.emit(color, stop_mode, params, scanbool, postscanbool)
 
     def _get_grid_info(self):
         info = [["Laser:", self.grid_laser.currentText()],
+                ["Criterio Parada:", self.stop_mode_combo.currentText()],
                 ["Umbral:", self.umbralEdit.text()],
+                ["Umbral Absoluto:", self.umbral_absEdit.text()],
                 ["Power BFP:", self.powerlaser.text()],
                 ["NP type:", self.typeNP.text()],
                 ["Substrate:", self.substrate.text()],
                 ["Comments:", self.extra_info.text()]]
         self.gridinfoSignal.emit(info)
-
-    # ── Slots desde Backend ───────────────────────────────────────────────────
 
     @pyqtSlot(list)
     def reference_label(self, ref: list):
@@ -342,17 +396,11 @@ class Frontend(QFrame):
         self.zrefLabel.setText(str(ref[2]))
 
     @pyqtSlot(int)
-    def particulas_edit(self, n: int):
-        self.particulasEdit.setText(str(n))
-
+    def particulas_edit(self, n: int): self.particulasEdit.setText(str(n))
     @pyqtSlot(str)
-    def name_folder(self, folder: str):
-        self.NameDirValue.setText(folder)
-        self.NameDirValue.setStyleSheet("background-color: green;")
-
+    def name_folder(self, folder: str): self.NameDirValue.setText(folder); self.NameDirValue.setStyleSheet("background-color: green;")
     @pyqtSlot(int)
-    def index_target(self, i: int):
-        self.indice_impresionEdit.setText(str(i))
+    def index_target(self, i: int): self.indice_impresionEdit.setText(str(i))
 
     @pyqtSlot(np.ndarray)
     def grid_plot(self, datos: np.ndarray):
@@ -376,7 +424,6 @@ class Frontend(QFrame):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class Backend(QObject):
-
     referenceSignal       = pyqtSignal(list)
     particulasSignal      = pyqtSignal(int)
     gridplotSignal        = pyqtSignal(np.ndarray)
@@ -384,11 +431,11 @@ class Backend(QObject):
     indexSignal           = pyqtSignal(int)
 
     grid_move_finishSignal = pyqtSignal()
-    grid_autofocusSignal   = pyqtSignal(str)      # mode_printing
-    grid_traceSignal       = pyqtSignal(str, str)  # laser, mode
+    grid_autofocusSignal   = pyqtSignal(str)
+    grid_traceSignal       = pyqtSignal(str, str)
     grid_trace_stopSignal  = pyqtSignal()
     grid_detectSignal      = pyqtSignal()
-    grid_scanSignal        = pyqtSignal(str, str, str)  # laser, mode, number_scan
+    grid_scanSignal        = pyqtSignal(str, str, str)
     grid_scan_stopSignal   = pyqtSignal()
     goSignal               = pyqtSignal()
 
@@ -403,39 +450,52 @@ class Backend(QObject):
         self.preescanbool  = False
         self.postscanbool  = False
         self.scanbool      = False
-        # Atributos de grilla — se asignan al cargar/crear la grilla
+
         self.grid_name     = "unnamed"
         self.grid_x        = np.array([0.0])
         self.grid_y        = np.array([0.0])
         self.particulas    = 1
         self.i_global      = 0
-        # Atributos de referencia — se asignan en set_reference
         self.xref = self.yref = self.zref = 0.0
         self.startX = self.startY = 0.0
-        # Atributos de trace — se asignan en grid_parameters
-        self.laser         = SHUTTERS[0]
-        self.umbral        = 1.2
-        self.umbral_down   = 0.0
-        self.timemax       = 20.0
-        self.autofoc       = 2
-        self.shiftx        = 0.0
-        self.shifty        = 0.0
-        self.dx            = 0.0
-        self.dy            = 0.0
-        # Atributos de trace data — se asignan en grid_trace_detect
-        self.ptr           = 0
-        self.timeaxis: list = []
-        self.data1: list    = []
-        self.data_BS: list  = []
-        self.timer_real    = 0.0
-        self.timer_inicio  = 0.0
-        # Carpetas — se asignan en grid_create_folder
-        self.old_folder    = str(DEFAULT_DATA_PATH)
-        self.new_folder    = str(DEFAULT_DATA_PATH)
-        self.pree_folder   = str(DEFAULT_DATA_PATH)
-        self.post_folder   = str(DEFAULT_DATA_PATH)
 
-    # ── Reference / position ─────────────────────────────────────────────────
+        self.laser          = SHUTTERS[0]
+        self.stopping_mode  = 0
+        self.umbral         = 1.2
+        self.umbral_down    = 0.0
+        self.timemax        = 20.0
+        self.autofoc        = 2
+        self.shiftx         = 0.0
+        self.shifty         = 0.0
+        self.dx             = 0.0
+        self.dy             = 0.0
+        self.steps_before   = 10
+        self.steps_after    = 10
+
+        # Parámetros avanzados para Modos 1-4
+        self.umbral_abs_v   = 2.5
+        self.n_hold_steps   = 5
+        self.hold_counter   = 0
+        self.slope_min      = 15.0
+        self.slope_flat     = 2.0
+        self.ratio_k        = 10.0
+        self.percent_thresh = 50.0
+
+        # Calibración Confocal (Modo 3)
+        self.v_glass        = 0.05
+        self.v_peak_scaled  = 3.5
+
+        self.ptr            = 0
+        self.timeaxis: list  = []
+        self.data1: list     = []
+        self.data_BS: list   = []
+        self.timer_real     = 0.0
+        self.timer_inicio   = 0.0
+
+        self.old_folder     = str(DEFAULT_DATA_PATH)
+        self.new_folder     = str(DEFAULT_DATA_PATH)
+        self.pree_folder    = str(DEFAULT_DATA_PATH)
+        self.post_folder    = str(DEFAULT_DATA_PATH)
 
     def _read_pos(self):
         pos = pi.qPOS()
@@ -458,14 +518,11 @@ class Backend(QObject):
         while not all(pi.qONT(axes).values()):
             time.sleep(0.01)
 
-    # ── Grid load / create ────────────────────────────────────────────────────
-
     @pyqtSlot()
     def grid_read(self):
         root = tk.Tk(); root.withdraw()
         name = filedialog.askopenfilename()
-        if not name:
-            return
+        if not name: return
         datos = np.loadtxt(name, unpack=True)
         self.grid_name = "Load_grid"
         self.grid_x = datos[0, :]; self.grid_y = datos[1, :]
@@ -497,8 +554,7 @@ class Backend(QObject):
         ts         = time.strftime("%Y%m%d-%H%M%S")
         label      = "Printing" if self.mode_arg == "printing" else "Dimers"
         self.old_folder = self.file_path
-        self.new_folder = os.path.join(self.old_folder,
-                                       f"{ts}_{label}_{self.grid_name}")
+        self.new_folder = os.path.join(self.old_folder, f"{ts}_{label}_{self.grid_name}")
         os.makedirs(self.new_folder, exist_ok=True)
         self.i_global      = 1
         self.mode_printing = "none"
@@ -506,24 +562,30 @@ class Backend(QObject):
         self.namefolderSignal.emit(self.new_folder)
         self.indexSignal.emit(self.i_global)
 
-    # ── Parameters ───────────────────────────────────────────────────────────
-
-    @pyqtSlot(int, list, bool, bool)
-    def grid_parameters(self, color_laser: int, params: list,
+    @pyqtSlot(int, int, list, bool, bool)
+    def grid_parameters(self, color_laser: int, stopping_mode: int, params: list,
                          scanbool: bool, postscanbool: bool):
-        self.laser        = SHUTTERS[color_laser]
-        self.umbral       = params[0]
-        self.umbral_down  = params[1]
-        self.timemax      = params[2]
-        self.autofoc      = int(params[3])
-        self.shiftx       = params[4]
-        self.shifty       = params[5]
-        self.dx           = params[6]
-        self.dy           = params[7]
-        self.scanbool     = scanbool
-        self.postscanbool = postscanbool
-
-    # ── Grid measurement loop ─────────────────────────────────────────────────
+        self.laser          = SHUTTERS[color_laser]
+        self.stopping_mode  = stopping_mode
+        self.umbral         = params[0]
+        self.umbral_down    = params[1]
+        self.timemax        = params[2]
+        self.autofoc        = int(params[3])
+        self.shiftx         = params[4]
+        self.shifty         = params[5]
+        self.dx             = params[6]
+        self.dy             = params[7]
+        self.steps_before   = int(params[8])
+        self.steps_after    = int(params[9])
+        self.umbral_abs_v   = params[10]
+        self.n_hold_steps   = int(params[11])
+        self.slope_min      = params[12]
+        self.slope_flat     = params[13]
+        self.ratio_k        = params[14]
+        self.percent_thresh = params[15]
+        self.scanbool       = scanbool
+        self.postscanbool   = postscanbool
+        self.hold_counter   = 0
 
     @pyqtSlot()
     def grid_measurment(self):
@@ -560,7 +622,6 @@ class Backend(QObject):
     def grid_autofoco(self):
         multifoco = np.arange(0, self.particulas - 1, self.autofoc)
         if self.i_global in multifoco:
-            print(f"[Meas] Autofoco en partícula {self.i_global}")
             if self.shiftx != 0 or self.shifty != 0:
                 pi.MOV([1, 2], [self.shiftx + self.grid_x[self.i_global] + self.startX,
                                 self.shifty + self.grid_y[self.i_global] + self.startY])
@@ -568,10 +629,8 @@ class Backend(QObject):
             up_flipper(); time.sleep(1)
             self.grid_autofocusSignal.emit(self.mode_printing)
         else:
-            if self.mode_arg == "dimers":
-                self._grid_center_scan()
-            else:
-                self._grid_trace()
+            if self.mode_arg == "dimers": self._grid_center_scan()
+            else:                         self._grid_trace()
 
     @pyqtSlot()
     def grid_finish_autofoco(self):
@@ -581,16 +640,13 @@ class Backend(QObject):
                             self.grid_y[self.i_global] + self.startY])
             time.sleep(0.1)
         down_flipper(); time.sleep(1)
-        if self.mode_arg == "dimers":
-            self._grid_center_scan()
-        else:
-            self._grid_trace()
-
-    # ── Printing trace → detect ───────────────────────────────────────────────
+        if self.mode_arg == "dimers": self._grid_center_scan()
+        else:                         self._grid_trace()
 
     def _grid_trace(self):
         open_shutter(self.laser); time.sleep(0.01)
         self.timer_inicio = time.time()
+        self.hold_counter = 0
         self.grid_traceSignal.emit(self.laser, self.mode_printing)
 
     @pyqtSlot(list)
@@ -602,17 +658,61 @@ class Backend(QObject):
         self.data_BS  = data[5]
         elapsed       = time.time() - self.timer_inicio
 
-        if (I_new > I_old * self.umbral or
-                I_new < I_old * self.umbral_down or
-                elapsed > self.timemax):
+        # 1. Derivada Discreta dI/dt (V/s) en ventana corta
+        if len(self.data1) >= 5:
+            dt = self.timeaxis[-1] - self.timeaxis[-5] if len(self.timeaxis) >= 5 else 0.005
+            dI_dt = (self.data1[-1] - self.data1[-5]) / dt if dt > 0 else 0.0
+        else:
+            dI_dt = 0.0
+
+        # 2. Evaluación de Condición de Detección según Modo Seleccionado
+        condition = False
+
+        if self.stopping_mode == 0:
+            # Modo 0: Legacy (Salto Relativo Estándar I_new / I_old > Umbral)
+            condition = (I_old > 0) and (I_new > I_old * self.umbral)
+
+        elif self.stopping_mode == 1:
+            # Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso (N_hold)
+            c_rel = (I_old > 0) and (I_new > I_old * self.umbral)
+            c_abs = I_new > self.umbral_abs_v
+            condition = c_rel or c_abs
+
+        elif self.stopping_mode == 2:
+            # Modo 2: Derivada Temporal Adaptativa & Aplanamiento (dI/dt -> 0 post-pico)
+            c_flat = (abs(dI_dt) < self.slope_flat) and (I_new > I_old + 0.1)
+            c_abs  = I_new > self.umbral_abs_v
+            condition = c_flat or c_abs
+
+        elif self.stopping_mode == 3:
+            # Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado (K_scale, P%)
+            v_thresh = self.v_glass + (self.percent_thresh / 100.0) * (self.v_peak_scaled - self.v_glass)
+            condition = I_new > v_thresh
+
+        elif self.stopping_mode == 4:
+            # Modo 4: Criterio Híbrido Tri-Factor (All-In-One)
+            c_rel  = (I_old > 0) and (I_new > I_old * self.umbral)
+            c_flat = (abs(dI_dt) < self.slope_flat) and (I_new > I_old + 0.1)
+            c_abs  = I_new > self.umbral_abs_v
+            condition = c_rel or c_flat or c_abs
+
+        # 3. Verificación Anti-Partículas de Paso (N_hold steps)
+        if self.stopping_mode == 0:
+            should_stop = condition
+        else:
+            if condition:
+                self.hold_counter += 1
+            else:
+                self.hold_counter = 0
+            should_stop = (self.hold_counter >= self.n_hold_steps)
+
+        # 4. Decisión Final de Parada del Obturador
+        if should_stop or (I_new < I_old * self.umbral_down) or (elapsed > self.timemax):
             self.grid_trace_stopSignal.emit()
             close_shutter(self.laser)
             self.timer_real = round(elapsed, 2)
             self._save_trace()
-            if self.mode_arg == "printing" and self.scanbool:
-                self.grid_detectSignal.emit()
-            else:
-                self.grid_detectSignal.emit()
+            self.grid_detectSignal.emit()
 
     @pyqtSlot()
     def grid_scan(self):
@@ -623,24 +723,27 @@ class Backend(QObject):
         else:
             self._grid_detect()
 
-    # ── Dimers center / pre / post scan ──────────────────────────────────────
-
     def _grid_center_scan(self):
         self.number_scan = "center_scan"
         self.grid_scanSignal.emit(self.laser, self.mode_printing, self.number_scan)
-
-    # ── Slot central para scanfinishedSignal de Confocal ─────────────────────
 
     @pyqtSlot(np.ndarray, list, np.ndarray, np.ndarray, str, str)
     def on_scan_finished(self, image: np.ndarray, center_mass: list,
                           image_gone: np.ndarray, image_back: np.ndarray,
                           mode: str, number_scan: str):
-        """
-        Recibe la señal unificada de Confocal.Backend.scanfinishedSignal.
-        Dispatcher según mode y number_scan.
-        """
         if mode != self.mode_arg:
-            return   # no nos corresponde
+            return
+
+        # Si estamos en Modo 3, procesar reescalado de confocal raw
+        if self.stopping_mode == 3 and image is not None and image.size > 0:
+            self.v_glass = float(np.min(image))
+            v_peak_raw = float(np.max(image))
+            amplitude = max(0.001, v_peak_raw - self.v_glass)
+            self.v_peak_scaled = self.v_glass + self.ratio_k * amplitude
+            
+            # Matriz reescalada
+            image_scaled = self.v_glass + self.ratio_k * (image - self.v_glass)
+            self._save_rescaled_scan(image_scaled)
 
         if mode == "printing":
             self._save_scan(image, image_gone, image_back)
@@ -685,16 +788,12 @@ class Backend(QObject):
         else:
             self._grid_detect()
 
-    # ── Detect (avanzar al siguiente punto) ──────────────────────────────────
-
     def _grid_detect(self):
         Nmax = self.particulas - 1
-        print(f"[Meas] i_global = {self.i_global}")
         if self.i_global >= Nmax:
             self.file_path = self.old_folder
             self.namefolderSignal.emit(self.old_folder)
             self.indexSignal.emit(self.i_global + 1)
-            print("[Meas] Fin de grilla.")
         else:
             self.i_global += 1
             self.indexSignal.emit(self.i_global)
@@ -702,15 +801,10 @@ class Backend(QObject):
 
     @pyqtSlot()
     def grid_pause(self):
-        try:
-            close_shutter(self.laser)
-            self.grid_trace_stopSignal.emit()
-        except Exception:
-            pass
-        try:
-            self.grid_scan_stopSignal.emit()
-        except Exception:
-            pass
+        try: close_shutter(self.laser); self.grid_trace_stopSignal.emit()
+        except Exception: pass
+        try: self.grid_scan_stopSignal.emit()
+        except Exception: pass
 
     @pyqtSlot()
     def grid_next_index(self):
@@ -719,8 +813,7 @@ class Backend(QObject):
         self._grid_move()
 
     @pyqtSlot(int)
-    def grid_change_index(self, new_index: int):
-        self.i_global = new_index
+    def grid_change_index(self, new_index: int): self.i_global = new_index
 
     # ── Guardado ──────────────────────────────────────────────────────────────
 
@@ -736,6 +829,13 @@ class Backend(QObject):
         for suffix, arr in [(ts, image), (f"gone_{ts}", gone), (f"back_{ts}", back)]:
             Image.fromarray(np.transpose(arr)).save(os.path.join(folder, f"{suffix}.tiff"))
 
+    def _save_rescaled_scan(self, image_scaled: np.ndarray):
+        ts   = f"NPscan_rescaled_{int(self.i_global):03d}"
+        path_txt = os.path.join(self.new_folder, f"{ts}.txt")
+        path_tif = os.path.join(self.new_folder, f"{ts}.tiff")
+        np.savetxt(path_txt, image_scaled, fmt="%.4e")
+        Image.fromarray(np.transpose(image_scaled)).save(path_tif)
+
     def _save_pree_scan(self, image, gone, back):
         self._save_scan(image, gone, back, folder=self.pree_folder)
 
@@ -748,39 +848,5 @@ class Backend(QObject):
         self.printing_error_x.append((target_x - center_mass[0]) * 1e3)
         self.printing_error_y.append((target_y - center_mass[1]) * 1e3)
         ts   = time.strftime("%Y%m%d-%H%M%S")
-        name = os.path.join(self.new_folder, f"printing_error-{ts}.txt")
-        np.savetxt(name, np.transpose([self.printing_error_x,
-                                        self.printing_error_y]))
-
-    @pyqtSlot(list)
-    def grid_extra_info(self, info: list):
-        name = os.path.join(self.new_folder, "Info.txt")
-        np.savetxt(name, info, fmt="%s")
-
-    def make_connection(self, frontend: Frontend):
-        frontend.setreferenceSignal.connect(self.set_reference)
-        frontend.goreferenceSignal.connect(self.go_reference)
-        frontend.readgridSignal.connect(self.grid_read)
-        frontend.gridcreateSignal.connect(self.grid_create)
-        frontend.foldergridSignal.connect(self.grid_create_folder)
-        frontend.parametersSignal.connect(self.grid_parameters)
-        frontend.gridSignal.connect(self.grid_measurment)
-        frontend.pauseSignal.connect(self.grid_pause)
-        frontend.next_index_Signal.connect(self.grid_next_index)
-        frontend.new_index_Signal.connect(self.grid_change_index)
-        frontend.gridinfoSignal.connect(self.grid_extra_info)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    import sys
-    app = QApplication(sys.argv)
-    gui    = Frontend(mode="printing")
-    worker = Backend(mode="printing")
-    worker.make_connection(gui)
-    gui.make_connection(worker)
-    thread = QThread()
-    worker.moveToThread(thread)
-    thread.start()
-    gui.show()
-    sys.exit(app.exec())
+        name = os.path.join(self.new_folder, f"printing_error_{ts}.txt")
+        np.savetxt(name, np.transpose([self.printing_error_x, self.printing_error_y]))

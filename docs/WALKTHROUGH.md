@@ -6,28 +6,26 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Fusión Integral de `canon_test.py` y `camera.py` en `modules/camera.py`**:
-   - **Resguardo Histórico**: Se crearon copias de respaldo en la carpeta `reserva/`:
-     - `reserva/canon_test_20260804.py`
-     - `reserva/camera_20260804.py`
-   - **Motor Réflex EDSDK + Modo Seguro (Mock)**:
-     - Live View a 25.0 FPS adaptativo con estabilización de 5s al inicio.
-     - Captura fotográfica nativa de 15.1 MP (4752×3168) en formatos JPG, PNG, TIFF y BMP con nombres únicos.
-     - Control de ISO, Tv, modo AE, Zoom (1x, 2x, 5x, 10x) y deslizadores de **Navegación Panorámica FOV (Ejes X / Y)**.
-     - Selector de Modo de Imagen: Color RGB vs Grises de Transmisión (CLim min/max + Falso Color LUT: Thermal, Viridis, Plasma, Inferno, Jet).
-   - **Herramientas de Microfotónica PyPrinting (`OverlayWidget`)**:
-     - Reglas H/V en µm, Cursor de la platina PI (`Cursor_pp`), Medición de distancia y ángulo, ROI a Confocal (`ROI → Confocal`), Detección de partículas y ventana flotante `Laser532Window`.
-   - **Log de Eventos y Diagnóstico EDSDK Desplegable**:
-     - El log de diagnóstico EDSDK se convirtió en una ventana emergente desplegable (`EDSDKLogDialog`) accesible mediante el botón `"📜 Ver Log de Diagnóstico EDSDK"`.
-   - **Lanzador Raíz**:
-     - Se creó `camera.py` en la raíz del proyecto para invocar `modules.camera.main()` de forma directa.
+1. **Implementación de 5 Modos Seleccionables de Criterio de Parada (`modules/measurements.py`)**:
+   - **Modo 0: Legacy (Salto Relativo Estándar)**: Mantiene $100\%$ de compatibilidad con secuencias históricas ($I_{\text{new}} / I_{\text{old}} > \text{Umbral}$).
+   - **Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso**: Permite definir `Umbral Absoluto (V)` para solucionar impresiones instantáneas a $t=0$ y `N hold steps` para evitar falsas detecciones de partículas "de paso" (tránsito temporal).
+   - **Modo 2: Derivada Temporal Adaptativa & Aplanamiento ($dI/dt$)**: Evalúa la derivada discreta en tiempo real para detectar la meseta en alto nivel ($dI/dt \to 0$), solucionando curvas de crecimiento exponencial $1-e^{-t/\tau}$.
+   - **Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado**: Calcula el umbral en Volts a partir del mapa confocal previo y la relación de potencia $K_{\text{scale}} = P_{\text{print}} / P_{\text{scan}}$. Guarda la imagen y matriz confocal reescalada (`NPscan_rescaled_00i.txt` / `.tiff`).
+   - **Modo 4: Criterio Híbrido Tri-Factor (All-In-One)**: Evalúa simultáneamente salto relativo, aplanamiento de derivada $dI/dt$ y umbral absoluto en Volts bajo la protección anti-paso $N_{\text{hold}}$.
+
+2. **Visibilidad Dinámica de Casilleros en la GUI (`Frontend`)**:
+   - La selección del desplegable `Criterio Parada` en la interfaz gráfica muestra u oculta dinámicamente solo los casilleros de entrada relevantes para cada modo (`Umbral Abs (V)`, `N hold steps`, `Slope Min`, `Slope Flat`, `Ratio K`, `Umbral (%)`).
+
+3. **Documentación y Reportes Actualizados**:
+   - Se actualizó el reporte técnico formal en **`reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md`**.
+   - Se actualizó **`docs/MANUAL_USUARIO.md`** y **`README.md`**.
 
 ---
 
-## 🧪 Validación y Estado del Proyecto
+## 🧪 Validación Realizada
 
-- **Prueba Sintética de Fusión**:
+- **Prueba Sintética de Instanciación e Interfaz Gráfica**:
   ```powershell
-  .\.venv\Scripts\python.exe -c "from camera import main; print('Root camera.py wrapper PASSED!')"
+  .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from modules.measurements import Frontend, Backend; fe = Frontend(mode='printing'); be = Backend(mode='printing'); fe.make_connection(be); print('Merged measurements.py PASSED!')"
   ```
   Result: **`PASSED`** (Compilación e instanciación limpias).
