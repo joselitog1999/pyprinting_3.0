@@ -20,6 +20,7 @@
    - [2.6 Operación de Umbralización No Lineal de Ruido ($P\%$)](#26-operación-de-umbralización-no-lineal-de-ruido-p)
    - [2.7 Algoritmo de Estabilización Z Axial por Autocorrelación de Pearson](#27-algoritmo-de-estabilización-z-axial-por-autocorrelación-de-pearson)
    - [2.8 Mapeo Físico de Coordenadas y Calibración de Platina Piezoeléctrica PI](#28-mapeo-físico-de-coordenadas-y-calibración-de-platina-piezoeléctrica-pi)
+   - [2.9 Formulación Matemática y Análisis de los 5 Criterios de Parada (Modos 0 a 4)](#29-formulación-matemática-y-análisis-de-los-5-criterios-de-parada-modos-0-a-4)
 3. [Módulo 1: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)](#3-módulo-1-microscopio-derecho-apppy--pyprinting-30-suite-completa)
    - [3.1 Menú Principal (`Files`, `Tools`, `Measurements`, `Help`)](#31-menú-principal-files-tools-measurements-help)
    - [3.2 Dock: Confocal (Mapeo 2D/3D & Algoritmos de Centrado)](#32-dock-confocal-mapeo-2d3d--algoritmos-de-centrado)
@@ -205,6 +206,51 @@ Mapeo de transformación de ejes espaciales entre la imagen de cámara réflex y
 
 ---
 
+### 2.9 Formulación Matemática y Análisis de los 5 Criterios de Parada (Modos 0 a 4)
+En la impresión óptica fototérmica y el ensamblado de nanodímeros plasmónicos, el cierre oportuno del obturador es crítico para detener la irradiación de forma inmediata al detectar la deposición de una nanopartícula metálica. Esto evita el sobrecalentamiento local, la fusión fototérmica del nanoensamblado y la deposición no deseada de partículas secundarias. **PyPrinting 3.0** incluye 5 criterios de parada seleccionables dinámicamente en la interfaz de mediciones (`measurements.py` / `app.py`):
+
+1. **Modo 0: Legacy (Salto Relativo Estándar)**
+   - **Formulación Matemática**:
+     $$I_{\text{new}}[t] > \text{Umbral\_Relativo} \cdot I_{\text{old}}$$
+   - **Propósito & Utilidad**: Mantiene $100\%$ de compatibilidad retroactiva con rutinas históricas y secuencias estándar de PyPrinting 2.
+   - **Mapeo de Parámetros**: Requiere ingresar el `Umbral` relativo (ej. $1.20$ indica un $20\%$ de incremento sobre la línea base).
+
+2. **Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso ($N_{\text{hold}}$ Steps)**
+   - **Formulación Matemática**:
+     $$\text{Condición}(t) = \left( \frac{I_{\text{new}}[t]}{I_{\text{old}}} > \text{Umbral\_Relativo} \right) \quad \mathbf{OR} \quad \left( I_{\text{new}}[t] > V_{\text{abs}} \right)$$
+     $$\text{Cierre Obturador} \iff \text{Condición}(t) = \text{True} \quad \forall t \in [t_0, t_0 + N_{\text{hold}} \cdot \Delta t]$$
+   - **Propósito & Utilidad**:
+     - *Resolución a $t=0$*: Elimina el problema de la impresión instantánea donde $I_{\text{old}}$ ya inicia en un nivel alto y el salto relativo resulta insuficiente para disparar la parada.
+     - *Filtro Anti-Paso*: Evita cierres falsos del obturador provocados por partículas que cruzan transitoriamente el foco volando sin depositarse.
+   - **Mapeo de Parámetros**: Requiere `Umbral Absoluto (V)` ($V_{\text{abs}}$) y `N_hold` (número de muestras analógicas consecutivas a $1\text{ kHz}$ en las que debe sostenerse la señal, ej. $N_{\text{hold}}=5$).
+
+3. **Modo 2: Derivada Temporal Adaptativa & Aplanamiento ($dI/dt$)**
+   - **Formulación Matemática**:
+     Derivada temporal discreta filtrada en tiempo real:
+     $$\frac{dI}{dt}[t] = \frac{I[t] - I[t - 5\Delta t]}{5\Delta t} \quad [\text{V/s}]$$
+     $$\text{Cierre Obturador} \iff \left( \frac{dI}{dt}[t] < \text{Slope\_Flat} \right) \quad \mathbf{AND} \quad \left( I_{\text{new}}[t] > I_{\text{old}} + \Delta V \right)$$
+   - **Propósito & Utilidad**: Diseñado para perfiles de deposición continua con crecimiento exponencial $I(t) = I_0 + A(1 - e^{-t/\tau})$. Evalúa la meseta superior de la curva y gatilla el cierre una vez que la tasa de incremento se aplana ($\frac{dI}{dt} \to 0$), indicando que la partícula ha finalizado su acomodamiento físico en el sustrato.
+   - **Mapeo de Parámetros**: Requiere `Slope Min` (pendiente mínima de activación en V/s) y `Slope Flat` (derivada máxima permitida en la meseta para confirmar la deposición).
+
+4. **Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado ($K_{\text{scale}}, P\%$)**
+   - **Formulación Matemática**:
+     Cálculo físico automatizado del voltaje de umbral objetivo a partir de la imagen confocal previa:
+     1. Fondo de vidrio limpio: $V_{\text{vidrio}} = \min(V_{\text{raw}})$
+     2. Factor de escala de potencia: $K_{\text{scale}} = \frac{P_{\text{print}}}{P_{\text{scan}}}$
+     3. Voltaje pico reescalado: $V_{\text{pico\_reescalado}} = V_{\text{vidrio}} + K_{\text{scale}} \cdot (V_{\text{pico\_raw}} - V_{\text{vidrio}})$
+     4. Voltaje de umbral objetivo: $V_{\text{umbral}} = V_{\text{vidrio}} + \frac{P\%}{100} \cdot (V_{\text{pico\_reescalado}} - V_{\text{vidrio}})$
+   - **Propósito & Utilidad**: Automatiza metrológicamente el cálculo del voltaje absoluto en Volts eliminando la estimación manual por parte del operador. Relaciona directamente la intensidad detectada en el barrido confocal ($P_{\text{scan}}$) con la potencia de impresión ($P_{\text{print}}$).
+   - **Información y Archivos Adicionales**: Genera y guarda automáticamente en disco el mapa confocal reescalado en formatos `.txt` y `.tiff` (`NPscan_rescaled_00i.txt` y `NPscan_rescaled_00i.tiff`).
+   - **Mapeo de Parámetros**: Requiere `Ratio K` ($P_{\text{print}}/P_{\text{scan}}$) y `Umbral Porcentual P%` (ej. $50.0\%$).
+
+5. **Modo 4: Criterio Híbrido Tri-Factor (All-In-One)**
+   - **Formulación Matemática**:
+     $$\text{Cierre Obturador} \iff \left[ \text{Modo 1 (Salto/Absoluto)} \;\mathbf{AND}\; \text{Modo 2 (Aplanamiento } dI/dt) \right] \quad \text{sostenido durante } N_{\text{hold}} \text{ pasos}$$
+   - **Propósito & Utilidad**: Máxima robustez experimental para muestras complejas o bajas relaciones señal-ruido. Combina la protección anti-paso, la detección instantánea a $t=0$, el umbral absoluto en Volts y la verificación de aplanamiento de derivada temporal.
+   - **Mapeo de Parámetros**: Utiliza la combinación total de parámetros (`Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `Ratio_K`, `P%`).
+
+---
+
 ## 3. Módulo 1: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)
 
 ### 3.1 Menú Principal (`Files`, `Tools`, `Measurements`, `Help`)
@@ -273,15 +319,44 @@ Mapeo de transformación de ejes espaciales entre la imagen de cámara réflex y
 ---
 
 ### 3.7 Ventana de Mediciones (Printing Automatizado de Grillas & Dímeros)
-* **Pestaña `Printing` (Impresión de Grillas)**:
-  - **`Create Grid`**: Define número de filas, columnas y espaciamiento en $\mu\text{m}$.
-  - **`Set reference`**: Guarda las coordenadas origen $(X_0, Y_0, Z_0)$.
-  - **`Umbral`**: Factor multiplicativo de salto de intensidad ($I_{\text{new}} > \text{Umbral} \cdot I_{\text{old}}$) para detectar la deposición fototérmica.
-  - **`T max (s)`**: Tiempo límite de exposición por nodo antes de abortar.
-  - **`Steps before / after`**: Número de puntos promediados para la línea base y la detección del salto.
-  - **`Play ►`**: Inicia la secuencia automatizada de deposición nodo a nodo.
-* **Pestaña `Dimers` (Ensamblado de Dímeros)**:
-  - Posicionamiento guiado a distancia gap sub-100 nm asistido por escaneo confocal local.
+
+La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresión automatizada nodo a nodo de arrays de nanopartículas y el ensamblado de nanoestructuras acopladas.
+
+#### 3.7.1 Pestaña `Printing` (Impresión Automatizada de Grillas)
+- **`Create Grid`**: Configura la matriz simétrica definiendo número de partículas por columna (`NPs/col`), número de columnas (`Cols`), espaciamiento entre nanopartículas (`Dist NP µm`) y espaciamiento entre columnas (`Dist Col µm`).
+- **`Load Grid`**: Carga una matriz de posiciones personalizadas $(X, Y)$ desde un archivo de texto plano `.txt`.
+- **`Set reference`**: Captura la posición actual de los sensores capacitivos de la platina PI como origen absoluto de la grilla $(X_0, Y_0, Z_0)$.
+- **`Go to reference`**: Retorna inmediatamente la platina a las coordenadas origen.
+- **`T max (s)`**: Tiempo máximo de residencia por nodo (segundos) antes de abortar por tiempo agotado (*timeout*) si no se gatilla la condición de parada.
+- **`Steps before / after`**:
+  - `Steps before`: Número de muestras analógicas adquiridas antes de abrir el obturador para calcular la línea base $I_{\text{old}}$.
+  - `Steps after`: Muestras adicionales adquiridas inmediatamente después del cierre del obturador para registrar la meseta post-impresión.
+- **`Autofocus Every N`**: Frecuencia de ejecución del autofoco dinámico en Z (ej. cada 2 nodos) para compensar derivas mecánicas durante grillas extensas.
+- **`Shift X / Shift Y (µm)`**: Desplazamiento lateral offset introducido temporalmente para realizar el autofoco axial en una zona limpia contigua sin perturbar el nodo actual.
+
+#### 3.7.2 Pestaña `Dimers` (Ensamblado Guiado de Nanodímeros Plasmónicos)
+- Permite la fabricación guiada de nanodímeros con separación interpartícula (*gap*) sub-100 nm.
+- Incorpora opciones para activar **Pre-Scan Confocal** (escaneo 2D de la nanopartícula 1 antes de imprimir la nanopartícula 2) y **Post-Scan Confocal** (escaneo de verificación final del dímero formado).
+- **`dx / dy (µm)`**: Vector de desplazamiento offset deseado para la colocación de la segunda nanopartícula respecto al centro ajustado de la primera.
+
+#### 3.7.3 Configuración de los 5 Criterios de Parada Seleccionables
+El menú desplegable **`Criterio Parada`** permite seleccionar dinámicamente el algoritmo de interrupción en tiempo real:
+
+| Modo Seleccionable | Nombre en Interfaz | Parámetros que Habilita en la UI | Archivos e Información Generados |
+|---|---|---|---|
+| **Modo 0** | `Legacy (Relativo)` | `Umbral` (salto relativo, ej. 1.20) | Trazas de intensidad `.txt` en la carpeta del lote (`NP_001.txt`). |
+| **Modo 1** | `Relativo + Absoluto + AntiPaso` | `Umbral`, `Umbral Absoluto (V)`, `N_hold` (pasos anti-paso) | Traza temporal con indicador de estado `hold_counter` en el log. |
+| **Modo 2** | `Derivada dI/dt (Aplanamiento)` | `Slope Min (V/s)`, `Slope Flat (V/s)`, `V_abs` | Registro de derivada instantánea $dI/dt$ y meseta detectada. |
+| **Modo 3** | `Confocal Raw & Rescaled` | `Ratio K (P_print/P_scan)`, `Umbral P%` (ej. 50%) | Mapas confocales reescalados `NPscan_rescaled_00i.txt` y `NPscan_rescaled_00i.tiff`. |
+| **Modo 4** | `Híbrido Tri-Factor (All-In-One)` | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `Ratio_K`, `P%` | Log integral de triple verificación y resumen de parada. |
+
+#### 3.7.4 Flujo de Datos y Salida en Disco
+Al iniciar la rutina con el botón **`Play ►`**:
+1. Se crea la carpeta del lote experimental con sello de tiempo: `YYYYMMDD-HHMMSS_Printing_<GridName>` o `YYYYMMDD-HHMMSS_Dimers_<GridName>`.
+2. Para cada nodo se guarda la traza temporal de intensidad `NP_00i.txt` conteniendo columnas: `Tiempo (s)`, `Signal (V)` y `BS Power (V)`.
+3. Si el escaneo está activo, se almacenan las imágenes confocales `.tiff` (Go, Back, Image).
+4. Se genera el archivo sintético de error de posicionamiento `printing_error_timestamp.txt` conteniendo los residuos en nanómetros ($\Delta x_{\text{nm}}, \Delta y_{\text{nm}}$) entre la posición teórica de la grilla y el centro de masa real.
+5. El botón **`Save Grid Info`** exporta el archivo `grid_info.txt` con la metainformación completa (Láser, Criterio de Parada, Umbrales, Potencia BFP, Tipo de NP, Sustrato y Comentarios).
 
 ---
 

@@ -108,6 +108,14 @@ El sistema cumple con la estimación metrológica formal documentada en `reporte
 $$u_c = \sqrt{u_{\text{ruido\_óptico}}^2 + u_{\text{platina\_PI}}^2 + u_{\text{desalineación\_cadena}}^2 + u_{\text{muestreo\_píxel}}^2} \approx 0.35\ \text{nm}$$
 Con una incertidumbre expandida ($k=2$, $95\%$ nivel de confianza) de **$U = 0.70\ \text{nm}$**, respaldando la precisión en localización sub-nanométrica.
 
+### 7. Criterios de Parada Adaptativos en Tiempo Real (`measurements.py`)
+Para garantizar la deposición fototérmica controlada sin foto-fusión ni deposiciones múltiples, el motor de impresión evalúa en tiempo real 5 algoritmos de parada:
+* **Modo 0 (Legacy Relativo)**: Salto relativo instantáneo $I_{\text{new}} / I_{\text{old}} > \text{Umbral}$.
+* **Modo 1 (Relativo + Absoluto + Anti-Paso)**: Evalúa $I_{\text{new}}/I_{\text{old}} > \text{Umbral} \;\mathbf{OR}\; I_{\text{new}} > V_{\text{abs}}$ durante $N_{\text{hold}}$ pasos consecutivos (resuelve la deposición rápida a $t=0$ y filtra partículas volando).
+* **Modo 2 (Derivada $dI/dt$ & Aplanamiento)**: Monitorea el aplanamiento de la curva exponencial de crecimiento fototérmico ($\frac{dI}{dt} < \text{Slope\_Flat}$).
+* **Modo 3 (Confocal Raw & Rescaled)**: Calibración física automatizada del umbral en Volts a partir de la imagen confocal previa ($K_{\text{scale}} = P_{\text{print}}/P_{\text{scan}}$, $P\%$), guardando mapas reescalados `.txt` y `.tiff`.
+* **Modo 4 (Híbrido Tri-Factor All-In-One)**: Evaluación simultánea del salto relativo, umbral absoluto, aplanamiento $dI/dt$ y filtro anti-paso.
+
 ---
 
 ## 🏗️ Arquitectura de Hilos y Concurrencia

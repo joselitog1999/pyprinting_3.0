@@ -85,6 +85,18 @@ Para evitar que el obturador se cierre cuando una partícula cruza transitoriame
 
 ---
 
+### 📊 Cuadro Resumen de Información Adicional, Parámetros e Hitos por Modo de Parada
+
+| Modo | Algoritmo | Parámetros que Configura el Usuario | Información que Añade / Procesa el Sistema | Archivos de Salida en Disco |
+|---|---|---|---|---|
+| **Modo 0** | Salto Relativo | `Umbral` (salto relativo, ej. 1.20) | Línea base $I_{\text{old}}$ y ratio $I_{\text{new}}/I_{\text{old}}$ | `NP_00i.txt` |
+| **Modo 1** | Relativo + Absoluto + Anti-Paso | `Umbral`, `V_abs` (Volts), `N_hold` (pasos) | Verificación $t=0$ y filtro anti-paso $N_{\text{hold}}$ | `NP_00i.txt`, log de contador `hold_counter` |
+| **Modo 2** | Derivada $dI/dt$ | `Slope Min`, `Slope Flat`, `V_abs` | Derivada en tiempo real $dI/dt$ [V/s] y punto de aplanamiento | `NP_00i.txt`, log de meseta |
+| **Modo 3** | Confocal Raw Rescaled | `Ratio K` ($P_{\text{print}}/P_{\text{scan}}$), `Umbral P%` | Nivel $V_{\text{vidrio}}$, $V_{\text{pico\_reescalado}}$ y $V_{\text{umbral}}$ | `NPscan_rescaled_00i.txt`, `NPscan_rescaled_00i.tiff` |
+| **Modo 4** | Híbrido Tri-Factor | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `Ratio_K`, `P%` | Evaluación compuesta triple y trazabilidad de parada | `NP_00i.txt`, `grid_info.txt`, mapas reescalados |
+
+---
+
 ## 4. Flujo Algorítmico Detallado: Rutina de Impresión (`mode="printing"`)
 
 ```mermaid
