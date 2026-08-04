@@ -6,7 +6,7 @@ Esta versión (**PyPrinting 3.0**) refactoriza y moderniza por completo la arqui
 * **Migración nativa a PyQt6**: Arquitectura basada en `QMainWindow`, `QDockWidget` y `pyqtgraph.dockarea`.
 * **Microscopio Contrapropagante (`contrapropagante.py`)**: Plataforma de excitación dual con adquisición síncrona de dos confocales (TOP/BOT), mapeo dinámico de fotodiodos, modelos de ajuste diferenciados (Gauss/Donut) y cálculo vectorial de diferencia sub-nanométrica ($\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$).
 * **Módulo de Caracterización de PSF (`psf_analyzer.py`)**: Caracterización analítica 2D (Gaussiana de 7 parámetros y Donut $LG_{01}$), residuales, perfiles 1D y desalineación sub-nanométrica ($\Delta r_{\text{nm}}$).
-* **Visión por computadora en tiempo real (`camera.py`)**: Control nativo de cámaras réflex Canon EOS 500D (EDSDK 64-bit) y cámaras USB OpenCV con procesamiento de imágenes, paletas LUT y tracking dinámico (`trackpy`).
+* **Motor Nativo Réflex Canon EDSDK & Suite de Microfotónica (`camera.py` / `modules/camera.py`)**: Transmisión Live View a 25.0 FPS adaptativos, captura de alta resolución 15.1 MP (4752×3168) multi-formato (JPG, PNG, TIFF, BMP) sin sobreescritura, navegación panorámica por FOV, alineación de reglas H/V en µm, cursores de platina PI, medición de ángulos/distancias, ROI a confocal y ventana flotante de control de potencia Láser 532 nm (`Laser532Window`).
 * **Protección de Exclusión Mutua en Hardware Real**: Bloqueo automático en `main.py` para evitar que el Microscopio Derecho y el Contrapropagante compitan simultáneamente por la platina PI E-517 o la tarjeta NI-DAQmx.
 * **Modelo de Incertidumbre Metrológica (Norma ISO/GUM)**: Documentado en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`, respaldando la resolución sub-píxel ($\approx 0.35\ \text{nm}$) con objetivo de agua $60\times$ $\text{NA}=1.0$, pinhole de $50\ \mu\text{m}$ y tamaño de píxel óptimo ($\Delta x \in [15, 25]\ \text{nm/px}$).
 * **Modo Seguro (`SAFE_MODE`) con simulación completa de hardware**: Simulación coherente de platina piezoeléctrica PI E-517 ($0-100\ \mu\text{m}$), tarjetas NI-DAQmx y transmisión de video sintética.
@@ -20,6 +20,7 @@ printing3/
 ├── main.py               # 🏠 LANZADOR PRINCIPAL "Bienvenidos al printing" (Grilla 3x3, Exclusión Mutua & Créditos).
 ├── app.py                # 🚀 MICROSCOPIO DERECHO (PyPrinting 3.0 completo). Orquestador PyQt6 y QThreads.
 ├── contrapropagante.py   # 🔍 MICROSCOPIO CONTRAPROPAGANTE (Excitación dual TOP/BOT, confocales síncronas).
+├── camera.py             # 📷 Lanzador raíz para la Suite de Cámara Réflex Canon & Microfotónica.
 ├── config.py             # ⚙️ Configuración global, constantes de hardware, límites 0-100µm PI y MOCKs (SAFE_MODE).
 ├── psf_analyzer.py       # 🧬 Analizador de PSF 2D (Gaussiana 2D / Donut LG01, residuales, perfiles 1D y RGB).
 ├── requirements.txt      # 📦 Lista de dependencias de Python para producción y desarrollo.
@@ -33,9 +34,13 @@ printing3/
 │   └── shutters.py       # Control de obturadores digitales (Verde/Rojo/Amarillo), flipper Notch y láser 532 nm.
 │
 ├── 👁️ Visión por Computadora y Excitación Óptica
-│   ├── camera.py         # Control de cámara (Canon EOS / USB OpenCV), overlay de platina y retículo láser.
+│   ├── camera.py         # Módulo unificado (Canon EOS EDSDK / USB Mock), overlay de platina, reglas y ROI confocal.
 │   ├── image_analyzer.py # Analizador gráfico de imágenes estáticas con reglas en µm/px y tracking.
-│   └── canon_edsdk.py    # Wrapper nativo en C/Python para Canon EDSDK v13.x (64-bit).
+│   └── canon_edsdk.py    # Wrapper nativo C/Python para Canon EDSDK v13.x (64-bit) con transferencia RAM.
+│
+├── 📦 Reserva Histórica y Módulos Respaldados
+│   ├── reserva/canon_test_20260804.py # Resguardo de la suite de pruebas nativa de diagnostico EDSDK.
+│   └── reserva/camera_20260804.py     # Resguardo de la suite previa de microfotónica.
 │
 ├── 🔌 Capa de Abstracción de Hardware (HAL)
 │   └── nidaq.py          # Abstracción unificada de National Instruments (entradas/salidas analógicas/digitales).
@@ -53,6 +58,37 @@ printing3/
 
 ---
 
+## 📸 Arquitectura y Estabilización de Cámara Canon EDSDK (`camera.py` / `canon_edsdk.py`)
+
+Para llevar el flujo de trabajo de visión réflex a producción dentro de PyPrinting 3.0, se desarrolló y depuró inicialmente el módulo experimental `core/canon_test.py`. Tras resolver todas las restricciones del bus USB y los errores del SDK C++ de Canon, se fusionó con `modules/camera.py`.
+
+### 1. Bucle Adaptativo Monodisparo & Regulación Estricta a 25.0 FPS
+- **Warm-up Inicial de 5 Segundos**: Al conectar la cámara Canon EOS 500D por USB, el sistema aplica un bloqueo de 5 segundos en las consultas de ISO y Tv para permitir que el sensor CMOS y el chip DIGIC 4 completen la inicialización.
+- **Temporización por Microsegundos (`time.perf_counter()`)**: Reemplazó los `QTimer` fijos acumulativos por un bucle monodisparo adaptativo (`_fetch_frame_adaptive`). El retardo se calcula dinámicamente en cada cuadro:
+  $$\text{delay\_ms} = \max\left(1, \text{int}(40.0 - t_{\text{procesamiento\_ms}})\right)$$
+  Manteniendo una velocidad constante de **25.0 FPS (40.0 ms por cuadro)** sin colapso de la cola de tramas ni aceleraciones bruscas.
+
+### 2. Captura Fotográfica 15.1 MP Multi-Formato & Inmunidad a Sobreescritura
+- **Resolución Máxima de 15.1 Megapíxeles (4752×3168)**:
+  Soporta exportación en **JPG** (máxima resolución nativa), **PNG** (compresión sin pérdida), **TIFF** (metrología óptica) y **BMP** (mapa de bits sin comprimir).
+- **Pausa Automática del Stream Live View**: Al obturar, la emisión de video se pausa 350 ms para liberar los recursos del procesador réflex DIGIC 4 antes de mover el espejo mecánico.
+- **Transferencia a RAM mediante `EdsCreateMemoryStream` (Solución a Errores `0x000000AB` y `0x00000061`)**:
+  En lugar de pedirle al SDK C++ de Canon que abra y cree archivos de disco (lo que provocaba fallos de codificación de ruta en Windows de 64 bits `0x000000AB`), los bytes de la foto se descargan directamente a la **memoria RAM** a un `MemoryStream`. Python escribe los datos al disco de forma binaria nativa (`open(path, 'wb').write(bytes)`).
+- **Garantía de Nombres Únicos (`get_unique_save_path`)**:
+  Cada foto se nombra con fecha y hora (`CANON_EOS500D_YYYYMMDD_HHMMSS.[ext]`). Si ya existe una foto con el mismo nombre, se añade automáticamente un contador numérico (`_01`, `_02`), impidiendo la sobreescritura accidental.
+
+### 3. Seguridad ABI de 64 Bits & Notificación de Capacidad del Host PC
+- **Tipado Estricto de Punteros `ctypes`**: Todas las llamadas C++ DLL de EDSDK tienen firmas definidas con `ctypes.c_void_p` (`EdsVolumeRef`, `EdsDirectoryItemRef`, `EdsStreamRef`), eliminando truncamientos de punteros de memoria en sistemas x64 (`OverflowError`).
+- **Notificación de Capacidad Virtual (`EdsSetCapacity`)**: Antes de obturar con destino a la PC (`kEdsSaveTo_Host`), el software notifica a la cámara una capacidad virtual de 2 TB (`numberOfFreeClusters = 0x7FFFFFFF`, `bytesPerSector = 512`, `reset = 1`), asegurando que el obturador réflex se libere sin bloqueos.
+
+### 4. Navegación Panorámica en el Campo de Visión (FOV Pan X/Y)
+- **Control de Centro de ROI (`set_zoom_center(cx, cy)`)**: Al activar el zoom digital (1x, 2x, 5x, 10x), los deslizadores **Navegar FOV (Eje X)** y **Navegar FOV (Eje Y)** permiten desplazar el centro del recorte a cualquier posición del sensor de 15.1 MP.
+
+### 5. Log de Diagnóstico EDSDK Emergente Desplegable (`EDSDKLogDialog`)
+- El visor de logs y diagnósticos EDSDK se aloja en una ventana modal emergente desplegable que se abre mediante el botón `"📜 Ver Log de Diagnóstico EDSDK"`, manteniendo el panel de control limpio.
+
+---
+
 ## ⚛️ Fundamentos Físicos y Formulación Matemática
 
 ### 1. Impresión Óptica Fototérmica de Nanopartículas
@@ -62,17 +98,7 @@ $$\mathbf{F}_{\text{grad}} = \frac{1}{4} \varepsilon_m \operatorname{Re}(\alpha)
 
 donde $\alpha$ es la polarizabilidad de Clausius-Mossotti de la nanopartícula y $\mathbf{E}$ es el campo eléctrico óptico incidente.
 
-### 2. Microscopía Confocal Contrapropagante y Mapeo Dinámico Láser-Fotodiodo
-El microscopio contrapropagante dispone de dos vías ópticas de excitación e iluminación síncrona:
-- **Vía Superior (TOP / Derecho)**: Iluminación por objetivo superior mediante líneas láser seleccionables (Verde $532\ \text{nm}$, Rojo $637\ \text{nm}$, Amarillo $592\ \text{nm}$).
-- **Vía Inferior (BOT / Invertido)**: Iluminación por objetivo de agua ($60\times$, $\text{NA}=1.0$) ubicado por debajo del cubreobjetos mediante láser verde de $532\ \text{nm}$.
-
-Debido al sistema de espejos dicroicos y filtros notch, la lectura analógica de adquisición del fotodiodo queda vinculada directamente a la línea láser seleccionada:
-$$\text{Láser } 532\ \text{nm (Verde)} \longrightarrow \text{Shutter } 12 \longrightarrow \text{Fotodiodo } 0\ (\texttt{ai0})$$
-$$\text{Láser } 637\ \text{nm (Rojo)} \longrightarrow \text{Shutter } 11 \longrightarrow \text{Fotodiodo } 1\ (\texttt{ai1})$$
-$$\text{Láser } 592\ \text{nm (Amarillo)} \longrightarrow \text{Shutter } 10 \longrightarrow \text{Fotodiodo } 3\ (\texttt{ai3})$$
-
-### 3. Ajuste Gaussiano 2D de 7 Parámetros con Orientación ($\theta$)
+### 2. Ajuste Gaussiano 2D de 7 Parámetros con Orientación ($\theta$)
 Para caracterizar la función de punto de dispersión (PSF) de excitación confocal estándar (láser Gaussiano $TEM_{00}$), el sistema ajusta la distribución de intensidad normalizada $Z_n$ utilizando una Gaussiana 2D no lineal de 7 parámetros ajustada por mínimos cuadrados (`scipy.optimize.curve_fit`):
 
 $$G(x, y) = Z_{\text{offset}} + A \cdot \exp\left( -\left[ a(x - x_0)^2 + 2b(x - x_0)(y - y_0) + c(y - y_0)^2 \right] \right)$$
@@ -85,153 +111,29 @@ El Ancho Completo a la Mitad del Máximo (FWHM) para cada eje principal se deter
 
 $$\text{FWHM}_x = 2\sqrt{2\ln 2} \cdot \sigma_x \approx 2.35482 \cdot \sigma_x, \quad \text{FWHM}_y = 2.35482 \cdot \sigma_y$$
 
-### 4. Modelo Analítico de Haz Vortex / Donut ($LG_{01}$)
-Para caracterizar haces de fase espiral o donas de depleción en la vía inferior BOT, el módulo modela el perfil Laguerre-Gauss $LG_{01}$:
-
-$$I_{\text{donut}}(x, y) = Z_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right)$$
-
-donde la distancia radial elíptica normalizada es:
-
-$$r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
-
-### 5. Métricas de Calidad de PSF, Co-alineación y Vector de Desplazamiento
-* **Desalineación espacial vectorial entre confocales TOP y BOT ($\mathbf{\Delta r}_{\text{nm}}$)**:
-  $$\mathbf{\Delta r} = \mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}} = (\Delta x_{\text{nm}}, \Delta y_{\text{nm}})$$
-  $$\|\mathbf{\Delta r}_{\text{nm}}\| = \sqrt{(x_{\text{TOP}} - x_{\text{BOT}})^2 + (y_{\text{TOP}} - y_{\text{BOT}})^2} \times 1000 \quad [\text{nm}]$$
-* **Calidad del cero central**:
-  $$Q_{\text{cero}} = \frac{I_{\min}}{I_{\max}}$$
-* **Coeficiente de Correlación de Pearson ($\text{PCC}$)**:
-  $$\text{PCC} = \frac{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)(Z_{2,ij} - \bar{Z}_2)}{\sqrt{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)^2 \cdot \sum_{i,j} (Z_{2,ij} - \bar{Z}_2)^2}}$$
-
-### 6. Modelo Metrológico de Incertidumbre Sub-píxel (Norma ISO/GUM)
-El sistema cumple con la estimación metrológica formal documentada en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`:
-$$u_c = \sqrt{u_{\text{ruido\_óptico}}^2 + u_{\text{platina\_PI}}^2 + u_{\text{desalineación\_cadena}}^2 + u_{\text{muestreo\_píxel}}^2} \approx 0.35\ \text{nm}$$
-Con una incertidumbre expandida ($k=2$, $95\%$ nivel de confianza) de **$U = 0.70\ \text{nm}$**, respaldando la precisión en localización sub-nanométrica.
-
 ---
 
 ## 🏗️ Arquitectura de Hilos y Concurrencia
 
-Para garantizar una interfaz gráfica fluida a 60+ FPS sin congelamientos durante adquisiciones intensivas de datos a 1.0 MS/s, la aplicación distribuye las tareas en **4 hilos dedicados `QThread`** respaldados por un fondo de hilos (`ThreadPoolExecutor`):
+Para garantizar una interfaz gráfica fluida a 60+ FPS sin congelamientos durante adquisiciones intensivas de datos a 1.0 MS/s o transmisiones video de cámara réflex a 25.0 FPS, la aplicación distribuye las tareas en **hilos dedicados `QThread`**:
 
 ```mermaid
 graph TD
     GUI[Main GUI Thread - PyQt6 App] -->|Signals / Slots| InstrumentThread[instrumentThread]
     GUI -->|Signals / Slots| ConfocalThread[confocalThread]
-    GUI -->|Signals / Slots| CameraThread[cameraThread]
-    ConfocalThread -->|Fit PSF Offloading| ThreadPool[ThreadPoolExecutor]
+    GUI -->|Signals / Slots| CameraThread[cameraThread HighPriority]
 
-    subgraph instrumentThread
-        nanoWorker[Nanopositioning Backend]
-        shuttersWorker[Shutters Backend]
-        laserBackend[Laser532 Backend]
+    subgraph cameraThread
+        canonWorker[CanonWorker / Live View EDSDK 25 FPS]
+        canonCam[CanonCamera EDSDK C++ DLL Wrapper]
+        mockCap[MockCapture Simulation Fallback]
     end
 
     subgraph confocalThread
         confocalWorker[Confocal / ConfocalDual Backend]
         focusWorker[Focus Z Backend]
         traceWorker[Trace Backend]
-        measWorker[Measurements Backend: Printing/Dimers]
     end
-
-    subgraph cameraThread
-        cameraWorker[Camera Live View ~30 FPS]
-    end
-
-    subgraph ThreadPool
-        psfWorker[PSF 2D Fit & Donut Solver]
-    end
-```
-
----
-
-## 🔄 Flujo de Trabajo Experimental: Microscopio Contrapropagante
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Op as Operador
-    participant GUI as Interface Contrapropagante
-    participant Backend as ConfocalDualBackend
-    participant PI as Platina Piezoeléctrica PI
-    participant DAQ as NI-DAQmx Multicanal
-    participant PSFWin as PSF Analyzer
-
-    Op->>GUI: Seleccionar Láser TOP (532/637/592) & BOT (532)
-    Op->>GUI: Definir Rango XY, Píxeles & Presionar 'Start Dual Scan'
-    Backend->>DAQ: Configurar Entradas Analógicas según PD_CHANNELS
-    Backend->>PI: Iniciar Rampa de Escaneo en X e Incremento Y
-    loop Para cada Línea Y de la Imagen
-        PI->>PI: Mover Eje X con Disparo por Hardware (Trigger)
-        DAQ-->>Backend: Adquirir Muestras Síncronas (PD_TOP & PD_BOT)
-        Backend->>GUI: Actualizar Mapa Confocal TOP & Confocal BOT
-    end
-    Backend->>Backend: Calcular Centroides CM (Gauss TOP / Gauss-Donut BOT)
-    Backend->>GUI: Mostrar Posiciones (x, y) & Vector Diferencia Delta r (nm)
-    Op->>GUI: Presionar 'Analyze with PSF Analyzer'
-    GUI->>PSFWin: Cargar Canal TOP (Ch1) & Canal BOT (Ch2) para Ajuste 2D
-```
-
----
-
-## ⚡ Modos de Ejecución: Producción vs. Modo Seguro (`SAFE_MODE`)
-
-### 🔴 Modo Producción (Hardware Real)
-Conecta directamente con la platina piezoeléctrica **Physik Instrumente (PI E-517/E-736)** vía USB, la tarjeta **National Instruments (NI-DAQmx PCIe/USB-6353)** y la cámara física Canon EOS por SDK EDSDK.
-```powershell
-.\.venv\Scripts\python.exe app.py
-```
-> [!IMPORTANT]
-> **Exclusión Mutua de Hardware**: En Modo Producción, `main.py` bloquea la apertura simultánea de `app.py` y `contrapropagante.py` para impedir colisiones físicas en la platina PI o en las líneas analógicas de NI-DAQ.
-
-### 🟢 Modo Seguro (`SAFE_MODE` — Simulación de Hardware)
-Permite ejecutar el $100\%$ de la aplicación gráfica, botones, ventanas y algoritmos de mediciones/impresión en cualquier computadora personal sin hardware conectado.
-```powershell
-$env:PYPRINTING_SAFE="1"
-.\.venv\Scripts\python.exe contrapropagante.py
-```
-
----
-
-## 🛠️ Detalle de Módulos y Funcionalidades
-
-### 1. Lanzador Principal (`main.py`)
-- Grilla de 8 tarjetas visuales interactiva con atajos directos.
-- Control global de Modo Seguro / Modo Laboratorio.
-- Verificación automática de exclusión mutua de procesos de hardware.
-
-### 2. Microscopio Contrapropagante (`contrapropagante.py`)
-- **Visualización Simétrica**: Confocal TOP a la izquierda, Controles compartidos en el centro, Confocal BOT a la derecha.
-- **Mapeo Dinámico de Fotodiodos**: Asignación automática de canal analógico `ai0`, `ai1` o `ai3` según la excitación láser.
-- **Lector Sub-nanométrico**: Cálculo en vivo de la posición $(x, y)$ de cada confocal y del vector diferencia $\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$ en nanómetros.
-- **Acceso Directo a PSF Analyzer**: Botón `Analyze with PSF Analyzer` que transfiere instantáneamente ambas confocales a la suite analítica.
-- **DockArea Completa**: Incorpora los paneles de Nanopositioning, Focus Z, Shutters/Flipper y Trace en la misma disposición que `app.py`.
-
-### 3. Orquestador Microscopio Derecho (`app.py`)
-- Basado en `pyqtgraph.dockarea`, con estabilización de deriva térmica (Drift dock) y control unificado.
-
-### 4. Caracterización Avanzada de PSF (`psf_analyzer.py`)
-- Ajuste analítico 2D de Gaussiana (7 parámetros) y Donut $LG_{01}$.
-- Visores triples por canal (Original, Fit, Residuales) y superposición RGB falso color.
-
-### 5. Visión por Computadora y Cámara (`camera.py` / `canon_edsdk.py`)
-- Live View en tiempo real (~30 FPS), paletas LUT, tracking `trackpy` y captura réflex de 15 MP.
-
----
-
-## ⚙️ Configuración Global (`config.py`)
-
-Todos los parámetros por defecto (*typical values*) están centralizados en `config.py`:
-
-```python
-SAFE_MODE     = False          # True para simulación, False para laboratorio real
-PI_SERIAL     = "0119048050"   # Número de serie de la platina PI E-517
-PI_STAGE_RANGE_UM = 100.0      # Rango límite físico de la platina PI (0.0 a 100.0 µm)
-PIXEL_SIZE_UM = 0.059          # Calibración µm/píxel de la cámara
-
-# Mapeo Láser ↔ Fotodiodo
-SHUTTERS = ["532 nm (green)", "637 nm (red)", "592 nm (yellow)"]
-PD_CHANNELS = {"532 nm (green)": 0, "637 nm (red)": 1, "592 nm (yellow)": 3, "BS": 6}
 ```
 
 ---
@@ -262,30 +164,16 @@ pip install -r requirements.txt
   ```powershell
   python main.py
   ```
-* **🔍 Microscopio Contrapropagante**:
+* **📷 Cámara Live View & Suite de Microfotónica**:
   ```powershell
-  python contrapropagante.py
+  python camera.py
   ```
 * **🚀 Microscopio Derecho (PyPrinting 3.0)**:
   ```powershell
   python app.py
   ```
-* **🧬 PSF Analyzer**:
-  ```powershell
-  python psf_analyzer.py
-  ```
-
----
-
-## 🔮 Roadmap Futuro de Proyectos (En Desarrollo)
-
-La plataforma `main.py` reserva la expansión hacia:
-
-1. **🔮 PySpectrum (Espectrometría, Termometría & Scattering)**:
-   - Reemplazo inteligente del programa comercial *Andor Solis*.
-   - Control directo de espectrómetros CCD/EMCCD.
-   - Rutinas automatizadas de **nano-termometría fotónica** por fluorescencia/luminiscencia y dispersión (*scattering*).
 
 ---
 
 *PyPrinting 3.0 — Laboratorio de Nanofotónica, Universidad Nacional de San Martín (UNSAM).*
+*Autor Principal: José Luis González Peñafiel (Becario Doctoral CONICET, INS-UNSAM).*
