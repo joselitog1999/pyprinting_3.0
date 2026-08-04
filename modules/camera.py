@@ -1515,10 +1515,16 @@ class Backend(QObject):
         self.photoSavedSignal.emit(str(name))
 
     def make_connection(self, window: CameraWindow):
-        self.frameSignal.connect(window.update_frame)
-        window.startStreamSignal.connect(self.start_stream)
-        window.stopStreamSignal.connect(self.stop_stream)
-        window.takePhotoSignal.connect(self.take_photo)
+        # La nueva CameraWindow (EDSDK) expone _update_frame y startCameraSignal/stopCameraSignal.
+        # El Backend (OpenCV legacy) alimenta la misma vista cuando está activo.
+        self.frameSignal.connect(window._update_frame)
+        # startCameraSignal / stopCameraSignal son las señales correctas en la CameraWindow actual.
+        # Si la ventana tiene las señales de stream del legacy, también se conectan.
+        if hasattr(window, 'startStreamSignal'):
+            window.startStreamSignal.connect(self.start_stream)
+            window.stopStreamSignal.connect(self.stop_stream)
+        if hasattr(window, 'takePhotoSignal'):
+            window.takePhotoSignal.connect(self.take_photo)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
