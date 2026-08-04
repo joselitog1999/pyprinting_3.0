@@ -497,6 +497,24 @@ class Backend(QObject):
         self.pree_folder    = str(DEFAULT_DATA_PATH)
         self.post_folder    = str(DEFAULT_DATA_PATH)
 
+    def make_connection(self, frontend: QObject):
+        if hasattr(frontend, "make_connection"):
+            frontend.make_connection(self)
+        if hasattr(frontend, "gridSignal"):
+            frontend.gridSignal.connect(self.grid_measurment)
+        if hasattr(frontend, "parametersSignal"):
+            frontend.parametersSignal.connect(self.grid_parameters)
+        if hasattr(frontend, "gridinfoSignal"):
+            frontend.gridinfoSignal.connect(self.grid_info)
+
+    @pyqtSlot(list)
+    def grid_info(self, info: list):
+        if hasattr(self, 'new_folder') and os.path.exists(self.new_folder):
+            path = os.path.join(self.new_folder, "grid_info.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                for line in info:
+                    f.write(f"{line[0]}\t{line[1]}\n")
+
     def _read_pos(self):
         pos = pi.qPOS()
         return pos["1"], pos["2"], pos["3"]
