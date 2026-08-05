@@ -369,7 +369,7 @@ class Backend(QObject):
         self.timeaxis     = np.array([])
         self.intensity    = np.array([])
         self.intensity_BS = np.array([])
-        self.pointtimer.start(int(1000 / self.rate))
+        self.pointtimer.start(0)
 
     def _stop_and_save(self):
         if self.pointtimer and self.pointtimer.isActive():
@@ -410,12 +410,23 @@ class Backend(QObject):
 
         if SAFE_MODE:
             val    = (1.0 + 0.3 * np.sin(self._n * 0.1) + np.random.normal(0, 0.05)) if getattr(self, 'laser1', 'None') != "None" else 0.0
-            val_bs = (0.5 + 0.1 * np.cos(self._n * 0.1) + np.random.normal(0, 0.02)) if getattr(self, 'laser2', 'None') != "None" else 0.0
+            val_bs = (0.5 + 0.1 * np.cos(self._n * 0.1) + np.random.normal(0, 0.02))
         else:
             try:
-                raw    = channels_photodiodos(1)
-                val    = float(raw[0]) if getattr(self, 'laser1', 'None') != "None" and len(raw) > 0 else 0.0
-                val_bs = float(raw[1]) if getattr(self, 'laser2', 'None') != "None" and len(raw) > 1 else 0.0
+                task = channels_photodiodos(self.rate, self.N)
+                lectura_total = task.read(self.N)
+                task.wait_until_done()
+                task.close()
+
+                active_laser_name = getattr(self, 'laser1', SHUTTERS[0])
+                ch_laser_idx = PD_CHANS_LIST.index(PD_CHANNELS.get(active_laser_name, 0))
+                ch_bs_idx    = PD_CHANS_LIST.index(PD_CHANNELS.get("BS", 6))
+
+                points_laser = lectura_total[ch_laser_idx]
+                points_bs    = lectura_total[ch_bs_idx]
+
+                val    = float(np.mean(points_laser))
+                val_bs = float(np.mean(points_bs))
             except Exception:
                 val, val_bs = 0.0, 0.0
 

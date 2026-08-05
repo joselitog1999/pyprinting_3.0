@@ -636,15 +636,19 @@ class Backend(QObject):
         d    = np.diff(trig); L = len(trig)
         asc  = np.where(d >= 1.5)[0]; dsc = np.where(d <= -1.5)[0]
         if not len(asc) or not len(dsc):
-            return np.zeros(self.Nx), np.zeros(self.Nx)
+            half = L // 2
+            return ph[:half], ph[half:]
         fa = asc[0]
         d2 = np.where(asc > fa + L/3)[0]
-        sa = asc[d2[0]] if len(d2) else fa
+        sa = asc[d2[0]] if len(d2) else (fa + L//2 if fa + L//2 < L else fa)
         fd_i = np.where(dsc > fa + L/6)[0]
-        fd   = dsc[fd_i[0]] if len(fd_i) else fa
+        fd   = dsc[fd_i[0]] if len(fd_i) else (fa + L//3 if fa + L//3 < L else L)
         d3   = np.where(dsc > fd + L/3)[0]
-        sd   = dsc[d3[0]] if len(d3) else fd
-        return ph[fa:fd], ph[sa:sd]
+        sd   = dsc[d3[0]] if len(d3) else L
+
+        gone = ph[fa:fd] if fd > fa else ph[:L//2]
+        back = ph[sa:sd] if sd > sa else ph[L//2:]
+        return gone, back
 
     # ── Scan ramp loops ───────────────────────────────────────────────────────
 
@@ -917,8 +921,15 @@ class Backend(QObject):
 def _average(arr: np.ndarray, n: int) -> np.ndarray:
     if n <= 0 or len(arr) == 0:
         return np.zeros(n)
-    end = (len(arr) // n) * n
-    return np.mean(arr[:end].reshape(-1, n), axis=1) if end > 0 else np.zeros(n)
+    if len(arr) < n:
+        x_old = np.linspace(0, 1, len(arr))
+        x_new = np.linspace(0, 1, n)
+        return np.interp(x_new, x_old, arr)
+    resto = len(arr) // n
+    if resto <= 0:
+        return np.zeros(n)
+    end = resto * n
+    return np.mean(arr[:end].reshape(n, resto), axis=1)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

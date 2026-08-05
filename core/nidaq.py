@@ -49,16 +49,15 @@ class _MockNITask:
 
 
 def _synthetic_trigger(n: int) -> np.ndarray:
-    """Genera una señal de trigger con flancos ascendentes y descendentes
-    en las posiciones donde el código de confocal los espera."""
-    t = np.zeros(n)
-    q = n // 4
-    t[q:q + n//10]          = 5.0   # flanco ascendente 1
-    t[q + n//10: 2*q]       = 5.0   # nivel alto
-    t[2*q: 2*q + n//10]     = 0.0   # flanco descendente 1
-    t[2*q + n//5: 2*q + n//5 + n//10] = 5.0   # flanco ascendente 2
-    t[2*q + n//5 + n//10: 3*q]        = 5.0
-    t[3*q: 3*q + n//10]     = 0.0   # flanco descendente 2
+    """Genera una señal de trigger sintético con dos pulsos cuadrados limpios (ida y vuelta)
+    para que los algoritmos de extracción por flancos en confocal funcionen correctamente."""
+    t = np.zeros(n, dtype=float)
+    if n < 4:
+        return t
+    q1, q2 = int(n * 0.15), int(n * 0.45)
+    q3, q4 = int(n * 0.55), int(n * 0.85)
+    t[q1:q2] = 5.0
+    t[q3:q4] = 5.0
     return t
 
 
@@ -189,10 +188,10 @@ def channels_photodiodos(rate: float, samps_per_chan: int):
         task.ai_channels.add_ai_voltage_chan(
             physical_channel=f"{NIDAQ_DEVICE}/ai{ch}",
             name_to_assign_to_channel=f"chan_PD{ch}")
-        task.timing.cfg_samp_clk_timing(
-            rate=rate,
-            sample_mode=AcquisitionType.FINITE,
-            samps_per_chan=samps_per_chan)
+    task.timing.cfg_samp_clk_timing(
+        rate=rate,
+        sample_mode=AcquisitionType.FINITE,
+        samps_per_chan=samps_per_chan)
     return task
 
 
