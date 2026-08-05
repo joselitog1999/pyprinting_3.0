@@ -365,11 +365,12 @@ class Backend(QObject):
         if hasattr(self, 'laser2') and self.laser2 != "None":
             open_shutter(self.laser2)
 
-        self._n     = 0
+        self._n           = 0
+        self.timer_inicio = time.time()
         self.timeaxis     = np.array([])
         self.intensity    = np.array([])
         self.intensity_BS = np.array([])
-        self.pointtimer.start(0)
+        self.pointtimer.start(10)
 
     def _stop_and_save(self):
         if self.pointtimer and self.pointtimer.isActive():
@@ -419,18 +420,28 @@ class Backend(QObject):
                 task.close()
 
                 active_laser_name = getattr(self, 'laser1', SHUTTERS[0])
-                ch_laser_idx = PD_CHANS_LIST.index(PD_CHANNELS.get(active_laser_name, 0))
-                ch_bs_idx    = PD_CHANS_LIST.index(PD_CHANNELS.get("BS", 6))
+                if isinstance(active_laser_name, int):
+                    active_laser_name = SHUTTERS[active_laser_name] if 0 <= active_laser_name < len(SHUTTERS) else SHUTTERS[0]
+
+                ch_laser = PD_CHANNELS.get(active_laser_name, 0)
+                ch_bs    = PD_CHANNELS.get("BS", 6)
+
+                ch_laser_idx = PD_CHANS_LIST.index(ch_laser) if ch_laser in PD_CHANS_LIST else 0
+                ch_bs_idx    = PD_CHANS_LIST.index(ch_bs) if ch_bs in PD_CHANS_LIST else (len(PD_CHANS_LIST) - 1)
 
                 points_laser = lectura_total[ch_laser_idx]
                 points_bs    = lectura_total[ch_bs_idx]
 
                 val    = float(np.mean(points_laser))
                 val_bs = float(np.mean(points_bs))
-            except Exception:
+            except Exception as e:
+                print(f"[Trace Error] Error al leer NI-DAQ: {e}")
                 val, val_bs = 0.0, 0.0
 
-        t_now = self._n / self.rate
+        if not hasattr(self, 'timer_inicio') or self.timer_inicio == 0.0:
+            self.timer_inicio = time.time()
+
+        t_now = round(time.time() - self.timer_inicio, 4)
         self.timeaxis     = np.append(self.timeaxis,     t_now)
         self.intensity    = np.append(self.intensity,    val)
         self.intensity_BS = np.append(self.intensity_BS, val_bs)
