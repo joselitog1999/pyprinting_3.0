@@ -289,3 +289,22 @@ El sistema cumple con la estimación metrológica formal documentada en `reporte
 $$u_c = \sqrt{u_{\text{ruido\_óptico}}^2 + u_{\text{platina\_PI}}^2 + u_{\text{desalineación\_cadena}}^2 + u_{\text{muestreo\_píxel}}^2} \approx 0.35\ \text{nm}$$
 Con una incertidumbre expandida ($k=2$, $95\%$ nivel de confianza) de **$U = 0.70\ \text{nm}$**, respaldando la precisión en localización sub-nanométrica.
 
+---
+
+## 8. Constantes Clave del Sistema y Parámetros Metrológicos
+
+La plataforma define un conjunto de constantes globales estandarizadas en `config.py` y `nidaq.py` para garantizar reproducibilidad metrológica:
+
+| Parámetro / Constante | Valor por Defecto | Unidad | Descripción y Propósito Analítico |
+|---|---|---|---|
+| **`RATE_MULTICHANNEL`** | `1.0e6` ($1\text{ MS/s}$) | $\text{Hz}$ | Velocidad de muestreo agregada multicanal máxima de la tarjeta NI-DAQmx. |
+| **`rate_trace`** | `10000.0` ($10\text{ kHz}$) | $\text{Hz}$ | Frecuencia de muestreo por canal analógico en la adquisición de traza continua. |
+| **`N` (Bloque de Muestreo)** | `10` | Muestras | Muestras analógicas promediadas por tick de adquisición ($1\text{ ms}$ integración). |
+| **Frecuencia Refresco GUI** | `100` ($10\text{ ms}$) | $\text{Hz}$ | Frecuencia de actualización síncrona en pantalla PyQt6 (`QTimer`). |
+| **`PD_CHANNELS`** | `{532nm: 0, 637nm: 1, 592nm: 3, BS: 6}` | Canal `ai` | Mapeo físico de fotodiodos de emisión y Beam Splitter en la NI-DAQmx. |
+| **`TRIGGER_CHANNELS`** | `{"X": 4, "Y": 5, "Z": 3}` | Canal `ai` | Mapeo analógico de canales de trigger de la platina PI E-517. |
+| **`PIXEL_SIZE_UM`** | `0.059` | $\mu\text{m/px}$ | Escala espacial en el plano muestra con objetivo $100\times / 1.4\text{ NA}$. |
+| **Rango de Platina PI** | `100.0` | $\mu\text{m}$ | Rango de desplazamiento piezoeléctrico capacitivo en bucle cerrado ($XYZ$). |
+| **`DEFAULT_POWER_BS_SLOPE`** | `3.0` | $\text{mW/V}$ | Pendiente por defecto de calibración fotométrica en el Beam Splitter. |
+
+
