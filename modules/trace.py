@@ -25,7 +25,8 @@ from pyqtgraph.dockarea import DockArea, Dock
 from config import (SHUTTERS, DEFAULT_DATA_PATH,
                     DEFAULT_TRACE_STEPS_BEFORE, DEFAULT_TRACE_STEPS_AFTER,
                     DEFAULT_POWER_BS_HIGH_MW, DEFAULT_POWER_BS_LOW_MW,
-                    DEFAULT_POWER_BS_INTERCEPT, DEFAULT_POWER_BS_SLOPE)
+                    DEFAULT_POWER_BS_INTERCEPT, DEFAULT_POWER_BS_SLOPE,
+                    PD_CHANNELS, PD_CHANS_LIST)
 from nidaq  import (open_shutter, close_shutter,
                     channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
 
