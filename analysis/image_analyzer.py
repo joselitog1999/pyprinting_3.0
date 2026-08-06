@@ -19,7 +19,7 @@ _curr = Path(__file__).resolve().parent
 while _curr != _curr.parent:
     if (_curr / "config.py").exists():
         _venv_site = _curr / ".venv" / "Lib" / "site-packages"
-        if _venv_site.exists() and str(_venv_site) not in sys.path:
+        if _venv_site.exists() and sys.version_info[:2] == (3, 13) and str(_venv_site) not in sys.path:
             sys.path.insert(0, str(_venv_site))
         for _p in [str(_curr), str(_curr / "core"), str(_curr / "modules"), str(_curr / "analysis")]:
             if _p not in sys.path:

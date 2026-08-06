@@ -46,7 +46,7 @@ _parent1 = os.path.dirname(_this_dir)
 _parent2 = os.path.dirname(_parent1)
 
 _venv_site = os.path.join(_parent1, ".venv", "Lib", "site-packages")
-if os.path.exists(_venv_site) and _venv_site not in sys.path:
+if os.path.exists(_venv_site) and sys.version_info[:2] == (3, 13) and _venv_site not in sys.path:
     sys.path.insert(0, _venv_site)
 
 for _p in [_parent1, _parent2, os.path.join(_parent1, "core"),
