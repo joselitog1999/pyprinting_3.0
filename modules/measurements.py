@@ -527,7 +527,7 @@ class Frontend(QFrame):
         pcDock.addWidget(pcW)
         dock_area.addDock(pcDock, "right", gcDock)
 
-        # Focus shift dock
+        # Focus shift & Drift correction dock
         fsW = QWidget(); flo = QGridLayout(fsW)
         flo.addWidget(QLabel("Autofocus every N"), 0, 0); flo.addWidget(self.autofocEdit, 0, 1)
         flo.addWidget(QLabel("Shift x (µm)"),      1, 0); flo.addWidget(self.shiftxEdit,  1, 1)
@@ -535,7 +535,21 @@ class Frontend(QFrame):
         if self.mode == "dimers":
             flo.addWidget(QLabel("dx (µm)"), 3, 0); flo.addWidget(self.dxEdit, 3, 1)
             flo.addWidget(QLabel("dy (µm)"), 4, 0); flo.addWidget(self.dyEdit, 4, 1)
-        fsDock = Dock("Focus shift"); fsDock.addWidget(fsW)
+
+        # Drift correction controls
+        self.drift_check = QCheckBox("Drift Correction (P0)?")
+        self.drift_check.setToolTip("Realiza un escaneo confocal 2x2 µm en la Partícula 0 post-autofoco Z para corregir derivas X-Y acumuladas.")
+        self.startxEdit = QLineEdit("2.0"); self.startxEdit.setFixedWidth(44)
+        self.startxEdit.setToolTip("Offset X de inicio del arreglo de impresión respecto a la Partícula 0 (µm).")
+        self.startyEdit = QLineEdit("2.0"); self.startyEdit.setFixedWidth(44)
+        self.startyEdit.setToolTip("Offset Y de inicio del arreglo de impresión respecto a la Partícula 0 (µm).")
+
+        r_offset = 5 if self.mode == "dimers" else 3
+        flo.addWidget(self.drift_check,        r_offset,   0, 1, 2)
+        flo.addWidget(QLabel("Start X (µm)"),  r_offset+1, 0); flo.addWidget(self.startxEdit, r_offset+1, 1)
+        flo.addWidget(QLabel("Start Y (µm)"),  r_offset+2, 0); flo.addWidget(self.startyEdit, r_offset+2, 1)
+
+        fsDock = Dock("Focus shift & Drift"); fsDock.addWidget(fsW)
         dock_area.addDock(fsDock, "right", pcDock)
 
         # Extra info dock
@@ -623,10 +637,16 @@ class Frontend(QFrame):
 
     def _get_grid_create(self):
         try:
+            start_x = float(self.startxEdit.text() or 2.0)
+            start_y = float(self.startyEdit.text() or 2.0)
+            drift_bool = self.drift_check.isChecked()
             grid = [int(self.number_files.text()),
                     int(self.number_columns.text()),
                     float(self.distance_files.text()),
-                    float(self.distance_columns.text())]
+                    float(self.distance_columns.text()),
+                    start_x,
+                    start_y,
+                    drift_bool]
             self.gridcreateSignal.emit(grid)
         except ValueError: pass
 
@@ -653,7 +673,10 @@ class Frontend(QFrame):
             float(self.slope_minEdit.text() or 15.0),
             float(self.slope_flatEdit.text() or 2.0),
             float(self.ratio_kEdit.text() or 10.0),
-            float(self.percent_threshEdit.text() or 50.0)
+            float(self.percent_threshEdit.text() or 50.0),
+            float(self.startxEdit.text() or 2.0),
+            float(self.startyEdit.text() or 2.0),
+            self.drift_check.isChecked()
         ]
         scanbool     = self.scan_check.isChecked()
         postscanbool = self.postscan_check.isChecked() if self.mode == "dimers" else False
@@ -857,14 +880,42 @@ class Backend(QObject):
     @pyqtSlot(list)
     def grid_create(self, grid: list):
         n, N, d_n, d_N = int(grid[0]), int(grid[1]), grid[2], grid[3]
-        datos = np.zeros((3, n * N))
-        for i in range(n):
-            for k in range(N):
-                datos[0, k*n+i] = i * d_n
-                datos[1, k*n+i] = k * d_N
-        self.grid_name  = f"{n}x{N}_{d_n}umx{d_N}um"
-        self.grid_x     = datos[0, :]; self.grid_y = datos[1, :]
-        self.particulas = n * N
+        start_x    = grid[4] if len(grid) > 4 else 2.0
+        start_y    = grid[5] if len(grid) > 5 else 2.0
+        drift_bool = bool(grid[6]) if len(grid) > 6 else False
+        self.driftbool = drift_bool
+        self.start_x_offset = start_x
+        self.start_y_offset = start_y
+
+        if drift_bool:
+            total = 1 + n * N
+            datos = np.zeros((3, total))
+            # Partícula 0 (Ancla) en (0, 0)
+            datos[0, 0] = 0.0
+            datos[1, 0] = 0.0
+
+            idx = 1
+            for i in range(n):
+                for k in range(N):
+                    datos[0, idx] = start_x + i * d_n
+                    datos[1, idx] = start_y + k * d_N
+                    idx += 1
+
+            self.grid_name  = f"{n}x{N}_drift_{d_n}umx{d_N}um"
+            self.grid_x     = datos[0, :]
+            self.grid_y     = datos[1, :]
+            self.particulas = total
+        else:
+            datos = np.zeros((3, n * N))
+            for i in range(n):
+                for k in range(N):
+                    datos[0, k*n+i] = i * d_n
+                    datos[1, k*n+i] = k * d_N
+            self.grid_name  = f"{n}x{N}_{d_n}umx{d_N}um"
+            self.grid_x     = datos[0, :]
+            self.grid_y     = datos[1, :]
+            self.particulas = n * N
+
         self.particulasSignal.emit(self.particulas)
         self.gridplotSignal.emit(datos)
 
@@ -907,6 +958,10 @@ class Backend(QObject):
         self.slope_flat     = params[13]
         self.ratio_k        = params[14]
         self.percent_thresh = params[15]
+        if len(params) > 16:
+            self.start_x_offset = params[16]
+            self.start_y_offset = params[17]
+            self.driftbool      = bool(params[18])
         self.scanbool       = scanbool
         self.postscanbool   = postscanbool
         self.hold_counter   = 0
@@ -924,6 +979,11 @@ class Backend(QObject):
         self.startX        = self.xref
         self.startY        = self.yref
         self.printing_error_x = []; self.printing_error_y = []
+
+        if getattr(self, "driftbool", False) and self.particulas > 1:
+            self.i_global = 1
+        else:
+            self.i_global = 0
 
         if self.mode_arg == "dimers":
             if self.scanbool:
@@ -964,8 +1024,16 @@ class Backend(QObject):
                             self.grid_y[self.i_global] + self.startY])
             time.sleep(0.1)
         down_flipper(); time.sleep(1)
-        if self.mode_arg == "dimers": self._grid_center_scan()
-        else:                         self._grid_trace()
+        if getattr(self, "driftbool", False):
+            # Mover a la Partícula 0 (Origen de referencia + deriva acumulada)
+            pi.MOV([1, 2], [self.startX, self.startY])
+            time.sleep(0.1)
+            self.number_scan = "drift_scan"
+            self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
+        else:
+            down_flipper(); time.sleep(1)
+            if self.mode_arg == "dimers": self._grid_center_scan()
+            else:                         self._grid_trace()
 
     def _grid_trace(self):
         open_shutter(self.laser); time.sleep(0.01)
@@ -1060,6 +1128,21 @@ class Backend(QObject):
                           image_gone: np.ndarray, image_back: np.ndarray,
                           mode: str, number_scan: str):
         if mode != self.mode_arg:
+            return
+
+        if number_scan == "drift_scan":
+            if center_mass and len(center_mass) >= 2:
+                dx_drift = center_mass[0] - self.xref
+                dy_drift = center_mass[1] - self.yref
+                self.startX += dx_drift
+                self.startY += dy_drift
+
+            down_flipper(); time.sleep(1)
+            pi.MOV([1, 2], [self.grid_x[self.i_global] + self.startX,
+                            self.grid_y[self.i_global] + self.startY])
+            time.sleep(0.1)
+            if self.mode_arg == "dimers": self._grid_center_scan()
+            else:                         self._grid_trace()
             return
 
         # Si estamos en Modo 3, procesar reescalado de confocal raw

@@ -350,6 +350,13 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
   - `Steps after`: Muestras adicionales adquiridas inmediatamente después del cierre del obturador para registrar la meseta post-impresión.
 - **`Autofocus Every N`**: Frecuencia de ejecución del autofoco dinámico en Z (ej. cada 2 nodos) para compensar derivas mecánicas durante grillas extensas.
 - **`Shift X / Shift Y (µm)`**: Desplazamiento lateral offset introducido temporalmente para realizar el autofoco axial en una zona limpia contigua sin perturbar el nodo actual.
+- **`Drift Correction (Partícula 0)`**:
+  - **`[ ] Drift Correction (P0)?`**: Activa la corrección de deriva termomecánica $X-Y$ automatizada por partícula ancla.
+  - **`Start X / Start Y (µm)`**: Offset de separación inicial del arreglo impreso respecto a la Partícula 0 (predeterminado: $2.0, 2.0\,\mu\text{m}$).
+  - **Flujo de Trabajo**: Tras cada ciclo de autofoco Z, la platina retorna a la **Partícula 0** en $(0,0)$, ejecuta un escaneo confocal rápido $2\times 2\,\mu\text{m}$, calcula el desplazamiento del centro de masa $(\delta x, \delta y)$ y compensa la posición de todos los nodos restantes en tiempo real.
+  - > [!NOTE]
+    > Para consultar la fundamentación física, modelado estocástico y propagación de errores del método, consulte el reporte:  
+    > [Corrección de Deriva Termomecánica (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
 
 #### 3.7.2 Pestaña `Dimers` (Ensamblado Guiado de Nanodímeros Plasmónicos)
 - Permite la fabricación guiada de nanodímeros con separación interpartícula (*gap*) sub-100 nm.
