@@ -138,3 +138,15 @@ Gestiona la interfaz emergente de impresión automatizada de nanopartículas y e
 ## 4. Verificación de Integridad Metrológica
 
 Todas las señales han sido validadas ejecutando la suite de pruebas unitarias e integración en modo seguro (`SAFE_MODE`). El flujo de datos entre la adquisición de NI-DAQmx, el movimiento capacitivo de la platina PI y la toma de decisiones por el criterio de parada se ejecuta con latencia inferior a $1.0\ \text{ms}$, garantizando el cierre inmediato del obturador al adherirse la nanopartícula en el sustrato.
+
+---
+
+## 5. Documentación Relacionada y Red de Reportes
+
+- **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
+- **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
+- **Reportes Técnicos Vinculados**:
+  - 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
+  - 🧵 [Arquitectura de Hilos y Concurrencia (reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
+  - 🔬 [Guía Protocolar Paso a Paso "DO PRINTING" (reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
+  - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)

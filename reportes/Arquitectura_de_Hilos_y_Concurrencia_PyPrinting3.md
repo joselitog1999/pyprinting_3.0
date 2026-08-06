@@ -95,3 +95,14 @@ Al emitir `frameSignal.emit(frame)`, Qt deposita una referencia al arreglo NumPy
    - `core/canon_edsdk.py` registra la función `_emergency_shutter_cleanup()` en `atexit` para forzar el retorno mecánico del obturador y el cierre de la sesión USB en caso de finalización imprevista de la aplicación.
 3. **Consumo de Recursos Computacionales**:
    - En procesadores multi-núcleo modernos (4 a 8 núcleos), la carga total distribuida de CPU se mantiene entre el **5% y el 12%**, garantizando una estabilidad operacional continua durante extensas jornadas de fabricación.
+
+---
+
+## 6. Documentación Relacionada y Red de Reportes
+
+- **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
+- **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
+- **Reportes Técnicos Vinculados**:
+  - 📷 [Módulo Cámara Canon EOS 500D (reportes/Modulo_Camara_Canon_EOS500D_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Modulo_Camara_Canon_EOS500D_PyPrinting3.md)
+  - 🔌 [Diagnóstico de Señales y Conexiones (reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)
+  - 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)

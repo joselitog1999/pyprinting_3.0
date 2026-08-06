@@ -129,3 +129,15 @@ En `modules/measurements.py`:
 ## 7. Conclusión
 
 La incorporación de **Drift Correction** mediante Partícula Ancla otorga a **PyPrinting 3.0** la capacidad de mantener una precisión espacial nanométrica constante durante corridas de impresión de larga duración. Al desacoplar la deriva térmica y la fluencia mecánica de la platina, se garantiza la perfecta periodicidad geométrica en la fabricación de redes y metamateriales plasmónicos.
+
+---
+
+## 8. Documentación Relacionada y Red de Reportes
+
+- **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
+- **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
+- **Reportes Técnicos Vinculados**:
+  - 🔬 [Protocolo y Guía de Impresión de Grillas (reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
+  - 📊 [Incertidumbre Metrológica ISO/GUM (reportes/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Incertidumbre_Metrologica_PyPrinting3.md)
+  - 🧮 [Algoritmo de Parada e Impresión de Grillas y Dímeros (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
+  - 🔌 [Diagnóstico de Señales y Conexiones (reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)

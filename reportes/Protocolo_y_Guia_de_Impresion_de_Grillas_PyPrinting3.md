@@ -172,3 +172,15 @@ Al finalizar la impresión, la carpeta del lote experimental contendrá:
 2. **`NPscan_00i.tiff`**: Escaneos confocales 2D de las partículas impresas (si `Scan pre-print?` estaba activo).
 3. **`printing_error_timestamp.txt`**: Matriz de residuos de posicionamiento en nanómetros $(\Delta x_{\text{nm}}, \Delta y_{\text{nm}})$ entre el centroide real y la coordenada teórica.
 4. **`grid_info.txt`**: Resumen completo de metadatos (Láser, Criterio, Umbrales, Potencia BFP, Sustrato y Comentarios).
+
+---
+
+## 6. Documentación Relacionada y Red de Reportes
+
+- **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
+- **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
+- **Reportes Técnicos Vinculados**:
+  - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
+  - 🧮 [Algoritmo de Parada e Impresión de Grillas y Dímeros (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
+  - 🔌 [Diagnóstico de Señales y Conexiones (reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)
+  - 📊 [Incertidumbre Metrológica ISO/GUM (reportes/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Incertidumbre_Metrologica_PyPrinting3.md)

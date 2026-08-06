@@ -96,3 +96,13 @@ $$\text{width}_{\text{box}} = \frac{1}{\text{ZoomLevel}} \cdot W_{\text{pip}}, \
 
 - **Parenting en Viewport**: `OverlayWidget` se vincula a `self._view.viewport()`, asegurando que los eventos de repintado de Qt coincidan punto a punto con la superficie interna de `GraphicsLayoutWidget`.
 - **Restricciones de Splitter**: Los paneles laterales (`left_panel` y `right_panel`) cuentan con anchos mínimos y máximos fijos, y la propiedad `setCollapsible(1, False)` garantiza que la sección central del visor nunca sea colapsada ni invadida por el panel de mediciones al cambiar el tamaño de la ventana.
+
+---
+
+## 6. Documentación Relacionada y Red de Reportes
+
+- **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
+- **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
+- **Reportes Técnicos Vinculados**:
+  - 🧵 [Arquitectura de Hilos y Concurrencia (reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
+  - 🔌 [Diagnóstico de Señales y Conexiones (reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)
