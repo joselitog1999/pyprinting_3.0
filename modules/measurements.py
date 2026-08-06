@@ -102,14 +102,20 @@ class InteractiveGridWidget(QFrame):
 
         vlo.addWidget(tb)
 
-        # ── Visualizador PyQtGraph ───────────────────────────────────────────
+        # ── Visualizador PyQtGraph (Orientación Física 90° a la derecha) ────
+        # Sistema cartesiano físico del microscopio:
+        #   Eje Vertical   = X (Positivo +X para abajo -> invertY)
+        #   Eje Horizontal = Y (Negativo -Y a la derecha -> invertX)
         self.graphics = pg.GraphicsLayoutWidget()
         self.plot = self.graphics.addPlot()
         self.plot.setAspectLocked(True)
         self.plot.showGrid(x=True, y=True)
+        self.plot.invertY(True)  # +X hacia abajo
+        self.plot.invertX(True)  # -Y hacia la derecha (+Y a la izquierda)
+
         label_style = {"color": "#cdd6f4", "font-size": "9pt"}
-        self.plot.setLabel("left", "Y (µm)", **label_style)
-        self.plot.setLabel("bottom", "X (µm)", **label_style)
+        self.plot.setLabel("left", "X (µm)", **label_style)    # Eje vertical = X
+        self.plot.setLabel("bottom", "Y (µm)", **label_style)  # Eje horizontal = Y
 
         # Elementos del gráfico:
         # 1. Camino (Línea punteada de trayectoria)
@@ -153,14 +159,18 @@ class InteractiveGridWidget(QFrame):
         vlo.addWidget(leg)
 
     def set_grid(self, datos: np.ndarray):
-        """Carga las coordenadas de la grilla datos[2, N] y reconstruye la visualización."""
+        """Carga las coordenadas de la grilla datos[2, N] y reconstruye la visualización (mapeando Y a horizontal, X a vertical)."""
         if datos is None or datos.shape[0] < 2 or datos.shape[1] == 0:
             return
 
         self.grid_coords = datos
-        xs = datos[0, :]
-        ys = datos[1, :]
-        N = len(xs)
+        xs_stage = datos[0, :]  # Coordenada X platina
+        ys_stage = datos[1, :]  # Coordenada Y platina
+        N = len(xs_stage)
+
+        # Mapeo a pantalla: X_display = Y_stage (horiz), Y_display = X_stage (vert)
+        x_disp = ys_stage
+        y_disp = xs_stage
 
         self.node_states = ["pending"] * N
 
@@ -172,14 +182,14 @@ class InteractiveGridWidget(QFrame):
         # Crear TextItems con número de nodo
         for idx in range(N):
             ti = pg.TextItem(text=str(idx), color="#cdd6f4", anchor=(0.5, 1.3))
-            ti.setPos(xs[idx], ys[idx])
+            ti.setPos(x_disp[idx], y_disp[idx])
             ti.setVisible(self._show_numbers)
             self.plot.addItem(ti)
             self.text_items.append(ti)
 
         # Actualizar línea de camino
         if self._show_path and N > 1:
-            self.path_item.setData(xs, ys)
+            self.path_item.setData(x_disp, y_disp)
             self.path_item.show()
         else:
             self.path_item.hide()
@@ -200,11 +210,11 @@ class InteractiveGridWidget(QFrame):
 
         self.node_states[idx] = status
 
-        xs = self.grid_coords[0, :]
-        ys = self.grid_coords[1, :]
+        x_disp = self.grid_coords[1, :]  # Y_stage (pantalla horiz)
+        y_disp = self.grid_coords[0, :]  # X_stage (pantalla vert)
 
         if status == "active":
-            self.active_ring.setData([xs[idx]], [ys[idx]])
+            self.active_ring.setData([x_disp[idx]], [y_disp[idx]])
 
         self._update_scatter()
 
@@ -212,9 +222,9 @@ class InteractiveGridWidget(QFrame):
         if self.grid_coords is None:
             return
 
-        xs = self.grid_coords[0, :]
-        ys = self.grid_coords[1, :]
-        N = len(xs)
+        x_disp = self.grid_coords[1, :]  # Y_stage (pantalla horiz)
+        y_disp = self.grid_coords[0, :]  # X_stage (pantalla vert)
+        N = len(x_disp)
 
         color_map = {
             "pending": "#45475a",
@@ -228,7 +238,7 @@ class InteractiveGridWidget(QFrame):
             st = self.node_states[i]
             col = color_map.get(st, "#45475a")
             spots.append({
-                'pos': (xs[i], ys[i]),
+                'pos': (x_disp[i], y_disp[i]),
                 'data': i,
                 'brush': pg.mkBrush(col),
                 'pen': pg.mkPen('#11111b', width=1),
