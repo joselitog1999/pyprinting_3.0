@@ -535,11 +535,11 @@ class CanonCamera:
     # ── Controles de Zoom y Corrección de Orientación Live View ──────────────
 
     def set_live_view_zoom(self, zoom_val: int) -> bool:
-        if not self._is_session_open: return False
+        if not self._is_session_open or edsdk is None: return False
         self._active_zoom = zoom_val
 
         with _edsdk_lock:
-            hw_zoom = 1 if zoom_val in (1, 2) else zoom_val
+            hw_zoom = 1 if zoom_val <= 1 else (5 if zoom_val <= 5 else 10)
             val = EdsUInt32(hw_zoom)
             err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
             return err == EDS_ERR_OK
@@ -562,28 +562,6 @@ class CanonCamera:
         # Rotación 90° sentido horario e inversión horizontal
         corrected = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
         corrected = cv2.flip(corrected, 1)
-
-        # Aplicar Zoom digital 2x/5x/10x por corte ROI con navegación panorámica FOV
-        if self._active_zoom in (2, 5, 10):
-            H, W, C = corrected.shape
-            scale = float(self._active_zoom)
-            crop_h = max(10, int(H / scale))
-            crop_w = max(10, int(W / scale))
-
-            cx = getattr(self, '_zoom_center_x', 0.5)
-            cy = getattr(self, '_zoom_center_y', 0.5)
-
-            center_y = int(cy * H)
-            center_x = int(cx * W)
-
-            y1 = max(0, min(H - crop_h, center_y - crop_h // 2))
-            y2 = y1 + crop_h
-            x1 = max(0, min(W - crop_w, center_x - crop_w // 2))
-            x2 = x1 + crop_w
-
-            crop = corrected[y1:y2, x1:x2]
-            return cv2.resize(crop, (W, H), interpolation=cv2.INTER_CUBIC)
-
         return corrected
 
     def process_frame_live_adjustments(

@@ -578,7 +578,7 @@ class OverlayWidget(QWidget):
 
         self._mode = "none" # "ref" | "measure" | "roi" | "none"
         self._snap_highlight: Optional[tuple[float, float]] = None
-        self._pip_enabled = True
+        self._pip_enabled = False
 
     def set_pip_enabled(self, enabled: bool):
         self._pip_enabled = enabled
@@ -1070,6 +1070,86 @@ class OverlayWidget(QWidget):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  EXTERNAL PIP WIDGET (Minimapa fuera de la imagen principal)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ExternalPiPWidget(QWidget):
+    positionClickedSignal = pyqtSignal(float, float)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(220, 130)
+        self.setMaximumHeight(160)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self._unzoomed_frame: Optional[np.ndarray] = None
+        self._cx = 0.5
+        self._cy = 0.5
+        self._zoom_level = 1.0
+
+    def set_full_unzoomed_frame(self, frame: np.ndarray):
+        self._unzoomed_frame = frame
+        self.update()
+
+    def set_zoom_state(self, cx: float, cy: float, zoom_level: float):
+        self._cx = max(0.0, min(1.0, cx))
+        self._cy = max(0.0, min(1.0, cy))
+        self._zoom_level = zoom_level
+        self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._handle_click(event.position())
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._handle_click(event.position())
+
+    def _handle_click(self, pos):
+        W, H = self.width(), self.height()
+        if W > 0 and H > 0:
+            cx = max(0.0, min(1.0, pos.x() / W))
+            cy = max(0.0, min(1.0, pos.y() / H))
+            self.positionClickedSignal.emit(cx, cy)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        W, H = self.width(), self.height()
+
+        p.fillRect(self.rect(), QColor(15, 23, 42))
+
+        if self._unzoomed_frame is not None:
+            try:
+                img = self._unzoomed_frame
+                ih, iw, ic = img.shape
+                qimg = QImage(img.data, iw, ih, iw * ic, QImage.Format.Format_RGB888)
+                p.drawImage(self.rect(), qimg)
+            except Exception:
+                pass
+
+        p.setPen(QPen(QColor(245, 166, 35, 220), 1.5))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRect(0, 0, W - 1, H - 1)
+
+        if self._zoom_level > 1.0:
+            scale = float(self._zoom_level)
+            bw = W / scale
+            bh = H / scale
+            bx = max(0.0, min(W - bw, self._cx * W - bw / 2.0))
+            by = max(0.0, min(H - bh, self._cy * H - bh / 2.0))
+
+            p.setPen(QPen(QColor(255, 68, 68, 255), 2))
+            p.setBrush(QColor(255, 68, 68, 50))
+            p.drawRect(QRectF(bx, by, bw, bh))
+
+            mcx = bx + bw / 2.0
+            mcy = by + bh / 2.0
+            p.setPen(QPen(QColor(255, 220, 0, 240), 1))
+            p.drawLine(QPointF(mcx - 5, mcy), QPointF(mcx + 5, mcy))
+            p.drawLine(QPointF(mcx, mcy - 5), QPointF(mcx, mcy + 5))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  CAMERA WINDOW  —  Fusión completa: UI camera_20260804 + Controles Canon EDSDK
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1115,6 +1195,12 @@ class CameraWindow(QMainWindow):
         self._measure_mode = False
         self._is_camera_active = False
 
+        # Estado del Zoom Óptico Canon (1x, 5x, 10x)
+        self._canon_zoom_levels = [1, 5, 10]
+        self._canon_zoom_idx = 0
+        self._canon_cx = 0.5
+        self._canon_cy = 0.5
+
         # Temporizadores de Antirrebote (Debounce 200 ms) para ISO y Tv
         self._debounce_iso_timer = QTimer(self)
         self._debounce_iso_timer.setSingleShot(True)
@@ -1144,9 +1230,6 @@ class CameraWindow(QMainWindow):
         self._btn_setref    = self._mkbtn("Set ref.", checkable=True, color="#4a9eff")
         self._btn_setscale  = self._mkbtn("Set scale", color="#f5a623")
         self._btn_rulers    = self._mkbtn("Reglas (0)", color="#f5a623")
-        self._btn_zoom_in   = self._mkbtn("Zoom +", color="#ffc832")
-        self._btn_zoom_out  = self._mkbtn("Zoom -", color="#ffc832")
-        self._btn_home      = self._mkbtn("Home", color="#ffc832")
         self._btn_confocal  = self._mkbtn("→ Confocal", color="#8b7cf8")
         self._btn_log       = self._mkbtn("Log EDSDK", color="#888")
         self._btn_diag      = self._mkbtn("🛡 Obturador", color="#ffaa00")
@@ -1157,17 +1240,13 @@ class CameraWindow(QMainWindow):
         self._btn_setref.clicked.connect(self._start_set_ref)
         self._btn_setscale.clicked.connect(self._open_set_scale)
         self._btn_rulers.clicked.connect(self._cycle_rulers)
-        self._btn_zoom_in.clicked.connect(lambda: self._overlay.zoom_in())
-        self._btn_zoom_out.clicked.connect(lambda: self._overlay.zoom_out())
-        self._btn_home.clicked.connect(lambda: self._overlay.zoom_home())
         self._btn_confocal.clicked.connect(self._send_roi_to_confocal)
         self._btn_log.clicked.connect(self._open_log_dialog)
         self._btn_diag.clicked.connect(self._force_shutter_cleanup)
         self._btn_clear_all.clicked.connect(self._global_clear_with_confirm)
 
         for w in (self._btn_live, self._btn_photo, self._btn_setref, self._btn_setscale,
-                  self._btn_rulers, self._btn_zoom_in, self._btn_zoom_out, self._btn_home,
-                  self._btn_confocal, self._btn_log, self._btn_diag, self._btn_clear_all):
+                  self._btn_rulers, self._btn_confocal, self._btn_log, self._btn_diag, self._btn_clear_all):
             tb_lo.addWidget(w)
         tb_lo.addStretch()
         main_vlo.addWidget(tb, stretch=0)
@@ -1197,20 +1276,13 @@ class CameraWindow(QMainWindow):
 
         self._combo_iso = QComboBox(); self._combo_iso.setEnabled(False)
         self._combo_tv  = QComboBox(); self._combo_tv.setEnabled(False)
-        self._combo_zoom = QComboBox()
-        for val, label in ZOOM_MAP.items():
-            self._combo_zoom.addItem(label, userData=val)
 
         self._combo_iso.currentIndexChanged.connect(self._on_iso_changed)
         self._combo_tv.currentIndexChanged.connect(self._on_tv_changed)
-        self._combo_zoom.currentIndexChanged.connect(self._on_zoom_changed)
 
         form_cam.addRow("ISO:", self._combo_iso)
         form_cam.addRow("Tv:", self._combo_tv)
-        form_cam.addRow("Zoom:", self._combo_zoom)
-        conn_lo.addLayout(form_cam)
 
-        # ── Sub-panel: Formato de Foto ─────────────────────────────────────
         self._combo_photo_format = QComboBox()
         self._combo_photo_format.addItems([
             "JPG (15.1 MP - 4752×3168)",
@@ -1226,9 +1298,70 @@ class CameraWindow(QMainWindow):
         self._lbl_dir = QLabel(f"📂 {os.path.abspath(DEFAULT_DATA_PATH)}")
         self._lbl_dir.setStyleSheet("font-family: monospace; font-size: 9px; color: #aaa;")
         self._lbl_dir.setWordWrap(True)
+        conn_lo.addLayout(form_cam)
         conn_lo.addWidget(self._btn_dir)
         conn_lo.addWidget(self._lbl_dir)
         left_lo.addWidget(conn_box)
+
+        # ── Sub-panel: Zoom Óptico Canon (EVF Hardware) ──────────────────────
+        canon_zoom_box = QGroupBox("Zoom Óptico Canon (EVF Hardware)")
+        cz_lo = QVBoxLayout(canon_zoom_box)
+
+        # Botones de Nivel + / -
+        row_z = QHBoxLayout()
+        self._btn_zoom_out_canon = QPushButton("🔍 − Zoom")
+        self._btn_zoom_out_canon.setToolTip("Disminuir Zoom Óptico Canon (10x -> 5x -> 1x) [Teclas - o _]")
+        self._lbl_canon_zoom_val = QLabel("Zoom: 1x (Campo Completo)")
+        self._lbl_canon_zoom_val.setStyleSheet("font-weight: bold; color: #4a9eff; font-size: 11px;")
+        self._lbl_canon_zoom_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._btn_zoom_in_canon = QPushButton("🔍 + Zoom")
+        self._btn_zoom_in_canon.setToolTip("Aumentar Zoom Óptico Canon (1x -> 5x -> 10x) [Teclas + o =]")
+
+        self._btn_zoom_out_canon.clicked.connect(self._zoom_out_canon)
+        self._btn_zoom_in_canon.clicked.connect(self._zoom_in_canon)
+
+        row_z.addWidget(self._btn_zoom_out_canon)
+        row_z.addWidget(self._lbl_canon_zoom_val, stretch=1)
+        row_z.addWidget(self._btn_zoom_in_canon)
+        cz_lo.addLayout(row_z)
+
+        # Pad Direccional con Flechas
+        pad_layout = QHBoxLayout()
+        pad_grid = QGridLayout()
+        self._btn_up = QPushButton("▲")
+        self._btn_down = QPushButton("▼")
+        self._btn_left = QPushButton("◄")
+        self._btn_right = QPushButton("►")
+        self._btn_center = QPushButton("🎯")
+        self._btn_center.setToolTip("Recentrar recuadro de zoom al centro (50%, 50%)")
+
+        for b in (self._btn_up, self._btn_down, self._btn_left, self._btn_right, self._btn_center):
+            b.setFixedSize(30, 26)
+            b.setStyleSheet("font-weight: bold; font-size: 11px;")
+
+        self._btn_up.clicked.connect(lambda: self._pan_canon(0, -1))
+        self._btn_down.clicked.connect(lambda: self._pan_canon(0, 1))
+        self._btn_left.clicked.connect(lambda: self._pan_canon(-1, 0))
+        self._btn_right.clicked.connect(lambda: self._pan_canon(1, 0))
+        self._btn_center.clicked.connect(self._recenter_canon)
+
+        pad_grid.addWidget(self._btn_up, 0, 1)
+        pad_grid.addWidget(self._btn_left, 1, 0)
+        pad_grid.addWidget(self._btn_center, 1, 1)
+        pad_grid.addWidget(self._btn_right, 1, 2)
+        pad_grid.addWidget(self._btn_down, 2, 1)
+
+        pad_layout.addStretch()
+        pad_layout.addLayout(pad_grid)
+        pad_layout.addStretch()
+        cz_lo.addLayout(pad_layout)
+
+        # External PiP (Minimapa fuera de la imagen principal)
+        self._ext_pip = ExternalPiPWidget(self)
+        self._ext_pip.positionClickedSignal.connect(self._on_ext_pip_click)
+        cz_lo.addWidget(self._ext_pip)
+
+        left_lo.addWidget(canon_zoom_box)
 
         # ── Sub-panel: Ajustes de Imagen en Vivo ─────────────────────────
         live_box = QGroupBox("Ajustes de Imagen en Vivo")
@@ -1525,12 +1658,73 @@ class CameraWindow(QMainWindow):
         QMessageBox.information(self, "Diagnóstico", "Obturador cerrado y sesión de cámara restablecida.")
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
-            if hasattr(self, '_overlay') and self._overlay._zoom_level > 1.0:
-                self._overlay.pan_by_arrow(event.key())
-                event.accept()
-                return
+        k = event.key()
+        if k in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            self._zoom_in_canon()
+            event.accept()
+            return
+        elif k in (Qt.Key.Key_Minus, Qt.Key.Key_Underscore):
+            self._zoom_out_canon()
+            event.accept()
+            return
+        elif k == Qt.Key.Key_Left:
+            self._pan_canon(-1, 0)
+            event.accept()
+            return
+        elif k == Qt.Key.Key_Right:
+            self._pan_canon(1, 0)
+            event.accept()
+            return
+        elif k == Qt.Key.Key_Up:
+            self._pan_canon(0, -1)
+            event.accept()
+            return
+        elif k == Qt.Key.Key_Down:
+            self._pan_canon(0, 1)
+            event.accept()
+            return
         super().keyPressEvent(event)
+
+    # ── Controles de Zoom Hardware Canon (EVF 1x, 5x, 10x) ───────────────────
+
+    def _zoom_in_canon(self):
+        if self._canon_zoom_idx < len(self._canon_zoom_levels) - 1:
+            self._canon_zoom_idx += 1
+            self._sync_canon_zoom_hardware()
+
+    def _zoom_out_canon(self):
+        if self._canon_zoom_idx > 0:
+            self._canon_zoom_idx -= 1
+            self._sync_canon_zoom_hardware()
+
+    def _pan_canon(self, dx: int, dy: int):
+        step = 0.05
+        self._canon_cx = max(0.0, min(1.0, self._canon_cx + dx * step))
+        self._canon_cy = max(0.0, min(1.0, self._canon_cy + dy * step))
+        self._sync_canon_zoom_hardware()
+
+    def _recenter_canon(self):
+        self._canon_cx = 0.5
+        self._canon_cy = 0.5
+        self._sync_canon_zoom_hardware()
+
+    def _on_ext_pip_click(self, cx: float, cy: float):
+        self._canon_cx = cx
+        self._canon_cy = cy
+        self._sync_canon_zoom_hardware()
+
+    def _sync_canon_zoom_hardware(self):
+        val = self._canon_zoom_levels[self._canon_zoom_idx]
+        txt = "Zoom: 1x (Campo Completo)" if val == 1 else (f"Zoom: {val}x (Hardware Canon)" if val < 10 else f"Zoom: {val}x (Máximo Enfoque)")
+        if hasattr(self, '_lbl_canon_zoom_val'):
+            self._lbl_canon_zoom_val.setText(txt)
+
+        if self._is_camera_active:
+            self.setZoomSignal.emit(val)
+            self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
+
+        if hasattr(self, '_ext_pip'):
+            self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
 
     def _open_log_dialog(self):
         self._log_dialog.show()
@@ -1566,14 +1760,7 @@ class CameraWindow(QMainWindow):
         denoise = self._chk_denoise.isChecked() if hasattr(self, '_chk_denoise') else False
         self.liveParamsSignal.emit(mode, cmin, cmax, lut, r_g, g_g, b_g, noise_floor, denoise)
 
-    # ── ISO / Tv / Zoom (con Debounce) ────────────────────────────────────────
-
-    def _on_zoom_changed(self, idx: int):
-        val = self._combo_zoom.itemData(idx)
-        if val is not None:
-            self.setZoomSignal.emit(val)
-            if hasattr(self, '_overlay'):
-                self._overlay.set_zoom_level(float(val))
+    # ── ISO / Tv (con Debounce) ───────────────────────────────────────────────
 
     def _on_iso_changed(self, idx: int):
         val = self._combo_iso.itemData(idx)
@@ -1616,6 +1803,8 @@ class CameraWindow(QMainWindow):
     def _update_full_frame(self, frame: np.ndarray):
         if hasattr(self, '_overlay'):
             self._overlay.set_full_unzoomed_frame(frame)
+        if hasattr(self, '_ext_pip'):
+            self._ext_pip.set_full_unzoomed_frame(frame)
 
     # Alias público para compatibilidad con código antiguo
     @pyqtSlot(np.ndarray)
