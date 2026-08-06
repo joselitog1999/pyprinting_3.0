@@ -75,6 +75,7 @@ class Frontend(QFrame):
         self.grid_laser = QComboBox()
         self.grid_laser.addItems(SHUTTERS)
         self.grid_laser.setFixedWidth(100)
+        self.grid_laser.setToolTip("Línea láser seleccionada para la impresión fototérmica.")
         self.grid_laser.currentIndexChanged.connect(
             lambda: self._color_menu(self.grid_laser))
         self._color_menu(self.grid_laser)
@@ -88,60 +89,85 @@ class Frontend(QFrame):
             "Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado",
             "Modo 4: Criterio Híbrido Tri-Factor (All-In-One)"
         ])
+        self.stop_mode_combo.setToolTip("Algoritmo de criterio de parada en tiempo real (Modos 0 a 4).")
         self.stop_mode_combo.currentIndexChanged.connect(self._on_stopping_mode_changed)
 
         # ── Parámetros de detección estándar y avanzados ──────────────────────
         self.umbralEdit       = QLineEdit(str(DEFAULT_PRINTING_UMBRAL)); self.umbralEdit.setFixedWidth(55)
+        self.umbralEdit.setToolTip("Umbral de salto relativo de la traza para detectar el evento de impresión (ej. 1.20 = 20% de incremento sobre I_old).")
         self.umbral_downEdit  = QLineEdit(str(int(DEFAULT_PRINTING_UMBRAL_DOWN) if DEFAULT_PRINTING_UMBRAL_DOWN.is_integer() else DEFAULT_PRINTING_UMBRAL_DOWN)); self.umbral_downEdit.setFixedWidth(55)
+        self.umbral_downEdit.setToolTip("Umbral de caída mínima de la traza para cancelar impresión por blanqueamiento o pérdida de señal.")
         self.tmaxEdit         = QLineEdit(str(int(DEFAULT_PRINTING_TMAX) if DEFAULT_PRINTING_TMAX.is_integer() else DEFAULT_PRINTING_TMAX)); self.tmaxEdit.setFixedWidth(55)
+        self.tmaxEdit.setToolTip("Tiempo máximo de espera por nodo en segundos antes de abortar por timeout.")
         self.steps_beforeEdit = QLineEdit(str(DEFAULT_PRINTING_STEPS_BEFORE)); self.steps_beforeEdit.setFixedWidth(44)
+        self.steps_beforeEdit.setToolTip("Muestras analógicas adquiridas antes de abrir obturador para calcular la línea base (I_old).")
         self.steps_afterEdit  = QLineEdit(str(DEFAULT_PRINTING_STEPS_AFTER)); self.steps_afterEdit.setFixedWidth(44)
-        
+        self.steps_afterEdit.setToolTip("Muestras analógicas adicionales adquiridas tras cerrar el obturador.")
+
         # Parámetros dinámicos para Modos 1-4
         self.umbral_absEdit   = QLineEdit("2.500"); self.umbral_absEdit.setFixedWidth(55)
+        self.umbral_absEdit.setToolTip("Voltaje absoluto mínimo en Volts (Modos 1, 2 y 4) necesario para considerar el evento.")
         self.n_holdEdit       = QLineEdit("5");     self.n_holdEdit.setFixedWidth(44)
+        self.n_holdEdit.setToolTip("Número de pasos continuos de confirmación (anti-paso) para descartar partículas flotantes de paso.")
         self.slope_minEdit    = QLineEdit("15.0");  self.slope_minEdit.setFixedWidth(55)
+        self.slope_minEdit.setToolTip("Derivada mínima dI/dt (V/s) en el pico para el criterio de aplanamiento (Modos 2 y 4).")
         self.slope_flatEdit   = QLineEdit("2.0");   self.slope_flatEdit.setFixedWidth(55)
+        self.slope_flatEdit.setToolTip("Pendiente máxima dI/dt (V/s) en la meseta para confirmar la parada del obturador (Modos 2 y 4).")
         self.ratio_kEdit      = QLineEdit("10.0");  self.ratio_kEdit.setFixedWidth(55)
+        self.ratio_kEdit.setToolTip("Constante de amplificación K (P_print / P_scan) para reescalado confocal en Modo 3.")
         self.percent_threshEdit = QLineEdit("50.0"); self.percent_threshEdit.setFixedWidth(55)
+        self.percent_threshEdit.setToolTip("Porcentaje de umbral confocal reescalado (%) para disparar la parada en Modo 3.")
 
         self.autofocEdit     = QLineEdit(str(DEFAULT_PRINTING_AUTOFOCUS_EVERY));  self.autofocEdit.setFixedWidth(44)
+        self.autofocEdit.setToolTip("Frecuencia de partículas (cada N partículas) entre las cuales se ejecuta el autofoco axial dinámico en Z.")
         self.shiftxEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_X) if DEFAULT_PRINTING_SHIFT_X.is_integer() else DEFAULT_PRINTING_SHIFT_X));  self.shiftxEdit.setFixedWidth(44)
+        self.shiftxEdit.setToolTip("Desplazamiento X en µm para realizar el autofoco Z en una zona limpia contigua sin perturbar el nodo actual.")
         self.shiftyEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_Y) if DEFAULT_PRINTING_SHIFT_Y.is_integer() else DEFAULT_PRINTING_SHIFT_Y));  self.shiftyEdit.setFixedWidth(44)
+        self.shiftyEdit.setToolTip("Desplazamiento Y en µm para realizar el autofoco Z en una zona limpia contigua sin perturbar el nodo actual.")
 
         # ── Scan check ────────────────────────────────────────────────────────
         self.scan_check = QCheckBox("Scan pre-print?")
+        self.scan_check.setToolTip("Ejecuta un escaneo confocal de verificación previo a la impresión del nodo.")
         self.scan_check.clicked.connect(self._scan_change)
         self.scan_check.setStyleSheet("color: green;")
         self._scan_change()
 
         # ── Post-scan (solo dimers) ────────────────────────────────────────────
         self.postscan_check = QCheckBox("Post scan?")
+        self.postscan_check.setToolTip("Ejecuta un escaneo confocal posterior para confirmar la formación del dímero.")
         self.postscan_check.setVisible(self.mode == "dimers")
 
         # ── dx/dy (solo dimers) ───────────────────────────────────────────────
         self.dxEdit = QLineEdit(str(int(DEFAULT_DIMERS_DX) if DEFAULT_DIMERS_DX.is_integer() else DEFAULT_DIMERS_DX)); self.dxEdit.setFixedWidth(44)
+        self.dxEdit.setToolTip("Desplazamiento X (µm) para la colocación de la segunda nanopartícula en el dímero.")
         self.dyEdit = QLineEdit(str(int(DEFAULT_DIMERS_DY) if DEFAULT_DIMERS_DY.is_integer() else DEFAULT_DIMERS_DY)); self.dyEdit.setFixedWidth(44)
+        self.dyEdit.setToolTip("Desplazamiento Y (µm) para la colocación de la segunda nanopartícula en el dímero.")
 
         # ── Botones de control ────────────────────────────────────────────────
         self.imprimir_button = QPushButton(f"{label} folder")
+        self.imprimir_button.setToolTip("Crea la subcarpeta del lote experimental fechada YYYYMMDD-HHMMSS_Printing_<GridName> en la carpeta diaria.")
         self.imprimir_button.clicked.connect(self._get_create_folder)
         self.imprimir_button.setStyleSheet("QPushButton:pressed { background-color: blue; }")
 
         self.play_button  = QPushButton("Play ►")
+        self.play_button.setToolTip("Inicia la rutina automatizada de impresión nodo a nodo.")
         self.play_button.clicked.connect(self._get_grid_measurement)
 
         self.pause_button = QPushButton("Pause")
+        self.pause_button.setToolTip("Pausa la impresión y cierra los obturadores inmediatamente.")
         self.pause_button.clicked.connect(lambda: self.pauseSignal.emit())
 
         self.next_button  = QPushButton("Next index ►")
+        self.next_button.setToolTip("Salta inmediatamente el nodo actual y avanza a la siguiente partícula.")
         self.next_button.clicked.connect(lambda: self.next_index_Signal.emit())
 
         self.go_ref_button  = QPushButton("Go reference")
+        self.go_ref_button.setToolTip("Desplaza la platina PI inmediatamente al punto de referencia de origen (X0, Y0, Z0).")
         self.go_ref_button.clicked.connect(lambda: self.goreferenceSignal.emit())
         self.go_ref_button.setFixedWidth(90)
 
         self.set_ref_button = QPushButton("Set reference")
+        self.set_ref_button.setToolTip("Congela la posición actual de los sensores capacitivos de la platina PI como origen (X0, Y0, Z0).")
         self.set_ref_button.clicked.connect(lambda: self.setreferenceSignal.emit())
         self.set_ref_button.setStyleSheet(
             "QPushButton { background-color: orange; }"
@@ -152,6 +178,7 @@ class Frontend(QFrame):
         self.NameDirValue.setStyleSheet("background-color: red;")
         self.particulasEdit    = QLabel("0")
         self.indice_impresionEdit = QLineEdit("0")
+        self.indice_impresionEdit.setToolTip("Índice del nodo actual en proceso de impresión.")
         self.indice_impresionEdit.textChanged.connect(self._new_index_target)
 
         # ── Referencia ────────────────────────────────────────────────────────
@@ -161,30 +188,37 @@ class Frontend(QFrame):
 
         # ── Crear grilla ──────────────────────────────────────────────────────
         self.number_files    = QLineEdit(str(DEFAULT_GRID_NPS_COL))
+        self.number_files.setToolTip("Número de nanopartículas a imprimir por cada columna.")
         self.number_columns  = QLineEdit(str(DEFAULT_GRID_COLS))
+        self.number_columns.setToolTip("Número de columnas de la grilla.")
         self.distance_files  = QLineEdit(str(int(DEFAULT_GRID_DIST_NP) if DEFAULT_GRID_DIST_NP.is_integer() else DEFAULT_GRID_DIST_NP))
+        self.distance_files.setToolTip("Espaciamiento espacial entre nanopartículas contiguas en la columna (µm).")
         self.distance_columns= QLineEdit(str(int(DEFAULT_GRID_DIST_COL) if DEFAULT_GRID_DIST_COL.is_integer() else DEFAULT_GRID_DIST_COL))
+        self.distance_columns.setToolTip("Espaciamiento espacial entre columnas contiguas (µm).")
 
         self.grid_create_button = QPushButton("Create grid")
+        self.grid_create_button.setToolTip("Genera la grilla regular de posiciones (X, Y) con las dimensiones especificadas.")
         self.grid_create_button.clicked.connect(self._get_grid_create)
         self.grid_create_button.setStyleSheet(
             "QPushButton { background-color: orange; }"
             "QPushButton:pressed { background-color: blue; }")
 
         self.cargar_archivo_button = QPushButton("Load grid (.txt)")
+        self.cargar_archivo_button.setToolTip("Carga una grilla personalizada de posiciones desde un archivo .txt.")
         self.cargar_archivo_button.clicked.connect(lambda: self.readgridSignal.emit())
         self.cargar_archivo_button.setStyleSheet(
             "QPushButton { background-color: orange; }"
             "QPushButton:pressed { background-color: blue; }")
 
         # ── Info extra ────────────────────────────────────────────────────────
-        self.powerlaser  = QLineEdit("—")
-        self.typeNP      = QLineEdit("—")
-        self.substrate   = QLineEdit("—")
-        self.NPevents    = QLineEdit("—")
-        self.NPsuccess   = QLineEdit("—")
-        self.extra_info  = QLineEdit("—")
+        self.powerlaser  = QLineEdit("—"); self.powerlaser.setToolTip("Potencia medida en la pupila trasera del objetivo (BFP en mW).")
+        self.typeNP      = QLineEdit("—"); self.typeNP.setToolTip("Tipo y tamaño de la solución coloidal de nanopartículas (ej. AuNP 60 nm).")
+        self.substrate   = QLineEdit("—"); self.substrate.setToolTip("Sustrato y funcionalización (ej. vidrio + PDDA + PSS).")
+        self.NPevents    = QLineEdit("—"); self.NPevents.setToolTip("Porcentaje de eventos de impresión detectados (%).")
+        self.NPsuccess   = QLineEdit("—"); self.NPsuccess.setToolTip("Porcentaje de éxito en la formación de la grilla (%).")
+        self.extra_info  = QLineEdit("—"); self.extra_info.setToolTip("Comentarios experimentales adicionales.")
         self.grid_save_info_button = QPushButton("Save info")
+        self.grid_save_info_button.setToolTip("Guarda el archivo grid_info.txt en la carpeta del lote experimental.")
         self.grid_save_info_button.clicked.connect(self._get_grid_info)
 
         # ── Layout principal ──────────────────────────────────────────────────
@@ -336,9 +370,7 @@ class Frontend(QFrame):
         except ValueError: pass
 
     def _get_create_folder(self):
-        root = tk.Tk(); root.withdraw()
-        path = filedialog.askdirectory()
-        if path: self.foldergridSignal.emit()
+        self.foldergridSignal.emit()
 
     def _get_grid_create(self):
         try:
@@ -506,6 +538,22 @@ class Backend(QObject):
             frontend.parametersSignal.connect(self.grid_parameters)
         if hasattr(frontend, "gridinfoSignal"):
             frontend.gridinfoSignal.connect(self.grid_info)
+        if hasattr(frontend, "setreferenceSignal"):
+            frontend.setreferenceSignal.connect(self.set_reference)
+        if hasattr(frontend, "goreferenceSignal"):
+            frontend.goreferenceSignal.connect(self.go_reference)
+        if hasattr(frontend, "gridcreateSignal"):
+            frontend.gridcreateSignal.connect(self.grid_create)
+        if hasattr(frontend, "readgridSignal"):
+            frontend.readgridSignal.connect(self.grid_read)
+        if hasattr(frontend, "foldergridSignal"):
+            frontend.foldergridSignal.connect(self.grid_create_folder)
+        if hasattr(frontend, "pauseSignal"):
+            frontend.pauseSignal.connect(self.grid_pause)
+        if hasattr(frontend, "next_index_Signal"):
+            frontend.next_index_Signal.connect(self.grid_next_index)
+        if hasattr(frontend, "new_index_Signal"):
+            frontend.new_index_Signal.connect(self.grid_change_index)
 
     @pyqtSlot(list)
     def grid_info(self, info: list):
@@ -638,7 +686,7 @@ class Backend(QObject):
 
     @pyqtSlot()
     def grid_autofoco(self):
-        multifoco = np.arange(0, self.particulas - 1, self.autofoc)
+        multifoco = np.arange(0, self.particulas, self.autofoc)
         if self.i_global in multifoco:
             if self.shiftx != 0 or self.shifty != 0:
                 pi.MOV([1, 2], [self.shiftx + self.grid_x[self.i_global] + self.startX,

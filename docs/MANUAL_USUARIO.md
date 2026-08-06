@@ -322,6 +322,10 @@ En la impresión óptica fototérmica y el ensamblado de nanodímeros plasmónic
 
 La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresión automatizada nodo a nodo de arrays de nanopartículas y el ensamblado de nanoestructuras acopladas.
 
+> [!NOTE]
+> Para consultar el protocolo experimental completo paso a paso ("DO PRINTING") y la guía detallada de operación, remítase al reporte especializado:  
+> [Guía y Protocolo de Impresión de Grillas (reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
+
 #### 3.7.1 Pestaña `Printing` (Impresión Automatizada de Grillas)
 - **`Create Grid`**: Configura la matriz simétrica definiendo número de partículas por columna (`NPs/col`), número de columnas (`Cols`), espaciamiento entre nanopartículas (`Dist NP µm`) y espaciamiento entre columnas (`Dist Col µm`).
 - **`Load Grid`**: Carga una matriz de posiciones personalizadas $(X, Y)$ desde un archivo de texto plano `.txt`.

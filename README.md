@@ -52,7 +52,8 @@ printing3/
         ├── Incertidumbre_Metrologica_PyPrinting3.md
         ├── Algoritmo_Printing_y_Dimers_PyPrinting3.md
         ├── Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md
-        └── Modulo_Camara_Canon_EOS500D_PyPrinting3.md
+        ├── Modulo_Camara_Canon_EOS500D_PyPrinting3.md
+        └── Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md
 ```
 
 ---
