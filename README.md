@@ -53,7 +53,8 @@ printing3/
         ├── Modulo_Camara_Canon_EOS500D_PyPrinting3.md
         ├── Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md
         ├── Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md
-        └── Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md
+        ├── Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md
+        └── Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md
 ```
 
 ---
