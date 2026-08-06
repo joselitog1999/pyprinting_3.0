@@ -739,8 +739,44 @@ class OverlayWidget(QWidget):
         return best_pt
 
     def set_full_unzoomed_frame(self, frame: np.ndarray):
-        self._full_unzoomed_frame = frame
+        self._last_live_unzoomed_frame = frame
+        if self._zoom_level == 1.0 or not hasattr(self, '_frozen_pip_frame') or self._frozen_pip_frame is None:
+            self._frozen_pip_frame = frame
+            self.update()
+
+    def set_zoom_level(self, level: float, center: Optional[tuple[float, float]] = None):
+        old_level = self._zoom_level
+        self._zoom_level = max(1.0, min(10.0, level))
+        if center is not None:
+            self._zoom_center = center
+        self._clamp_zoom_center()
+
+        # Congelar fotograma completo de 1x al hacer zoom para no degradar resolución/FPS
+        if old_level == 1.0 and self._zoom_level > 1.0:
+            if hasattr(self, '_last_live_unzoomed_frame') and self._last_live_unzoomed_frame is not None:
+                self._frozen_pip_frame = self._last_live_unzoomed_frame.copy()
+        elif self._zoom_level == 1.0:
+            if hasattr(self, '_last_live_unzoomed_frame') and self._last_live_unzoomed_frame is not None:
+                self._frozen_pip_frame = self._last_live_unzoomed_frame
+
+        fx0, fy0, fx1, fy1 = self.viewport_bounds()
+        self.zoomChangedSignal.emit(fx0, fy0, fx1, fy1)
         self.update()
+
+    def pan_by_arrow(self, key: int):
+        if self._zoom_level <= 1.0:
+            return
+        step = 0.5 / self._zoom_level
+        cx, cy = self._zoom_center
+        if key == Qt.Key.Key_Left:
+            cx -= step
+        elif key == Qt.Key.Key_Right:
+            cx += step
+        elif key == Qt.Key.Key_Up:
+            cy -= step
+        elif key == Qt.Key.Key_Down:
+            cy += step
+        self.set_zoom_level(self._zoom_level, center=(cx, cy))
 
     def get_pip_rect(self) -> QRectF:
         mw, mh = 190.0, 125.0
@@ -762,10 +798,14 @@ class OverlayWidget(QWidget):
         p.setFont(QFont("Monospace", 8, QFont.Weight.Bold))
         p.drawText(int(mx0), int(my0 - 6), f"Navegación Zoom ({self._zoom_level:.1f}x)")
 
-        # Renderizar imagen miniatura de vista completa (1x)
-        if hasattr(self, '_full_unzoomed_frame') and self._full_unzoomed_frame is not None:
+        # Renderizar imagen miniatura estática congelada (1x)
+        pip_frame = getattr(self, '_frozen_pip_frame', None)
+        if pip_frame is None:
+            pip_frame = getattr(self, '_last_live_unzoomed_frame', None)
+
+        if pip_frame is not None:
             try:
-                img = self._full_unzoomed_frame
+                img = pip_frame
                 h, w, c = img.shape
                 qimg = QImage(img.data, w, h, w * c, QImage.Format.Format_RGB888)
                 p.drawImage(pip_rect, qimg)
@@ -774,7 +814,7 @@ class OverlayWidget(QWidget):
         else:
             p.fillRect(pip_rect, QColor(30, 30, 30))
 
-        # Recuadro dinámico de visualización de zoom (Bounding Box)
+        # Recuadro dinámico cian mapeado estrictamente al área de imagen (sin bordes negros)
         fx0, fy0, fx1, fy1 = self.viewport_bounds()
         bx0 = mx0 + fx0 * mw
         by0 = my0 + fy0 * mh
@@ -1466,6 +1506,14 @@ class CameraWindow(QMainWindow):
         self._btn_connect.setStyleSheet("font-weight: bold; color: #4a9eff; padding: 6px;")
         self._is_camera_active = False
         QMessageBox.information(self, "Diagnóstico", "Obturador cerrado y sesión de cámara restablecida.")
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            if hasattr(self, '_overlay') and self._overlay._zoom_level > 1.0:
+                self._overlay.pan_by_arrow(event.key())
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def _open_log_dialog(self):
         self._log_dialog.show()

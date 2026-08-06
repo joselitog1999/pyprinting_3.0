@@ -470,15 +470,6 @@ class CanonCamera:
     def enable_live_view(self) -> bool:
         if not self._is_session_open or edsdk is None: return False
         with _edsdk_lock:
-            # 1. Habilitar modo de simulación de exposición Live View (Evf_Mode = 1)
-            evf_mode = EdsUInt32(1)
-            try:
-                edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Mode, 0, ctypes.sizeof(evf_mode), ctypes.byref(evf_mode))
-                self.log("Simulación de exposición Live View (Evf_Mode = 1) activada.")
-            except Exception as _e:
-                self.log(f"Advertencia al fijar Evf_Mode: {_e}")
-
-            # 2. Habilitar salida PC Live View
             device = EdsUInt32(kEdsEvfOutputDevice_PC)
             err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
             if err == EDS_ERR_OK:
