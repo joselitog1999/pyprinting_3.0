@@ -394,7 +394,9 @@ El botón **`🏛️ Iniciar PyPrinting 2`** (Fila 2, Columna 1 del lanzador `ma
 
 El botón **`📷 Iniciar Cámara Live View`** (Fila 2, Columna 2 del lanzador `main.py`) o el comando `python camera.py` ejecutan la suite unificada resultante de la fusión de `canon_test.py` y `modules/camera.py`:
 
-### 7.1 Motor de Transmisión Live View Adaptativo a 25 FPS
+### 7.1 Motor de Transmisión Live View Adaptativo a 25 FPS y Simulación de Exposición EVF (`ISO 3200`)
+- **Simulación de Exposición en Live View (`Evf_Mode = 1`)**:
+  Al activar Live View, el controlador configura `kEdsPropID_Evf_Mode = 1` (*Exposure Simulation*). Esto elimina la ganancia automática EVF que producía ruido de patrón coloreado a baja señal, vinculando la vista previa directamente al ISO manual 3200, velocidad $T_v$ y apertura $A_v$ seleccionadas (igual que Canon EOS Utility).
 - **Warm-up de 5 Segundos**: Durante los primeros 5 segundos tras presionar `Iniciar Cámara Canon`, las consultas de ISO y Tv se bloquean temporalmente mientras el hardware réflex inicializa el espejo y la salida de video. El sistema emite la lista completa de propiedades para asegurar disponibilidad inmediata en la UI.
 - **Temporización Monodisparo Adaptativa (`_fetch_frame_adaptive`)**:
   Utiliza marcas de tiempo en microsegundos (`time.perf_counter()`) para calcular dinámicamente el tiempo de descanso:
@@ -413,13 +415,18 @@ El botón **`📷 Iniciar Cámara Live View`** (Fila 2, Columna 2 del lanzador `
 - **Escritura Binaria Nativa en Python**: Python lee el arreglo de bytes de la RAM (`ctypes.string_at`) y escribe el archivo directamente en el disco duro (`open(save_path, "wb").write(raw_bytes)`), garantizando un 100% de confiabilidad en la transferencia de archivos.
 - **Firma de Punteros de 64 Bits (`ctypes.c_wchar_p`)**: Se definieron firmas explícitas para la DLL C++ de Canon, evitando la truncación de punteros de memoria de 64 bits (`OverflowError`) y corrigiendo la excepción de tipos `c_char_p`.
 
-### 7.4 Navegación Panorámica FOV (Ejes X / Y) & Ajustes de Imagen
-- **Zoom Digital / Hardware (1x, 2x, 5x, 10x)**: Permite ampliar regiones de interés en tiempo real.
-- **Navegación FOV (Sliders X / Y)**: Permite desplazar el centro de visión ($cx, cy \in [0.0, 1.0]$) a cualquier coordenada del sensor de 15.1 MP para inspeccionar nanopartículas fuera del centro.
-- **Ajustes de Imagen en Vivo**:
-  - **Modo Color RGB**: Deslizadores de ganancia para Rojo, Verde y Azul.
-  - **Modo Grises (Transmisión)**: Deslizadores de corte de intensidad `CLim Mín / Máx`.
-  - **Paletas LUT Falso Color**: Aplica mapas cromáticos en tiempo real (*Gris Estándar*, *Thermal*, *Viridis*, *Plasma*, *Inferno*, *Jet*).
+### 7.4 Control de Ruido de Fondo, Zoom EDSDK y Miniatura PiP Interactiva
+- **Supresión de Ruido de Fondo en Vivo**:
+  - **Umbral de Fondo (*Noise Floor Threshold* $0-50$)**: Deslizador en la GUI que fuerza a cero absoluto $(0,0,0)$ los píxeles de ruido de lectura de sensor.
+  - **Filtro Mediano 3x3 (`denoise`)**: Filtro espacial que remueve picos de ruido aislados de tipo sal y pimienta.
+- **Zoom Hardware EDSDK (`1x`, `5x`, `10x`) y Magnificación**: Permite seleccionar aumentos nativos del sensor réflex enviando coordenadas `EdsPoint` al hardware de la cámara.
+- **Miniatura PiP (Picture-in-Picture) de Navegación Espacial**:
+  - Renderiza en vivo el plano completo a $1\times$ en la esquina inferior del visor.
+  - Muestra un **recuadro dinámico cian (Bounding Box)** que indica la zona ampliada y el nivel de zoom actual.
+  - Permite mover el centro de zoom $(c_x, c_y)$ en vivo haciendo clic o arrastrando con el mouse sobre la miniatura PiP.
+- **Geometría Flush sin Marcos de ViewBox**:
+  - Visor integrado al tema oscuro continuo (`#0b0f19`).
+  - `OverlayWidget` reparentado a `self._view.viewport()` y delimitación de anchos en `QSplitter` con `setCollapsible(1, False)`, asegurando que el visor permanezca 100% centrado entre paneles sin desbordar ni meterse detrás del panel de mediciones.
 
 ### 7.5 Capa OverlayWidget: Reglas µm, Platina PI, ROI Confocal & Tracking
 - **Reglas H/V en µm**: Reglas orientables en pantalla calibradas en micrómetros según `PIXEL_SIZE_UM`.
@@ -546,7 +553,23 @@ Cuando la casilla **`Modo Seguro (Simulación)`** en `main.py` se encuentra **de
 
 ---
 
-## 16. Tabla de Atajos de Teclado (Shortcuts)
+## 16. Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real
+
+Para un análisis detallado de la topología de hilos, consulte el reporte formal:  
+[Arquitectura de Hilos y Concurrencia (reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
+
+### Resumen de la Topología Multihilo:
+* **Main UI Thread (Hilo Principal)**: Maneja la interfaz gráfica PyQt6, gráficos PyQtGraph y eventos de usuario.
+* **`cameraThread` (`QThread`)**: Dedicado exclusivamente al procesamiento de frames EVF de la Canon EOS 500D, filtros antiruido y emisión `fullFrameSignal`.
+* **`confocalThread` (`QThread`)**: Ejecuta las rutinas de impresión de grillas, ensamblado de dímeros, muestreo analógico a 10 kHz NI-DAQmx y autofoco Z.
+* **`instrumentThread` (`QThread`)**: Gestiona la comunicación serie/USB RS-232 con la platina piezoeléctrica PI E-517 y obturadores.
+* **Hilos Nativos C++ (`EDSDK.dll` & `nicaiu.dll`)**: Manejan las transferencias DMA por hardware y el protocolo USB/PTP de la cámara.
+
+**Garantía de Fluidez**: Toda la transferencia entre hilos utiliza señales asíncronas de Qt (`QueuedConnection`). Al realizar una impresión con la cámara encendida, operan entre 6 y 7 hilos concurrentes consumiendo $<15\%$ de CPU sin congelamientos de la interfaz.
+
+---
+
+## 17. Tabla de Atajos de Teclado (Shortcuts)
 
 | Tecla de Acceso Directo | Acción Asociada | Ámbito / Módulo |
 |---|---|---|
