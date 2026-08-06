@@ -106,6 +106,13 @@ except ImportError:
     print("[Camera] trackpy no disponible — detección deshabilitada.")
 
 try:
+    import picasso.localize as picasso_loc
+    _PICASSO_AVAILABLE = True
+except ImportError:
+    _PICASSO_AVAILABLE = False
+    print("[Camera] picasso no disponible — detección Picasso deshabilitada.")
+
+try:
     from canon_edsdk import (CanonCamera, ISO_MAP, REV_ISO_MAP, FULL_ISO_LIST,
                              TV_MAP, REV_TV_MAP, FULL_TV_LIST, ZOOM_MAP, REV_ZOOM_MAP,
                              AE_MODE_MAP, kEdsPropID_ISOSpeed, kEdsPropID_Tv, kEdsPropID_AEMode)
@@ -2145,8 +2152,8 @@ class TrackpyDialog(QDialog):
     def __init__(self, frame: np.ndarray, roi_frac: Optional[tuple] = None,
                  um_per_px: Optional[float] = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Configurar Detección de Partículas (Trackpy)")
-        self.setMinimumSize(740, 580)
+        self.setWindowTitle("Configurar Detección de Partículas (Trackpy / Picasso)")
+        self.setMinimumSize(780, 640)
         self._frame = frame; self._roi_frac = roi_frac; self._crop = None
         self._um_per_px = um_per_px if (um_per_px and um_per_px > 0) else None
 
@@ -2163,82 +2170,103 @@ class TrackpyDialog(QDialog):
         self._count_lbl.setStyleSheet("font-weight: bold; color: #3ecf8e;")
         lo.addWidget(self._count_lbl)
 
-        params_box = QGroupBox("Parámetros de Detección"); form = QFormLayout(params_box)
+        params_box = QGroupBox("Parámetros de Detección"); box_vlo = QVBoxLayout(params_box)
 
-        # Invertir mapa solo para el cálculo de Trackpy (Valles -> Picos)
+        # Selector de Motor de Detección (Trackpy vs Picasso)
+        engine_row = QHBoxLayout()
+        engine_row.addWidget(QLabel("Motor de Detección:"))
+        self._engine_combo = QComboBox()
+        self._engine_combo.addItem("Trackpy (Crocker-Grier — Filtrado Paso-Banda)", "trackpy")
+        if _PICASSO_AVAILABLE:
+            self._engine_combo.addItem("Picasso (SMLM — Maximum Likelihood MLE / LQ)", "picasso")
+        else:
+            self._engine_combo.addItem("Picasso (No disponible)", "picasso")
+            self._engine_combo.model().item(1).setEnabled(False)
+        self._engine_combo.setStyleSheet("font-weight: bold; color: #4a9eff;")
+        engine_row.addWidget(self._engine_combo, stretch=1)
+        box_vlo.addLayout(engine_row)
+
+        # Invertir mapa solo para el cálculo (Valles -> Picos)
         self._invert_cb = QCheckBox("Invertir imagen solo para análisis (Detectar Valles / Puntos Oscuros)")
-        self._invert_cb.setToolTip("Invierte la matriz de intensidad solo para el cálculo de Trackpy (útil si las partículas son puntos oscuros/valles en TIFF). La visualización de la imagen se mantendrá sin cambios.")
-        form.addRow(self._invert_cb)
+        self._invert_cb.setToolTip("Invierte la matriz de intensidad solo para el cálculo de detección (útil si las partículas son puntos oscuros/valles en TIFF). La visualización de la imagen se mantendrá sin cambios.")
+        box_vlo.addWidget(self._invert_cb)
+
+        # Stacked Widget de Parámetros por Motor
+        self._stack_params = QStackedWidget()
+
+        # ── PÁGINA 0: TRACKPY ──────────────────────────────────────────────────
+        w_tp = QWidget(); form_tp = QFormLayout(w_tp)
+        form_tp.setContentsMargins(0, 0, 0, 0)
 
         if self._um_per_px:
-            self._diam_spin = QDoubleSpinBox()
-            self._diam_spin.setRange(0.05, 500.0)
-            self._diam_spin.setSingleStep(0.1)
-            self._diam_spin.setValue(max(0.1, 11 * self._um_per_px))
-            self._diam_spin.setSuffix(" µm")
-            self._diam_spin.setToolTip("Diámetro estimado de la partícula en micrómetros (µm).")
-
-            self._sep_spin = QDoubleSpinBox()
-            self._sep_spin.setRange(0.05, 1000.0)
-            self._sep_spin.setSingleStep(0.2)
-            self._sep_spin.setValue(max(0.1, 8 * self._um_per_px))
-            self._sep_spin.setSuffix(" µm")
-            self._sep_spin.setToolTip("Distancia mínima entre partículas en micrómetros (µm).")
-
-            self._equiv_lbl = QLabel("—")
-            self._equiv_lbl.setStyleSheet("color: #3ecf8e; font-family: monospace; font-size: 11px;")
-
-            form.addRow("Diámetro estimado (µm):", self._diam_spin)
-            form.addRow("Separación Mínima (µm):", self._sep_spin)
-            form.addRow("Conversión a píxeles:", self._equiv_lbl)
-
+            self._diam_spin = QDoubleSpinBox(); self._diam_spin.setRange(0.05, 500.0); self._diam_spin.setSingleStep(0.1); self._diam_spin.setValue(max(0.1, 11 * self._um_per_px)); self._diam_spin.setSuffix(" µm")
+            self._sep_spin  = QDoubleSpinBox(); self._sep_spin.setRange(0.05, 1000.0); self._sep_spin.setSingleStep(0.2); self._sep_spin.setValue(max(0.1, 8 * self._um_per_px)); self._sep_spin.setSuffix(" µm")
+            self._equiv_lbl = QLabel("—"); self._equiv_lbl.setStyleSheet("color: #3ecf8e; font-family: monospace; font-size: 11px;")
+            form_tp.addRow("Diámetro estimado (µm):", self._diam_spin)
+            form_tp.addRow("Separación Mínima (µm):", self._sep_spin)
+            form_tp.addRow("Conversión a píxeles:", self._equiv_lbl)
             self._thr = QDoubleSpinBox(); self._thr.setRange(0, 1e6); self._thr.setValue(0)
-            form.addRow("Umbral de Intensidad (0 = auto):", self._thr)
-
-            for w in (self._diam_spin, self._sep_spin, self._thr):
-                w.valueChanged.connect(self._run_preview)
+            form_tp.addRow("Umbral de Intensidad (0 = auto):", self._thr)
+            for w in (self._diam_spin, self._sep_spin, self._thr): w.valueChanged.connect(self._run_preview)
         else:
             self._diam = QSpinBox(); self._diam.setRange(3, 201); self._diam.setSingleStep(2); self._diam.setValue(11)
             self._sep  = QDoubleSpinBox(); self._sep.setRange(1, 500); self._sep.setValue(8); self._sep.setSingleStep(1)
             self._thr  = QDoubleSpinBox(); self._thr.setRange(0, 1e6); self._thr.setValue(0)
+            form_tp.addRow("Diámetro estimado (px, impar):", self._diam)
+            form_tp.addRow("Separación Mínima (px):", self._sep)
+            form_tp.addRow("Umbral de Intensidad (0 = auto):", self._thr)
+            for w in (self._diam, self._sep, self._thr): w.valueChanged.connect(self._run_preview)
 
-            self._diam.setToolTip("Diámetro aproximado de la partícula en píxeles (número impar).")
-            self._sep.setToolTip("Distancia mínima entre partículas (px).")
-            self._thr.setToolTip("Umbral mínimo de intensidad (0 = auto).")
-
-            form.addRow("Diámetro estimado (px, impar):", self._diam)
-            form.addRow("Separación Mínima (px):", self._sep)
-            form.addRow("Umbral de Intensidad (0 = auto):", self._thr)
-
-            for w in (self._diam, self._sep, self._thr):
-                w.valueChanged.connect(self._run_preview)
-
-        # Parámetros avanzados de Trackpy
         self._minmass_spin = QDoubleSpinBox(); self._minmass_spin.setRange(0, 1e7); self._minmass_spin.setValue(0)
-        self._minmass_spin.setToolTip("Masa (intensidad integrada) mínima requerida para validar una partícula (0 = ignorar).")
-
         self._noise_size_spin = QDoubleSpinBox(); self._noise_size_spin.setRange(0.1, 20.0); self._noise_size_spin.setValue(1.0); self._noise_size_spin.setSingleStep(0.1)
-        self._noise_size_spin.setToolTip("Ancho del filtro Gaussiano para remover ruido de alta frecuencia (def: 1.0).")
-
         self._smoothing_size_spin = QDoubleSpinBox(); self._smoothing_size_spin.setRange(0.0, 100.0); self._smoothing_size_spin.setValue(0.0); self._smoothing_size_spin.setSingleStep(0.5)
-        self._smoothing_size_spin.setToolTip("Tamaño del filtro de suavizado de fondo (0 = auto/igual al diámetro).")
-
         self._maxsize_spin = QDoubleSpinBox(); self._maxsize_spin.setRange(0.0, 200.0); self._maxsize_spin.setValue(0.0)
-        self._maxsize_spin.setToolTip("Radio máximo de giro (tamaño en px) permitido para una partícula (0 = auto).")
-
         self._percentile_spin = QDoubleSpinBox(); self._percentile_spin.setRange(0.0, 100.0); self._percentile_spin.setValue(64.0)
-        self._percentile_spin.setToolTip("Percentil de intensidad para seleccionar candidatos iniciales (def: 64.0).")
 
-        form.addRow("Masa Mínima (minmass, 0 = desact):", self._minmass_spin)
-        form.addRow("Filtro de Ruido (noise_size):", self._noise_size_spin)
-        form.addRow("Filtro Suavizado (smoothing_size, 0=auto):", self._smoothing_size_spin)
-        form.addRow("Tamaño Máx (maxsize, 0 = desact):", self._maxsize_spin)
-        form.addRow("Percentil candidatos (percentile):", self._percentile_spin)
+        form_tp.addRow("Masa Mínima (minmass, 0 = desact):", self._minmass_spin)
+        form_tp.addRow("Filtro de Ruido (noise_size):", self._noise_size_spin)
+        form_tp.addRow("Filtro Suavizado (smoothing_size, 0=auto):", self._smoothing_size_spin)
+        form_tp.addRow("Tamaño Máx (maxsize, 0 = desact):", self._maxsize_spin)
+        form_tp.addRow("Percentil candidatos (percentile):", self._percentile_spin)
 
-        self._invert_cb.toggled.connect(self._run_preview)
         for w in (self._minmass_spin, self._noise_size_spin, self._smoothing_size_spin,
                   self._maxsize_spin, self._percentile_spin):
             w.valueChanged.connect(self._run_preview)
+
+        # ── PÁGINA 1: PICASSO ──────────────────────────────────────────────────
+        w_picasso = QWidget(); form_picasso = QFormLayout(w_picasso)
+        form_picasso.setContentsMargins(0, 0, 0, 0)
+
+        self._picasso_grad_spin = QDoubleSpinBox()
+        self._picasso_grad_spin.setRange(1.0, 1000000.0)
+        self._picasso_grad_spin.setValue(1000.0)
+        self._picasso_grad_spin.setSingleStep(100.0)
+        self._picasso_grad_spin.setToolTip("Gradiente neto mínimo para identificar candidatos en Picasso (min_net_gradient).")
+
+        self._picasso_box_spin = QSpinBox()
+        self._picasso_box_spin.setRange(3, 31)
+        self._picasso_box_spin.setSingleStep(2)
+        self._picasso_box_spin.setValue(7)
+        self._picasso_box_spin.setSuffix(" px")
+        self._picasso_box_spin.setToolTip("Tamaño de la caja cuadrada (impar) para cortar y ajustar el perfil 2D (box_size).")
+
+        self._picasso_fit_combo = QComboBox()
+        self._picasso_fit_combo.addItem("gaussmle (Máxima Verosimilitud MLE)", "gaussmle")
+        self._picasso_fit_combo.addItem("gausslq (Mínimos Cuadrados LQ)", "gausslq")
+        self._picasso_fit_combo.addItem("avg (Centro de Masas)", "avg")
+        self._picasso_fit_combo.setToolTip("Algoritmo de ajuste de centroide sub-píxel de Picasso.")
+
+        form_picasso.addRow("Gradiente Neto Mínimo (min_net_gradient):", self._picasso_grad_spin)
+        form_picasso.addRow("Tamaño Caja Ajuste (box_size, px):", self._picasso_box_spin)
+        form_picasso.addRow("Método de Ajuste Sub-píxel:", self._picasso_fit_combo)
+
+        for w in (self._picasso_grad_spin, self._picasso_box_spin):
+            w.valueChanged.connect(self._run_preview)
+        self._picasso_fit_combo.currentIndexChanged.connect(self._run_preview)
+
+        self._stack_params.addWidget(w_tp)
+        self._stack_params.addWidget(w_picasso)
+        box_vlo.addWidget(self._stack_params)
 
         lo.addWidget(params_box)
 
@@ -2246,7 +2274,14 @@ class TrackpyDialog(QDialog):
         btns.accepted.connect(self._accept); btns.rejected.connect(self.reject)
         lo.addWidget(btns)
 
+        self._engine_combo.currentIndexChanged.connect(self._on_engine_changed)
+        self._invert_cb.toggled.connect(self._run_preview)
+
         self._show_crop()
+        self._run_preview()
+
+    def _on_engine_changed(self, idx: int):
+        self._stack_params.setCurrentIndex(idx)
         self._run_preview()
 
     def _show_crop(self):
@@ -2256,7 +2291,10 @@ class TrackpyDialog(QDialog):
             x0, y0, x1, y1 = self._roi_frac
             frame = frame[int(round(y0*H)):int(round(y1*H)), int(round(x0*W)):int(round(x1*W))]
         self._crop = frame
-        self._img_item.setImage(frame.transpose(1, 0, 2))
+        if frame.ndim == 3:
+            self._img_item.setImage(frame.transpose(1, 0, 2))
+        else:
+            self._img_item.setImage(frame.transpose())
 
     def _get_pixel_params(self) -> tuple[int, float]:
         if self._um_per_px:
@@ -2275,52 +2313,108 @@ class TrackpyDialog(QDialog):
             return d, self._sep.value()
 
     def _run_preview(self):
-        if not _TRACKPY_AVAILABLE or self._crop is None: return
+        if self._crop is None: return
         import warnings
+
+        engine = self._engine_combo.currentData()
         gray = np.mean(self._crop, axis=2).astype(float) if self._crop.ndim == 3 else self._crop.astype(float)
         if self._invert_cb.isChecked():
-            gray_for_tp = float(np.max(gray)) - gray
+            gray_for_calc = float(np.max(gray)) - gray
         else:
-            gray_for_tp = gray
+            gray_for_calc = gray
 
-        d_px, sep_px = self._get_pixel_params()
-        thr = self._thr.value() if self._thr.value() > 0 else None
-        minmass = self._minmass_spin.value() if self._minmass_spin.value() > 0 else None
-        noise_sz = self._noise_size_spin.value() if self._noise_size_spin.value() > 0 else 1.0
-        smooth_sz = self._smoothing_size_spin.value() if self._smoothing_size_spin.value() > 0 else None
-        max_sz = self._maxsize_spin.value() if self._maxsize_spin.value() > 0 else None
-        percentile = self._percentile_spin.value() if self._percentile_spin.value() > 0 else 64.0
+        if engine == "picasso" and _PICASSO_AVAILABLE:
+            try:
+                import picasso.localize as loc
+                g_min, g_max = np.min(gray_for_calc), np.max(gray_for_calc)
+                if g_max > g_min:
+                    img_uint = ((gray_for_calc - g_min) / (g_max - g_min) * 65535.0).astype(np.uint16)
+                else:
+                    img_uint = gray_for_calc.astype(np.uint16)
 
-        kwargs = dict(diameter=d_px, separation=sep_px, threshold=thr, minmass=minmass,
-                      noise_size=noise_sz, percentile=percentile)
-        if smooth_sz is not None: kwargs["smoothing_size"] = smooth_sz
-        if max_sz is not None: kwargs["maxsize"] = max_sz
+                movie = np.expand_dims(img_uint, axis=0)
+                min_grad = self._picasso_grad_spin.value()
+                box_sz = self._picasso_box_spin.value()
+                box_sz = box_sz if box_sz % 2 == 1 else box_sz + 1
+                fit_m = self._picasso_fit_combo.currentData()
 
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                df = tp.locate(gray_for_tp, **kwargs)
-            self._scatter.setData(df["x"].values, df["y"].values) if len(df) else self._scatter.clear()
-            inv_tag = " [Invertida]" if self._invert_cb.isChecked() else ""
-            self._count_lbl.setText(f"Detectadas: {len(df)} partículas (diámetro = {d_px} px){inv_tag}")
-        except Exception as e:
-            self._count_lbl.setText(f"Error: {e}")
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    ids = loc.identify(movie, min_grad, box_sz, progress_callback=None)
+                    if ids is not None and len(ids) > 0:
+                        spots = loc._cut_spots(movie, ids, box_sz)
+                        if fit_m == "gausslq":
+                            df = loc._fit2d_gausslq(spots, ids, box_sz)
+                        elif fit_m == "avg":
+                            df = loc._fit2d_avg(spots, ids, box_sz)
+                        else:
+                            df = loc._fit2d_gaussmle(spots, ids, box_sz, multiprocess=False)
+                    else:
+                        df = None
+
+                if df is not None and len(df) > 0:
+                    xs = df["x"].values
+                    ys = df["y"].values
+                    self._scatter.setData(xs, ys)
+                    inv_tag = " [Invertida]" if self._invert_cb.isChecked() else ""
+                    self._count_lbl.setText(f"Detectadas: {len(df)} partículas con Picasso ({fit_m}){inv_tag}")
+                else:
+                    self._scatter.clear()
+                    self._count_lbl.setText("Detectadas: 0 partículas con Picasso.")
+            except Exception as e:
+                self._count_lbl.setText(f"Error Picasso: {e}")
+        else:
+            if not _TRACKPY_AVAILABLE: return
+            d_px, sep_px = self._get_pixel_params()
+            thr = self._thr.value() if self._thr.value() > 0 else None
+            minmass = self._minmass_spin.value() if self._minmass_spin.value() > 0 else None
+            noise_sz = self._noise_size_spin.value() if self._noise_size_spin.value() > 0 else 1.0
+            smooth_sz = self._smoothing_size_spin.value() if self._smoothing_size_spin.value() > 0 else None
+            max_sz = self._maxsize_spin.value() if self._maxsize_spin.value() > 0 else None
+            percentile = self._percentile_spin.value() if self._percentile_spin.value() > 0 else 64.0
+
+            kwargs = dict(diameter=d_px, separation=sep_px, threshold=thr, minmass=minmass,
+                          noise_size=noise_sz, percentile=percentile)
+            if smooth_sz is not None: kwargs["smoothing_size"] = smooth_sz
+            if max_sz is not None: kwargs["maxsize"] = max_sz
+
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    df = tp.locate(gray_for_calc, **kwargs)
+                self._scatter.setData(df["x"].values, df["y"].values) if len(df) else self._scatter.clear()
+                inv_tag = " [Invertida]" if self._invert_cb.isChecked() else ""
+                self._count_lbl.setText(f"Detectadas: {len(df)} partículas con Trackpy (diámetro = {d_px} px){inv_tag}")
+            except Exception as e:
+                self._count_lbl.setText(f"Error Trackpy: {e}")
 
     def get_params(self) -> dict:
-        d_px, sep_px = self._get_pixel_params()
-        thr = self._thr.value() if self._thr.value() > 0 else None
-        minmass = self._minmass_spin.value() if self._minmass_spin.value() > 0 else None
-        noise_sz = self._noise_size_spin.value() if self._noise_size_spin.value() > 0 else 1.0
-        smooth_sz = self._smoothing_size_spin.value() if self._smoothing_size_spin.value() > 0 else None
-        max_sz = self._maxsize_spin.value() if self._maxsize_spin.value() > 0 else None
-        percentile = self._percentile_spin.value() if self._percentile_spin.value() > 0 else 64.0
+        engine = self._engine_combo.currentData()
         invert = self._invert_cb.isChecked()
+        if engine == "picasso":
+            box_sz = self._picasso_box_spin.value()
+            box_sz = box_sz if box_sz % 2 == 1 else box_sz + 1
+            return dict(
+                engine="picasso",
+                min_net_gradient=self._picasso_grad_spin.value(),
+                box_size=box_sz,
+                fit_method=self._picasso_fit_combo.currentData(),
+                invert=invert
+            )
+        else:
+            d_px, sep_px = self._get_pixel_params()
+            thr = self._thr.value() if self._thr.value() > 0 else None
+            minmass = self._minmass_spin.value() if self._minmass_spin.value() > 0 else None
+            noise_sz = self._noise_size_spin.value() if self._noise_size_spin.value() > 0 else 1.0
+            smooth_sz = self._smoothing_size_spin.value() if self._smoothing_size_spin.value() > 0 else None
+            max_sz = self._maxsize_spin.value() if self._maxsize_spin.value() > 0 else None
+            percentile = self._percentile_spin.value() if self._percentile_spin.value() > 0 else 64.0
 
-        p = dict(diameter=d_px, separation=sep_px, threshold=thr, minmass=minmass,
-                 noise_size=noise_sz, percentile=percentile, invert=invert)
-        if smooth_sz is not None: p["smoothing_size"] = smooth_sz
-        if max_sz is not None: p["maxsize"] = max_sz
-        return p
+            p = dict(engine="trackpy", diameter=d_px, separation=sep_px, threshold=thr, minmass=minmass,
+                     noise_size=noise_sz, percentile=percentile, invert=invert)
+            if smooth_sz is not None: p["smoothing_size"] = smooth_sz
+            if max_sz is not None: p["maxsize"] = max_sz
+            return p
 
     def _accept(self):
         self.paramsAccepted.emit(self.get_params())

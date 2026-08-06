@@ -172,6 +172,20 @@ Esta transformación convierte los valles oscuros en picos brillantes perfectos 
 
 ---
 
+### 4.4 Integración del Motor de Localización Sub-píxel de Picasso (SMLM / DNA-PAINT)
+
+Junto a Trackpy, la interfaz incorpora la suite **Picasso** (`picassosr` v0.10.3 del *Jungmann Lab*) como motor de localización alternativo. El usuario puede alternar entre ambos motores desde el menú desplegable superior en `TrackpyDialog`.
+
+#### Parámetros Adaptados de Picasso:
+1. **Gradiente Neto Mínimo (`min_net_gradient`)**: Umbral de corte de gradiente espacial para la detección inicial de manchas candidatas (`picasso.localize.identify`).
+2. **Tamaño de Caja de Ajuste (`box_size`)**: Tamaño de la ventana cuadrada (ej. $7\times 7\ \text{px}$) utilizada para recortar (`picasso.localize._cut_spots`) y ajustar la partícula.
+3. **Algoritmos de Ajuste Sub-píxel (`fit_method`)**:
+   - **`gaussmle` (Maximum Likelihood Estimation)**: Minimización no lineal del cociente de verosimilitud de Poisson. Ofrece la máxima precisión sub-nanométrica (corta la cota CRLB).
+   - **`gausslq` (Least Squares)**: Ajuste Gaussiano 2D por mínimos cuadrados en tiempo real.
+   - **`avg` (Centro de Masas)**: Promedio espacial rápido ponderado por intensidad.
+
+---
+
 ## 5. Integración en el Software PyPrinting 3.0
 
 ### 5.1 Flujo de Trabajo Modular en `ImageAnalyzerWidget`

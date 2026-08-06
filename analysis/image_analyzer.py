@@ -758,49 +758,94 @@ class ImageAnalyzerWidget(QWidget):
 
         gray = np.mean(crop, axis=2) if crop.ndim == 3 else crop.astype(float)
         p    = self._trackpy_params.copy()
+        engine = p.get("engine", "trackpy")
 
         # Si el usuario solicitó invertir la intensidad para el cálculo (Valles -> Picos)
         if p.get("invert", False):
-            gray_for_tp = float(np.max(gray)) - gray
+            gray_for_calc = float(np.max(gray)) - gray
         else:
-            gray_for_tp = gray
-
-        d         = p.pop("diameter", 11); d = d if d % 2 == 1 else d + 1
-        sep       = p.get("separation", 8)
-        thr       = p.get("threshold", None)
-        minmass   = p.get("minmass", None)
-        noise_sz  = p.get("noise_size", 1.0)
-        smooth_sz = p.get("smoothing_size", None)
-        max_sz    = p.get("maxsize", None)
-        percentile= p.get("percentile", 64.0)
-
-        kwargs = dict(diameter=d, separation=sep, threshold=thr, minmass=minmass,
-                      noise_size=noise_sz, percentile=percentile)
-        if smooth_sz is not None: kwargs["smoothing_size"] = smooth_sz
-        if max_sz is not None: kwargs["maxsize"] = max_sz
-
-        try:
-            import trackpy as tp
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                df = tp.locate(gray_for_tp, **kwargs)
-        except Exception as e:
-            QMessageBox.warning(self, "Detección fallida", str(e))
-            return
+            gray_for_calc = gray
 
         pts = []
-        self._table_particles.setRowCount(len(df))
+        if engine == "picasso":
+            try:
+                import picasso.localize as loc
+                g_min, g_max = np.min(gray_for_calc), np.max(gray_for_calc)
+                if g_max > g_min:
+                    img_uint = ((gray_for_calc - g_min) / (g_max - g_min) * 65535.0).astype(np.uint16)
+                else:
+                    img_uint = gray_for_calc.astype(np.uint16)
+
+                movie = np.expand_dims(img_uint, axis=0)
+                min_grad = float(p.get("min_net_gradient", 1000.0))
+                box_sz = int(p.get("box_size", 7))
+                fit_m = p.get("fit_method", "gaussmle")
+
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    ids = loc.identify(movie, min_grad, box_sz, progress_callback=None)
+                    if ids is not None and len(ids) > 0:
+                        spots = loc._cut_spots(movie, ids, box_sz)
+                        if fit_m == "gausslq":
+                            df = loc._fit2d_gausslq(spots, ids, box_sz)
+                        elif fit_m == "avg":
+                            df = loc._fit2d_avg(spots, ids, box_sz)
+                        else:
+                            df = loc._fit2d_gaussmle(spots, ids, box_sz, multiprocess=False)
+                    else:
+                        df = None
+
+                if df is None or len(df) == 0:
+                    QMessageBox.information(self, "Detección Picasso", "No se encontraron partículas con los parámetros de Picasso.")
+                    return
+
+                for i, row in df.iterrows():
+                    gx = (row["x"] + offset[0]) / W
+                    gy = (row["y"] + offset[1]) / H
+                    photons = float(row.get("photons", row.get("net_gradient", 0)))
+                    pts.append((gx, gy, photons))
+
+            except Exception as e:
+                QMessageBox.warning(self, "Detección Picasso fallida", str(e))
+                return
+        else:
+            # Motor Trackpy
+            d         = p.pop("diameter", 11); d = d if d % 2 == 1 else d + 1
+            sep       = p.get("separation", 8)
+            thr       = p.get("threshold", None)
+            minmass   = p.get("minmass", None)
+            noise_sz  = p.get("noise_size", 1.0)
+            smooth_sz = p.get("smoothing_size", None)
+            max_sz    = p.get("maxsize", None)
+            percentile= p.get("percentile", 64.0)
+
+            kwargs = dict(diameter=d, separation=sep, threshold=thr, minmass=minmass,
+                          noise_size=noise_sz, percentile=percentile)
+            if smooth_sz is not None: kwargs["smoothing_size"] = smooth_sz
+            if max_sz is not None: kwargs["maxsize"] = max_sz
+
+            try:
+                import trackpy as tp
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    df = tp.locate(gray_for_calc, **kwargs)
+                for i, row in df.iterrows():
+                    gx = (row["x"] + offset[0]) / W
+                    gy = (row["y"] + offset[1]) / H
+                    mass = float(row.get("mass", 0))
+                    pts.append((gx, gy, mass))
+            except Exception as e:
+                QMessageBox.warning(self, "Detección Trackpy fallida", str(e))
+                return
+
+        self._table_particles.setRowCount(len(pts))
 
         if self._scale_set:
-            self._table_particles.setHorizontalHeaderLabels(["#", "x (µm)", "y (µm)", "Int."])
+            self._table_particles.setHorizontalHeaderLabels(["#", "x (µm)", "y (µm)", "Int. / Photons"])
         else:
-            self._table_particles.setHorizontalHeaderLabels(["#", "x (px)", "y (px)", "Int."])
+            self._table_particles.setHorizontalHeaderLabels(["#", "x (px)", "y (px)", "Int. / Photons"])
 
-        for i, row in df.iterrows():
-            gx = (row["x"] + offset[0]) / W
-            gy = (row["y"] + offset[1]) / H
-            mass = float(row.get("mass", 0))
-            pts.append((gx, gy, mass))
+        for i, (gx, gy, val) in enumerate(pts):
             if self._scale_set:
                 x_val = gx * W * self._um_per_px
                 y_val = gy * H * self._um_per_px
@@ -810,11 +855,11 @@ class ImageAnalyzerWidget(QWidget):
             self._table_particles.setItem(i, 0, QTableWidgetItem(str(i+1)))
             self._table_particles.setItem(i, 1, QTableWidgetItem(f"{x_val:.2f}"))
             self._table_particles.setItem(i, 2, QTableWidgetItem(f"{y_val:.2f}"))
-            self._table_particles.setItem(i, 3, QTableWidgetItem(f"{mass:.1f}"))
+            self._table_particles.setItem(i, 3, QTableWidgetItem(f"{val:.1f}"))
 
         self._particles = pts
         self._overlay.set_particles(pts)
-        self._lbl_result.setText(f"Detección completada: {len(pts)} partículas guardadas.")
+        self._lbl_result.setText(f"Detección ({engine.upper()}) completada: {len(pts)} partículas guardadas.")
 
     # ── Limpiar Todo ──────────────────────────────────────────────────────────
 
