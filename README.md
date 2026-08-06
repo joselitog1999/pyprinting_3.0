@@ -21,28 +21,26 @@ printing3/
 ├── app.py                # 🚀 MICROSCOPIO DERECHO (PyPrinting 3.0 completo). Orquestador PyQt6 y QThreads.
 ├── contrapropagante.py   # 🔍 MICROSCOPIO CONTRAPROPAGANTE (Excitación dual TOP/BOT, confocales síncronas).
 ├── config.py             # ⚙️ Configuración global, constantes de hardware, límites 0-100µm PI y MOCKs (SAFE_MODE).
-├── psf_analyzer.py       # 🧬 Analizador de PSF 2D (Gaussiana 2D / Donut LG01, residuales, perfiles 1D y RGB).
 ├── requirements.txt      # 📦 Lista de dependencias de Python para producción y desarrollo.
 │
-├── 🎛️ Capa de Control y Adquisición
+├── 🎛️ Módulos Principales de Medición (`modules/`)
 │   ├── confocal.py       # Mapeo y escaneo confocal 2D/3D (Ramp/Step en XY, XZ, YZ) con ajuste PSF.
 │   ├── measurements.py   # Motor unificado de mediciones automatizadas (Grillas de Impresión y Dímeros).
 │   ├── focus.py          # Estabilización activa de foco Z (autofoco dinámico por autocorrelación).
-│   ├── trace.py          # Adquisición de trazas temporales de fotoluminiscencia y calibración de potencia BS.
-│   ├── nanopositioning.py# Control manual y automatizado de la platina piezoeléctrica PI (0.0 a 100.0 µm XYZ).
-│   └── shutters.py       # Control de obturadores digitales (Verde/Rojo/Amarillo), flipper Notch y láser 532 nm.
+│   ├── trace.py          # Adquisición de trazas temporales a 10 kHz y calibración de potencia BS.
+│   └── camera.py         # Control de cámara réflex Canon EOS 500D (EDSDK Live View + Trackpy).
 │
-├── 👁️ Visión por Computadora y Excitación Óptica
-│   ├── camera.py         # Control de cámara (Canon EOS / USB OpenCV), overlay de platina y retículo láser.
-│   ├── image_analyzer.py # Analizador gráfico de imágenes estáticas con reglas en µm/px y tracking.
-│   └── canon_edsdk.py    # Wrapper nativo en C/Python para Canon EDSDK v13.x (64-bit).
+├── 🔌 Capa de Abstracción de Hardware y Núcleo (`core/`)
+│   ├── nanopositioning.py# Control capacitivo cerrado de la platina piezoeléctrica PI E-517 (0.0 a 100.0 µm XYZ).
+│   ├── shutters.py       # Control de obturadores digitales (532, 637, 592 nm), flippers y láser 532 nm.
+│   ├── nidaq.py          # Abstracción unificada de tarjetas NI-DAQmx (canales analógicos y digitales).
+│   └── canon_edsdk.py    # Wrapper nativo C/Python para la API Canon EDSDK (Live View 25 FPS & 15 MP).
 │
-├── 🔌 Capa de Abstracción de Hardware (HAL)
-│   └── nidaq.py          # Abstracción unificada de National Instruments (entradas/salidas analógicas/digitales).
-│
-├── 📐 Librerías Matemáticas y Algoritmos
+├── 📐 Librerías Matemáticas y Analizadores (`analysis/` & raíz)
 │   ├── psf.py            # Ajuste Gaussiano 2D (7 parámetros), Centro de Masa y resolución multi-partícula.
-│   └── spiral.py         # Generación de matrices de escaneo helicoidal para búsqueda rápida.
+│   ├── spiral.py         # Generación de matrices de escaneo helicoidal para búsqueda rápida.
+│   ├── image_analyzer.py # Analizador gráfico de imágenes estáticas con reglas en µm/px y tracking.
+│   └── psf_analyzer.py   # Herramienta de caracterización y ajuste de PSF ópticas.
 │
 └── 📋 Documentación y Reportes Metrológicos
     ├── README.md         # 📖 Documentación exhaustiva y fundamentos físicos/matemáticos.
@@ -53,7 +51,8 @@ printing3/
         ├── Algoritmo_Printing_y_Dimers_PyPrinting3.md
         ├── Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md
         ├── Modulo_Camara_Canon_EOS500D_PyPrinting3.md
-        └── Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md
+        ├── Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md
+        └── Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md
 ```
 
 ---
