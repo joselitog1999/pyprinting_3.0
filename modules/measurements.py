@@ -110,8 +110,8 @@ class InteractiveGridWidget(QFrame):
         self.plot = self.graphics.addPlot()
         self.plot.setAspectLocked(True)
         self.plot.showGrid(x=True, y=True)
-        self.plot.invertY(True)  # +X hacia abajo
-        self.plot.invertX(True)  # -Y hacia la derecha (+Y a la izquierda)
+        self.plot.invertY(True)   # +X hacia abajo
+        self.plot.invertX(False)  # +Y hacia la derecha (dirección estándar)
 
         label_style = {"color": "#cdd6f4", "font-size": "9pt"}
         self.plot.setLabel("left", "X (µm)", **label_style)    # Eje vertical = X

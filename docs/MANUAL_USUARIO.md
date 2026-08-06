@@ -332,7 +332,7 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
 - **`Set reference`**: Captura la posición actual de los sensores capacitivos de la platina PI como origen absoluto de la grilla $(X_0, Y_0, Z_0)$.
 - **`Go to reference`**: Retorna inmediatamente la platina a las coordenadas origen.
 - **`Display 2D del Patrón & Camino (`Grid Pattern & Path Viewer 🗺️`)**:
-  - **Dock Desplegable Integrado**: Previsualización gráfica 2D de la matriz completa ajustada a la orientación del sistema cartesiano físico del microscopio (rotado $90^\circ$ a la derecha: eje $+X$ hacia abajo, eje $-Y$ a la derecha):
+  - **Dock Desplegable Integrado**: Previsualización gráfica 2D de la matriz completa ajustada a la orientación del sistema cartesiano físico del microscopio (rotado $90^\circ$ a la derecha: eje $+X$ hacia abajo, eje $+Y$ a la derecha):
     - ⚪ **Pendiente** (Gris): Nodos futuros.
     - 🟡 **En Proceso** (Amarillo brillante pulsante): Nodo activo en impresión o autofoco.
     - 🟢 **Impresa** (Verde esmeralda): Nanopartícula impresa con éxito.
