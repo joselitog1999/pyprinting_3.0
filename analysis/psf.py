@@ -128,3 +128,78 @@ def _find_peaks(x, y, threshold_rel, number):
                          threshold_rel=threshold_rel,
                          num_peaks=number)
     return idx, x[idx], y[idx]
+
+
+def extract_psf_kernel(image: np.ndarray, center_x: float, center_y: float, radius_px: int = 15) -> np.ndarray:
+    """
+    Extrae una sub-matriz de PSF centrada en (center_x, center_y) con radio radius_px y la normaliza a suma = 1.0.
+    """
+    if image.ndim == 3:
+        image = np.mean(image, axis=2)
+    image = image.astype(float)
+    H, W = image.shape
+    r = int(radius_px)
+    cx, cy = int(round(center_x)), int(round(center_y))
+
+    x0, x1 = max(0, cx - r), min(W, cx + r + 1)
+    y0, y1 = max(0, cy - r), min(H, cy + r + 1)
+
+    crop = image[y0:y1, x0:x1]
+    crop = crop - np.min(crop) # Remover offset de fondo
+    total = np.sum(crop)
+    if total > 0:
+        crop = crop / total
+    else:
+        crop = np.ones_like(crop) / crop.size
+    return crop
+
+
+def richardson_lucy_deconv(image: np.ndarray, psf_kernel: np.ndarray, num_iter: int = 10, clip: bool = True) -> np.ndarray:
+    """
+    Deconvolución iterativa de Richardson-Lucy en 2D acelerada por FFT.
+    image: Matriz 2D o 3D (RGB)
+    psf_kernel: Matriz 2D de la PSF (normalizada a suma 1)
+    num_iter: Número de iteraciones (0 a 100). Si num_iter == 0, devuelve la imagen original.
+    """
+    if num_iter <= 0 or psf_kernel is None or psf_kernel.size == 0:
+        return image
+
+    is_rgb = (image.ndim == 3 and image.shape[2] in (3, 4))
+    if is_rgb:
+        channels = [image[:, :, c].astype(float) for c in range(image.shape[2])]
+        deconv_channels = [_richardson_lucy_2d(c, psf_kernel, num_iter, clip) for c in range(min(3, image.shape[2]))]
+        res = np.stack(deconv_channels, axis=-1)
+        if image.shape[2] == 4:
+            res = np.dstack([res, image[:, :, 3]])
+        return res.astype(image.dtype)
+    else:
+        return _richardson_lucy_2d(image.astype(float), psf_kernel, num_iter, clip).astype(image.dtype)
+
+
+def _richardson_lucy_2d(img2d: np.ndarray, psf: np.ndarray, num_iter: int, clip: bool = True) -> np.ndarray:
+    from scipy.signal import fftconvolve
+
+    psf_sum = np.sum(psf)
+    if psf_sum > 0:
+        psf = psf / psf_sum
+    psf_mirror = np.flip(psf)
+
+    img_min = float(np.min(img2d))
+    img_max = float(np.max(img2d))
+    if img_max == img_min:
+        return img2d
+
+    norm_img = img2d.astype(float)
+    estimate = norm_img.copy()
+
+    for _ in range(num_iter):
+        relative_blur = fftconvolve(estimate, psf, mode='same')
+        relative_blur = np.where(relative_blur < 1e-12, 1e-12, relative_blur)
+        ratio = norm_img / relative_blur
+        correction = fftconvolve(ratio, psf_mirror, mode='same')
+        estimate *= correction
+
+    if clip:
+        estimate = np.clip(estimate, img_min, img_max)
+
+    return estimate

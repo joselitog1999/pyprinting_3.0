@@ -676,7 +676,7 @@ En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 
 
 ### 19.2 Índice Completo de Informes Metrológicos, Diagnósticos y Evaluación Arquitectónica
 
-El laboratorio cuenta con 8 reportes de referencia metrológica, protocolar y técnica disponibles en la carpeta [`reportes/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/):
+El laboratorio cuenta con 9 reportes de referencia metrológica, protocolar y técnica disponibles en la carpeta [`reportes/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/):
 
 1. 📊 [Incertidumbre Metrológica ISO/GUM (reportes/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Incertidumbre_Metrologica_PyPrinting3.md): Evaluación formal del presupuesto de incertidumbre ($u_c = 0.35\ \text{nm}$).
 2. 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md): Formulación matemática de los 5 criterios de parada.
@@ -686,6 +686,7 @@ El laboratorio cuenta con 8 reportes de referencia metrológica, protocolar y t�
 6. 🔌 [Diagnóstico de Señales y Conexiones Frontend-Backend (reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md): Auditoría completa del 100% de la red de comunicación Qt (`pyqtSignal` / `pyqtSlot`).
 7. 📍 [Corrección de Deriva Termomecánica (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md): Método de partícula ancla (Partícula 0) para compensación X-Y sub-nanométrica post-autofoco Z.
 8. 🌳 [Respuestas de Arquitectura y Evaluación de Graphify (reportes/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md): Análisis riguroso de las 7 preguntas sugeridas por el motor de grafo Graphify sobre la cohesión, puentes de comunicación e hipótesis de refactorización.
+9. 🖼️ [Deconvolución Richardson-Lucy en Tiempo Real y Trackpy (reportes/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md): Modelo bayesiano MLE, calibración de PSF (Gaussiana, Donut, Centro de Masas), inversión fotométrica y caracterización sub-píxel.
 
 ---
 

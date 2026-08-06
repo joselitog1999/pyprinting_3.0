@@ -44,6 +44,11 @@ try:
 except ImportError:
     from modules.camera import OverlayWidget, SetScaleDialog, TrackpyDialog
 
+try:
+    from psf import center_of_mass, center_of_gauss2D, center_of_donut2D, extract_psf_kernel, richardson_lucy_deconv
+except ImportError:
+    from analysis.psf import center_of_mass, center_of_gauss2D, center_of_donut2D, extract_psf_kernel, richardson_lucy_deconv
+
 
 COLORMAP_MODES = ["Gris (Original)", "Thermal (Confocal/Láser)", "Viridis", "Plasma", "Inferno", "Jet / Arcoíris"]
 
@@ -81,6 +86,9 @@ class ImageAnalyzerWidget(QWidget):
         self._btn_open_img   = self._mkbtn("📁 Abrir Foto (.jpg, .tif)", color="#4a9eff")
         self._btn_load_latest= self._mkbtn("⚡ Cargar Última Foto", color="#3ecf8e")
         self._btn_export_img = self._mkbtn("📷 Exportar Foto", color="#3ecf8e")
+        self._btn_crop_roi   = self._mkbtn("✂ Crop ROI", color="#8b7cf8")
+        self._btn_undo_crop  = self._mkbtn("Deshacer Crop", color="#e5534b")
+        self._btn_deconv     = self._mkbtn("🔬 Deconvolución R-L", color="#8b7cf8")
         self._btn_setref     = self._mkbtn("Set ref.", checkable=True, color="#4a9eff")
         self._btn_setscale   = self._mkbtn("Set scale", color="#f5a623")
         self._btn_rulers     = self._mkbtn("Reglas (0)", color="#f5a623")
@@ -92,6 +100,9 @@ class ImageAnalyzerWidget(QWidget):
         self._btn_open_img.clicked.connect(self._open_image)
         self._btn_load_latest.clicked.connect(self.load_newest_image)
         self._btn_export_img.clicked.connect(self._export_annotated_image)
+        self._btn_crop_roi.clicked.connect(self._crop_to_roi)
+        self._btn_undo_crop.clicked.connect(self._undo_crop)
+        self._btn_deconv.clicked.connect(self._open_deconv_dialog)
         self._btn_setref.clicked.connect(self._start_set_ref)
         self._btn_setscale.clicked.connect(self._open_set_scale)
         self._btn_rulers.clicked.connect(self._cycle_rulers)
@@ -100,9 +111,10 @@ class ImageAnalyzerWidget(QWidget):
         self._btn_home.clicked.connect(lambda: self._overlay.zoom_home())
         self._btn_clear_all.clicked.connect(self._global_clear_with_confirm)
 
-        for w in (self._btn_open_img, self._btn_load_latest, self._btn_export_img, self._btn_setref,
-                  self._btn_setscale, self._btn_rulers, self._btn_zoom_in,
-                  self._btn_zoom_out, self._btn_home, self._btn_clear_all):
+        for w in (self._btn_open_img, self._btn_load_latest, self._btn_export_img,
+                  self._btn_crop_roi, self._btn_undo_crop, self._btn_deconv,
+                  self._btn_setref, self._btn_setscale, self._btn_rulers,
+                  self._btn_zoom_in, self._btn_zoom_out, self._btn_home, self._btn_clear_all):
             tb_lo.addWidget(w)
 
         tb_lo.addStretch()
@@ -840,6 +852,277 @@ class ImageAnalyzerWidget(QWidget):
         self._lbl_scale.setText(f"Escala configurada: {um_per_px:.5f} µm/px")
         self._lbl_scale.setStyleSheet("color: #3ecf8e; font-weight: bold; font-family: monospace; font-size: 11px;")
         self._table_measures.setHorizontalHeaderItem(1, QTableWidgetItem("Dist (µm)"))
+
+    # ── Herramientas de Crop de ROI & Deconvolución Richardson-Lucy ─────────────
+
+    def _crop_to_roi(self):
+        if self._raw_frame is None:
+            QMessageBox.warning(self, "Crop ROI", "Primero abrí una foto.")
+            return
+        roi = self._overlay.roi_fractions()
+        if not roi:
+            QMessageBox.warning(self, "Crop ROI", "Primero dibujá un rectángulo con la herramienta 'ROI detect'.")
+            return
+
+        if not hasattr(self, "_uncropped_raw_frame") or self._uncropped_raw_frame is None:
+            self._uncropped_raw_frame = self._raw_frame.copy()
+
+        H, W = self._raw_frame.shape[:2]
+        x0, y0, x1, y1 = roi
+        ix0, ix1 = int(round(x0 * W)), int(round(x1 * W))
+        iy0, iy1 = int(round(y0 * H)), int(round(y1 * H))
+
+        if ix1 <= ix0 + 2 or iy1 <= iy0 + 2:
+            QMessageBox.warning(self, "Crop ROI", "El área de ROI seleccionada es demasiado pequeña.")
+            return
+
+        self._raw_frame = self._raw_frame[iy0:iy1, ix0:ix1].copy()
+        self._overlay.clear_roi()
+        self._btn_roi.setChecked(False)
+        self._overlay.set_mode("none")
+        self._apply_image_adjustments()
+
+        W_new, H_new = self._overlay.get_img_dims()
+        self._vb.setXRange(0, W_new, padding=0)
+        self._vb.setYRange(0, H_new, padding=0)
+        self._lbl_result.setText(f"Imagen cropeada a ROI: ({int(W_new)}x{int(H_new)} px)")
+
+    def _undo_crop(self):
+        if hasattr(self, "_uncropped_raw_frame") and self._uncropped_raw_frame is not None:
+            self._raw_frame = self._uncropped_raw_frame.copy()
+            self._uncropped_raw_frame = None
+            self._apply_image_adjustments()
+            W, H = self._overlay.get_img_dims()
+            self._vb.setXRange(0, W, padding=0)
+            self._vb.setYRange(0, H, padding=0)
+            self._lbl_result.setText("Crop deshecho: retornando a la foto original.")
+        else:
+            QMessageBox.information(self, "Deshacer Crop", "No hay recortes previos para deshacer.")
+
+    def _open_deconv_dialog(self):
+        if self._raw_frame is None or self._current_frame is None:
+            QMessageBox.warning(self, "Deconvolución", "Primero abrí una foto.")
+            return
+        roi = self._overlay.roi_fractions()
+        dlg = RichardsonLucyDialog(self._current_frame.copy(), roi_frac=roi, parent=self)
+        dlg.deconvAccepted.connect(self._on_deconv_accepted)
+        dlg.exec()
+
+    def _on_deconv_accepted(self, deconv_frame: np.ndarray):
+        if not hasattr(self, "_uncropped_raw_frame") or self._uncropped_raw_frame is None:
+            self._uncropped_raw_frame = self._raw_frame.copy()
+
+        self._raw_frame = deconv_frame.copy()
+        self._apply_image_adjustments()
+        self._lbl_result.setText("Deconvolución Richardson-Lucy aplicada con éxito a la imagen de trabajo.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DIÁLOGO DE DECONVOLUCIÓN RICHARDSON-LUCY EN TIEMPO REAL
+# ══════════════════════════════════════════════════════════════════════════════
+
+class RichardsonLucyDialog(QDialog):
+    """Diálogo para la Deconvolución Richardson-Lucy en tiempo real con selección y centrado de PSF."""
+    deconvAccepted = pyqtSignal(np.ndarray)
+
+    def __init__(self, frame: np.ndarray, roi_frac: Optional[tuple] = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🔬 Deconvolución Richardson-Lucy en Tiempo Real (PyPrinting)")
+        self.resize(1020, 720)
+
+        self._frame = frame
+        self._roi_frac = roi_frac
+        if roi_frac:
+            H, W = frame.shape[:2]
+            x0, y0, x1, y1 = roi_frac
+            ix0, ix1 = int(round(x0*W)), int(round(x1*W))
+            iy0, iy1 = int(round(y0*H)), int(round(y1*H))
+            self._working_crop = frame[iy0:iy1, ix0:ix1].copy()
+        else:
+            self._working_crop = frame.copy()
+
+        self._psf_raw: Optional[np.ndarray] = None
+        self._psf_kernel: Optional[np.ndarray] = None
+        self._deconv_result: Optional[np.ndarray] = None
+
+        main_lo = QVBoxLayout(self)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # ── Panel Izquierdo: Controles de PSF e Iteraciones ───────────────────
+        ctrl_panel = QWidget()
+        ctrl_lo = QVBoxLayout(ctrl_panel)
+        ctrl_lo.setContentsMargins(4, 4, 4, 4)
+
+        box_psf = QGroupBox("1. Definición y Ajuste de la PSF")
+        psf_form = QFormLayout(box_psf)
+
+        self._btn_load_psf = QPushButton("📁 Cargar Archivo PSF (.tif, .png)")
+        self._btn_load_psf.setStyleSheet("color: #4a9eff; font-weight: bold;")
+        self._btn_load_psf.clicked.connect(self._open_psf_file)
+
+        self._fit_mode_combo = QComboBox()
+        self._fit_mode_combo.addItems(["Centro de Masas", "Gaussiana 2D (Sintética/Fit)", "Donut 2D (Laguerre-Gauss 01)"])
+        self._fit_mode_combo.currentIndexChanged.connect(self._recalculate_psf_kernel)
+
+        self._radius_spin = QSpinBox()
+        self._radius_spin.setRange(3, 60)
+        self._radius_spin.setValue(15)
+        self._radius_spin.setSuffix(" px")
+        self._radius_spin.valueChanged.connect(self._recalculate_psf_kernel)
+
+        self._lbl_psf_info = QLabel("PSF: Gaussiana predeterminada (31x31 px)")
+        self._lbl_psf_info.setStyleSheet("color: #3ecf8e; font-family: monospace; font-size: 11px;")
+
+        psf_form.addRow(self._btn_load_psf)
+        psf_form.addRow("Modelo / Ajuste de Centro:", self._fit_mode_combo)
+        psf_form.addRow("Radio Kernel ($R_{\\text{psf}}$):", self._radius_spin)
+        psf_form.addRow(self._lbl_psf_info)
+
+        # Mini Visor del Kernel de la PSF
+        self._psf_view = pg.GraphicsLayoutWidget()
+        self._psf_view.setMaximumHeight(160)
+        self._psf_vb = self._psf_view.addViewBox(lockAspect=True); self._psf_vb.invertY(True)
+        self._psf_img_item = pg.ImageItem(); self._psf_vb.addItem(self._psf_img_item)
+        ctrl_lo.addWidget(box_psf)
+        ctrl_lo.addWidget(self._psf_view)
+
+        box_deconv = QGroupBox("2. Control de Deconvolución Iterativa")
+        deconv_lo = QVBoxLayout(box_deconv)
+
+        self._lbl_iter = QLabel("Iteraciones Richardson-Lucy: 0 (Original)")
+        self._lbl_iter.setStyleSheet("font-weight: bold; font-size: 12px; color: #ffc832;")
+
+        self._slider_iter = QSlider(Qt.Orientation.Horizontal)
+        self._slider_iter.setRange(0, 100)
+        self._slider_iter.setValue(0)
+
+        self._lbl_status = QLabel("Tiempo de cómputo: 0 ms")
+        self._lbl_status.setStyleSheet("color: #aaa; font-family: monospace; font-size: 11px;")
+
+        deconv_lo.addWidget(self._lbl_iter)
+        deconv_lo.addWidget(self._slider_iter)
+        deconv_lo.addWidget(self._lbl_status)
+        ctrl_lo.addWidget(box_deconv)
+        ctrl_lo.addStretch()
+
+        # ── Visor Central: Vista Previa en Vivo ─────────────────────────────
+        preview_panel = QWidget()
+        preview_lo = QVBoxLayout(preview_panel)
+        preview_lo.setContentsMargins(0, 0, 0, 0)
+
+        self._view = pg.GraphicsLayoutWidget()
+        self._vb = self._view.addViewBox(lockAspect=True); self._vb.invertY(True)
+        self._img_item = pg.ImageItem(); self._vb.addItem(self._img_item)
+        preview_lo.addWidget(self._view)
+
+        splitter.addWidget(ctrl_panel)
+        splitter.addWidget(preview_panel)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 7)
+
+        main_lo.addWidget(splitter, stretch=1)
+
+        from PyQt6.QtWidgets import QDialogButtonBox
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self._accept)
+        btns.rejected.connect(self.reject)
+        main_lo.addWidget(btns)
+
+        self._slider_iter.valueChanged.connect(self._on_iter_changed)
+
+        # Generar PSF inicial e imagen
+        self._recalculate_psf_kernel()
+        self._update_preview()
+
+    def _open_psf_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Cargar Imagen de PSF (.tif, .png)", str(DEFAULT_DATA_PATH),
+            "Imágenes (*.tif *.tiff *.png *.jpg *.bmp)")
+        if not file_path: return
+        try:
+            path = Path(file_path)
+            ext = path.suffix.lower()
+            if ext in (".tif", ".tiff"):
+                import tifffile
+                arr = tifffile.imread(str(path))
+            else:
+                from PIL import Image as PILImage
+                arr = np.array(PILImage.open(str(path)).convert("L"))
+            if arr.ndim == 3: arr = np.mean(arr, axis=2)
+            self._psf_raw = arr.astype(float)
+            self._lbl_psf_info.setText(f"PSF cargada: {path.name}")
+            self._recalculate_psf_kernel()
+        except Exception as e:
+            QMessageBox.critical(self, "Error al cargar PSF", f"No se pudo leer la PSF:\n{e}")
+
+    def _recalculate_psf_kernel(self):
+        r_px = self._radius_spin.value()
+        size = 2 * r_px + 1
+
+        if self._psf_raw is not None:
+            img = self._psf_raw
+            H, W = img.shape
+            cx_init, cy_init = W / 2.0, H / 2.0
+            mode_idx = self._fit_mode_combo.currentIndex()
+            if mode_idx == 0:
+                cx, cy = center_of_mass(img)
+            elif mode_idx == 1:
+                cx, cy = center_of_gauss2D(img, cx_init, cy_init)
+            else:
+                cx, cy = center_of_donut2D(img, cx_init, cy_init)
+            kernel = extract_psf_kernel(img, cx, cy, r_px)
+        else:
+            sigma = r_px / 3.0
+            x = np.arange(-r_px, r_px + 1)
+            y = np.arange(-r_px, r_px + 1)
+            Mx, My = np.meshgrid(x, y)
+            mode_idx = self._fit_mode_combo.currentIndex()
+            if mode_idx == 2:
+                r2 = (Mx**2 + My**2) / (2 * sigma**2)
+                kernel = r2 * np.exp(-r2)
+            else:
+                kernel = np.exp(-(Mx**2 + My**2) / (2 * sigma**2))
+            kernel = kernel / np.sum(kernel)
+
+        self._psf_kernel = kernel
+        self._psf_img_item.setImage(kernel.transpose())
+        self._psf_vb.setXRange(0, size, padding=0)
+        self._psf_vb.setYRange(0, size, padding=0)
+        self._update_preview()
+
+    def _on_iter_changed(self, val: int):
+        self._lbl_iter.setText(f"Iteraciones Richardson-Lucy: {val}")
+        self._update_preview()
+
+    def _update_preview(self):
+        if self._working_crop is None or self._psf_kernel is None: return
+        import time
+        num_iter = self._slider_iter.value()
+        t0 = time.perf_counter()
+
+        if num_iter == 0:
+            self._deconv_result = self._working_crop
+        else:
+            self._deconv_result = richardson_lucy_deconv(self._working_crop, self._psf_kernel, num_iter=num_iter)
+
+        t_ms = (time.perf_counter() - t0) * 1000.0
+        self._lbl_status.setText(f"Tiempo de cómputo R-L ({num_iter} iters): {t_ms:.1f} ms")
+
+        img = self._deconv_result
+        if img.ndim == 3:
+            self._img_item.setImage(img.transpose(1, 0, 2))
+        else:
+            self._img_item.setImage(img.transpose())
+
+        H, W = img.shape[:2]
+        self._vb.setXRange(0, W, padding=0)
+        self._vb.setYRange(0, H, padding=0)
+
+    def _accept(self):
+        if self._deconv_result is not None:
+            self.deconvAccepted.emit(self._deconv_result.copy())
+        self.accept()
 
 
 class StandaloneAnalyzerWindow(QMainWindow):
