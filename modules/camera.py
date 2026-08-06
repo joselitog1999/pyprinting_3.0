@@ -40,10 +40,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# ── Registrar directorio raíz incondicionalmente en sys.path ───────────────────
+# ── Registrar directorio raíz e incondicionalmente .venv en sys.path ───────────
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 _parent1 = os.path.dirname(_this_dir)
 _parent2 = os.path.dirname(_parent1)
+
+_venv_site = os.path.join(_parent1, ".venv", "Lib", "site-packages")
+if os.path.exists(_venv_site) and _venv_site not in sys.path:
+    sys.path.insert(0, _venv_site)
 
 for _p in [_parent1, _parent2, os.path.join(_parent1, "core"),
            os.path.join(_parent1, "modules"), os.path.join(_parent1, "analysis")]:
@@ -108,9 +112,9 @@ except ImportError:
 try:
     import picasso.localize as picasso_loc
     _PICASSO_AVAILABLE = True
-except ImportError:
+except Exception as _e_picasso:
     _PICASSO_AVAILABLE = False
-    print("[Camera] picasso no disponible — detección Picasso deshabilitada.")
+    print(f"[Camera] picasso no disponible — {_e_picasso}")
 
 try:
     from canon_edsdk import (CanonCamera, ISO_MAP, REV_ISO_MAP, FULL_ISO_LIST,

@@ -22,6 +22,10 @@ from pathlib import Path
 
 # ── Registro de Rutas del Proyecto en sys.path ─────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
+venv_site = BASE_DIR / ".venv" / "Lib" / "site-packages"
+if venv_site.exists() and str(venv_site) not in sys.path:
+    sys.path.insert(0, str(venv_site))
+
 for sub in [BASE_DIR, BASE_DIR / "core", BASE_DIR / "modules", BASE_DIR / "analysis"]:
     sub_str = str(sub)
     if sub_str not in sys.path:
