@@ -567,6 +567,11 @@ class OverlayWidget(QWidget):
 
         self._mode = "none" # "ref" | "measure" | "roi" | "none"
         self._snap_highlight: Optional[tuple[float, float]] = None
+        self._pip_enabled = True
+
+    def set_pip_enabled(self, enabled: bool):
+        self._pip_enabled = enabled
+        self.update()
 
     def bind_views(self, graphics_widget: pg.GraphicsLayoutWidget, img_item: pg.ImageItem):
         self._graphics_widget = graphics_widget
@@ -852,7 +857,8 @@ class OverlayWidget(QWidget):
         if self._snap_highlight:
             self._draw_snap_highlight(p)
 
-        self._draw_pip_minimap(p)
+        if getattr(self, '_pip_enabled', True):
+            self._draw_pip_minimap(p)
 
     def _draw_rulers(self, p: QPainter):
         pen1 = QPen(QColor(245, 166, 35, 220), 1, Qt.PenStyle.DashLine)
@@ -961,9 +967,9 @@ class OverlayWidget(QWidget):
         sx, sy = event.position().x(), event.position().y()
         fx, fy = self.screen_to_frac(sx, sy)
 
-        # Clic dentro de la miniatura PiP
+        # Clic dentro de la miniatura PiP (si está activa)
         pip_rect = self.get_pip_rect()
-        if pip_rect.contains(QPointF(sx, sy)):
+        if getattr(self, '_pip_enabled', True) and pip_rect.contains(QPointF(sx, sy)):
             mw, mh = pip_rect.width(), pip_rect.height()
             cx = max(0.0, min(1.0, (sx - pip_rect.x()) / mw))
             cy = max(0.0, min(1.0, (sy - pip_rect.y()) / mh))
@@ -2159,6 +2165,11 @@ class TrackpyDialog(QDialog):
 
         params_box = QGroupBox("Parámetros de Detección"); form = QFormLayout(params_box)
 
+        # Invertir mapa solo para el cálculo de Trackpy (Valles -> Picos)
+        self._invert_cb = QCheckBox("Invertir imagen solo para análisis (Detectar Valles / Puntos Oscuros)")
+        self._invert_cb.setToolTip("Invierte la matriz de intensidad solo para el cálculo de Trackpy (útil si las partículas son puntos oscuros/valles en TIFF). La visualización de la imagen se mantendrá sin cambios.")
+        form.addRow(self._invert_cb)
+
         if self._um_per_px:
             self._diam_spin = QDoubleSpinBox()
             self._diam_spin.setRange(0.05, 500.0)
@@ -2202,6 +2213,33 @@ class TrackpyDialog(QDialog):
             for w in (self._diam, self._sep, self._thr):
                 w.valueChanged.connect(self._run_preview)
 
+        # Parámetros avanzados de Trackpy
+        self._minmass_spin = QDoubleSpinBox(); self._minmass_spin.setRange(0, 1e7); self._minmass_spin.setValue(0)
+        self._minmass_spin.setToolTip("Masa (intensidad integrada) mínima requerida para validar una partícula (0 = ignorar).")
+
+        self._noise_size_spin = QDoubleSpinBox(); self._noise_size_spin.setRange(0.1, 20.0); self._noise_size_spin.setValue(1.0); self._noise_size_spin.setSingleStep(0.1)
+        self._noise_size_spin.setToolTip("Ancho del filtro Gaussiano para remover ruido de alta frecuencia (def: 1.0).")
+
+        self._smoothing_size_spin = QDoubleSpinBox(); self._smoothing_size_spin.setRange(0.0, 100.0); self._smoothing_size_spin.setValue(0.0); self._smoothing_size_spin.setSingleStep(0.5)
+        self._smoothing_size_spin.setToolTip("Tamaño del filtro de suavizado de fondo (0 = auto/igual al diámetro).")
+
+        self._maxsize_spin = QDoubleSpinBox(); self._maxsize_spin.setRange(0.0, 200.0); self._maxsize_spin.setValue(0.0)
+        self._maxsize_spin.setToolTip("Radio máximo de giro (tamaño en px) permitido para una partícula (0 = auto).")
+
+        self._percentile_spin = QDoubleSpinBox(); self._percentile_spin.setRange(0.0, 100.0); self._percentile_spin.setValue(64.0)
+        self._percentile_spin.setToolTip("Percentil de intensidad para seleccionar candidatos iniciales (def: 64.0).")
+
+        form.addRow("Masa Mínima (minmass, 0 = desact):", self._minmass_spin)
+        form.addRow("Filtro de Ruido (noise_size):", self._noise_size_spin)
+        form.addRow("Filtro Suavizado (smoothing_size, 0=auto):", self._smoothing_size_spin)
+        form.addRow("Tamaño Máx (maxsize, 0 = desact):", self._maxsize_spin)
+        form.addRow("Percentil candidatos (percentile):", self._percentile_spin)
+
+        self._invert_cb.toggled.connect(self._run_preview)
+        for w in (self._minmass_spin, self._noise_size_spin, self._smoothing_size_spin,
+                  self._maxsize_spin, self._percentile_spin):
+            w.valueChanged.connect(self._run_preview)
+
         lo.addWidget(params_box)
 
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -2240,21 +2278,49 @@ class TrackpyDialog(QDialog):
         if not _TRACKPY_AVAILABLE or self._crop is None: return
         import warnings
         gray = np.mean(self._crop, axis=2).astype(float) if self._crop.ndim == 3 else self._crop.astype(float)
+        if self._invert_cb.isChecked():
+            gray_for_tp = float(np.max(gray)) - gray
+        else:
+            gray_for_tp = gray
+
         d_px, sep_px = self._get_pixel_params()
         thr = self._thr.value() if self._thr.value() > 0 else None
+        minmass = self._minmass_spin.value() if self._minmass_spin.value() > 0 else None
+        noise_sz = self._noise_size_spin.value() if self._noise_size_spin.value() > 0 else 1.0
+        smooth_sz = self._smoothing_size_spin.value() if self._smoothing_size_spin.value() > 0 else None
+        max_sz = self._maxsize_spin.value() if self._maxsize_spin.value() > 0 else None
+        percentile = self._percentile_spin.value() if self._percentile_spin.value() > 0 else 64.0
+
+        kwargs = dict(diameter=d_px, separation=sep_px, threshold=thr, minmass=minmass,
+                      noise_size=noise_sz, percentile=percentile)
+        if smooth_sz is not None: kwargs["smoothing_size"] = smooth_sz
+        if max_sz is not None: kwargs["maxsize"] = max_sz
+
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                df = tp.locate(gray, diameter=d_px, separation=sep_px, threshold=thr)
+                df = tp.locate(gray_for_tp, **kwargs)
             self._scatter.setData(df["x"].values, df["y"].values) if len(df) else self._scatter.clear()
-            self._count_lbl.setText(f"Detectadas: {len(df)} partículas (diámetro = {d_px} px)")
+            inv_tag = " [Invertida]" if self._invert_cb.isChecked() else ""
+            self._count_lbl.setText(f"Detectadas: {len(df)} partículas (diámetro = {d_px} px){inv_tag}")
         except Exception as e:
             self._count_lbl.setText(f"Error: {e}")
 
     def get_params(self) -> dict:
         d_px, sep_px = self._get_pixel_params()
-        return dict(diameter=d_px, separation=sep_px,
-                    threshold=self._thr.value() if self._thr.value() > 0 else None)
+        thr = self._thr.value() if self._thr.value() > 0 else None
+        minmass = self._minmass_spin.value() if self._minmass_spin.value() > 0 else None
+        noise_sz = self._noise_size_spin.value() if self._noise_size_spin.value() > 0 else 1.0
+        smooth_sz = self._smoothing_size_spin.value() if self._smoothing_size_spin.value() > 0 else None
+        max_sz = self._maxsize_spin.value() if self._maxsize_spin.value() > 0 else None
+        percentile = self._percentile_spin.value() if self._percentile_spin.value() > 0 else 64.0
+        invert = self._invert_cb.isChecked()
+
+        p = dict(diameter=d_px, separation=sep_px, threshold=thr, minmass=minmass,
+                 noise_size=noise_sz, percentile=percentile, invert=invert)
+        if smooth_sz is not None: p["smoothing_size"] = smooth_sz
+        if max_sz is not None: p["maxsize"] = max_sz
+        return p
 
     def _accept(self):
         self.paramsAccepted.emit(self.get_params())

@@ -78,17 +78,19 @@ class ImageAnalyzerWidget(QWidget):
         tb_lo.setContentsMargins(2, 2, 2, 2)
         tb_lo.setSpacing(4)
 
-        self._btn_open_img  = self._mkbtn("📁 Abrir Foto (.jpg, .tif)", color="#4a9eff")
-        self._btn_export_img= self._mkbtn("📷 Exportar Foto", color="#3ecf8e")
-        self._btn_setref    = self._mkbtn("Set ref.", checkable=True, color="#4a9eff")
-        self._btn_setscale  = self._mkbtn("Set scale", color="#f5a623")
-        self._btn_rulers    = self._mkbtn("Reglas (0)", color="#f5a623")
-        self._btn_zoom_in   = self._mkbtn("Zoom +", color="#ffc832")
-        self._btn_zoom_out  = self._mkbtn("Zoom -", color="#ffc832")
-        self._btn_home      = self._mkbtn("Home", color="#ffc832")
-        self._btn_clear_all = self._mkbtn("Limpiar Todo", color="#e5534b")
+        self._btn_open_img   = self._mkbtn("📁 Abrir Foto (.jpg, .tif)", color="#4a9eff")
+        self._btn_load_latest= self._mkbtn("⚡ Cargar Última Foto", color="#3ecf8e")
+        self._btn_export_img = self._mkbtn("📷 Exportar Foto", color="#3ecf8e")
+        self._btn_setref     = self._mkbtn("Set ref.", checkable=True, color="#4a9eff")
+        self._btn_setscale   = self._mkbtn("Set scale", color="#f5a623")
+        self._btn_rulers     = self._mkbtn("Reglas (0)", color="#f5a623")
+        self._btn_zoom_in    = self._mkbtn("Zoom +", color="#ffc832")
+        self._btn_zoom_out   = self._mkbtn("Zoom -", color="#ffc832")
+        self._btn_home       = self._mkbtn("Home", color="#ffc832")
+        self._btn_clear_all  = self._mkbtn("Limpiar Todo", color="#e5534b")
 
         self._btn_open_img.clicked.connect(self._open_image)
+        self._btn_load_latest.clicked.connect(self.load_newest_image)
         self._btn_export_img.clicked.connect(self._export_annotated_image)
         self._btn_setref.clicked.connect(self._start_set_ref)
         self._btn_setscale.clicked.connect(self._open_set_scale)
@@ -98,7 +100,7 @@ class ImageAnalyzerWidget(QWidget):
         self._btn_home.clicked.connect(lambda: self._overlay.zoom_home())
         self._btn_clear_all.clicked.connect(self._global_clear_with_confirm)
 
-        for w in (self._btn_open_img, self._btn_export_img, self._btn_setref,
+        for w in (self._btn_open_img, self._btn_load_latest, self._btn_export_img, self._btn_setref,
                   self._btn_setscale, self._btn_rulers, self._btn_zoom_in,
                   self._btn_zoom_out, self._btn_home, self._btn_clear_all):
             tb_lo.addWidget(w)
@@ -213,6 +215,7 @@ class ImageAnalyzerWidget(QWidget):
         self._img_item = pg.ImageItem(); self._vb.addItem(self._img_item)
 
         self._overlay = OverlayWidget(self._view)
+        self._overlay.set_pip_enabled(False) # Desactivar la miniatura PiP en el analizador de imágenes (solo aplica a cámara live)
         self._overlay.bind_views(self._view, self._img_item)
         self._overlay.resize(self._view.size())
         self._view.resizeEvent = self._on_view_resize
@@ -330,14 +333,36 @@ class ImageAnalyzerWidget(QWidget):
 
     # ── Abrir e Importar Imagen (.jpg, .png, .bmp, .tif, .tiff) ─────────────
 
-    def _open_image(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Abrir Imagen", str(DEFAULT_DATA_PATH),
-            "Todas las Imágenes (*.tif *.tiff *.jpg *.jpeg *.png *.bmp);;Archivos TIFF (*.tif *.tiff);;Archivos Estándar (*.jpg *.png *.bmp)")
-        if not file_path: return
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._raw_frame is None:
+            self.load_newest_image()
 
+    def load_newest_image(self) -> bool:
+        """Busca y carga automáticamente la foto o escaneo confocal más reciente guardado en disco."""
+        search_dirs = [DEFAULT_DATA_PATH]
+        all_imgs = []
+        extensions = ("*.tif", "*.tiff", "*.png", "*.jpg", "*.jpeg", "*.bmp")
+        for d in search_dirs:
+            if not d.exists(): continue
+            for ext in extensions:
+                all_imgs.extend(d.glob(ext))
+                all_imgs.extend(d.glob(f"*/{ext}"))
+                all_imgs.extend(d.glob(f"*/*/{ext}"))
+
+        if not all_imgs:
+            self._lbl_result.setText("No se encontraron imágenes o escaneos guardados recientes.")
+            return False
+
+        # Ordenar por fecha de modificación descendente
+        newest = max(all_imgs, key=lambda p: p.stat().st_mtime)
+        print(f"[ImageAnalyzer] Carga automática de la imagen más reciente: {newest}")
+        return self.load_image_file(newest)
+
+    def load_image_file(self, file_path: Path | str) -> bool:
         try:
             path = Path(file_path)
+            if not path.exists(): return False
             ext = path.suffix.lower()
             self._is_tiff = ext in (".tif", ".tiff")
 
@@ -379,8 +404,17 @@ class ImageAnalyzerWidget(QWidget):
             self._vb.setYRange(0, H, padding=0)
             self._overlay.update()
             self._lbl_result.setText(f"Imagen cargada: {self._current_image_path.name} ({int(W)}x{int(H)} px)")
+            return True
         except Exception as e:
             QMessageBox.critical(self, "Error al abrir imagen", f"No se pudo cargar la imagen:\n{e}")
+            return False
+
+    def _open_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Abrir Imagen", str(DEFAULT_DATA_PATH),
+            "Todas las Imágenes (*.tif *.tiff *.jpg *.jpeg *.png *.bmp);;Archivos TIFF (*.tif *.tiff);;Archivos Estándar (*.jpg *.png *.bmp)")
+        if file_path:
+            self.load_image_file(file_path)
 
     # ── Ajustes de Procesamiento de Imagen (TIFF vs RGB) ──────────────────────
 
@@ -712,15 +746,32 @@ class ImageAnalyzerWidget(QWidget):
 
         gray = np.mean(crop, axis=2) if crop.ndim == 3 else crop.astype(float)
         p    = self._trackpy_params.copy()
-        d    = p.pop("diameter", 11); d = d if d % 2 == 1 else d + 1
-        sep  = p.get("separation", 8)
-        thr  = p.get("threshold", None)
+
+        # Si el usuario solicitó invertir la intensidad para el cálculo (Valles -> Picos)
+        if p.get("invert", False):
+            gray_for_tp = float(np.max(gray)) - gray
+        else:
+            gray_for_tp = gray
+
+        d         = p.pop("diameter", 11); d = d if d % 2 == 1 else d + 1
+        sep       = p.get("separation", 8)
+        thr       = p.get("threshold", None)
+        minmass   = p.get("minmass", None)
+        noise_sz  = p.get("noise_size", 1.0)
+        smooth_sz = p.get("smoothing_size", None)
+        max_sz    = p.get("maxsize", None)
+        percentile= p.get("percentile", 64.0)
+
+        kwargs = dict(diameter=d, separation=sep, threshold=thr, minmass=minmass,
+                      noise_size=noise_sz, percentile=percentile)
+        if smooth_sz is not None: kwargs["smoothing_size"] = smooth_sz
+        if max_sz is not None: kwargs["maxsize"] = max_sz
 
         try:
             import trackpy as tp
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                df = tp.locate(gray, diameter=d, separation=sep, threshold=thr)
+                df = tp.locate(gray_for_tp, **kwargs)
         except Exception as e:
             QMessageBox.warning(self, "Detección fallida", str(e))
             return
