@@ -1288,17 +1288,26 @@ class CameraWindow(QMainWindow):
         visor_container = QWidget()
         visor_lo        = QVBoxLayout(visor_container)
         visor_lo.setContentsMargins(0, 0, 0, 0)
+        visor_lo.setSpacing(0)
+        visor_container.setMinimumWidth(400)
 
         self._view = pg.GraphicsLayoutWidget()
+        self._view.setBackground('#0b0f19')  # Tema oscuro continuo, elimina bordes/márgenes de caja
+        self._view.ci.layout.setContentsMargins(0, 0, 0, 0)
+        self._view.ci.layout.setSpacing(0)
+
         self._vb = self._view.addViewBox(lockAspect=True)
         self._vb.invertY(True)
+        self._vb.setMenuEnabled(False)
+        self._vb.setMouseEnabled(x=False, y=False)
         self._img_item = pg.ImageItem()
         self._img_item.setOpts(axisOrder='row-major', smooth=True)
         self._vb.addItem(self._img_item)
 
-        self._overlay = OverlayWidget(self._view)
+        # Reparentar OverlayWidget al viewport interno de QGraphicsView para alineación limpia
+        self._overlay = OverlayWidget(self._view.viewport())
         self._overlay.bind_views(self._view, self._img_item)
-        self._overlay.resize(self._view.size())
+        self._overlay.setGeometry(self._view.viewport().rect())
         self._view.resizeEvent = self._on_view_resize
         self._overlay.pointClickedSignal.connect(self._on_overlay_click)
         self._overlay.zoomChangedSignal.connect(self._on_zoom_changed_overlay)
@@ -1335,12 +1344,21 @@ class CameraWindow(QMainWindow):
         btn_row_r2.addWidget(self._btn_clr_meas)
         right_lo.addLayout(btn_row_r2)
 
+        # Delimitación estricta de anchos para evitar desbordamientos tras el panel de mediciones
+        left_panel.setMinimumWidth(280)
+        left_panel.setMaximumWidth(360)
+        right_panel.setMinimumWidth(260)
+        right_panel.setMaximumWidth(340)
+
         splitter.addWidget(left_panel)
         splitter.addWidget(visor_container)
         splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 5)
-        splitter.setStretchFactor(2, 2)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setCollapsible(2, False)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 0)
         main_vlo.addWidget(splitter, stretch=1)
 
         # ── Barra de Estado ───────────────────────────────────────────────────
@@ -1376,23 +1394,22 @@ class CameraWindow(QMainWindow):
             W, H = self._overlay.get_img_dims()
             if W > 0 and H > 0:
                 if self._overlay._zoom_level == 1.0:
-                    self._vb.setXRange(0, W, padding=0)
-                    self._vb.setYRange(0, H, padding=0)
+                    self._vb.autoRange(padding=0)
                 else:
                     fx0, fy0, fx1, fy1 = self._overlay.viewport_bounds()
                     self._vb.setXRange(fx0 * W, fx1 * W, padding=0)
                     self._vb.setYRange(fy0 * H, fy1 * H, padding=0)
 
     def _on_view_resize(self, event):
-        self._overlay.resize(self._view.size())
+        if hasattr(self, '_overlay') and hasattr(self, '_view'):
+            self._overlay.setGeometry(self._view.viewport().rect())
         pg.GraphicsLayoutWidget.resizeEvent(self._view, event)
         self._fit_camera_view_lateral()
 
     def _on_zoom_changed_overlay(self, fx0: float, fy0: float, fx1: float, fy1: float):
         W, H = self._overlay.get_img_dims()
         if self._overlay._zoom_level == 1.0:
-            self._vb.setXRange(0, W, padding=0)
-            self._vb.setYRange(0, H, padding=0)
+            self._vb.autoRange(padding=0)
         else:
             self._vb.setXRange(fx0 * W, fx1 * W, padding=0)
             self._vb.setYRange(fy0 * H, fy1 * H, padding=0)
