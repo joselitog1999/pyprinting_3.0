@@ -244,16 +244,33 @@ class _PIController:
                 print("[PI] No se puede conectar: pipython no instalado.")
                 return
             try:
-                self._dev.ConnectUSB(serial)
+                # 1. Auto-enumerar controladores USB PI conectados si están disponibles
+                conn_target = serial
+                try:
+                    devices = self._dev.EnumerateUSB()
+                    if devices:
+                        print(f"[PI] Dispositivos USB PI detectados en sistema: {devices}")
+                        matched = [d for d in devices if serial in str(d) or str(d) in serial]
+                        if matched:
+                            conn_target = matched[0]
+                        else:
+                            conn_target = devices[0]
+                        print(f"[PI] Usando identificador USB: '{conn_target}'")
+                except Exception as enum_err:
+                    print(f"[PI] Aviso al enumerar USB PI: {enum_err}")
+
+                # 2. Conectar al controlador seleccionado
+                self._dev.ConnectUSB(conn_target)
                 self._dev.SVO(PI_AXES, [True] * 3)
                 self._dev.VCO(PI_AXES, [False] * 3)
                 self._dev.MOV(PI_AXES, PI_HOME_POS)
                 while not all(self._dev.qONT(PI_AXES).values()):
                     time.sleep(0.01)
                 self._connected = True
-                print(f"[PI] Conectada: {self._dev.qIDN().strip()}")
-            except IOError as e:
-                print(f"[PI] Error de conexión: {e}")
+                print(f"[PI] Conectada exitosamente: {self._dev.qIDN().strip()}")
+            except Exception as e:
+                print(f"[PI] Error de conexión con platina PI (USB '{serial}'): {e}")
+                self._connected = False
 
     def disconnect(self) -> None:
         import time
