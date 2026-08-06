@@ -212,6 +212,7 @@ class EDSDKLogDialog(QDialog):
 
 class CanonWorker(QObject):
     frameSignal      = pyqtSignal(np.ndarray)
+    fullFrameSignal  = pyqtSignal(np.ndarray)
     statusSignal     = pyqtSignal(str)
     logSignal        = pyqtSignal(str)
     connectedSignal  = pyqtSignal(bool)
@@ -232,6 +233,8 @@ class CanonWorker(QObject):
         self._r_gain     = 1.0
         self._g_gain     = 1.0
         self._b_gain     = 1.0
+        self._noise_floor = 0
+        self._denoise     = False
 
     def _emit_log(self, msg: str):
         self.logSignal.emit(msg)
@@ -272,8 +275,6 @@ class CanonWorker(QObject):
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
-        # Durante los primeros 5s (estabilización), aplicar tiempo de espera adaptativo de seguridad.
-        # Tras los 5s de estabilización, mantener estricta y constantemente 25.0 FPS (40.0 ms periodo exacto).
         is_stabilized = (time.time() - getattr(self, '_connect_time', 0)) >= 5.0
         target_ms = 40.0  # 25.0 FPS estrictos
 
@@ -288,7 +289,6 @@ class CanonWorker(QObject):
     def _query_properties_after_delay(self):
         if not self._running or not self._cam or not self._cam._is_session_open: return
 
-        # Pausar temporalmente la bandera para evitar colisión de bus USB durante la lectura
         self._running = False
         time.sleep(0.05)
 
@@ -299,7 +299,6 @@ class CanonWorker(QObject):
             curr_iso = self._cam.get_property_value(kEdsPropID_ISOSpeed)
             curr_tv  = self._cam.get_property_value(kEdsPropID_Tv)
 
-            # Fusionar asegurando que AL MENOS estén disponibles todas las opciones estándar
             combined_iso = list(FULL_ISO_LIST)
             for v in cam_iso:
                 if v not in combined_iso: combined_iso.append(v)
@@ -333,6 +332,8 @@ class CanonWorker(QObject):
         self._r_gain     = 1.0
         self._g_gain     = 1.0
         self._b_gain     = 1.0
+        self._noise_floor = 0
+        self._denoise     = False
 
     def _fetch_frame(self):
         if not self._running: return
@@ -343,20 +344,25 @@ class CanonWorker(QObject):
                 frame_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if frame_bgr is not None:
                     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    # Procesar rotación 90° + espejo + zoom + ajustes en vivo (Grises/CLim/LUT/RGB)
+                    # Emitir el frame completo 1x para la miniatura PiP
+                    unzoomed_frame = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
+                    unzoomed_frame = cv2.flip(unzoomed_frame, 1)
+                    self.fullFrameSignal.emit(unzoomed_frame)
+
+                    # Procesar rotación 90° + espejo + zoom + supresión de ruido + ajustes en vivo
                     processed = self._cam.process_frame_live_adjustments(
                         frame_rgb, mode=self._mode_color, clim_min=self._clim_min,
                         clim_max=self._clim_max, lut_idx=self._lut_idx,
-                        r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain)
+                        r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain,
+                        noise_floor=self._noise_floor, denoise=self._denoise)
                     self._last_valid_frame = processed
                     self.frameSignal.emit(processed)
                     return
-            # Si el frame instantáneo no estuvo listo (busy), mantener el último cuadro válido para evitar parpadeo
             if self._last_valid_frame is not None:
                 self.frameSignal.emit(self._last_valid_frame)
                 return
 
-        # Frame de prueba (Simulador MOCK si no hay cámara física o durante reconexión)
+        # Frame de prueba (Simulador MOCK)
         self._mock_n += 1
         W, H = 1056, 704
         t = self._mock_n * 0.05
@@ -366,19 +372,29 @@ class CanonWorker(QObject):
         cv2.circle(frame, (cx, cy), 45, (74, 158, 255), 2)
         cv2.putText(frame, "CANON EOS 500D MOCK STREAM (1056x704)", (30, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (245, 166, 35), 2)
+        self.fullFrameSignal.emit(frame.copy())
+
         if self._cam:
             processed = self._cam.process_frame_live_adjustments(
                 frame, mode=self._mode_color, clim_min=self._clim_min,
                 clim_max=self._clim_max, lut_idx=self._lut_idx,
-                r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain)
+                r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain,
+                noise_floor=self._noise_floor, denoise=self._denoise)
         else:
             processed = frame
+            if self._denoise:
+                processed = cv2.medianBlur(processed, 3)
+            if self._noise_floor > 0:
+                mask = np.max(processed, axis=2) < self._noise_floor
+                processed[mask] = 0
+
         self._last_valid_frame = processed
         self.frameSignal.emit(processed)
 
-    @pyqtSlot(str, int, int, int, float, float, float)
+    @pyqtSlot(str, int, int, int, float, float, float, int, bool)
     def set_live_adjustments(self, mode: str, cmin: int, cmax: int,
-                             lut_idx: int, r_g: float, g_g: float, b_g: float):
+                             lut_idx: int, r_g: float, g_g: float, b_g: float,
+                             noise_floor: int = 0, denoise: bool = False):
         self._mode_color = mode
         self._clim_min   = cmin
         self._clim_max   = cmax
@@ -386,6 +402,17 @@ class CanonWorker(QObject):
         self._r_gain     = r_g
         self._g_gain     = g_g
         self._b_gain     = b_g
+        self._noise_floor = noise_floor
+        self._denoise     = denoise
+
+    @pyqtSlot(float, float)
+    def set_zoom_center(self, cx: float, cy: float):
+        if self._cam:
+            self._cam.set_zoom_center(cx, cy)
+            if self._cam._is_session_open and getattr(self._cam, '_active_zoom', 1) in (5, 10):
+                hw_x = int(cx * 4752)
+                hw_y = int(cy * 3168)
+                self._cam.set_live_view_zoom_position(hw_x, hw_y)
 
     @pyqtSlot(int)
     def set_zoom(self, zoom_val: int):
@@ -482,13 +509,15 @@ class CanonWorker(QObject):
         window.startCameraSignal.connect(self.start_camera)
         window.stopCameraSignal.connect(self.stop_camera)
         window.setZoomSignal.connect(self.set_zoom)
+        window.setZoomCenterSignal.connect(self.set_zoom_center)
         window.setIsoSignal.connect(self.set_iso)
         window.setTvSignal.connect(self.set_tv)
         window.takePhotoSignal.connect(self.take_photo)
         window.liveParamsSignal.connect(self.set_live_adjustments)
-        window.sendRoiSignal.connect(lambda roi: None)  # placeholder si necesita ROI
+        window.sendRoiSignal.connect(lambda roi: None)
 
         self.frameSignal.connect(window._update_frame)
+        self.fullFrameSignal.connect(window._update_full_frame)
         self.statusSignal.connect(window._update_status)
         self.logSignal.connect(window._append_log)
         self.connectedSignal.connect(window._on_connected)
@@ -595,7 +624,7 @@ class OverlayWidget(QWidget):
     # ── Métodos de Zoom y Pan ──────────────────────────────────────────────────
 
     def set_zoom_level(self, level: float, center: Optional[tuple[float, float]] = None):
-        self._zoom_level = max(1.0, min(4.0, level))
+        self._zoom_level = max(1.0, min(10.0, level))
         if center is not None:
             self._zoom_center = center
         self._clamp_zoom_center()
@@ -606,11 +635,15 @@ class OverlayWidget(QWidget):
     def zoom_in(self):
         if self._zoom_level < 2.0:
             self.set_zoom_level(2.0)
-        elif self._zoom_level < 4.0:
-            self.set_zoom_level(4.0)
+        elif self._zoom_level < 5.0:
+            self.set_zoom_level(5.0)
+        elif self._zoom_level < 10.0:
+            self.set_zoom_level(10.0)
 
     def zoom_out(self):
-        if self._zoom_level > 2.0:
+        if self._zoom_level > 5.0:
+            self.set_zoom_level(5.0)
+        elif self._zoom_level > 2.0:
             self.set_zoom_level(2.0)
         else:
             self.set_zoom_level(1.0)
@@ -705,6 +738,61 @@ class OverlayWidget(QWidget):
                 best_pt = (cx, cy)
         return best_pt
 
+    def set_full_unzoomed_frame(self, frame: np.ndarray):
+        self._full_unzoomed_frame = frame
+        self.update()
+
+    def get_pip_rect(self) -> QRectF:
+        mw, mh = 190.0, 125.0
+        mx0 = 15.0
+        my0 = max(10.0, float(self.height()) - mh - 15.0)
+        return QRectF(mx0, my0, mw, mh)
+
+    def _draw_pip_minimap(self, p: QPainter):
+        pip_rect = self.get_pip_rect()
+        mx0, my0, mw, mh = pip_rect.x(), pip_rect.y(), pip_rect.width(), pip_rect.height()
+
+        # Dibujar contenedor fondo oscuro translúcido y borde dorado
+        p.setPen(QPen(QColor(245, 166, 35, 220), 1.5))
+        p.setBrush(QColor(15, 23, 42, 220))
+        p.drawRoundedRect(QRectF(mx0 - 4, my0 - 22, mw + 8, mh + 26), 6, 6)
+
+        # Título
+        p.setPen(QColor(245, 166, 35, 255))
+        p.setFont(QFont("Monospace", 8, QFont.Weight.Bold))
+        p.drawText(int(mx0), int(my0 - 6), f"Navegación Zoom ({self._zoom_level:.1f}x)")
+
+        # Renderizar imagen miniatura de vista completa (1x)
+        if hasattr(self, '_full_unzoomed_frame') and self._full_unzoomed_frame is not None:
+            try:
+                img = self._full_unzoomed_frame
+                h, w, c = img.shape
+                qimg = QImage(img.data, w, h, w * c, QImage.Format.Format_RGB888)
+                p.drawImage(pip_rect, qimg)
+            except Exception:
+                p.fillRect(pip_rect, QColor(30, 30, 30))
+        else:
+            p.fillRect(pip_rect, QColor(30, 30, 30))
+
+        # Recuadro dinámico de visualización de zoom (Bounding Box)
+        fx0, fy0, fx1, fy1 = self.viewport_bounds()
+        bx0 = mx0 + fx0 * mw
+        by0 = my0 + fy0 * mh
+        bw  = (fx1 - fx0) * mw
+        bh  = (fy1 - fy0) * mh
+
+        # Dibujar recuadro cian dinámico con transparencia
+        p.setPen(QPen(QColor(0, 255, 255, 240), 2))
+        p.setBrush(QColor(0, 255, 255, 35))
+        p.drawRect(QRectF(bx0, by0, bw, bh))
+
+        # Retículo central en la miniatura
+        mcx = bx0 + bw / 2.0
+        mcy = by0 + bh / 2.0
+        p.setPen(QPen(QColor(255, 200, 0, 200), 1))
+        p.drawLine(QPointF(mcx - 4, mcy), QPointF(mcx + 4, mcy))
+        p.drawLine(QPointF(mcx, mcy - 4), QPointF(mcx, mcy + 4))
+
     # ── Paint Event ───────────────────────────────────────────────────────────
 
     def paintEvent(self, _event):
@@ -723,6 +811,8 @@ class OverlayWidget(QWidget):
             self._draw_roi(p)
         if self._snap_highlight:
             self._draw_snap_highlight(p)
+
+        self._draw_pip_minimap(p)
 
     def _draw_rulers(self, p: QPainter):
         pen1 = QPen(QColor(245, 166, 35, 220), 1, Qt.PenStyle.DashLine)
@@ -831,6 +921,16 @@ class OverlayWidget(QWidget):
         sx, sy = event.position().x(), event.position().y()
         fx, fy = self.screen_to_frac(sx, sy)
 
+        # Clic dentro de la miniatura PiP
+        pip_rect = self.get_pip_rect()
+        if pip_rect.contains(QPointF(sx, sy)):
+            mw, mh = pip_rect.width(), pip_rect.height()
+            cx = max(0.0, min(1.0, (sx - pip_rect.x()) / mw))
+            cy = max(0.0, min(1.0, (sy - pip_rect.y()) / mh))
+            self.set_zoom_level(self._zoom_level, center=(cx, cy))
+            self._drag_pip = True
+            return
+
         if self._zoom_level > 1.0 and (event.button() == Qt.MouseButton.MiddleButton or
                                         (event.button() == Qt.MouseButton.LeftButton and self._mode == "none")):
             self._is_panning = True
@@ -864,6 +964,15 @@ class OverlayWidget(QWidget):
         sx, sy = event.position().x(), event.position().y()
         fx, fy = self.screen_to_frac(sx, sy)
 
+        # Arrastrado dentro de la miniatura PiP
+        if getattr(self, '_drag_pip', False):
+            pip_rect = self.get_pip_rect()
+            mw, mh = pip_rect.width(), pip_rect.height()
+            cx = max(0.0, min(1.0, (sx - pip_rect.x()) / mw))
+            cy = max(0.0, min(1.0, (sy - pip_rect.y()) / mh))
+            self.set_zoom_level(self._zoom_level, center=(cx, cy))
+            return
+
         if self._is_panning and self._pan_start_pos:
             dsx = sx - self._pan_start_pos[0]
             dsy = sy - self._pan_start_pos[1]
@@ -896,6 +1005,7 @@ class OverlayWidget(QWidget):
 
     def mouseReleaseEvent(self, _event):
         self._is_panning = False
+        self._drag_pip   = False
         self._drag_ruler = None
         if self._drag_roi:
             self._drag_roi = False
@@ -911,10 +1021,11 @@ class CameraWindow(QMainWindow):
     startCameraSignal        = pyqtSignal()
     stopCameraSignal         = pyqtSignal()
     setZoomSignal            = pyqtSignal(int)
+    setZoomCenterSignal      = pyqtSignal(float, float)
     setIsoSignal             = pyqtSignal(int)
     setTvSignal              = pyqtSignal(int)
     takePhotoSignal          = pyqtSignal(str)  # formato: "jpg", "png", "tiff", "bmp"
-    liveParamsSignal         = pyqtSignal(str, int, int, int, float, float, float)
+    liveParamsSignal         = pyqtSignal(str, int, int, int, float, float, float, int, bool)
     sendRoiSignal            = pyqtSignal(tuple)
 
     # ── Señales de Utilidades de Microfotónica ────────────────────────────────
@@ -1113,8 +1224,31 @@ class CameraWindow(QMainWindow):
             s.valueChanged.connect(self._sync_live_adjustments)
         self._combo_live_lut.currentIndexChanged.connect(self._sync_live_adjustments)
 
+        # ── Sub-panel: Supresión de Ruido de Fondo ───────────────────────
+        noise_box = QWidget()
+        noise_lo = QFormLayout(noise_box)
+        noise_lo.setContentsMargins(0, 4, 0, 0)
+
+        self._chk_denoise = QCheckBox("Filtro Mediano (3x3)")
+        self._slider_noise_floor = QSlider(Qt.Orientation.Horizontal)
+        self._slider_noise_floor.setRange(0, 50)
+        self._slider_noise_floor.setValue(0)
+        self._lbl_noise_floor_val = QLabel("0")
+        self._lbl_noise_floor_val.setStyleSheet("font-family: monospace; font-size: 10px; color: #f5a623;")
+
+        self._chk_denoise.toggled.connect(self._sync_live_adjustments)
+        self._slider_noise_floor.valueChanged.connect(self._on_noise_floor_changed)
+
+        h_noise = QHBoxLayout()
+        h_noise.addWidget(self._slider_noise_floor)
+        h_noise.addWidget(self._lbl_noise_floor_val)
+
+        noise_lo.addRow(self._chk_denoise)
+        noise_lo.addRow("Umbral Fondo:", h_noise)
+
         live_lo.addWidget(self._combo_color_mode)
         live_lo.addWidget(self._stack_live)
+        live_lo.addWidget(noise_box)
         left_lo.addWidget(live_box)
 
         # ── Sub-panel: Detección de Partículas ───────────────────────────
@@ -1237,14 +1371,34 @@ class CameraWindow(QMainWindow):
                             f"QPushButton:checked {{ background-color: {color}; color: #111; }}")
         return b
 
+    def _fit_camera_view_lateral(self):
+        if hasattr(self, '_img_item') and self._img_item is not None and hasattr(self, '_overlay'):
+            W, H = self._overlay.get_img_dims()
+            if W > 0 and H > 0:
+                if self._overlay._zoom_level == 1.0:
+                    self._vb.setXRange(0, W, padding=0)
+                    self._vb.setYRange(0, H, padding=0)
+                else:
+                    fx0, fy0, fx1, fy1 = self._overlay.viewport_bounds()
+                    self._vb.setXRange(fx0 * W, fx1 * W, padding=0)
+                    self._vb.setYRange(fy0 * H, fy1 * H, padding=0)
+
     def _on_view_resize(self, event):
         self._overlay.resize(self._view.size())
         pg.GraphicsLayoutWidget.resizeEvent(self._view, event)
+        self._fit_camera_view_lateral()
 
     def _on_zoom_changed_overlay(self, fx0: float, fy0: float, fx1: float, fy1: float):
         W, H = self._overlay.get_img_dims()
-        self._vb.setXRange(fx0 * W, fx1 * W, padding=0)
-        self._vb.setYRange(fy0 * H, fy1 * H, padding=0)
+        if self._overlay._zoom_level == 1.0:
+            self._vb.setXRange(0, W, padding=0)
+            self._vb.setYRange(0, H, padding=0)
+        else:
+            self._vb.setXRange(fx0 * W, fx1 * W, padding=0)
+            self._vb.setYRange(fy0 * H, fy1 * H, padding=0)
+        cx, cy = self._overlay._zoom_center
+        if self._is_camera_active:
+            self.setZoomCenterSignal.emit(cx, cy)
 
     def _update_guards(self):
         scale_needed = self._scale_set and self._ref_set
@@ -1307,6 +1461,10 @@ class CameraWindow(QMainWindow):
         self._stack_live.setCurrentIndex(0 if idx == 1 else 1)
         self._sync_live_adjustments()
 
+    def _on_noise_floor_changed(self, val: int):
+        self._lbl_noise_floor_val.setText(str(val))
+        self._sync_live_adjustments()
+
     def _reset_live_rgb(self):
         for s in (self._slider_live_r, self._slider_live_g, self._slider_live_b):
             s.blockSignals(True)
@@ -1322,13 +1480,18 @@ class CameraWindow(QMainWindow):
         r_g   = self._slider_live_r.value() / 10.0
         g_g   = self._slider_live_g.value() / 10.0
         b_g   = self._slider_live_b.value() / 10.0
-        self.liveParamsSignal.emit(mode, cmin, cmax, lut, r_g, g_g, b_g)
+        noise_floor = self._slider_noise_floor.value() if hasattr(self, '_slider_noise_floor') else 0
+        denoise = self._chk_denoise.isChecked() if hasattr(self, '_chk_denoise') else False
+        self.liveParamsSignal.emit(mode, cmin, cmax, lut, r_g, g_g, b_g, noise_floor, denoise)
 
     # ── ISO / Tv / Zoom (con Debounce) ────────────────────────────────────────
 
     def _on_zoom_changed(self, idx: int):
         val = self._combo_zoom.itemData(idx)
-        if val is not None: self.setZoomSignal.emit(val)
+        if val is not None:
+            self.setZoomSignal.emit(val)
+            if hasattr(self, '_overlay'):
+                self._overlay.set_zoom_level(float(val))
 
     def _on_iso_changed(self, idx: int):
         val = self._combo_iso.itemData(idx)
@@ -1364,9 +1527,13 @@ class CameraWindow(QMainWindow):
         self._current_frame = frame
         self._img_item.setImage(frame.transpose(1, 0, 2))
         if not hasattr(self, '_range_initialized'):
-            H, W = frame.shape[:2]
-            self._vb.setRange(xRange=(0, W), padding=0)
+            self._fit_camera_view_lateral()
             self._range_initialized = True
+
+    @pyqtSlot(np.ndarray)
+    def _update_full_frame(self, frame: np.ndarray):
+        if hasattr(self, '_overlay'):
+            self._overlay.set_full_unzoomed_frame(frame)
 
     # Alias público para compatibilidad con código antiguo
     @pyqtSlot(np.ndarray)

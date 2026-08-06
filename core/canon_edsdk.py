@@ -470,6 +470,15 @@ class CanonCamera:
     def enable_live_view(self) -> bool:
         if not self._is_session_open or edsdk is None: return False
         with _edsdk_lock:
+            # 1. Habilitar modo de simulación de exposición Live View (Evf_Mode = 1)
+            evf_mode = EdsUInt32(1)
+            try:
+                edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Mode, 0, ctypes.sizeof(evf_mode), ctypes.byref(evf_mode))
+                self.log("Simulación de exposición Live View (Evf_Mode = 1) activada.")
+            except Exception as _e:
+                self.log(f"Advertencia al fijar Evf_Mode: {_e}")
+
+            # 2. Habilitar salida PC Live View
             device = EdsUInt32(kEdsEvfOutputDevice_PC)
             err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_OutputDevice, 0, ctypes.sizeof(device), ctypes.byref(device))
             if err == EDS_ERR_OK:
@@ -544,6 +553,13 @@ class CanonCamera:
             err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
             return err == EDS_ERR_OK
 
+    def set_live_view_zoom_position(self, x: int, y: int) -> bool:
+        if not self._is_session_open or edsdk is None: return False
+        with _edsdk_lock:
+            pt = EdsPoint(x, y)
+            err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_ZoomPosition, 0, ctypes.sizeof(pt), ctypes.byref(pt))
+            return err == EDS_ERR_OK
+
     def set_zoom_center(self, cx: float, cy: float):
         """Configura el centro del ROI para navegación panorámica en el sensor FOV (0.0 a 1.0)."""
         self._zoom_center_x = max(0.0, min(1.0, cx))
@@ -589,12 +605,26 @@ class CanonCamera:
         r_gain: float = 1.0,
         g_gain: float = 1.0,
         b_gain: float = 1.0,
+        noise_floor: int = 0,
+        denoise: bool = False,
     ) -> np.ndarray:
         if frame_rgb is None: return frame_rgb
 
         # 1. Aplicar orientación y zoom nativo
         proc = self.process_frame_zoom_and_orientation(frame_rgb)
         if proc is None: return proc
+
+        # 2. Filtro mediano anti-sal y pimienta
+        if denoise:
+            proc = cv2.medianBlur(proc, 3)
+
+        # 3. Piso de ruido (Noise Floor Threshold): píxeles < noise_floor se fuerzan a (0,0,0)
+        if noise_floor > 0:
+            if proc.ndim == 3:
+                mask = np.max(proc, axis=2) < noise_floor
+                proc[mask] = 0
+            else:
+                proc[proc < noise_floor] = 0
 
         if mode.startswith("Grises"):
             # Convertir a 8-bit escala de grises para microscopía de transmisión
