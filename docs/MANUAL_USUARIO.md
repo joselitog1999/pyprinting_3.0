@@ -331,6 +331,19 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
 - **`Load Grid`**: Carga una matriz de posiciones personalizadas $(X, Y)$ desde un archivo de texto plano `.txt`.
 - **`Set reference`**: Captura la posición actual de los sensores capacitivos de la platina PI como origen absoluto de la grilla $(X_0, Y_0, Z_0)$.
 - **`Go to reference`**: Retorna inmediatamente la platina a las coordenadas origen.
+- **`Display 2D del Patrón & Camino (`Grid Pattern & Path Viewer 🗺️`)**:
+  - **Dock Desplegable Integrado**: Previsualización gráfica 2D de la matriz completa con mapa de colores dinámico por estado de partícula:
+    - ⚪ **Pendiente** (Gris): Nodos futuros.
+    - 🟡 **En Proceso** (Amarillo brillante pulsante): Nodo activo en impresión o autofoco.
+    - 🟢 **Impresa** (Verde esmeralda): Nanopartícula impresa con éxito.
+    - 🔴 **Timeout** (Rojo carmesí): Nodo donde expiró $T_{\text{max}}$.
+  - **Camino del Microscopio**: Línea de trayectoria punteada que muestra el recorrido secuencial de la platina PI.
+  - **Controles Interactivos**:
+    - `[ 🏷️ Números ]`: Muestra u oculta los números de los nodos.
+    - `[ 🛤️ Camino ]`: Muestra u oculta la línea de trayectoria.
+    - `[ 🎯 Reset View ]`: Auto-centrado y ajuste de escala 1:1.
+    - **Click en Nodo**: Al presionar cualquier partícula en la gráfica 2D, el casillero `Target Index` se actualiza inmediatamente a ese nodo.
+- **`Barra de Progreso`**: Indicador gráfico (`QProgressBar`) del avance porcentual del lote ($i / N_{\text{total}}$).
 - **`T max (s)`**: Tiempo máximo de residencia por nodo (segundos) antes de abortar por tiempo agotado (*timeout*) si no se gatilla la condición de parada.
 - **`Steps before / after`**:
   - `Steps before`: Número de muestras analógicas adquiridas antes de abrir el obturador para calcular la línea base $I_{\text{old}}$.

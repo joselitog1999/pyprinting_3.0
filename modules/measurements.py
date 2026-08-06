@@ -28,7 +28,7 @@ import pyqtgraph as pg
 from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QWidget, QFrame, QGridLayout,
                                QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QComboBox,
-                               QPushButton, QCheckBox, QGroupBox)
+                               QPushButton, QCheckBox, QGroupBox, QProgressBar)
 from PyQt6.QtGui     import QIntValidator
 from pyqtgraph.dockarea import DockArea, Dock
 
@@ -42,6 +42,222 @@ from config import (pi, SHUTTERS, DEFAULT_DATA_PATH,
                     DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY)
 from nidaq  import (open_shutter, close_shutter,
                     up_flipper, down_flipper)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  INTERACTIVE GRID VIEWER (Display 2D del patrón, camino y estado de partículas)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class InteractiveGridWidget(QFrame):
+    """
+    Visualizador 2D interactivo y desplegable del patrón de la grilla de impresión.
+    Muestra la trayectoria continua del microscopio (camino) y el cambio de color
+    de cada partícula según su estado (pendiente, activa, impresa, timeout).
+    """
+    nodeClickedSignal = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+
+        self.grid_coords: np.ndarray | None = None  # Array (2, N) [xs, ys]
+        self.node_states: list[str] = []            # "pending", "active", "success", "timeout"
+        self.text_items: list[pg.TextItem] = []
+
+        self._show_numbers = True
+        self._show_path    = True
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        vlo = QVBoxLayout(self)
+        vlo.setContentsMargins(4, 4, 4, 4)
+        vlo.setSpacing(4)
+
+        # ── Barra de herramientas superior ──────────────────────────────────
+        tb = QWidget()
+        tlo = QHBoxLayout(tb)
+        tlo.setContentsMargins(0, 0, 0, 0)
+        tlo.setSpacing(6)
+
+        self.chk_numbers = QCheckBox("🏷️ Números")
+        self.chk_numbers.setChecked(True)
+        self.chk_numbers.setToolTip("Mostrar u ocultar la numeración de los nodos (0, 1, 2...)")
+        self.chk_numbers.toggled.connect(self._toggle_numbers)
+
+        self.chk_path = QCheckBox("🛤️ Camino")
+        self.chk_path.setChecked(True)
+        self.chk_path.setToolTip("Mostrar u ocultar la línea de trayectoria que seguirá el microscopio")
+        self.chk_path.toggled.connect(self._toggle_path)
+
+        self.btn_reset = QPushButton("🎯 Reset View")
+        self.btn_reset.setToolTip("Auto-centrar y ajustar la vista a la grilla completa")
+        self.btn_reset.clicked.connect(self.reset_view)
+        self.btn_reset.setFixedHeight(24)
+
+        tlo.addWidget(self.chk_numbers)
+        tlo.addWidget(self.chk_path)
+        tlo.addStretch()
+        tlo.addWidget(self.btn_reset)
+
+        vlo.addWidget(tb)
+
+        # ── Visualizador PyQtGraph ───────────────────────────────────────────
+        self.graphics = pg.GraphicsLayoutWidget()
+        self.plot = self.graphics.addPlot()
+        self.plot.setAspectLocked(True)
+        self.plot.showGrid(x=True, y=True)
+        label_style = {"color": "#cdd6f4", "font-size": "9pt"}
+        self.plot.setLabel("left", "Y (µm)", **label_style)
+        self.plot.setLabel("bottom", "X (µm)", **label_style)
+
+        # Elementos del gráfico:
+        # 1. Camino (Línea punteada de trayectoria)
+        self.path_item = pg.PlotDataItem(
+            pen=pg.mkPen(color="#89b4fa", width=2, style=Qt.PenStyle.DashLine)
+        )
+        self.plot.addItem(self.path_item)
+
+        # 2. Scatter plot de nodos
+        self.scatter_item = pg.ScatterPlotItem(size=14, hoverable=True)
+        self.scatter_item.sigClicked.connect(self._on_scatter_clicked)
+        self.plot.addItem(self.scatter_item)
+
+        # 3. Anillo de destaque de partícula activa
+        self.active_ring = pg.ScatterPlotItem(
+            size=26, symbol="o",
+            pen=pg.mkPen("#f9e2af", width=3),
+            brush=pg.mkBrush(0, 0, 0, 0)
+        )
+        self.plot.addItem(self.active_ring)
+
+        vlo.addWidget(self.graphics, stretch=1)
+
+        # ── Leyenda de estados inferior ─────────────────────────────────────
+        leg = QWidget()
+        llo = QHBoxLayout(leg)
+        llo.setContentsMargins(2, 2, 2, 2)
+        llo.setSpacing(8)
+
+        def badge(text: str, color_hex: str):
+            lbl = QLabel(f"● {text}")
+            lbl.setStyleSheet(f"QLabel {{ color: {color_hex}; font-size: 8pt; font-weight: bold; }}")
+            return lbl
+
+        llo.addWidget(badge("Pendiente", "#9399b2"))
+        llo.addWidget(badge("En Proceso", "#f9e2af"))
+        llo.addWidget(badge("Impresa", "#a6e3a1"))
+        llo.addWidget(badge("Timeout", "#f38ba8"))
+        llo.addStretch()
+
+        vlo.addWidget(leg)
+
+    def set_grid(self, datos: np.ndarray):
+        """Carga las coordenadas de la grilla datos[2, N] y reconstruye la visualización."""
+        if datos is None or datos.shape[0] < 2 or datos.shape[1] == 0:
+            return
+
+        self.grid_coords = datos
+        xs = datos[0, :]
+        ys = datos[1, :]
+        N = len(xs)
+
+        self.node_states = ["pending"] * N
+
+        # Limpiar elementos de texto anteriores
+        for ti in self.text_items:
+            self.plot.removeItem(ti)
+        self.text_items.clear()
+
+        # Crear TextItems con número de nodo
+        for idx in range(N):
+            ti = pg.TextItem(text=str(idx), color="#cdd6f4", anchor=(0.5, 1.3))
+            ti.setPos(xs[idx], ys[idx])
+            ti.setVisible(self._show_numbers)
+            self.plot.addItem(ti)
+            self.text_items.append(ti)
+
+        # Actualizar línea de camino
+        if self._show_path and N > 1:
+            self.path_item.setData(xs, ys)
+            self.path_item.show()
+        else:
+            self.path_item.hide()
+
+        self._update_scatter()
+        self.active_ring.clear()
+        self.plot.autoRange()
+
+    def set_node_status(self, idx: int, status: str):
+        """Actualiza el estado del nodo idx ('active', 'success', 'timeout', 'pending')."""
+        if self.grid_coords is None or idx < 0 or idx >= len(self.node_states):
+            return
+
+        # Si el anterior estaba en 'active', revertir a 'success' si no era timeout
+        for i, st in enumerate(self.node_states):
+            if st == "active" and i != idx:
+                self.node_states[i] = "success"
+
+        self.node_states[idx] = status
+
+        xs = self.grid_coords[0, :]
+        ys = self.grid_coords[1, :]
+
+        if status == "active":
+            self.active_ring.setData([xs[idx]], [ys[idx]])
+
+        self._update_scatter()
+
+    def _update_scatter(self):
+        if self.grid_coords is None:
+            return
+
+        xs = self.grid_coords[0, :]
+        ys = self.grid_coords[1, :]
+        N = len(xs)
+
+        color_map = {
+            "pending": "#45475a",
+            "active":  "#f9e2af",
+            "success": "#a6e3a1",
+            "timeout": "#f38ba8",
+        }
+
+        spots = []
+        for i in range(N):
+            st = self.node_states[i]
+            col = color_map.get(st, "#45475a")
+            spots.append({
+                'pos': (xs[i], ys[i]),
+                'data': i,
+                'brush': pg.mkBrush(col),
+                'pen': pg.mkPen('#11111b', width=1),
+                'symbol': 'o',
+                'size': 16 if st == 'active' else 14
+            })
+
+        self.scatter_item.setData(spots)
+
+    def _on_scatter_clicked(self, plot, points):
+        if len(points) > 0:
+            idx = points[0].data()
+            if idx is not None:
+                self.nodeClickedSignal.emit(int(idx))
+
+    def _toggle_numbers(self, checked: bool):
+        self._show_numbers = checked
+        for ti in self.text_items:
+            ti.setVisible(checked)
+
+    def _toggle_path(self, checked: bool):
+        self._show_path = checked
+        if self.grid_coords is not None and self.grid_coords.shape[1] > 1 and checked:
+            self.path_item.show()
+        else:
+            self.path_item.hide()
+
+    def reset_view(self):
+        self.plot.autoRange()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -326,10 +542,33 @@ class Frontend(QFrame):
         eiDock = Dock("Extra info"); eiDock.addWidget(eiW)
         dock_area.addDock(eiDock, "right", fsDock)
 
+        # Interactive Grid Viewer Dock
+        self.interactive_grid = InteractiveGridWidget()
+        self.interactive_grid.nodeClickedSignal.connect(self._on_grid_node_clicked)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(18)
+        self.progress_bar.setStyleSheet(
+            "QProgressBar { text-align: center; border: 1px solid #45475a; border-radius: 4px; background-color: #1e1e2e; color: #cdd6f4; font-size: 8pt; }"
+            "QProgressBar::chunk { background-color: #a6e3a1; }"
+        )
+        plo.addWidget(QLabel("Progreso Lote:"), 11, 0)
+        plo.addWidget(self.progress_bar,        11, 1, 1, 3)
+
+        gridViewerDock = Dock(f"{label} Pattern & Path Viewer 🗺️", size=(450, 420))
+        gridViewerDock.addWidget(self.interactive_grid)
+        dock_area.addDock(gridViewerDock, "right", eiDock)
+
         hbox.addWidget(dock_area)
 
         # Inicializar visibilidad dinámica de casilleros según Modo 0 por defecto
         self._on_stopping_mode_changed(0)
+
+    def _on_grid_node_clicked(self, idx: int):
+        self.indice_impresionEdit.setText(str(idx))
+        self.new_index_Signal.emit(idx)
 
     def _on_stopping_mode_changed(self, idx: int):
         """Muestra u oculta los casilleros de la interfaz según el Modo de Parada seleccionado."""
@@ -426,22 +665,28 @@ class Frontend(QFrame):
         self.xrefLabel.setText(str(ref[0]))
         self.yrefLabel.setText(str(ref[1]))
         self.zrefLabel.setText(str(ref[2]))
+        self.set_ref_button.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; }")
 
     @pyqtSlot(int)
     def particulas_edit(self, n: int): self.particulasEdit.setText(str(n))
     @pyqtSlot(str)
     def name_folder(self, folder: str): self.NameDirValue.setText(folder); self.NameDirValue.setStyleSheet("background-color: green;")
     @pyqtSlot(int)
-    def index_target(self, i: int): self.indice_impresionEdit.setText(str(i))
+    def index_target(self, i: int):
+        self.indice_impresionEdit.setText(str(i))
+        self.interactive_grid.set_node_status(i, "active")
+        if self.interactive_grid.grid_coords is not None:
+            total = self.interactive_grid.grid_coords.shape[1]
+            if total > 0:
+                self.progress_bar.setValue(int(min(100, (i / total) * 100)))
+
+    @pyqtSlot(int, str)
+    def node_status_update(self, i: int, status: str):
+        self.interactive_grid.set_node_status(i, status)
 
     @pyqtSlot(np.ndarray)
     def grid_plot(self, datos: np.ndarray):
-        self._gridplot = pg.GraphicsLayoutWidget()
-        p = self._gridplot.addPlot(title="Grilla")
-        p.showGrid(x=True, y=True)
-        p.setLabel("left", "x (µm)"); p.setLabel("bottom", "y (µm)")
-        p.plot(datos[1, :], datos[0, :], pen=None, symbol="o")
-        self._gridplot.show()
+        self.interactive_grid.set_grid(datos)
 
     def make_connection(self, backend: Backend):
         backend.referenceSignal.connect(self.reference_label)
@@ -449,6 +694,8 @@ class Frontend(QFrame):
         backend.gridplotSignal.connect(self.grid_plot)
         backend.namefolderSignal.connect(self.name_folder)
         backend.indexSignal.connect(self.index_target)
+        if hasattr(backend, "nodeStatusSignal"):
+            backend.nodeStatusSignal.connect(self.node_status_update)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -461,6 +708,7 @@ class Backend(QObject):
     gridplotSignal        = pyqtSignal(np.ndarray)
     namefolderSignal      = pyqtSignal(str)
     indexSignal           = pyqtSignal(int)
+    nodeStatusSignal      = pyqtSignal(int, str)
 
     grid_move_finishSignal = pyqtSignal()
     grid_autofocusSignal   = pyqtSignal(str)
@@ -778,6 +1026,10 @@ class Backend(QObject):
             close_shutter(self.laser)
             self.timer_real = round(elapsed, 2)
             self._save_trace()
+            if should_stop:
+                self.nodeStatusSignal.emit(self.i_global, "success")
+            else:
+                self.nodeStatusSignal.emit(self.i_global, "timeout")
             self.grid_detectSignal.emit()
 
     @pyqtSlot()
