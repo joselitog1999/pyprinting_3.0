@@ -346,6 +346,11 @@ class CanonWorker(QObject):
         self._noise_floor = 0
         self._denoise     = False
 
+    @pyqtSlot()
+    def close(self):
+        """Alias para stop_camera() invocado durante el cierre de la app."""
+        self.stop_camera()
+
     def _fetch_frame(self):
         if not self._running: return
         if self._cam and self._cam._is_session_open and self._cam._evf_enabled:

@@ -371,7 +371,11 @@ class Backend(QObject):
             print(f"[App] Posición guardada: {last_pos}")
         except Exception as e:
             print(f"[App] No se pudo guardar posición: {e}")
-        self.cameraWorker.close()
+        if hasattr(self, 'cameraWorker') and self.cameraWorker:
+            if hasattr(self.cameraWorker, 'close'):
+                self.cameraWorker.close()
+            elif hasattr(self.cameraWorker, 'stop_camera'):
+                self.cameraWorker.stop_camera()
         close_all_tasks()
         flipper_notch532("down")
         pi.disconnect()
