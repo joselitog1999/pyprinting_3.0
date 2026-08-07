@@ -64,6 +64,17 @@ class Frontend(QFrame):
             "QPushButton { background-color: orange; }"
             "QPushButton:checked { background-color: #3a8a3a; color: white; }")
         self.focus_autocorrx2_button = QPushButton("Autocorrelation ×2  (F10)")
+        self.show_autocorr_btn       = QPushButton("📊 Plot Autocorr: ON")
+        self.show_autocorr_btn.setCheckable(True)
+        self.show_autocorr_btn.setChecked(True)
+        self.show_autocorr_btn.setToolTip("Activa o desactiva la visualización de la ventana gráfica emergente de Autocorrelación.")
+        self.show_autocorr_btn.setStyleSheet(
+            "QPushButton { background-color: #2b5b84; color: white; font-weight: bold; }"
+            "QPushButton:unchecked { background-color: #444; color: #aaa; font-weight: normal; }"
+        )
+        self.show_autocorr_btn.toggled.connect(
+            lambda chk: self.show_autocorr_btn.setText("📊 Plot Autocorr: ON" if chk else "🚫 Plot Autocorr: OFF")
+        )
 
         self.focus_gotomax_button.clicked.connect(self._go_max)
         self.focus_lock_button.clicked.connect(self._lock)
@@ -74,6 +85,7 @@ class Frontend(QFrame):
         lo.addWidget(self.focus_gotomax_button,    1, 0)
         lo.addWidget(self.focus_lock_button,       2, 0)
         lo.addWidget(self.focus_autocorrx2_button, 3, 0)
+        lo.addWidget(self.show_autocorr_btn,       4, 0)
 
     def _color_menu(self):
         colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: blue;", "color: darkred;"]
@@ -126,6 +138,8 @@ class Frontend(QFrame):
 
     @pyqtSlot(np.ndarray, np.ndarray, np.ndarray)
     def plot_auto(self, new_f, lock_f, corr):
+        if hasattr(self, "show_autocorr_btn") and not self.show_autocorr_btn.isChecked():
+            return
         win = pg.GraphicsLayoutWidget(title="Autocorrelation")
         win.show()
         p = win.addPlot(title="Autocorrelation")

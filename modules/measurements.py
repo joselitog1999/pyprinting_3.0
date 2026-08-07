@@ -1106,8 +1106,8 @@ class Backend(QObject):
             condition = c_flat or c_abs
 
         elif self.stopping_mode == 3:
-            # Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado (K_scale, P%)
-            v_thresh = self.v_glass + (self.percent_thresh / 100.0) * (self.v_peak_scaled - self.v_glass)
+            # Modo 3: Umbral Absoluto Directo por Porcentaje (% del Umbral Máximo)
+            v_thresh = (self.percent_thresh / 100.0) * self.umbral_abs_v
             condition = I_new > v_thresh
 
         elif self.stopping_mode == 4:
@@ -1116,6 +1116,11 @@ class Backend(QObject):
             c_flat = (abs(dI_dt) < self.slope_flat) and (I_new > I_old + 0.1)
             c_abs  = I_new > self.umbral_abs_v
             condition = c_rel or c_flat or c_abs
+
+        # Restricción Fuerte de Umbral Mínimo Absoluto en TODOS los modos:
+        # Si se especificó un Umbral Mínimo (> 0 V), ningún evento por debajo de él se reconoce o detiene el obturador
+        if getattr(self, "slope_min", 0.0) > 0 and I_new < self.slope_min:
+            condition = False
 
         # 3. Verificación Anti-Partículas de Paso (N_hold steps)
         if self.stopping_mode == 0:
@@ -1126,6 +1131,10 @@ class Backend(QObject):
             else:
                 self.hold_counter = 0
             should_stop = (self.hold_counter >= self.n_hold_steps)
+
+        # Aplicación final de restricción fuerte por Umbral Mínimo
+        if getattr(self, "slope_min", 0.0) > 0 and I_new < self.slope_min:
+            should_stop = False
 
         # 4. Decisión Final de Parada del Obturador
         if should_stop or (I_new < I_old * self.umbral_down) or (elapsed > self.timemax):
