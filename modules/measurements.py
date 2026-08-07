@@ -722,6 +722,10 @@ class Frontend(QFrame):
     def node_status_update(self, i: int, status: str):
         self.interactive_grid.set_node_status(i, status)
 
+    @pyqtSlot(np.ndarray)
+    def grid_plot(self, datos: np.ndarray):
+        self.interactive_grid.set_grid(datos)
+
     @pyqtSlot(str)
     def _show_pattern_finished_dialog(self, folder_path: str):
         msg_box = QMessageBox(self)
