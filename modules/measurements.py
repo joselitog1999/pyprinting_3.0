@@ -1157,10 +1157,9 @@ class Backend(QObject):
 
         if number_scan == "drift_scan":
             if center_mass and len(center_mass) >= 2:
-                dx_drift = center_mass[0] - self.xref
-                dy_drift = center_mass[1] - self.yref
-                self.startX += dx_drift
-                self.startY += dy_drift
+                # Actualizar posición absoluta real del ancla (Partícula 0)
+                self.startX = float(center_mass[0])
+                self.startY = float(center_mass[1])
 
                 # Calcular y actualizar casilla de Desplazamiento Acumulado
                 disp_x = self.startX - self.xref - getattr(self, 'start_x_offset', 0.0)

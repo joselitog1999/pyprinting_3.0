@@ -131,10 +131,12 @@ class Frontend(QFrame):
         p = win.addPlot(title="Autocorrelation")
         p.showGrid(x=True, y=True)
         p.setLabel("left", "Photodiode (V)")
-        mx = max(new_f.max(), lock_f.max(), corr.max(), 1e-9)
-        p.plot(new_f  / mx, pen=pg.mkPen("r", width=1), name="new profile")
-        p.plot(lock_f / mx, pen=pg.mkPen("g", width=1), name="lock profile")
-        p.plot(corr   / mx, pen=pg.mkPen("b", width=1), name="correlation")
+        mx_prof = max(float(new_f.max()), float(lock_f.max()), 1e-9)
+        mx_corr = max(float(corr.max()), 1e-9)
+        corr_scaled = (corr / mx_corr) * mx_prof
+        p.plot(new_f,       pen=pg.mkPen("r", width=1), name="new profile")
+        p.plot(lock_f,      pen=pg.mkPen("g", width=1), name="lock profile")
+        p.plot(corr_scaled, pen=pg.mkPen("b", width=1), name="correlation")
         self._plot_win_auto = win
 
     def make_connection(self, backend: Backend):
