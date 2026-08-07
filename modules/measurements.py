@@ -553,10 +553,7 @@ class Frontend(QFrame):
         flo.addWidget(QLabel("Start X (µm)"),  r_offset+1, 0); flo.addWidget(self.startxEdit, r_offset+1, 1)
         flo.addWidget(QLabel("Start Y (µm)"),  r_offset+2, 0); flo.addWidget(self.startyEdit, r_offset+2, 1)
 
-        fsDock = Dock("Focus shift & Drift"); fsDock.addWidget(fsW)
-        dock_area.addDock(fsDock, "right", pcDock)
-
-        # Extra info dock
+        # Extra info widget
         eiW = QWidget(); elo = QGridLayout(eiW)
         ei_rows = [("Power BFP (mW)", self.powerlaser),
                    ("NP type",        self.typeNP),
@@ -568,13 +565,8 @@ class Frontend(QFrame):
         for r, (lbl, w) in enumerate(ei_rows):
             elo.addWidget(QLabel(lbl), r, 0); elo.addWidget(w, r, 1)
         elo.addWidget(self.grid_save_info_button, len(ei_rows), 0, 1, 2)
-        eiDock = Dock("Extra info"); eiDock.addWidget(eiW)
-        dock_area.addDock(eiDock, "right", fsDock)
 
-        # Interactive Grid Viewer Dock
-        self.interactive_grid = InteractiveGridWidget()
-        self.interactive_grid.nodeClickedSignal.connect(self._on_grid_node_clicked)
-
+        # Progress bar & Interactive Grid Widget
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -586,9 +578,36 @@ class Frontend(QFrame):
         plo.addWidget(QLabel("Progreso Lote:"), 11, 0)
         plo.addWidget(self.progress_bar,        11, 1, 1, 3)
 
-        gridViewerDock = Dock(f"{label} Pattern & Path Viewer 🗺️", size=(450, 420))
+        self.interactive_grid = InteractiveGridWidget()
+        self.interactive_grid.nodeClickedSignal.connect(self._on_grid_node_clicked)
+
+        # ── Disposición de Docks Reorganizada ───────────────────────────────────
+        # Columna Izquierda Arriba: Printing Control
+        pcDock = Dock(f"{label} Control Panel 🎛️", size=(680, 360))
+        pcDock.addWidget(pcW)
+        dock_area.addDock(pcDock, "top")
+
+        # Columna Izquierda Abajo: Reference, Grid, Focus & Drift, Extra Info
+        refDock = Dock("Reference pos", size=(160, 160))
+        refDock.addWidget(refW)
+        dock_area.addDock(refDock, "bottom", pcDock)
+
+        gcDock = Dock("Grid", size=(160, 160))
+        gcDock.addWidget(gcW)
+        dock_area.addDock(gcDock, "right", refDock)
+
+        fsDock = Dock("Focus shift & Drift", size=(180, 160))
+        fsDock.addWidget(fsW)
+        dock_area.addDock(fsDock, "right", gcDock)
+
+        eiDock = Dock("Extra info", size=(180, 160))
+        eiDock.addWidget(eiW)
+        dock_area.addDock(eiDock, "right", fsDock)
+
+        # Columna Derecha: Interactive Pattern Viewer
+        gridViewerDock = Dock(f"{label} Pattern & Path Viewer 🗺️", size=(520, 520))
         gridViewerDock.addWidget(self.interactive_grid)
-        dock_area.addDock(gridViewerDock, "right", eiDock)
+        dock_area.addDock(gridViewerDock, "right", pcDock)
 
         hbox.addWidget(dock_area)
 

@@ -70,18 +70,19 @@ Para evitar que el obturador se cierre cuando una partícula cruza transitoriame
   $$\frac{dI}{dt}[t] = \frac{I[t] - I[t - 5\Delta t]}{5\Delta t} \quad [\text{V/s}]$$
   Evalúa el aplanamiento de la curva en el nivel superior ($dI/dt < \text{Slope\_Flat}$ con $I_{\text{new}} > I_{\text{old}} + \Delta V$) respaldado por el umbral absoluto $I_{\text{abs\_V}}$ para $t=0$.
 
-### Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado
-- **Resuelve**: Determinación física del umbral absoluto en Volts a partir de la imagen confocal previa.
+### Modo 3: Umbral Absoluto Directo por Porcentaje (% del Umbral Máximo)
+- **Resuelve**: Determinación física directa del umbral de corte sin depender de escaneos confocales previos.
 - **Formulación**:
-  1. Extrae el voltaje de vidrio limpio $V_{\text{vidrio}} = \min(V_{\text{raw}})$ de la imagen confocal previa.
-  2. Aplica el ratio de atenuación de potencia $K_{\text{scale}} = P_{\text{print}} / P_{\text{scan}}$ para determinar el pico reescalado esperado:
-     $$V_{\text{pico\_reescalado}} = V_{\text{vidrio}} + K_{\text{scale}} \cdot (V_{\text{pico\_raw}} - V_{\text{vidrio}})$$
-  3. Calcula el umbral en Volts al porcentaje $P\%$ seleccionado:
-     $$V_{\text{umbral}} = V_{\text{vidrio}} + \frac{P}{100} \cdot (V_{\text{pico\_reescalado}} - V_{\text{vidrio}})$$
-  4. Guarda la imagen confocal reescalada en archivos `.txt` y `.tiff` (`NPscan_rescaled_00i.txt`).
+  $$\text{Umbral}(V) = \left( \frac{\text{Percent\_Thresh}}{100} \right) \cdot \text{Umbral\_Absoluto\_V}$$
+  $$\text{Condición}(t) = I_{\text{new}}[t] > \text{Umbral}(V)$$
 
 ### Modo 4: Criterio Híbrido Tri-Factor (All-In-One)
 - **Formulación**: Evalúa simultáneamente el salto relativo, el aplanamiento de derivada $dI/dt$ y el umbral absoluto en Volts bajo la protección de $N_{\text{hold}}$ pasos anti-paso.
+
+---
+
+### 🛑 Restricción Fuerte de Umbral Mínimo Absoluto (Universal para Modos 0 a 4)
+Independientemente del modo seleccionado, si el usuario especifica un **Umbral Mínimo** ($V_{\text{min}} > 0\ \text{V}$), cualquier lectura instantánea de intensidad que no supere dicho valor ($I_{\text{new}} < V_{\text{min}}$) **NO será reconocida como evento ni detendrá el obturador**, evitando paradas espurias por ruido o polvo coloidal.
 
 ---
 
@@ -92,8 +93,8 @@ Para evitar que el obturador se cierre cuando una partícula cruza transitoriame
 | **Modo 0** | Salto Relativo | `Umbral` (salto relativo, ej. 1.20) | Línea base $I_{\text{old}}$ y ratio $I_{\text{new}}/I_{\text{old}}$ | `NP_00i.txt` |
 | **Modo 1** | Relativo + Absoluto + Anti-Paso | `Umbral`, `V_abs` (Volts), `N_hold` (pasos) | Verificación $t=0$ y filtro anti-paso $N_{\text{hold}}$ | `NP_00i.txt`, log de contador `hold_counter` |
 | **Modo 2** | Derivada $dI/dt$ | `Slope Min`, `Slope Flat`, `V_abs` | Derivada en tiempo real $dI/dt$ [V/s] y punto de aplanamiento | `NP_00i.txt`, log de meseta |
-| **Modo 3** | Confocal Raw Rescaled | `Ratio K` ($P_{\text{print}}/P_{\text{scan}}$), `Umbral P%` | Nivel $V_{\text{vidrio}}$, $V_{\text{pico\_reescalado}}$ y $V_{\text{umbral}}$ | `NPscan_rescaled_00i.txt`, `NPscan_rescaled_00i.tiff` |
-| **Modo 4** | Híbrido Tri-Factor | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `Ratio_K`, `P%` | Evaluación compuesta triple y trazabilidad de parada | `NP_00i.txt`, `grid_info.txt`, mapas reescalados |
+| **Modo 3** | Umbral Absoluto Directo | `V_abs` (Volts), `Umbral P%` | Cálculo directo del umbral en Volts por porcentaje | `NP_00i.txt`, `grid_info.txt` |
+| **Modo 4** | Híbrido Tri-Factor | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `P%` | Evaluación compuesta triple y trazabilidad de parada | `NP_00i.txt`, `grid_info.txt` |
 
 ---
 

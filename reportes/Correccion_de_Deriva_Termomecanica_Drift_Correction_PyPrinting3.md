@@ -84,18 +84,19 @@ flowchart TD
     M --> C
 ```
 
-1. **Gatillado de Autofoco**: Cada $N$ partículas (definido por `Autofocus Every N`), la platina se desplaza a una zona limpia mediante `Shift X / Shift Y` y ejecuta el autofoco axial en Z para encontrar la superficie del vidrio.
-2. **Retorno a Partícula 0**: Al finalizar el autofoco Z, en lugar de ir directamente al siguiente nodo de la grilla, la platina se mueve a la coordenada nominal de la **Partícula 0** $(X_0, Y_0)$.
-3. **Escaneo Confocal Rápido**: Se ejecuta un escaneo 2D de alta velocidad sobre una ventana estrecha de $2.0 \times 2.0\,\mu\text{m}$ centrada en la Partícula 0 (ej. $40 \times 40$ píxeles, tiempo de integración por píxel $0.5\text{ ms}$).
+1. **Gatillado de Autofoco & Baja Potencia**: Cada $N$ partículas (definido por `Autofocus Every N`), el espejo flipper conmuta a posición arriba (`up_flipper()`) a **baja potencia de láser** para realizar el autofoco axial en Z sobre una zona limpia.
+2. **Escaneo Confocal de Drift en Baja Potencia**: Al finalizar el autofoco Z, la platina se desplaza a la coordenada nominal de la **Partícula 0** $(X_0, Y_0)$ manteniendo el flipper arriba a baja potencia para prevenir cualquier fotodestrucción o foto-impresión indeseada sobre el ancla.
+3. **Escaneo Confocal Rápido 2D**: Se ejecuta un escaneo 2D sobre una ventana de $2.0 \times 2.0\,\mu\text{m}$ centrada en la Partícula 0.
 4. **Determinación del Centro de la Partícula 0**: Se aplica el algoritmo de **Centro de Masa 2D (CM)** o **Ajuste Gaussiano 2D** sobre la imagen obtenida:
    $$x_{\text{CM}} = \frac{\sum_{x,y} I(x,y) \cdot x}{\sum_{x,y} I(x,y)}, \quad y_{\text{CM}} = \frac{\sum_{x,y} I(x,y) \cdot y}{\sum_{x,y} I(x,y)}$$
-5. **Cálculo del Desplazamiento de Deriva**:
-   Se compara la posición ajustada $(x_{\text{CM}}, y_{\text{CM}})$ con el centro nominal esperado del escaneo $(X_{\text{center}}, Y_{\text{center}})$:
-   $$\delta x = x_{\text{CM}} - X_{\text{center}}, \quad \delta y = y_{\text{CM}} - Y_{\text{center}}$$
-6. **Actualización Acumulativa de Coordenadas de la Grilla**:
-   El vector de deriva $\vec{D} = (\delta x, \delta y)$ se suma a los offsets globales de referencia de la platina:
-   $$X_{\text{start}} \leftarrow X_{\text{start}} + \delta x, \quad Y_{\text{start}} \leftarrow Y_{\text{start}} + \delta y$$
-7. **Reanudación del Arreglo**: La platina se desplaza a la posición corregida del nodo objetivo $i$ y continúa la rutina de impresión.
+5. **Actualización de Posición Absoluta del Ancla**:
+   La coordenada física medida $X_{\text{CM}}, Y_{\text{CM}}$ se almacena directamente como la nueva posición absoluta del ancla:
+   $$X_{\text{start}} = X_{\text{CM}}, \quad Y_{\text{start}} = Y_{\text{CM}}$$
+   Esto garantiza estabilidad perfecta sin acumulación espuria en escaneos subsecuentes.
+6. **Cálculo del Desplazamiento Vectorial Acumulado**:
+   $$\Delta x_{\text{acumulado}} = X_{\text{start}} - X_{\text{ref}}, \quad \Delta y_{\text{acumulado}} = Y_{\text{start}} - Y_{\text{yref}}$$
+   El vector se presenta en tiempo real en la casilla **Desplazamiento acumulado** del panel *Extra info*.
+7. **Conmutación a Alta Potencia e Impresión del Nodo**: El flipper baja a alta potencia (`down_flipper()`), la platina se desplaza a la posición compensada del nodo $i$ (`grid_x[i] + X_start`, `grid_y[i] + Y_start`) y continúa la impresión.
 
 ---
 
