@@ -176,6 +176,7 @@ class Backend(QObject):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         pi.connect()
+        self.laser = SHUTTERS[0] if len(SHUTTERS) > 0 else "532"
         self.locked_focus = False
         self._ramp_params()
 

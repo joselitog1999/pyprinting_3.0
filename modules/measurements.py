@@ -1018,7 +1018,15 @@ class Backend(QObject):
         axes    = [1, 2]
         targets = [self.grid_x[self.i_global] + self.startX,
                    self.grid_y[self.i_global] + self.startY]
-        pi.MOV(axes, targets); time.sleep(0.1)
+        pi.MOV(axes, targets)
+        if not SAFE_MODE:
+            try:
+                while not all(pi.qONT(axes).values()):
+                    time.sleep(0.01)
+            except Exception:
+                time.sleep(0.1)
+        else:
+            time.sleep(0.05)
         self.grid_move_finishSignal.emit()
 
     @pyqtSlot()
@@ -1067,10 +1075,14 @@ class Backend(QObject):
         self.data1    = data[2]
         self.data_BS  = data[6] if len(data) > 6 else data[5]
 
-        # Lectura instantánea (I_new) e inicial de fondo (I_old) como flotantes escalares
-        I_new = float(self.data1[-1]) if len(self.data1) > 0 else 0.0
-        I_old = float(self.data1[0]) if len(self.data1) > 0 else 1.0
-        elapsed       = time.time() - self.timer_inicio
+        # Lectura integrada de ventana móvil para I_old (baseline) e I_new (señal evento)
+        if len(data) >= 6:
+            I_old = float(data[4])
+            I_new = float(data[5])
+        else:
+            I_new = float(self.data1[-1]) if len(self.data1) > 0 else 0.0
+            I_old = float(self.data1[0]) if len(self.data1) > 0 else 1.0
+        elapsed = time.time() - self.timer_inicio
 
         # 1. Derivada Discreta dI/dt (V/s) en ventana corta
         if len(self.data1) >= 5:
@@ -1251,6 +1263,7 @@ class Backend(QObject):
         except Exception: pass
         try: self.grid_scan_stopSignal.emit()
         except Exception: pass
+        self.mode_printing = "none"
 
     @pyqtSlot()
     def grid_next_index(self):
@@ -1273,14 +1286,32 @@ class Backend(QObject):
         folder = folder or self.new_folder
         ts     = f"NPscan_{int(self.i_global):03d}"
         for suffix, arr in [(ts, image), (f"gone_{ts}", gone), (f"back_{ts}", back)]:
-            Image.fromarray(np.transpose(arr)).save(os.path.join(folder, f"{suffix}.tiff"))
+            if arr is None or arr.size == 0:
+                continue
+            arr_tr = np.transpose(arr)
+            if arr_tr.dtype != np.uint8 and arr_tr.dtype != np.uint16:
+                arr_min = float(np.min(arr_tr))
+                arr_max = float(np.max(arr_tr))
+                rng = max(1e-9, arr_max - arr_min)
+                arr_norm = (arr_tr - arr_min) / rng
+                arr_uint = (arr_norm * 65535).astype(np.uint16)
+            else:
+                arr_uint = arr_tr
+            Image.fromarray(arr_uint).save(os.path.join(folder, f"{suffix}.tiff"))
 
     def _save_rescaled_scan(self, image_scaled: np.ndarray):
         ts   = f"NPscan_rescaled_{int(self.i_global):03d}"
         path_txt = os.path.join(self.new_folder, f"{ts}.txt")
         path_tif = os.path.join(self.new_folder, f"{ts}.tiff")
         np.savetxt(path_txt, image_scaled, fmt="%.4e")
-        Image.fromarray(np.transpose(image_scaled)).save(path_tif)
+        if image_scaled is not None and image_scaled.size > 0:
+            arr_tr = np.transpose(image_scaled)
+            arr_min = float(np.min(arr_tr))
+            arr_max = float(np.max(arr_tr))
+            rng = max(1e-9, arr_max - arr_min)
+            arr_norm = (arr_tr - arr_min) / rng
+            arr_uint = (arr_norm * 65535).astype(np.uint16)
+            Image.fromarray(arr_uint).save(path_tif)
 
     def _save_pree_scan(self, image, gone, back):
         self._save_scan(image, gone, back, folder=self.pree_folder)
@@ -1289,6 +1320,8 @@ class Backend(QObject):
         self._save_scan(image, gone, back, folder=self.post_folder)
 
     def _grid_printing_error(self, center_mass: list):
+        if not center_mass or len(center_mass) < 2:
+            return
         target_x = self.grid_x[self.i_global] + self.startX
         target_y = self.grid_y[self.i_global] + self.startY
         self.printing_error_x.append((target_x - center_mass[0]) * 1e3)

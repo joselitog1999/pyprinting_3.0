@@ -841,6 +841,42 @@ class Backend(QObject):
                     self.dimersWorker.goSignal):
             sig.connect(self.nanoWorker.read_pos)
 
+        def _on_autofinish(mode: str):
+            if mode == "printing": self.printingWorker.grid_finish_autofoco()
+            elif mode == "dimers": self.dimersWorker.grid_finish_autofoco()
+        self.focusWorker.autofinishSignal.connect(_on_autofinish)
+
+        self.confocalDualWorker.scanfinishedSignal.connect(
+            self.printingWorker.on_scan_finished)
+        self.confocalDualWorker.scanfinishedSignal.connect(
+            self.dimersWorker.on_scan_finished)
+
+        def _dispatch_trace(data: list):
+            if not data:
+                return
+            mode    = data[-1] if isinstance(data[-1], str) else "none"
+            payload = data[:-1]
+            if mode == "printing":
+                self.printingWorker.grid_trace_detect(payload)
+            elif mode == "dimers":
+                self.dimersWorker.grid_trace_detect(payload)
+
+        self.traceWorker.data_printingSignal.connect(_dispatch_trace)
+
+        # Printing cycle
+        self.printingWorker.grid_move_finishSignal.connect(
+            self.printingWorker.grid_autofoco)
+        self.printingWorker.grid_autofocusSignal.connect(
+            self.focusWorker.focus_autocorr_lin_x2)
+        self.printingWorker.grid_traceSignal.connect(
+            self.traceWorker.trace_configuration)
+        self.printingWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
+        self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan)
+        self.printingWorker.grid_scanSignal.connect(
+            self.confocalDualWorker.start_scan_routines)
+        self.printingWorker.grid_scan_stopSignal.connect(
+            self.confocalDualWorker.stop_scan)
+
 
 def main():
     app = QApplication(sys.argv)

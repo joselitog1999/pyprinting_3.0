@@ -345,6 +345,8 @@ class Backend(QObject):
         frontend.saveBsSignal.connect(lambda: self.save_bs_trace())
         frontend.bsOnlyActiveSignal.connect(self.set_bs_only_active)
         frontend.calibrationBS_Signal.connect(self.set_calibration_bs)
+        if hasattr(frontend, 'parametersSignal'):
+            frontend.parametersSignal.connect(self.parameters)
         self.dataSignal.connect(frontend.get_data)
 
     def _init_params(self):
@@ -519,12 +521,26 @@ class Backend(QObject):
         self.intensity_l2 = np.append(self.intensity_l2, val_l2)
         self.intensity_BS = np.append(self.intensity_BS, val_bs)
 
-        med2 = float(np.mean(self.intensity_l1[-self.N:])) if len(self.intensity_l1) >= self.N else val_l1
-        med  = float(np.mean(self.intensity_l1))
+        M  = getattr(self, 'steps_after', 10)
+        M2 = getattr(self, 'steps_before', 10)
+        n  = len(self.intensity_l1)
+
+        if n < M:
+            I_new = float(np.mean(self.intensity_l1[:n])) if n > 0 else val_l1
+            if n < M2:
+                I_old = float(np.mean(self.intensity_l1[:n])) if n > 0 else 1.0
+            else:
+                I_old = float(np.mean(self.intensity_l1[:n - M2])) if (n - M2) > 0 else float(self.intensity_l1[0])
+        else:
+            I_new = float(np.mean(self.intensity_l1[n - M:n]))
+            I_old = float(np.mean(self.intensity_l1[max(0, n - M - M2):n - M]))
+
+        med2 = I_old
+        med  = I_new
         mean_BS = float(np.mean(self.intensity_BS[-self.N:])) if len(self.intensity_BS) >= self.N else val_bs
 
-        # Estructura unificada: [n, timeaxis, intensity_l1, intensity_l2, med2, med, intensity_BS, mean_BS]
-        data = [self._n, self.timeaxis, self.intensity_l1, self.intensity_l2, med2, med, self.intensity_BS, mean_BS]
+        # Estructura unificada: [n, timeaxis, intensity_l1, intensity_l2, I_old, I_new, intensity_BS, mean_BS]
+        data = [self._n, self.timeaxis, self.intensity_l1, self.intensity_l2, I_old, I_new, self.intensity_BS, mean_BS]
         self.dataSignal.emit(data)
 
         if self.mode_printing != "none":
