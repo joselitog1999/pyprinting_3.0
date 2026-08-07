@@ -1217,6 +1217,12 @@ class CameraWindow(QMainWindow):
         self._debounce_tv_timer.setInterval(200)
         self._debounce_tv_timer.timeout.connect(self._apply_debounced_tv)
 
+        # Temporizador de Antirrebote / Delay de Hardware (1800 ms) para Zoom Óptico Canon EVF
+        self._debounce_zoom_timer = QTimer(self)
+        self._debounce_zoom_timer.setSingleShot(True)
+        self._debounce_zoom_timer.setInterval(1800)
+        self._debounce_zoom_timer.timeout.connect(self._apply_debounced_canon_zoom)
+
         # ── Widget central ────────────────────────────────────────────────────
         central = QWidget()
         self.setCentralWidget(central)
@@ -1445,38 +1451,6 @@ class CameraWindow(QMainWindow):
         live_lo.addWidget(self._stack_live)
         live_lo.addWidget(noise_box)
         left_lo.addWidget(live_box)
-
-        # ── Sub-panel: Detección de Partículas ───────────────────────────
-        detect_box = QGroupBox("Detección & ROI")
-        detect_lo  = QVBoxLayout(detect_box)
-
-        self._btn_roi    = self._mkbtn("ROI detect", checkable=True, color="#8b7cf8")
-        self._btn_detect = self._mkbtn("Detectar", color="#3ecf8e")
-        self._btn_exp_part    = self._mkbtn("Exportar Partículas (.txt)", color="#3ecf8e")
-        self._btn_clear_particles = self._mkbtn("Limpiar Partículas")
-
-        self._btn_roi.clicked.connect(self._toggle_roi_mode)
-        self._btn_detect.clicked.connect(self._open_trackpy_dialog)
-        self._btn_exp_part.clicked.connect(self._export_particles_txt)
-        self._btn_clear_particles.clicked.connect(self._clear_particles)
-
-        btn_row_d = QHBoxLayout()
-        btn_row_d.addWidget(self._btn_roi)
-        btn_row_d.addWidget(self._btn_detect)
-        detect_lo.addLayout(btn_row_d)
-
-        self._table_particles = QTableWidget(0, 4)
-        self._table_particles.setHorizontalHeaderLabels(["#", "x (µm)", "y (µm)", "Int."])
-        self._table_particles.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self._table_particles.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table_particles.setMaximumHeight(150)
-        detect_lo.addWidget(self._table_particles)
-
-        btn_row_d2 = QHBoxLayout()
-        btn_row_d2.addWidget(self._btn_exp_part)
-        btn_row_d2.addWidget(self._btn_clear_particles)
-        detect_lo.addLayout(btn_row_d2)
-        left_lo.addWidget(detect_box)
         left_lo.addStretch()
 
         # 2. Visor Central: PyQtGraph + OverlayWidget
@@ -1508,10 +1482,15 @@ class CameraWindow(QMainWindow):
         self._overlay.zoomChangedSignal.connect(self._on_zoom_changed_overlay)
         visor_lo.addWidget(self._view)
 
-        # 3. Panel Derecho: Mediciones
-        right_panel = QGroupBox("Mediciones")
+        # 3. Panel Derecho: Mediciones + Detección & ROI
+        right_panel = QWidget()
         right_lo    = QVBoxLayout(right_panel)
-        right_lo.setContentsMargins(6, 6, 6, 6)
+        right_lo.setContentsMargins(4, 4, 4, 4)
+        right_lo.setSpacing(6)
+
+        # Sub-panel: Mediciones
+        meas_box = QGroupBox("Mediciones")
+        meas_lo  = QVBoxLayout(meas_box)
 
         self._btn_medir     = self._mkbtn("Medir", checkable=True, color="#e5534b")
         self._btn_save_meas = self._mkbtn("Guardar Medida", color="#3ecf8e")
@@ -1526,23 +1505,58 @@ class CameraWindow(QMainWindow):
         btn_row_r = QHBoxLayout()
         btn_row_r.addWidget(self._btn_medir)
         btn_row_r.addWidget(self._btn_save_meas)
-        right_lo.addLayout(btn_row_r)
+        meas_lo.addLayout(btn_row_r)
 
         self._table_measures = QTableWidget(0, 4)
         self._table_measures.setHorizontalHeaderLabels(["#", "Dist (µm)", "Δx/Δy (px)", "Ángulo"])
         self._table_measures.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._table_measures.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        right_lo.addWidget(self._table_measures)
+        self._table_measures.setMaximumHeight(130)
+        meas_lo.addWidget(self._table_measures)
 
         btn_row_r2 = QHBoxLayout()
         btn_row_r2.addWidget(self._btn_exp_meas)
         btn_row_r2.addWidget(self._btn_clr_meas)
-        right_lo.addLayout(btn_row_r2)
+        meas_lo.addLayout(btn_row_r2)
+        right_lo.addWidget(meas_box)
 
-        # Delimitación estricta de anchos para evitar desbordamientos tras el panel de mediciones
+        # Sub-panel: Detección & ROI (trasladado a la columna derecha)
+        detect_box = QGroupBox("Detección & ROI")
+        detect_lo  = QVBoxLayout(detect_box)
+
+        self._btn_roi    = self._mkbtn("ROI detect", checkable=True, color="#8b7cf8")
+        self._btn_detect = self._mkbtn("Detectar", color="#3ecf8e")
+        self._btn_exp_part    = self._mkbtn("Exportar Partículas (.txt)", color="#3ecf8e")
+        self._btn_clear_particles = self._mkbtn("Limpiar Partículas")
+
+        self._btn_roi.clicked.connect(self._toggle_roi_mode)
+        self._btn_detect.clicked.connect(self._open_trackpy_dialog)
+        self._btn_exp_part.clicked.connect(self._export_particles_txt)
+        self._btn_clear_particles.clicked.connect(self._clear_particles)
+
+        btn_row_d = QHBoxLayout()
+        btn_row_d.addWidget(self._btn_roi)
+        btn_row_d.addWidget(self._btn_detect)
+        detect_lo.addLayout(btn_row_d)
+
+        self._table_particles = QTableWidget(0, 4)
+        self._table_particles.setHorizontalHeaderLabels(["#", "x (µm)", "y (µm)", "Int."])
+        self._table_particles.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._table_particles.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table_particles.setMaximumHeight(130)
+        detect_lo.addWidget(self._table_particles)
+
+        btn_row_d2 = QHBoxLayout()
+        btn_row_d2.addWidget(self._btn_exp_part)
+        btn_row_d2.addWidget(self._btn_clear_particles)
+        detect_lo.addLayout(btn_row_d2)
+        right_lo.addWidget(detect_box)
+        right_lo.addStretch()
+
+        # Delimitación de anchos equilibrada para ambas columnas laterales
         left_panel.setMinimumWidth(280)
-        left_panel.setMaximumWidth(360)
-        right_panel.setMinimumWidth(260)
+        left_panel.setMaximumWidth(340)
+        right_panel.setMinimumWidth(280)
         right_panel.setMaximumWidth(340)
 
         splitter.addWidget(left_panel)
@@ -1724,12 +1738,21 @@ class CameraWindow(QMainWindow):
         if hasattr(self, '_lbl_canon_zoom_val'):
             self._lbl_canon_zoom_val.setText(txt)
 
+        if hasattr(self, '_ext_pip'):
+            self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
+
+        if self._is_camera_active:
+            if hasattr(self, '_lbl_status'):
+                self._lbl_status.setText("⏳ Aplicando Zoom Canon en hardware... (Esperando respuesta ~2s)")
+            self._debounce_zoom_timer.start()
+
+    def _apply_debounced_canon_zoom(self):
+        val = self._canon_zoom_levels[self._canon_zoom_idx]
         if self._is_camera_active:
             self.setZoomSignal.emit(val)
             self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
-
-        if hasattr(self, '_ext_pip'):
-            self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
+            if hasattr(self, '_lbl_status'):
+                self._lbl_status.setText("Transmisión en Vivo Canon activa.")
 
     def _open_log_dialog(self):
         self._log_dialog.show()
