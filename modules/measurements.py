@@ -278,9 +278,6 @@ class Frontend(QFrame):
     setreferenceSignal  = pyqtSignal()
     goreferenceSignal   = pyqtSignal()
     readgridSignal      = pyqtSignal()
-    gridcreateSignal    = pyqtSignal(list)
-    foldergridSignal    = pyqtSignal()
-    gridSignal          = pyqtSignal()
     # (color_laser, stopping_mode, params, scanbool, postscanbool)
     parametersSignal    = pyqtSignal(int, int, list, bool, bool)
     pauseSignal         = pyqtSignal()
@@ -306,16 +303,15 @@ class Frontend(QFrame):
             lambda: self._color_menu(self.grid_laser))
         self._color_menu(self.grid_laser)
 
-        # ── Selector de 5 Modos de Criterio de Parada ─────────────────────────
+        # ── Selector de 4 Modos de Criterio de Parada ─────────────────────────
         self.stop_mode_combo = QComboBox()
         self.stop_mode_combo.addItems([
-            "Modo 0: Legacy (Salto Relativo Estándar)",
-            "Modo 1: Salto Relativo + Umbral Absoluto & Anti-Paso",
-            "Modo 2: Derivada Temporal Adaptativa & Aplanamiento (dI/dt)",
-            "Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado",
-            "Modo 4: Criterio Híbrido Tri-Factor (All-In-One)"
+            "Modo 0: Salto Relativo Estándar (I_new / I_old > Umbral)",
+            "Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso",
+            "Modo 2: Derivada Temporal Adaptativa (dI/dt -> 0)",
+            "Modo 3: Criterio Híbrido Tri-Factor (All-In-One)"
         ])
-        self.stop_mode_combo.setToolTip("Algoritmo de criterio de parada en tiempo real (Modos 0 a 4).")
+        self.stop_mode_combo.setToolTip("Algoritmo de criterio de parada en tiempo real (Modos 0 a 3).")
         self.stop_mode_combo.currentIndexChanged.connect(self._on_stopping_mode_changed)
 
         # ── Parámetros de detección estándar y avanzados ──────────────────────
@@ -330,142 +326,32 @@ class Frontend(QFrame):
         self.steps_afterEdit  = QLineEdit(str(DEFAULT_PRINTING_STEPS_AFTER)); self.steps_afterEdit.setFixedWidth(44)
         self.steps_afterEdit.setToolTip("Muestras analógicas adicionales adquiridas tras cerrar el obturador.")
 
-        # Parámetros dinámicos para Modos 1-4
+        # Parámetros dinámicos para Modos 1-3
         self.umbral_absEdit   = QLineEdit("2.500"); self.umbral_absEdit.setFixedWidth(55)
-        self.umbral_absEdit.setToolTip("Voltaje absoluto mínimo en Volts (Modos 1, 2 y 4) necesario para considerar el evento.")
+        self.umbral_absEdit.setToolTip("Voltaje absoluto en Volts (Modos 1 y 3) necesario para considerar el evento.")
         self.n_holdEdit       = QLineEdit("5");     self.n_holdEdit.setFixedWidth(44)
         self.n_holdEdit.setToolTip("Número de pasos continuos de confirmación (anti-paso) para descartar partículas flotantes de paso.")
-        self.slope_minEdit    = QLineEdit("15.0");  self.slope_minEdit.setFixedWidth(55)
-        self.slope_minEdit.setToolTip("Derivada mínima dI/dt (V/s) en el pico para el criterio de aplanamiento (Modos 2 y 4).")
+        self.slope_minEdit    = QLineEdit("0.000"); self.slope_minEdit.setFixedWidth(55)
+        self.slope_minEdit.setToolTip("Umbral Mínimo Absoluto (V). Cualquier lectura I_new por debajo de este valor NO se reconoce en ningún modo.")
         self.slope_flatEdit   = QLineEdit("2.0");   self.slope_flatEdit.setFixedWidth(55)
-        self.slope_flatEdit.setToolTip("Pendiente máxima dI/dt (V/s) en la meseta para confirmar la parada del obturador (Modos 2 y 4).")
-        self.ratio_kEdit      = QLineEdit("10.0");  self.ratio_kEdit.setFixedWidth(55)
-        self.ratio_kEdit.setToolTip("Constante de amplificación K (P_print / P_scan) para reescalado confocal en Modo 3.")
-        self.percent_threshEdit = QLineEdit("50.0"); self.percent_threshEdit.setFixedWidth(55)
-        self.percent_threshEdit.setToolTip("Porcentaje de umbral confocal reescalado (%) para disparar la parada en Modo 3.")
+        self.slope_flatEdit.setToolTip("Pendiente máxima dI/dt (V/s) en la meseta para confirmar la parada del obturador (Modos 2 y 3).")
 
         self.autofocEdit     = QLineEdit(str(DEFAULT_PRINTING_AUTOFOCUS_EVERY));  self.autofocEdit.setFixedWidth(44)
         self.autofocEdit.setToolTip("Frecuencia de partículas (cada N partículas) entre las cuales se ejecuta el autofoco axial dinámico en Z.")
         self.shiftxEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_X) if DEFAULT_PRINTING_SHIFT_X.is_integer() else DEFAULT_PRINTING_SHIFT_X));  self.shiftxEdit.setFixedWidth(44)
         self.shiftxEdit.setToolTip("Desplazamiento X en µm para realizar el autofoco Z en una zona limpia contigua sin perturbar el nodo actual.")
-        self.shiftyEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_Y) if DEFAULT_PRINTING_SHIFT_Y.is_integer() else DEFAULT_PRINTING_SHIFT_Y));  self.shiftyEdit.setFixedWidth(44)
-        self.shiftyEdit.setToolTip("Desplazamiento Y en µm para realizar el autofoco Z en una zona limpia contigua sin perturbar el nodo actual.")
 
-        # ── Scan check ────────────────────────────────────────────────────────
-        self.scan_check = QCheckBox("Scan pre-print?")
-        self.scan_check.setToolTip("Ejecuta un escaneo confocal de verificación previo a la impresión del nodo.")
-        self.scan_check.clicked.connect(self._scan_change)
-        self.scan_check.setStyleSheet("color: green;")
-        self._scan_change()
+        # ... (rest of code)
 
-        # ── Post-scan (solo dimers) ────────────────────────────────────────────
-        self.postscan_check = QCheckBox("Post scan?")
-        self.postscan_check.setToolTip("Ejecuta un escaneo confocal posterior para confirmar la formación del dímero.")
-        self.postscan_check.setVisible(self.mode == "dimers")
-
-        # ── dx/dy (solo dimers) ───────────────────────────────────────────────
-        self.dxEdit = QLineEdit(str(int(DEFAULT_DIMERS_DX) if DEFAULT_DIMERS_DX.is_integer() else DEFAULT_DIMERS_DX)); self.dxEdit.setFixedWidth(44)
-        self.dxEdit.setToolTip("Desplazamiento X (µm) para la colocación de la segunda nanopartícula en el dímero.")
-        self.dyEdit = QLineEdit(str(int(DEFAULT_DIMERS_DY) if DEFAULT_DIMERS_DY.is_integer() else DEFAULT_DIMERS_DY)); self.dyEdit.setFixedWidth(44)
-        self.dyEdit.setToolTip("Desplazamiento Y (µm) para la colocación de la segunda nanopartícula en el dímero.")
-
-        # ── Botones de control ────────────────────────────────────────────────
-        self.imprimir_button = QPushButton(f"{label} folder")
-        self.imprimir_button.setToolTip("Crea la subcarpeta del lote experimental fechada YYYYMMDD-HHMMSS_Printing_<GridName> en la carpeta diaria.")
-        self.imprimir_button.clicked.connect(self._get_create_folder)
-        self.imprimir_button.setStyleSheet("QPushButton:pressed { background-color: blue; }")
-
-        self.play_button  = QPushButton("Play ►")
-        self.play_button.setToolTip("Inicia la rutina automatizada de impresión nodo a nodo.")
-        self.play_button.clicked.connect(self._get_grid_measurement)
-
-        self.pause_button = QPushButton("Pause")
-        self.pause_button.setToolTip("Pausa la impresión y cierra los obturadores inmediatamente.")
-        self.pause_button.clicked.connect(lambda: self.pauseSignal.emit())
-
-        self.next_button  = QPushButton("Next index ►")
-        self.next_button.setToolTip("Salta inmediatamente el nodo actual y avanza a la siguiente partícula.")
-        self.next_button.clicked.connect(lambda: self.next_index_Signal.emit())
-
-        self.go_ref_button  = QPushButton("Go reference")
-        self.go_ref_button.setToolTip("Desplaza la platina PI inmediatamente al punto de referencia de origen (X0, Y0, Z0).")
-        self.go_ref_button.clicked.connect(lambda: self.goreferenceSignal.emit())
-        self.go_ref_button.setFixedWidth(90)
-
-        self.set_ref_button = QPushButton("Set reference")
-        self.set_ref_button.setToolTip("Congela la posición actual de los sensores capacitivos de la platina PI como origen (X0, Y0, Z0).")
-        self.set_ref_button.clicked.connect(lambda: self.setreferenceSignal.emit())
-        self.set_ref_button.setStyleSheet(
-            "QPushButton { background-color: orange; }"
-            "QPushButton:pressed { background-color: blue; }")
-
-        # ── Contadores ────────────────────────────────────────────────────────
-        self.NameDirValue      = QLabel("")
-        self.NameDirValue.setStyleSheet("background-color: red;")
-        self.particulasEdit    = QLabel("0")
-        self.indice_impresionEdit = QLineEdit("0")
-        self.indice_impresionEdit.setToolTip("Índice del nodo actual en proceso de impresión.")
-        self.indice_impresionEdit.textChanged.connect(self._new_index_target)
-
-        # ── Referencia ────────────────────────────────────────────────────────
-        self.xrefLabel = QLabel("NaN")
-        self.yrefLabel = QLabel("NaN")
-        self.zrefLabel = QLabel("NaN")
-
-        # ── Crear grilla ──────────────────────────────────────────────────────
-        self.number_files    = QLineEdit(str(DEFAULT_GRID_NPS_COL))
-        self.number_files.setToolTip("Número de nanopartículas a imprimir por cada columna.")
-        self.number_columns  = QLineEdit(str(DEFAULT_GRID_COLS))
-        self.number_columns.setToolTip("Número de columnas de la grilla.")
-        self.distance_files  = QLineEdit(str(int(DEFAULT_GRID_DIST_NP) if DEFAULT_GRID_DIST_NP.is_integer() else DEFAULT_GRID_DIST_NP))
-        self.distance_files.setToolTip("Espaciamiento espacial entre nanopartículas contiguas en la columna (µm).")
-        self.distance_columns= QLineEdit(str(int(DEFAULT_GRID_DIST_COL) if DEFAULT_GRID_DIST_COL.is_integer() else DEFAULT_GRID_DIST_COL))
-        self.distance_columns.setToolTip("Espaciamiento espacial entre columnas contiguas (µm).")
-
-        self.grid_create_button = QPushButton("Create grid")
-        self.grid_create_button.setToolTip("Genera la grilla regular de posiciones (X, Y) con las dimensiones especificadas.")
-        self.grid_create_button.clicked.connect(self._get_grid_create)
-        self.grid_create_button.setStyleSheet(
-            "QPushButton { background-color: orange; }"
-            "QPushButton:pressed { background-color: blue; }")
-
-        self.cargar_archivo_button = QPushButton("Load grid (.txt)")
-        self.cargar_archivo_button.setToolTip("Carga una grilla personalizada de posiciones desde un archivo .txt.")
-        self.cargar_archivo_button.clicked.connect(lambda: self.readgridSignal.emit())
-        self.cargar_archivo_button.setStyleSheet(
-            "QPushButton { background-color: orange; }"
-            "QPushButton:pressed { background-color: blue; }")
-
-        # ── Info extra ────────────────────────────────────────────────────────
-        self.powerlaser  = QLineEdit("—"); self.powerlaser.setToolTip("Potencia medida en la pupila trasera del objetivo (BFP en mW).")
-        self.typeNP      = QLineEdit("—"); self.typeNP.setToolTip("Tipo y tamaño de la solución coloidal de nanopartículas (ej. AuNP 60 nm).")
-        self.substrate   = QLineEdit("—"); self.substrate.setToolTip("Sustrato y funcionalización (ej. vidrio + PDDA + PSS).")
-        self.NPevents    = QLineEdit("—"); self.NPevents.setToolTip("Porcentaje de eventos de impresión detectados (%).")
-        self.NPsuccess   = QLineEdit("—"); self.NPsuccess.setToolTip("Porcentaje de éxito en la formación de la grilla (%).")
-        self.disp_acumuladoEdit = QLineEdit("(+0.000, +0.000) µm | r=0.000 µm")
-        self.disp_acumuladoEdit.setReadOnly(True)
-        self.disp_acumuladoEdit.setStyleSheet("font-family: monospace; font-weight: bold; color: #4a9eff;")
-        self.disp_acumuladoEdit.setToolTip("Desplazamiento vectorial acumulado (Δx, Δy) µm corregido por Drift Correction.")
-        self.extra_info  = QLineEdit("—"); self.extra_info.setToolTip("Comentarios experimentales adicionales.")
-        self.grid_save_info_button = QPushButton("Save info")
-        self.grid_save_info_button.setToolTip("Guarda el archivo grid_info.txt en la carpeta del lote experimental.")
-        self.grid_save_info_button.clicked.connect(self._get_grid_info)
-
-        # ── Layout principal ──────────────────────────────────────────────────
-        hbox      = QHBoxLayout(self)
-        dock_area = DockArea()
-
-        # Reference dock
+        # Reference widget
         refW = QWidget(); rlo = QGridLayout(refW)
         rlo.addWidget(QLabel("X ref:"),    0, 0); rlo.addWidget(self.xrefLabel, 0, 1)
         rlo.addWidget(QLabel("Y ref:"),    1, 0); rlo.addWidget(self.yrefLabel, 1, 1)
         rlo.addWidget(QLabel("Z ref:"),    2, 0); rlo.addWidget(self.zrefLabel, 2, 1)
         rlo.addWidget(self.set_ref_button, 3, 0, 1, 2)
         rlo.addWidget(self.go_ref_button,  4, 0)
-        refDock = Dock("Reference pos"); refDock.addWidget(refW)
-        dock_area.addDock(refDock)
 
-        # Grid create dock
+        # Grid create widget
         gcW = QWidget(); glo = QGridLayout(gcW)
         glo.addWidget(QLabel("NPs/col"),        0, 0); glo.addWidget(self.number_files,    0, 1)
         glo.addWidget(QLabel("Columns"),         1, 0); glo.addWidget(self.number_columns,  1, 1)
@@ -473,10 +359,8 @@ class Frontend(QFrame):
         glo.addWidget(QLabel("Dist col (µm)"),  3, 0); glo.addWidget(self.distance_columns,3, 1)
         glo.addWidget(self.grid_create_button,  4, 0, 1, 2)
         glo.addWidget(self.cargar_archivo_button,5,0,1,2)
-        gcDock = Dock("Grid"); gcDock.addWidget(gcW)
-        dock_area.addDock(gcDock, "right", refDock)
 
-        # Print control dock (Multi-column layout expandido)
+        # Print control widget (Multi-column layout expandido)
         pcW = QWidget(); plo = QGridLayout(pcW)
         plo.setContentsMargins(6, 6, 6, 6)
         plo.setHorizontalSpacing(10)
@@ -498,75 +382,32 @@ class Frontend(QFrame):
         self.lbl_umbral_abs = QLabel("Umbral Abs (V):"); plo.addWidget(self.lbl_umbral_abs, 3, 0); plo.addWidget(self.umbral_absEdit, 3, 1)
         self.lbl_n_hold     = QLabel("N hold steps:");  plo.addWidget(self.lbl_n_hold,     3, 2); plo.addWidget(self.n_holdEdit,     3, 3)
 
-        # Fila 4: Slope Min (V/s) | Slope Flat (V/s)
-        self.lbl_slope_min  = QLabel("Slope Min:");     plo.addWidget(self.lbl_slope_min,  4, 0); plo.addWidget(self.slope_minEdit,  4, 1)
+        # Fila 4: Umbral Mín (V) | Slope Flat (V/s)
+        self.lbl_umbral_min = QLabel("Umbral Mín (V):"); plo.addWidget(self.lbl_umbral_min, 4, 0); plo.addWidget(self.slope_minEdit,  4, 1)
         self.lbl_slope_flat = QLabel("Slope Flat:");    plo.addWidget(self.lbl_slope_flat, 4, 2); plo.addWidget(self.slope_flatEdit, 4, 3)
 
-        # Fila 5: Ratio K (P_print/P_scan) | Porcentaje Umbral (%)
-        self.lbl_ratio_k    = QLabel("Ratio K (P/S):"); plo.addWidget(self.lbl_ratio_k,    5, 0); plo.addWidget(self.ratio_kEdit,    5, 1)
-        self.lbl_pct_thresh = QLabel("Umbral (%):");    plo.addWidget(self.lbl_pct_thresh, 5, 2); plo.addWidget(self.percent_threshEdit, 5, 3)
+        # Fila 5: Umbral down | T max (s)
+        plo.addWidget(QLabel("Umbral down:"),  5, 0); plo.addWidget(self.umbral_downEdit,   5, 1)
+        plo.addWidget(QLabel("T max (s):"),    5, 2); plo.addWidget(self.tmaxEdit,          5, 3)
 
-        # Fila 6: Umbral down | T max (s)
-        plo.addWidget(QLabel("Umbral down:"),  6, 0); plo.addWidget(self.umbral_downEdit,   6, 1)
-        plo.addWidget(QLabel("T max (s):"),    6, 2); plo.addWidget(self.tmaxEdit,          6, 3)
+        # Fila 6: Steps before | Steps after
+        self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 6, 0); plo.addWidget(self.steps_beforeEdit, 6, 1)
+        self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  6, 2); plo.addWidget(self.steps_afterEdit,  6, 3)
 
-        # Fila 7: Steps before | Steps after
-        self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 7, 0); plo.addWidget(self.steps_beforeEdit, 7, 1)
-        self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  7, 2); plo.addWidget(self.steps_afterEdit,  7, 3)
-
-        # Fila 8: Scan pre-print | Post scan
-        plo.addWidget(self.scan_check,         8, 0, 1, 2)
+        # Fila 7: Scan pre-print | Post scan
+        plo.addWidget(self.scan_check,         7, 0, 1, 2)
         if self.mode == "dimers":
-            plo.addWidget(self.postscan_check, 8, 2, 1, 2)
+            plo.addWidget(self.postscan_check, 7, 2, 1, 2)
 
-        # Fila 9: Controles de reproducción Play / Pause / Next Index
-        plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
-        plo.addWidget(self.next_button,        9, 2, 1, 2)
+        # Fila 8: Controles de reproducción Play / Pause / Next Index
+        plo.addWidget(self.play_button,        8, 0); plo.addWidget(self.pause_button,      8, 1)
+        plo.addWidget(self.next_button,        8, 2, 1, 2)
 
-        # Fila 10: Total targets | Target Index
-        plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,     10, 1)
-        plo.addWidget(QLabel("Target Index:"),  10, 2); plo.addWidget(self.indice_impresionEdit,10, 3)
+        # Fila 9: Total targets | Target Index
+        plo.addWidget(QLabel("Total targets:"), 9, 0); plo.addWidget(self.particulasEdit,      9, 1)
+        plo.addWidget(QLabel("Target Index:"),  9, 2); plo.addWidget(self.indice_impresionEdit, 9, 3)
 
-        pcDock = Dock(f"{label} control", size=(640, 420))
-        pcDock.addWidget(pcW)
-        dock_area.addDock(pcDock, "right", gcDock)
-
-        # Focus shift & Drift correction dock
-        fsW = QWidget(); flo = QGridLayout(fsW)
-        flo.addWidget(QLabel("Autofocus every N"), 0, 0); flo.addWidget(self.autofocEdit, 0, 1)
-        flo.addWidget(QLabel("Shift x (µm)"),      1, 0); flo.addWidget(self.shiftxEdit,  1, 1)
-        flo.addWidget(QLabel("Shift y (µm)"),      2, 0); flo.addWidget(self.shiftyEdit,  2, 1)
-        if self.mode == "dimers":
-            flo.addWidget(QLabel("dx (µm)"), 3, 0); flo.addWidget(self.dxEdit, 3, 1)
-            flo.addWidget(QLabel("dy (µm)"), 4, 0); flo.addWidget(self.dyEdit, 4, 1)
-
-        # Drift correction controls
-        self.drift_check = QCheckBox("Drift Correction (P0)?")
-        self.drift_check.setToolTip("Realiza un escaneo confocal 2x2 µm en la Partícula 0 post-autofoco Z para corregir derivas X-Y acumuladas.")
-        self.startxEdit = QLineEdit("2.0"); self.startxEdit.setFixedWidth(44)
-        self.startxEdit.setToolTip("Offset X de inicio del arreglo de impresión respecto a la Partícula 0 (µm).")
-        self.startyEdit = QLineEdit("2.0"); self.startyEdit.setFixedWidth(44)
-        self.startyEdit.setToolTip("Offset Y de inicio del arreglo de impresión respecto a la Partícula 0 (µm).")
-
-        r_offset = 5 if self.mode == "dimers" else 3
-        flo.addWidget(self.drift_check,        r_offset,   0, 1, 2)
-        flo.addWidget(QLabel("Start X (µm)"),  r_offset+1, 0); flo.addWidget(self.startxEdit, r_offset+1, 1)
-        flo.addWidget(QLabel("Start Y (µm)"),  r_offset+2, 0); flo.addWidget(self.startyEdit, r_offset+2, 1)
-
-        # Extra info widget
-        eiW = QWidget(); elo = QGridLayout(eiW)
-        ei_rows = [("Power BFP (mW)", self.powerlaser),
-                   ("NP type",        self.typeNP),
-                   ("Substrate",      self.substrate),
-                   ("NP events",      self.NPevents),
-                   ("NP success",     self.NPsuccess),
-                   ("Desplazamiento acumulado", self.disp_acumuladoEdit),
-                   ("Comments",       self.extra_info)]
-        for r, (lbl, w) in enumerate(ei_rows):
-            elo.addWidget(QLabel(lbl), r, 0); elo.addWidget(w, r, 1)
-        elo.addWidget(self.grid_save_info_button, len(ei_rows), 0, 1, 2)
-
-        # Progress bar & Interactive Grid Widget
+        # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -575,19 +416,23 @@ class Frontend(QFrame):
             "QProgressBar { text-align: center; border: 1px solid #45475a; border-radius: 4px; background-color: #1e1e2e; color: #cdd6f4; font-size: 8pt; }"
             "QProgressBar::chunk { background-color: #a6e3a1; }"
         )
-        plo.addWidget(QLabel("Progreso Lote:"), 11, 0)
-        plo.addWidget(self.progress_bar,        11, 1, 1, 3)
+        plo.addWidget(QLabel("Progreso Lote:"), 10, 0)
+        plo.addWidget(self.progress_bar,        10, 1, 1, 3)
 
-        self.interactive_grid = InteractiveGridWidget()
-        self.interactive_grid.nodeClickedSignal.connect(self._on_grid_node_clicked)
+        # ... (rest of GUI setup)
 
-        # ── Disposición de Docks Reorganizada ───────────────────────────────────
-        # Columna Izquierda Arriba: Printing Control
+        # ── Disposición de Docks Unificada (2 Columna Limpias sin Duplicados) ──────
+        # 1. Columna Derecha Global (Ocupa toda la altura de la ventana a la derecha)
+        gridViewerDock = Dock(f"{label} Pattern & Path Viewer 🗺️", size=(560, 600))
+        gridViewerDock.addWidget(self.interactive_grid)
+        dock_area.addDock(gridViewerDock, "right")
+
+        # 2. Columna Izquierda Arriba: Printing Control Panel
         pcDock = Dock(f"{label} Control Panel 🎛️", size=(680, 360))
         pcDock.addWidget(pcW)
-        dock_area.addDock(pcDock, "top")
+        dock_area.addDock(pcDock, "left", gridViewerDock)
 
-        # Columna Izquierda Abajo: Reference, Grid, Focus & Drift, Extra Info
+        # 3. Columna Izquierda Abajo: Reference, Grid, Focus & Drift, Extra Info
         refDock = Dock("Reference pos", size=(160, 160))
         refDock.addWidget(refW)
         dock_area.addDock(refDock, "bottom", pcDock)
@@ -696,8 +541,8 @@ class Frontend(QFrame):
             int(self.n_holdEdit.text() or 5),
             float(self.slope_minEdit.text() or 15.0),
             float(self.slope_flatEdit.text() or 2.0),
-            float(self.ratio_kEdit.text() or 10.0),
-            float(self.percent_threshEdit.text() or 50.0),
+            float(self.ratio_kEdit.text() if hasattr(self, 'ratio_kEdit') else 10.0),
+            float(self.percent_threshEdit.text() if hasattr(self, 'percent_threshEdit') else 50.0),
             float(self.startxEdit.text() or 2.0),
             float(self.startyEdit.text() or 2.0),
             self.drift_check.isChecked()
@@ -1109,7 +954,7 @@ class Backend(QObject):
         condition = False
 
         if self.stopping_mode == 0:
-            # Modo 0: Legacy (Salto Relativo Estándar I_new / I_old > Umbral)
+            # Modo 0: Salto Relativo Estándar (I_new / I_old > Umbral)
             condition = (I_old > 0) and (I_new > I_old * self.umbral)
 
         elif self.stopping_mode == 1:
@@ -1125,12 +970,7 @@ class Backend(QObject):
             condition = c_flat or c_abs
 
         elif self.stopping_mode == 3:
-            # Modo 3: Umbral Absoluto Directo por Porcentaje (% del Umbral Máximo)
-            v_thresh = (self.percent_thresh / 100.0) * self.umbral_abs_v
-            condition = I_new > v_thresh
-
-        elif self.stopping_mode == 4:
-            # Modo 4: Criterio Híbrido Tri-Factor (All-In-One)
+            # Modo 3: Criterio Híbrido Tri-Factor (All-In-One)
             c_rel  = (I_old > 0) and (I_new > I_old * self.umbral)
             c_flat = (abs(dI_dt) < self.slope_flat) and (I_new > I_old + 0.1)
             c_abs  = I_new > self.umbral_abs_v

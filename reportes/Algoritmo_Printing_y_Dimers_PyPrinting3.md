@@ -70,19 +70,13 @@ Para evitar que el obturador se cierre cuando una partícula cruza transitoriame
   $$\frac{dI}{dt}[t] = \frac{I[t] - I[t - 5\Delta t]}{5\Delta t} \quad [\text{V/s}]$$
   Evalúa el aplanamiento de la curva en el nivel superior ($dI/dt < \text{Slope\_Flat}$ con $I_{\text{new}} > I_{\text{old}} + \Delta V$) respaldado por el umbral absoluto $I_{\text{abs\_V}}$ para $t=0$.
 
-### Modo 3: Umbral Absoluto Directo por Porcentaje (% del Umbral Máximo)
-- **Resuelve**: Determinación física directa del umbral de corte sin depender de escaneos confocales previos.
-- **Formulación**:
-  $$\text{Umbral}(V) = \left( \frac{\text{Percent\_Thresh}}{100} \right) \cdot \text{Umbral\_Absoluto\_V}$$
-  $$\text{Condición}(t) = I_{\text{new}}[t] > \text{Umbral}(V)$$
-
-### Modo 4: Criterio Híbrido Tri-Factor (All-In-One)
+### Modo 3: Criterio Híbrido Tri-Factor (All-In-One)
 - **Formulación**: Evalúa simultáneamente el salto relativo, el aplanamiento de derivada $dI/dt$ y el umbral absoluto en Volts bajo la protección de $N_{\text{hold}}$ pasos anti-paso.
 
 ---
 
-### 🛑 Restricción Fuerte de Umbral Mínimo Absoluto (Universal para Modos 0 a 4)
-Independientemente del modo seleccionado, si el usuario especifica un **Umbral Mínimo** ($V_{\text{min}} > 0\ \text{V}$), cualquier lectura instantánea de intensidad que no supere dicho valor ($I_{\text{new}} < V_{\text{min}}$) **NO será reconocida como evento ni detendrá el obturador**, evitando paradas espurias por ruido o polvo coloidal.
+### 🛑 Restricción Fuerte de Umbral Mínimo Absoluto (Universal para Modos 0 a 3)
+Independientemente del modo seleccionado, si el usuario especifica un **Umbral Mínimo** ($V_{\text{min}} > 0\ \text{V}$) en la casilla `Umbral Mín (V):`, cualquier lectura instantánea de intensidad que no supere dicho valor ($I_{\text{new}} < V_{\text{min}}$) **NO será reconocida como evento ni detendrá el obturador**, evitando paradas espurias por ruido o polvo coloidal.
 
 ---
 
@@ -90,11 +84,10 @@ Independientemente del modo seleccionado, si el usuario especifica un **Umbral M
 
 | Modo | Algoritmo | Parámetros que Configura el Usuario | Información que Añade / Procesa el Sistema | Archivos de Salida en Disco |
 |---|---|---|---|---|
-| **Modo 0** | Salto Relativo | `Umbral` (salto relativo, ej. 1.20) | Línea base $I_{\text{old}}$ y ratio $I_{\text{new}}/I_{\text{old}}$ | `NP_00i.txt` |
+| **Modo 0** | Salto Relativo Estándar | `Umbral` (salto relativo, ej. 1.20) | Línea base $I_{\text{old}}$ y ratio $I_{\text{new}}/I_{\text{old}}$ | `NP_00i.txt` |
 | **Modo 1** | Relativo + Absoluto + Anti-Paso | `Umbral`, `V_abs` (Volts), `N_hold` (pasos) | Verificación $t=0$ y filtro anti-paso $N_{\text{hold}}$ | `NP_00i.txt`, log de contador `hold_counter` |
-| **Modo 2** | Derivada $dI/dt$ | `Slope Min`, `Slope Flat`, `V_abs` | Derivada en tiempo real $dI/dt$ [V/s] y punto de aplanamiento | `NP_00i.txt`, log de meseta |
-| **Modo 3** | Umbral Absoluto Directo | `V_abs` (Volts), `Umbral P%` | Cálculo directo del umbral en Volts por porcentaje | `NP_00i.txt`, `grid_info.txt` |
-| **Modo 4** | Híbrido Tri-Factor | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `P%` | Evaluación compuesta triple y trazabilidad de parada | `NP_00i.txt`, `grid_info.txt` |
+| **Modo 2** | Derivada Temporal Adaptativa $dI/dt$ | `Slope Flat`, `V_abs` | Derivada en tiempo real $dI/dt$ [V/s] y punto de aplanamiento | `NP_00i.txt`, log de meseta |
+| **Modo 3** | Criterio Híbrido Tri-Factor | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat` | Evaluación compuesta triple y trazabilidad de parada | `NP_00i.txt`, `grid_info.txt` |
 
 ---
 
@@ -107,7 +100,7 @@ graph TD
     C -- Sí --> D[Autofoco Axial Z por Correlación]
     C -- No --> E[Fase 4: Apertura Shutter & Monitoreo]
     D --> E
-    E --> F[Fase 5: Evaluación Modo 0-4 seleccionados]
+    E --> F[Fase 5: Evaluación Modo 0-3 seleccionados]
     F -- Condición True --> G[hold_counter += 1]
     F -- Condición False --> H[hold_counter = 0]
     G --> I{¿hold_counter >= N_hold?}
