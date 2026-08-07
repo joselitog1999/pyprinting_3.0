@@ -13,12 +13,14 @@
 #
 # 3. Actualizar pip e instalar dependencias:
 #    python -m pip install --upgrade pip
+#
+# 4. Instalar paquetes de PyPrinting 3.0:
 #    pip install -r requirements.txt
 #
-# 4. Ejecutar Lanzador Principal ("Bienvenidos al printing"):
+# 5. Ejecutar Lanzador Principal ("Bienvenidos al printing"):
 #    python main.py
 #
-# 5. Ejecutar Módulos Individuales:
+# 6. Ejecutar Módulos Individuales:
 #    python app.py               # Microscopio Derecho (Suite Completa)
 #    python contrapropagante.py  # Microscopio Contrapropagante (Excitación Dual)
 #    python camera.py            # Suite de Cámara Réflex Canon EOS (EDSDK) & Microfotónica
@@ -27,14 +29,17 @@
 # ==============================================================================
 
 # ── Interfaz Gráfica y Gráficos en Tiempo Real ────────────────────────────────
-PyQt6>=6.6.0
+PyQt6>=6.6.0,<7.0.0
 pyqtgraph>=0.13.4
 
 # ── Visión por Computadora y Procesamiento de Imágenes ────────────────────────
 opencv-python>=4.9.0
 Pillow>=10.2.0
 scikit-image>=0.22.0
-trackpy>=0.6.0
+tifffile>=2024.1.0       # Manejo de imágenes TIFF de metrología
+trackpy>=0.6.0          # Motor de seguimiento y localización Crocker-Grier
+picassosr>=0.10.0       # Motor de localización sub-píxel Picasso (SMLM / DNA-PAINT)
+numba>=0.59.0           # Aceleración JIT para algoritmos MLE y LQ de Picasso
 pandas>=2.0.0
 
 # ── Análisis Numérico y Ajustes Espectroscópicos ─────────────────────────────
@@ -47,4 +52,3 @@ nidaqmx>=1.0.0          # API de NI-DAQmx para tarjetas National Instruments
 pipython>=2.11.0         # API GCS para platinas piezoeléctricas Physik Instrumente
 pyserial>=3.5            # Comunicación Serie RS-232 / USB
 pyusb>=1.2.1             # Control USB de bajo nivel
-    
