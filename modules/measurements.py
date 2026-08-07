@@ -722,9 +722,23 @@ class Frontend(QFrame):
     def node_status_update(self, i: int, status: str):
         self.interactive_grid.set_node_status(i, status)
 
-    @pyqtSlot(np.ndarray)
-    def grid_plot(self, datos: np.ndarray):
-        self.interactive_grid.set_grid(datos)
+    @pyqtSlot(str)
+    def _show_pattern_finished_dialog(self, folder_path: str):
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Patrón finalizado")
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setText("🎉 <b>¡Patrón de impresión finalizado con éxito!</b>")
+        msg_box.setInformativeText(f"Se ha completado la secuencia en todas las partículas.\nCarpeta del lote: {folder_path}")
+
+        btn_accept = msg_box.addButton("Aceptar", QMessageBox.ButtonRole.AcceptRole)
+        btn_save   = msg_box.addButton("Save extra info", QMessageBox.ButtonRole.ActionRole)
+        msg_box.setDefaultButton(btn_accept)
+
+        msg_box.exec()
+
+        if msg_box.clickedButton() == btn_save:
+            self._get_grid_info()
+            QMessageBox.information(self, "Info Guardada", "📄 Archivo grid_info.txt guardado correctamente en la carpeta del lote.")
 
     def make_connection(self, backend: Backend):
         backend.referenceSignal.connect(self.reference_label)
@@ -734,6 +748,8 @@ class Frontend(QFrame):
         backend.indexSignal.connect(self.index_target)
         if hasattr(backend, "nodeStatusSignal"):
             backend.nodeStatusSignal.connect(self.node_status_update)
+        if hasattr(backend, "patternFinishedSignal"):
+            backend.patternFinishedSignal.connect(self._show_pattern_finished_dialog)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -747,6 +763,7 @@ class Backend(QObject):
     namefolderSignal      = pyqtSignal(str)
     indexSignal           = pyqtSignal(int)
     nodeStatusSignal      = pyqtSignal(int, str)
+    patternFinishedSignal = pyqtSignal(str)
 
     grid_move_finishSignal = pyqtSignal()
     grid_autofocusSignal   = pyqtSignal(str)
@@ -1218,9 +1235,11 @@ class Backend(QObject):
     def _grid_detect(self):
         Nmax = self.particulas - 1
         if self.i_global >= Nmax:
+            finished_folder = getattr(self, 'new_folder', self.old_folder)
             self.file_path = self.old_folder
             self.namefolderSignal.emit(self.old_folder)
             self.indexSignal.emit(self.i_global + 1)
+            self.patternFinishedSignal.emit(finished_folder)
         else:
             self.i_global += 1
             self.indexSignal.emit(self.i_global)
