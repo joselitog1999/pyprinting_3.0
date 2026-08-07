@@ -465,6 +465,7 @@ class Backend(QObject):
         elif isinstance(laser_input, str):
             self.laser1 = laser_input
         self.mode_printing = mode_printing
+        self._start()
 
     @pyqtSlot(float, float)
     def set_calibration_bs(self, slope: float, intercept: float):

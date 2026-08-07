@@ -442,6 +442,10 @@ class Frontend(QFrame):
         self.substrate   = QLineEdit("—"); self.substrate.setToolTip("Sustrato y funcionalización (ej. vidrio + PDDA + PSS).")
         self.NPevents    = QLineEdit("—"); self.NPevents.setToolTip("Porcentaje de eventos de impresión detectados (%).")
         self.NPsuccess   = QLineEdit("—"); self.NPsuccess.setToolTip("Porcentaje de éxito en la formación de la grilla (%).")
+        self.disp_acumuladoEdit = QLineEdit("(+0.000, +0.000) µm | r=0.000 µm")
+        self.disp_acumuladoEdit.setReadOnly(True)
+        self.disp_acumuladoEdit.setStyleSheet("font-family: monospace; font-weight: bold; color: #4a9eff;")
+        self.disp_acumuladoEdit.setToolTip("Desplazamiento vectorial acumulado (Δx, Δy) µm corregido por Drift Correction.")
         self.extra_info  = QLineEdit("—"); self.extra_info.setToolTip("Comentarios experimentales adicionales.")
         self.grid_save_info_button = QPushButton("Save info")
         self.grid_save_info_button.setToolTip("Guarda el archivo grid_info.txt en la carpeta del lote experimental.")
@@ -559,6 +563,7 @@ class Frontend(QFrame):
                    ("Substrate",      self.substrate),
                    ("NP events",      self.NPevents),
                    ("NP success",     self.NPsuccess),
+                   ("Desplazamiento acumulado", self.disp_acumuladoEdit),
                    ("Comments",       self.extra_info)]
         for r, (lbl, w) in enumerate(ei_rows):
             elo.addWidget(QLabel(lbl), r, 0); elo.addWidget(w, r, 1)
@@ -895,8 +900,8 @@ class Backend(QObject):
             datos[1, 0] = 0.0
 
             idx = 1
-            for i in range(n):
-                for k in range(N):
+            for k in range(N):        # Filas Y
+                for i in range(n):    # Columnas X (avanza en X positivo primero)
                     datos[0, idx] = start_x + i * d_n
                     datos[1, idx] = start_y + k * d_N
                     idx += 1
@@ -907,8 +912,8 @@ class Backend(QObject):
             self.particulas = total
         else:
             datos = np.zeros((3, n * N))
-            for i in range(n):
-                for k in range(N):
+            for k in range(N):        # Filas Y
+                for i in range(n):    # Columnas X (avanza en X positivo primero)
                     datos[0, k*n+i] = i * d_n
                     datos[1, k*n+i] = k * d_N
             self.grid_name  = f"{n}x{N}_{d_n}umx{d_N}um"
@@ -1023,11 +1028,11 @@ class Backend(QObject):
             pi.MOV([1, 2], [self.grid_x[self.i_global] + self.startX,
                             self.grid_y[self.i_global] + self.startY])
             time.sleep(0.1)
-        down_flipper(); time.sleep(1)
         if getattr(self, "driftbool", False):
             # Mover a la Partícula 0 (Origen de referencia + deriva acumulada)
             pi.MOV([1, 2], [self.startX, self.startY])
             time.sleep(0.1)
+            # Mantener flipper arriba (baja potencia) para el escaneo confocal de drift
             self.number_scan = "drift_scan"
             self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
         else:
@@ -1046,8 +1051,11 @@ class Backend(QObject):
         self.ptr      = data[0]
         self.timeaxis = data[1]
         self.data1    = data[2]
-        I_old, I_new  = data[3], data[4]
-        self.data_BS  = data[5]
+        self.data_BS  = data[6] if len(data) > 6 else data[5]
+
+        # Lectura instantánea (I_new) e inicial de fondo (I_old) como flotantes escalares
+        I_new = float(self.data1[-1]) if len(self.data1) > 0 else 0.0
+        I_old = float(self.data1[0]) if len(self.data1) > 0 else 1.0
         elapsed       = time.time() - self.timer_inicio
 
         # 1. Derivada Discreta dI/dt (V/s) en ventana corta
@@ -1137,7 +1145,15 @@ class Backend(QObject):
                 self.startX += dx_drift
                 self.startY += dy_drift
 
-            down_flipper(); time.sleep(1)
+                # Calcular y actualizar casilla de Desplazamiento Acumulado
+                disp_x = self.startX - self.xref - getattr(self, 'start_x_offset', 0.0)
+                disp_y = self.startY - self.yref - getattr(self, 'start_y_offset', 0.0)
+                mag = float(np.sqrt(disp_x**2 + disp_y**2))
+                disp_str = f"({disp_x:+.3f}, {disp_y:+.3f}) µm | r={mag:.3f} µm"
+                if hasattr(self, 'disp_acumuladoEdit'):
+                    self.disp_acumuladoEdit.setText(disp_str)
+
+            down_flipper(); time.sleep(0.5)  # Conmutar a alta potencia para continuar la impresión
             pi.MOV([1, 2], [self.grid_x[self.i_global] + self.startX,
                             self.grid_y[self.i_global] + self.startY])
             time.sleep(0.1)
