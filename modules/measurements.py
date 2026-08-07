@@ -434,10 +434,10 @@ class Frontend(QFrame):
         self.substrate   = QLineEdit("—"); self.substrate.setToolTip("Sustrato y funcionalización (ej. vidrio + PDDA + PSS).")
         self.NPevents    = QLineEdit("—"); self.NPevents.setToolTip("Porcentaje de eventos de impresión detectados (%).")
         self.NPsuccess   = QLineEdit("—"); self.NPsuccess.setToolTip("Porcentaje de éxito en la formación de la grilla (%).")
-        self.disp_acumuladoEdit = QLineEdit("(+0.000, +0.000) µm | r=0.000 µm")
+        self.disp_acumuladoEdit = QLineEdit("(+0.0, +0.0) nm | r=0.0 nm")
         self.disp_acumuladoEdit.setReadOnly(True)
         self.disp_acumuladoEdit.setStyleSheet("font-family: monospace; font-weight: bold; color: #4a9eff;")
-        self.disp_acumuladoEdit.setToolTip("Desplazamiento vectorial acumulado (Δx, Δy) µm corregido por Drift Correction.")
+        self.disp_acumuladoEdit.setToolTip("Desplazamiento vectorial acumulado (Δx, Δy) nm corregido por Drift Correction.")
         self.extra_info  = QLineEdit("—"); self.extra_info.setToolTip("Comentarios experimentales adicionales.")
         self.grid_save_info_button = QPushButton("Save info")
         self.grid_save_info_button.setToolTip("Guarda el archivo grid_info.txt en la carpeta del lote experimental.")
@@ -1162,11 +1162,11 @@ class Backend(QObject):
                 self.startX = float(center_mass[0])
                 self.startY = float(center_mass[1])
 
-                # Calcular y actualizar casilla de Desplazamiento Acumulado
-                disp_x = self.startX - self.xref - getattr(self, 'start_x_offset', 0.0)
-                disp_y = self.startY - self.yref - getattr(self, 'start_y_offset', 0.0)
-                mag = float(np.sqrt(disp_x**2 + disp_y**2))
-                disp_str = f"({disp_x:+.3f}, {disp_y:+.3f}) µm | r={mag:.3f} µm"
+                # Calcular y actualizar casilla de Desplazamiento Acumulado (convertido a nanómetros)
+                disp_x_nm = (self.startX - self.xref - getattr(self, 'start_x_offset', 0.0)) * 1000.0
+                disp_y_nm = (self.startY - self.yref - getattr(self, 'start_y_offset', 0.0)) * 1000.0
+                mag_nm = float(np.sqrt(disp_x_nm**2 + disp_y_nm**2))
+                disp_str = f"({disp_x_nm:+.1f}, {disp_y_nm:+.1f}) nm | r={mag_nm:.1f} nm"
                 if hasattr(self, 'disp_acumuladoEdit'):
                     self.disp_acumuladoEdit.setText(disp_str)
 

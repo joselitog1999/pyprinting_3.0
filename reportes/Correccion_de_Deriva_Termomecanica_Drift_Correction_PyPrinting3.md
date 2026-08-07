@@ -93,9 +93,10 @@ flowchart TD
    La coordenada física medida $X_{\text{CM}}, Y_{\text{CM}}$ se almacena directamente como la nueva posición absoluta del ancla:
    $$X_{\text{start}} = X_{\text{CM}}, \quad Y_{\text{start}} = Y_{\text{CM}}$$
    Esto garantiza estabilidad perfecta sin acumulación espuria en escaneos subsecuentes.
-6. **Cálculo del Desplazamiento Vectorial Acumulado**:
-   $$\Delta x_{\text{acumulado}} = X_{\text{start}} - X_{\text{ref}}, \quad \Delta y_{\text{acumulado}} = Y_{\text{start}} - Y_{\text{yref}}$$
-   El vector se presenta en tiempo real en la casilla **Desplazamiento acumulado** del panel *Extra info*.
+6. **Cálculo del Desplazamiento Vectorial Acumulado en Nanómetros**:
+   $$\Delta x_{\text{nm}} = (X_{\text{start}} - X_{\text{ref}} - X_{\text{offset}}) \cdot 1000, \quad \Delta y_{\text{nm}} = (Y_{\text{start}} - Y_{\text{ref}} - Y_{\text{offset}}) \cdot 1000$$
+   $$\|\vec{D}\|_{\text{nm}} = \sqrt{\Delta x_{\text{nm}}^2 + \Delta y_{\text{nm}}^2}$$
+   El vector se presenta en tiempo real expresado en nanómetros ($\text{nm}$) en la casilla **Desplazamiento acumulado** del panel *Extra info*.
 7. **Conmutación a Alta Potencia e Impresión del Nodo**: El flipper baja a alta potencia (`down_flipper()`), la platina se desplaza a la posición compensada del nodo $i$ (`grid_x[i] + X_start`, `grid_y[i] + Y_start`) y continúa la impresión.
 
 ---
