@@ -1090,31 +1090,59 @@ class ExternalPiPWidget(QWidget):
         self._cx = 0.5
         self._cy = 0.5
         self._zoom_level = 1.0
+        self._is_dragging = False
+        self._locked = False
+
+    def set_locked(self, locked: bool):
+        self._locked = locked
+        if locked:
+            self.setCursor(Qt.CursorShape.WaitCursor)
+        else:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        self.update()
 
     def set_full_unzoomed_frame(self, frame: np.ndarray):
         self._unzoomed_frame = frame
         self.update()
 
     def set_zoom_state(self, cx: float, cy: float, zoom_level: float):
-        self._cx = max(0.0, min(1.0, cx))
-        self._cy = max(0.0, min(1.0, cy))
+        if not self._is_dragging:
+            self._cx = max(0.0, min(1.0, cx))
+            self._cy = max(0.0, min(1.0, cy))
         self._zoom_level = zoom_level
         self.update()
 
     def mousePressEvent(self, event):
+        if self._locked:
+            event.ignore()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
-            self._handle_click(event.position())
+            self._is_dragging = True
+            self._update_preview_pos(event.position())
 
     def mouseMoveEvent(self, event):
-        if event.buttons() & Qt.MouseButton.LeftButton:
-            self._handle_click(event.position())
+        if self._locked:
+            event.ignore()
+            return
+        if self._is_dragging and (event.buttons() & Qt.MouseButton.LeftButton):
+            self._update_preview_pos(event.position())
 
-    def _handle_click(self, pos):
+    def mouseReleaseEvent(self, event):
+        if self._locked:
+            event.ignore()
+            return
+        if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
+            self._is_dragging = False
+            self._update_preview_pos(event.position())
+            self.set_locked(True)
+            self.positionClickedSignal.emit(self._cx, self._cy)
+
+    def _update_preview_pos(self, pos):
         W, H = self.width(), self.height()
         if W > 0 and H > 0:
-            cx = max(0.0, min(1.0, pos.x() / W))
-            cy = max(0.0, min(1.0, pos.y() / H))
-            self.positionClickedSignal.emit(cx, cy)
+            self._cx = max(0.0, min(1.0, pos.x() / W))
+            self._cy = max(0.0, min(1.0, pos.y() / H))
+            self.update()
 
     def paintEvent(self, _event):
         p = QPainter(self)
@@ -1152,6 +1180,15 @@ class ExternalPiPWidget(QWidget):
             p.setPen(QPen(QColor(255, 220, 0, 240), 1))
             p.drawLine(QPointF(mcx - 5, mcy), QPointF(mcx + 5, mcy))
             p.drawLine(QPointF(mcx, mcy - 5), QPointF(mcx, mcy + 5))
+
+        if self._locked:
+            p.fillRect(self.rect(), QColor(0, 0, 0, 150))
+            p.setPen(QPen(QColor(255, 220, 0, 240), 1))
+            font = p.font()
+            font.setPointSize(9)
+            font.setBold(True)
+            p.setFont(font)
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "⏳ Actualizando Canon...")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1732,6 +1769,15 @@ class CameraWindow(QMainWindow):
         self._canon_cy = cy
         self._sync_canon_zoom_hardware()
 
+    def _set_zoom_controls_enabled(self, enabled: bool):
+        btns = (getattr(self, '_btn_up', None), getattr(self, '_btn_down', None),
+                getattr(self, '_btn_left', None), getattr(self, '_btn_right', None),
+                getattr(self, '_btn_center', None), getattr(self, '_btn_zoom_in_canon', None),
+                getattr(self, '_btn_zoom_out_canon', None))
+        for b in btns:
+            if b is not None:
+                b.setEnabled(enabled)
+
     def _sync_canon_zoom_hardware(self):
         val = self._canon_zoom_levels[self._canon_zoom_idx]
         txt = "Zoom: 1x (Campo Completo)" if val == 1 else (f"Zoom: {val}x (Hardware Canon)" if val < 10 else f"Zoom: {val}x (Máximo Enfoque)")
@@ -1742,8 +1788,11 @@ class CameraWindow(QMainWindow):
             self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
 
         if self._is_camera_active:
+            if hasattr(self, '_ext_pip'):
+                self._ext_pip.set_locked(True)
+            self._set_zoom_controls_enabled(False)
             if hasattr(self, '_lbl_status'):
-                self._lbl_status.setText("⏳ Aplicando Zoom Canon en hardware... (Esperando respuesta ~2s)")
+                self._lbl_status.setText("⏳ Aplicando Zoom Canon en hardware... (Bloqueado ~2s)")
             self._debounce_zoom_timer.start()
 
     def _apply_debounced_canon_zoom(self):
@@ -1753,6 +1802,9 @@ class CameraWindow(QMainWindow):
             self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
             if hasattr(self, '_lbl_status'):
                 self._lbl_status.setText("Transmisión en Vivo Canon activa.")
+        if hasattr(self, '_ext_pip'):
+            self._ext_pip.set_locked(False)
+        self._set_zoom_controls_enabled(True)
 
     def _open_log_dialog(self):
         self._log_dialog.show()
