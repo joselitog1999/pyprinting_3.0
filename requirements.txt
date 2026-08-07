@@ -1,7 +1,11 @@
 # ==============================================================================
 # PyPrinting 3.0 — UNSAM Nanofotónica
-# Requerimientos de Dependencias (Python >= 3.10)
+# Requerimientos de Dependencias y Entorno Python
 # ==============================================================================
+#
+# RANGO DE VERSIONES DE PYTHON COMPATIBLES:
+#   Python >= 3.10, < 3.14  (Soportado y verificado en Python 3.10, 3.11, 3.12 y 3.13)
+#   Recomendación: Python 3.12 o 3.13 (64-bit) en Windows 10 / 11
 #
 # INSTRUCCIONES DE INSTALACIÓN RÁPIDA (Luego de git pull / git clone):
 #
