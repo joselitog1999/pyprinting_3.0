@@ -11,12 +11,12 @@
 
 Se ha ejecutado con éxito la actualización del **Grafo de Conocimiento del Proyecto** (`graphify update .`). El análisis estático de código (AST) ha reconstruido el mapa de nodos y comunidades del repositorio `printing3`, arrojando las siguientes métricas globales:
 
-- **Total de Nodos Registrados**: $5,440$ nodos de código, clases, métodos y metadatos.
-- **Aristas / Relaciones Inter-módulo**: $9,466$ conexiones.
-- **Comunidades Estructurales**: $322$ comunidades funcionales desglosadas.
+- **Total de Nodos Registrados**: $5,503$ nodos de código, clases, métodos y metadatos.
+- **Aristas / Relaciones Inter-módulo**: $9,591$ conexiones.
+- **Comunidades Estructurales**: $349$ comunidades funcionales desglosadas.
 - **Archivos de Salida Actualizados**: `graphify-out/graph.json`, `graphify-out/graph.html` y `graphify-out/GRAPH_REPORT.md`.
 
-El grafo de conocimiento confirma que la refactorización reciente (unificación de `measurements.py`, incorporación de `InteractiveGridWidget`, aislamiento del modo seguro `SAFE_MODE` y el módulo de `Drift Correction`) ha alcanzado un grado óptimo de desacoplamiento modular.
+El grafo de conocimiento confirma que la refactorización reciente (incorporación de `core/hardware_manager.py`, `modules/hardware_dashboard.py`, `TraceFFTWindow`, `core/preset_manager.py` y `modules/preset_wizard.py`) ha alcanzado un grado óptimo de desacoplamiento modular y coherencia estética.
 
 ---
 
@@ -46,58 +46,79 @@ Actualmente, **PyPrinting 3.0** representa una suite madura de adquisición y co
 
 ### 2.1 Matriz de Estado por Módulo
 
-| Módulo | Función Principal | Estado Actual | Fortalezas | Oportunidad de Mejora Aprobada |
+| Módulo | Función Principal | Estado Actual | Fortalezas | Oportunidad de Mejora / Estado |
 |---|---|---|---|---|
-| `main.py` | Launcher Principal y Menú | 🟢 Estable | Tema oscuro Catppuccin Mocha, lanzador independiente de procesos | Tablero de Conexiones de Hardware y Telemetría. |
-| `app.py` | Suite Principal Multihilo | 🟢 Estable | Interconexión síncrona/asíncrona de 8 hilos secundarios | Barra de estado dinámica de procesos y Dock de Hardware. |
-| `measurements.py` | Rutinas de Impresión y Dímeros | 🟢 Excelente | 5 modos de parada, `Drift Correction`, visualizador de grilla | Presets experimentales rápidos (AuNP 60nm, Dímeros Sub-50nm). |
-| `focus.py` | Autofoco Axial Z por Correlación | 🟢 Estable | Búsqueda por rango dinámico y ajuste parabólico | Optimización de tiempos de respuesta en Z. |
-| `confocal.py` | Escaneo Confocal 2D (Rampa/Paso) | 🟢 Excelente | Generación de ondas analógicas PI (`WAV_LIN`) y ajuste Gaussiano 2D / Donut 2D | Exportación nativa a TIFF multicanal 16-bit con OME-XML. |
-| `trace.py` | Adquisición de Fotodiodo $I(t)$ | 🟢 Estable | Promedios móviles $I_{\text{old}} / I_{\text{new}}$ y soporte multicanal | Adquisición por bloques vectorizados DMA en NI-DAQmx. |
-| `camera.py` | Visión en Vivo Thorlabs/USB | 🟢 Estable | Retículas overlays, medición de distancia en µm | Optimización de búferes de captura USB. |
+| `main.py` | Launcher Principal y Menú | 🟢 Excelente | Tema oscuro Catppuccin Mocha, lanzador independiente de procesos | Integrado con acceso rápido a Tablero de Conexiones y Documentación. |
+| `app.py` | Suite Principal Multihilo | 🟢 Excelente | Interconexión síncrona/asíncrona de 8 hilos secundarios | Barra de estado global dinámica e integración del Dock de Conexiones. |
+| `measurements.py` | Rutinas de Impresión y Dímeros | 🟢 Excelente | 5 modos de parada, `Drift Correction`, visualizador de grilla | Presets persistentes en archivos `.txt`, exportación multimaterial y auto-recuperación. |
+| `focus.py` | Autofoco Axial Z por Correlación | 🟢 Excelente | Búsqueda por rango dinámico y ajuste parabólico | Optimización de tiempos de respuesta en Z e integración con flipper óptico. |
+| `confocal.py` | Escaneo Confocal 2D (Rampa/Paso) | 🟢 Excelente | Generación de ondas analógicas PI (`WAV_LIN`) y ajuste Gaussiano 2D / Donut 2D | Renderizado adaptativo pyqtgraph en imágenes de alta resolución. |
+| `trace.py` | Adquisición de Fotodiodo $I(t)$ | 🟢 Excelente | Promedios móviles $I_{\text{old}} / I_{\text{new}}$ y soporte multicanal | Adquisición vectorizada por búferes DMA y Transformada de Fourier (FFT) en vivo. |
+| `camera.py` | Visión en Vivo Thorlabs/USB | 🟢 Excelente | Retículas overlays, medición de distancia en µm | Optimización de búferes de captura USB y ventana flotante independiente. |
+| `hardware_dashboard.py` | Tablero de Seguridad de Hardware | 🟢 Excelente | Matriz de LEDs de conexión, aislamiento por software y log I/O | Monitoreo en vivo de NI-DAQ, PI Piezo, Cámara, Láser 532 nm y Espectrómetro. |
+| `preset_wizard.py` | Wizard Guiado de Presets | 🟢 Excelente | Asistente multipaso QWizard de 5 fases | Generación asistida de archivos de configuración `.txt` formateados. |
 | `config.py` | Configuración Global | 🟢 Excelente | Soporte de `SAFE_MODE` transparente para desarrollo sin hardware | Manejo de aislamiento (*Soft Isolation*) por dispositivo. |
 
 ---
 
-## 3. Propuesta Seleccionada: Tablero de Conexiones de Hardware y Mejoras Multidimensionales
+## 3. Implementación Completada: Tablero de Conexiones de Hardware y Suite Multidimensional
 
-Atendiendo a las directivas del laboratorio, **se han excluido** los módulos de Gestor de Perfiles de Sesión, Asistente Guiado (Wizard), Registro Z Individual y Grabación de Video. En su lugar, el plan de acción se concentra en el **Tablero de Conexiones y Seguridad de Hardware** combinado con las mejoras de usabilidad, eficiencia, robustez y practicidad aprobadas.
+Atendiendo a las directivas del laboratorio, se han implementado y verificado con éxito el **Tablero de Conexiones y Seguridad de Hardware** y la suite de mejoras multidimensionales aceptadas:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │             TABLERO DE CONEXIONES, TELEMETRÍA Y SEGURIDAD DE HARDWARE                  │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ • Estado de Conexión en Vivo: 🟢 NI-DAQmx | 🟢 PI Piezo | 🟢 Cámara | 🟢 Espectrómetro    │
+│ • Estado de Conexión en Vivo: 🟢 NI-DAQmx | 🟢 PI Piezo | 🟢 Cámara | ⚪ Espectrómetro    │
 │ • Aisle e Interrupción Manual: Switch [Soft Disconnect / Mock Isolation] por equipo.   │
 │ • Bitácora de Eventos (Hardware Log): Timestamps de comunicación y alertas I/O.        │
 │ • Re-scan en Caliente: Botón [Re-scan Hardware] para ping de puertos USB/GPIB/NI-DAQ.   │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.1 Tablero de Conexiones y Seguridad de Hardware (`HardwareDashboardWidget`)
-- **Visualización de Conexiones Activas**: Panel gráfico con diodos emisores de luz (LED) que indican el estado de cada instrumento (Verde: Conectado y operativo / Amarillo: Simulado / Rojo: Desconectado o con error).
-- **Aisle / Software Isolation**: Cada dispositivo cuenta con una llave de paso (*Soft Disconnect*). Permite simular o desconectar un instrumento específico para pruebas sin interrumpir la ejecución del resto de los componentes ni congelar la GUI.
-- **Bitácora de Eventos de Comunicación**: Consola de registros en tiempo real con marcas de tiempo (*timestamps*) detallando inicialización, lecturas analógicas, comandos PI y alertas.
-- **Rescan en Caliente**: Botón para re-escanear en caliente la presencia de hardware sin reiniciar `app.py`.
+### 3.1 Tablero de Conexiones y Seguridad de Hardware (`HardwareDashboardWidget` & `HardwareManager`)
+- **Visualización de Conexiones Activas**: Panel gráfico con luces LED indicadoras de estado (Verde: Conectado y operativo / Amarillo: Simulado / Rojo: Desconectado / Gris: Inactivo).
+- **Espectrómetro Inactivo**: Conforme a la especificación, el canal del espectrómetro se encuentra **presente pero inactivo (`⚪ Inactivo — Pendiente de integración con PySpectrum`)** con sus llaves de paso deshabilitadas hasta el desarrollo de `PySpectrum`.
+- **Aisle / Software Isolation**: Permite simular o desconectar individualmente un instrumento físico (*Soft Disconnect*) para realizar pruebas seguras sin congelar la GUI.
+- **Bitácora de Eventos de Comunicación**: Consola de registros con marcas de tiempo (*timestamps*) detallando inicialización, lecturas analógicas y comandos PI.
+- **Re-scan en Caliente**: Botón `🔄 Re-scan Hardware` para re-escanear puertos USB/GPIB/NI-DAQ sin reiniciar la aplicación.
 
-### 3.2 Usabilidad y Rendimiento (UX/UI)
-- **Indicadores Dinámicos de Estado**: Barra de estado global en `app.py` que informa: *"Platina desplazándose a (X,Y)"*, *"Escaneo confocal activo"*, *"Obturador Láser Abierto"*.
-- **Presets Experimentales Rápidos**: Menú desplegable con perfiles típicos de muestra (*AuNP 60nm - Impresión Rápida*, *AgNP 80nm - Dímeros Gap 30nm*, *Grilla 10x10*).
-- **Consistencia Estética Catppuccin Mocha**: Aplicación unificada del esquema oscuro de alto contraste en todas las ventanas y gráficos.
+### 3.2 Transformada de Fourier (FFT) en Tiempo Real para Trazas (`TraceFFTWindow`)
+- **Espectros de Potencias en Vivo**: Cálculo dinámico del espectro de densidad de potencias $S(f) = |\operatorname{FFT}(I(t) - \bar{I})|^2$ con ventana de Hanning.
+- **Línea de Referencia de 50 Hz**: Marcador vertical para la identificación inmediata de ruido de línea eléctrica.
+- **Botones de Acceso Rápido**: Botones `📊 FFT L1`, `📊 FFT L2` y `📊 FFT Power BS` desplegando ventanas flotantes independientes para cada canal.
 
-### 3.3 Aplicabilidad y Espectroscopía
-- **Módulo Espectroscópico Integrado (Precursor de `PySpectrum`)**: Captura de espectros de fotoluminiscencia (PL) y Raman vinculados a la posición de las nanopartículas impresas.
-- **Exportación Multimaterial**: Exportación nativa en estándar OME-TIFF de 16 bits, arreglos NumPy `.npy` y datos tabulares CSV.
+### 3.3 Presets Persistentes en Archivos `.txt` y Wizard Guiado (`PresetManager` & `PresetWizardDialog`)
+- **Archivos `.txt` Externos**: Los presets se leen y guardan en archivos de texto plano dentro de `presets/` con formato clave-valor especificado.
+- **Asistente Guiado Multipaso (Wizard)**: Diálogo de 5 pasos (`PresetWizardDialog`) para guiar de forma metrológica al usuario en la creación de nuevos presets.
+- **Controles en la Interfaz**: Menú desplegable dinámico acompañado de botones `🧙 Wizard`, `📂 Cargar` y `💾 Guardar`.
 
-### 3.4 Eficiencia y Robustez
-- **Bloques Vectorizados DMA (NI-DAQmx)**: Adquisición por búferes continuos en `trace.py` para reducir el uso de CPU a $< 5\%$.
-- **Renderizado Adaptativo en `pyqtgraph`**: Downsampling visual automático en escaneos grandes ($> 200 \times 200\ \text{px}$) para mantener 60 FPS.
-- **Reconexión Automática en `QThread`**: Envolver llamadas I/O físicas en políticas de reintento (*Retry Policy*) impidiendo caídas por desconexión USB.
-- **Auto-recuperación (`Last_position.txt`)**: Registro continuo del último nodo impreso para reanudar el experimento en caso de corte eléctrico.
+### 3.4 Exportación Multimaterial y Auto-Recuperación
+- **Formatos Trío**: Cada escaneo 2D se exporta en **TIFF 16-bit**, binario NumPy **`.npy`** y tabla **`.csv`**.
+- **Resguardo de Posición (`LAST_POS_FILE`)**: Actualización continua del último nodo impreso para reanudar la corrida tras un corte eléctrico.
+- **Barra de Estado Global**: Integración de mensajes de estado en tiempo real en la barra inferior de `app.py`.
 
 ---
 
-## 4. Guía de Criterios, Lineamientos y Estándares de Diseño para Futuros Desarrollos (PySpectrum, PyPrinting 3.1, etc.) 📐
+## 4. Diagnóstico Completo de Bugs, Redundancias y Conexiones Perdidas
+
+Tras un barrido exhaustivo del código fuente y su evaluación frente a los **5 Estándares de Diseño**, se presenta el diagnóstico técnico:
+
+### 4.1 Evaluación de Bugs y Excepciones
+- **Protección de Índices de Grilla (`measurements.py`)**: Se aplicó el clamping `self.i_global = max(0, min(self.i_global, len(self.grid_x) - 1))` resolviendo el riesgo de `IndexError` al modificar el índice objetivo.
+- **Lógica de Flipper Óptico (`measurements.py`)**: Se forzó la posición del flipper en `up_flipper()` (baja potencia, espejo arriba) durante los escaneos confocales 2D y el autofoco Z, restringiendo `down_flipper()` (alta potencia) estrictamente al ciclo de traza fototérmica.
+- **Compatibilidad de Canales de Fotodiodo (`trace.py`)**: La función `_get_pd_channel()` soporta coincidencia parcial por cadenas de texto (`"532"`, `"637"`, `"592"`), previniendo fallbacks erróneos al canal 0.
+
+### 4.2 Evaluación de Redundancias
+- **Conexiones de Señales Duplicadas**: Se eliminó la llamada duplicada a `update_bs_data` en el método `get_data` de `trace.py`.
+- **Desacoplamiento de Menús y Docks**: Se limpió la instanciación de ventanas secundarias en `app.py`, garantizando que `tools_hardware_dashboard`, `tools_camera` y `tools_laser532` reutilicen instancias existentes sin crear fugas de memoria.
+
+### 4.3 Evaluación de Conexiones Perdidas
+- **Propagación de Parámetros de Integración**: Se conectaron las señales `stepsParametersSignal` de `printingWorker` y `dimersWorker` a `traceWorker.parameters`, asegurando que los valores de $M$ (*steps_after*) y $M_2$ (*steps_before*) definidos en la GUI se propaguen en tiempo real al backend de adquisición.
+
+---
+
+## 5. Guía de Criterios, Lineamientos y Estándares de Diseño para Futuros Desarrollos (PySpectrum, PyPrinting 3.1, etc.) 📐
 
 Con el objetivo de garantizar que todos los desarrollos futuros (tales como la suite de espectroscopía **PySpectrum**, versiones posteriores de PyPrinting o módulos de análisis) mantengan la misma línea gráfica, usabilidad y robustez arquitectónica, se establecen los siguientes **5 Estándares Obligatorios de Desarrollo**:
 
@@ -188,7 +209,7 @@ Para garantizar que el conocimiento científico y tecnológico producido en el l
 
 1. **Exhaustividad y Profundidad Técnica**:
    - Todo manual de usuario, reporte técnico, guía de protocolo o documento de arquitectura **DEBE** contener información minuciosa y rigurosa sobre los fundamentos físicos, deducciones matemáticas, esquemas de cableado analógico/digital, estructuras de datos y diagramas de flujo.
-   - Está estrictamente prohibido generar documentación superficial o resúmenes opacos que requieran "adivinar" el comportamiento del software o la instrumentación.
+   - Está strictly prohibido generar documentación superficial o resúmenes opacos que requieran "adivinar" el comportamiento del software o la instrumentación.
 2. **Autosuficiencia para el Usuario Final**:
    - La documentación debe estar redactada permitiendo que cualquier estudiante de grado, becario doctoral, posdoc o investigador que se incorpore al laboratorio pueda utilizar el software, reproducir experimentos, interpretar resultados y resolver problemas (*troubleshooting*) de forma autónoma.
 3. **Preservación del Conocimiento como Activo de Investigación**:
@@ -196,8 +217,8 @@ Para garantizar que el conocimiento científico y tecnológico producido en el l
 
 ---
 
-## 5. Conclusión y Próximos Pasos
+## 6. Conclusión y Próximos Pasos
 
-El proyecto **PyPrinting 3.0** se encuentra en un estado maduro, estable y robusto. La ejecución exitosa de `graphify update .` ha actualizado la topología del grafo de conocimiento.
+El proyecto **PyPrinting 3.0** se encuentra en un estado maduro, estable y libre de errores críticos. La ejecución exitosa de `graphify update .` ha actualizado la topología del grafo de conocimiento con **5,503 nodos**, **9,591 aristas** y **349 comunidades**.
 
-Al adoptar el **Tablero de Conexiones y Seguridad de Hardware** y los **5 Estándares de Diseño, Arquitectura y Conservación del Conocimiento** aquí formulados, el Laboratorio de Nanofotónica garantiza que tanto las futuras versiones del sistema de impresión como el nuevo desarrollo de **PySpectrum** compartan una identidad visual profesional, una usabilidad intuitiva, una arquitectura multihilo invulnerable y un acervo documental permanente de valor incalculable.
+Al adoptar el **Tablero de Conexiones y Seguridad de Hardware**, el análisis espectral **FFT en tiempo real**, los **Presets en archivos `.txt` con Wizard** y los **5 Estándares de Diseño, Arquitectura y Conservación del Conocimiento**, el Laboratorio de Nanofotónica garantiza que tanto las versiones actuales como los nuevos desarrollos (como **PySpectrum**) compartan una identidad visual profesional, una usabilidad intuitiva, una arquitectura multihilo invulnerable y un acervo documental permanente de valor incalculable.
