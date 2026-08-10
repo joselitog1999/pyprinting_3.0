@@ -8,7 +8,7 @@ Esta versión (**PyPrinting 3.0**) refactoriza y moderniza por completo la arqui
 * **Módulo de Caracterización de PSF (`psf_analyzer.py`)**: Caracterización analítica 2D (Gaussiana de 7 parámetros y Donut $LG_{01}$), residuales, perfiles 1D y desalineación sub-nanométrica ($\Delta r_{\text{nm}}$).
 * **Visión por computadora en tiempo real (`camera.py`)**: Control nativo de cámaras réflex Canon EOS 500D (EDSDK 64-bit) y cámaras USB OpenCV con procesamiento de imágenes, paletas LUT y tracking dinámico (`trackpy`).
 * **Protección de Exclusión Mutua en Hardware Real**: Bloqueo automático en `main.py` para evitar que el Microscopio Derecho y el Contrapropagante compitan simultáneamente por la platina PI E-517 o la tarjeta NI-DAQmx.
-* **Modelo de Incertidumbre Metrológica (Norma ISO/GUM)**: Documentado en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`, respaldando la resolución sub-píxel ($\approx 0.35\ \text{nm}$) con objetivo de agua $60\times$ $\text{NA}=1.0$, pinhole de $50\ \mu\text{m}$ y tamaño de píxel óptimo ($\Delta x \in [15, 25]\ \text{nm/px}$).
+* **Modelo de Incertidumbre Metrológica (Norma ISO/GUM)**: Documentado en `reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`, respaldando la resolución sub-píxel ($\approx 0.35\ \text{nm}$) con objetivo de agua $60\times$ $\text{NA}=1.0$, pinhole de $50\ \mu\text{m}$ y tamaño de píxel óptimo ($\Delta x \in [15, 25]\ \text{nm/px}$).
 * **Modo Seguro (`SAFE_MODE`) con simulación completa de hardware**: Simulación coherente de platina piezoeléctrica PI E-517 ($0-100\ \mu\text{m}$), tarjetas NI-DAQmx y transmisión de video sintética.
 
 ---
@@ -56,18 +56,22 @@ printing3/
     ├── README.md         # 📖 Documentación exhaustiva y fundamentos físicos/matemáticos.
     ├── MANUAL_USUARIO.md # 📘 Manual detallado de usuario, protocolos y FAQ.
     ├── WALKTHROUGH.md    # 📝 Registro continuo de cambios y validaciones.
-    └── reportes/         # 📑 Informes metrológicos y técnicos:
-        ├── Incertidumbre_Metrologica_PyPrinting3.md
-        ├── Algoritmo_Printing_y_Dimers_PyPrinting3.md
-        ├── Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md
-        ├── Modulo_Camara_Canon_EOS500D_PyPrinting3.md
-        ├── Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md
-        ├── Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md
-        ├── Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md
-        ├── Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md
-        ├── Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md
-        ├── Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md
-        └── Matriz_de_Intercambio_de_Archivos_PyPrinting3.md
+    └── reportes/         # 📑 Informes metrológicos y técnicos desglosados:
+        ├── ⚙️ sistema/
+        │   ├── Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md
+        │   ├── Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md
+        │   ├── Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md
+        │   ├── Diagnostico_Integral_y_Comparativo_PyPrinting3.md
+        │   ├── Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md
+        │   ├── Matriz_de_Intercambio_de_Archivos_PyPrinting3.md
+        │   ├── Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md
+        │   └── Modulo_Camara_Canon_EOS500D_PyPrinting3.md
+        └── 🔬 cientificos/
+            ├── Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md
+            ├── Incertidumbre_Metrologica_PyPrinting3.md
+            ├── Algoritmo_Printing_y_Dimers_PyPrinting3.md
+            ├── Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md
+            └── Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md
 ```
 
 ---
