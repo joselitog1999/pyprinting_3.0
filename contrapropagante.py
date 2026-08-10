@@ -404,6 +404,7 @@ class ConfocalDualBackend(QObject):
     dataDualSignal = pyqtSignal(np.ndarray, np.ndarray)
     cmDualSignal = pyqtSignal(list, list)
     scanfinishedSignal = pyqtSignal(np.ndarray, np.ndarray, list, list)
+    gridScanFinishedSignal = pyqtSignal(np.ndarray, list, np.ndarray, np.ndarray, str, str)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -435,6 +436,7 @@ class ConfocalDualBackend(QObject):
         self.cm_bot = [0.0, 0.0]
         self.signal_scan_stop = False
         self.PDtimer_rampxy = None
+        self.is_grid_routine = False
 
     def _ensure_timer(self):
         if self.PDtimer_rampxy is None:
@@ -502,6 +504,15 @@ class ConfocalDualBackend(QObject):
         self.range_x, self.range_y, self.Nx, self.Ny = p[0], p[1], int(p[2]), int(p[3])
         self.scaleSignal.emit(round(self.range_x / self.Nx, 3), round(self.range_y / self.Ny, 3))
 
+    @pyqtSlot(str, str, str)
+    def start_scan_routines(self, laser: str, mode_printing: str, number_scan: str):
+        self.mode_printing = mode_printing
+        self.number_scan   = number_scan
+        self.is_grid_routine = True
+        top_idx = 0
+        bot_idx = 1 if len(SHUTTERS) > 1 else 0
+        self.start_scan(top_idx, bot_idx)
+
     @pyqtSlot(int, int)
     def start_scan(self, top_laser_idx: int, bot_laser_idx: int):
         self._ensure_timer()
@@ -557,7 +568,13 @@ class ConfocalDualBackend(QObject):
             close_shutter("637 nm (red)")
             close_shutter("592 nm (yellow)")
             self.measure_CM()
-            self.scanfinishedSignal.emit(self.image_top, self.image_bot, self.cm_top, self.cm_bot)
+            if getattr(self, 'is_grid_routine', False):
+                self.is_grid_routine = False
+                self.gridScanFinishedSignal.emit(self.image_top, self.cm_top, None, None,
+                                                 getattr(self, 'mode_printing', 'none'),
+                                                 getattr(self, 'number_scan', 'none'))
+            else:
+                self.scanfinishedSignal.emit(self.image_top, self.image_bot, self.cm_top, self.cm_bot)
             return
 
         dy = self.range_y / self.Ny
@@ -693,6 +710,7 @@ class ContrapropaganteMainWindow(QMainWindow):
         self._add_action(fm, "Cargar última posición", lambda: self.loadPositionSignal.emit())
 
         tm = mb.addMenu("&Tools")
+        self._add_action(tm, "Tablero de Conexiones", self.tools_hardware_dashboard, "Ctrl+H")
         self._add_action(tm, "Cámara", lambda: (self.cameraWindow.show(), self.cameraWindow.raise_()))
         self._add_action(tm, "Analizador de Imágenes", lambda: (self.imageAnalyzerWindow.show(), self.imageAnalyzerWindow.raise_()))
         self._add_action(tm, "PSF Analyzer", lambda: (self.psfAnalyzerWindow.show(), self.psfAnalyzerWindow.raise_()))
@@ -706,6 +724,9 @@ class ContrapropaganteMainWindow(QMainWindow):
         dm = mb.addMenu("&Docks")
         self._add_action(dm, "Guardar configuración", self.save_docks)
         self._add_action(dm, "Restaurar configuración", self.load_docks)
+
+        # Barra de Estado Global
+        self.statusBar().showMessage("🟢 PyPrinting Contrapropagante listo | Todos los sistemas en estado nominal")
 
     def _setup_docks(self):
         grid = QGridLayout(self._cwidget)
@@ -737,7 +758,14 @@ class ContrapropaganteMainWindow(QMainWindow):
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
 
-        # 5. Trace — abajo de todo ocupando todo el ancho
+        # 5. Tablero de Conexiones & Hardware 🛡️ — a la derecha de shutters
+        from modules.hardware_dashboard import HardwareDashboardWidget
+        hardwareDock = Dock("Tablero de Conexiones & Hardware 🛡️", size=(400, 180))
+        self.hardwareWidget = HardwareDashboardWidget()
+        hardwareDock.addWidget(self.hardwareWidget)
+        self.dockArea.addDock(hardwareDock, "right", shuttersDock)
+
+        # 6. Trace — abajo de todo ocupando todo el ancho
         traceDock = Dock("Trace", size=(1400, 240))
         self.traceWidget = TraceFrontend()
         traceDock.addWidget(self.traceWidget)
@@ -752,6 +780,11 @@ class ContrapropaganteMainWindow(QMainWindow):
         self.dimersWidget = MeasFrontend(mode="dimers")
 
         self.dual_frontend.analyzePSFSignal.connect(self._on_analyze_psf)
+
+    def tools_hardware_dashboard(self):
+        if hasattr(self, 'hardwareWidget'):
+            self.hardwareWidget.show()
+            self.hardwareWidget.raise_()
 
     def _on_analyze_psf(self):
         img_t = self.dual_frontend.image_top
@@ -789,6 +822,18 @@ class ContrapropaganteMainWindow(QMainWindow):
         backend.laser532Backend.make_connection(self.laser532Window)
         backend.printingWorker.make_connection(self.printingWidget)
         backend.dimersWorker.make_connection(self.dimersWidget)
+
+        # Conectar barra de estado global en tiempo real
+        backend.printingWorker.indexSignal.connect(
+            lambda i: self.statusBar().showMessage(f"📍 Posicionando e imprimiendo partícula {i}..."))
+        backend.printingWorker.grid_autofocusSignal.connect(
+            lambda m: self.statusBar().showMessage("🔍 Ejecutando autofoco Z por correlación axial..."))
+        backend.printingWorker.grid_traceSignal.connect(
+            lambda l, m: self.statusBar().showMessage(f"⚡ Adquiriendo traza fototérmica ({l}) a ALTA potencia..."))
+        backend.printingWorker.grid_scanSignal.connect(
+            lambda l, m, n: self.statusBar().showMessage(f"🔬 Escaneo confocal dual 2D en curso ({n})..."))
+        backend.printingWorker.patternFinishedSignal.connect(
+            lambda path: self.statusBar().showMessage(f"🎉 Patrón completado en: {path}"))
 
         def _on_set_reference(fx: float, fy: float):
             try:
@@ -835,6 +880,7 @@ class Backend(QObject):
                     self.focusWorker.lockdoneSignal,
                     self.focusWorker.autodoneSignal,
                     self.confocalDualWorker.scanfinishedSignal,
+                    self.confocalDualWorker.gridScanFinishedSignal,
                     self.printingWorker.grid_move_finishSignal,
                     self.printingWorker.goSignal,
                     self.dimersWorker.grid_move_finishSignal,
@@ -846,9 +892,9 @@ class Backend(QObject):
             elif mode == "dimers": self.dimersWorker.grid_finish_autofoco()
         self.focusWorker.autofinishSignal.connect(_on_autofinish)
 
-        self.confocalDualWorker.scanfinishedSignal.connect(
+        self.confocalDualWorker.gridScanFinishedSignal.connect(
             self.printingWorker.on_scan_finished)
-        self.confocalDualWorker.scanfinishedSignal.connect(
+        self.confocalDualWorker.gridScanFinishedSignal.connect(
             self.dimersWorker.on_scan_finished)
 
         def _dispatch_trace(data: list):
@@ -870,11 +916,29 @@ class Backend(QObject):
             self.focusWorker.focus_autocorr_lin_x2)
         self.printingWorker.grid_traceSignal.connect(
             self.traceWorker.trace_configuration)
+        self.printingWorker.stepsParametersSignal.connect(
+            self.traceWorker.parameters)
         self.printingWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
         self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan)
         self.printingWorker.grid_scanSignal.connect(
             self.confocalDualWorker.start_scan_routines)
         self.printingWorker.grid_scan_stopSignal.connect(
+            self.confocalDualWorker.stop_scan)
+
+        # Dimers cycle
+        self.dimersWorker.grid_move_finishSignal.connect(
+            self.dimersWorker.grid_autofoco)
+        self.dimersWorker.grid_autofocusSignal.connect(
+            self.focusWorker.focus_autocorr_lin_x2)
+        self.dimersWorker.grid_traceSignal.connect(
+            self.traceWorker.trace_configuration)
+        self.dimersWorker.stepsParametersSignal.connect(
+            self.traceWorker.parameters)
+        self.dimersWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
+        self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish)
+        self.dimersWorker.grid_scanSignal.connect(
+            self.confocalDualWorker.start_scan_routines)
+        self.dimersWorker.grid_scan_stopSignal.connect(
             self.confocalDualWorker.stop_scan)
 
 
