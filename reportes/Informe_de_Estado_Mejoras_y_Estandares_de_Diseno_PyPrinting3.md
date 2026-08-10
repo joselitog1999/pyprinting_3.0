@@ -11,12 +11,12 @@
 
 Se ha ejecutado con éxito la actualización del **Grafo de Conocimiento del Proyecto** (`graphify update .`). El análisis estático de código (AST) ha reconstruido el mapa de nodos y comunidades del repositorio `printing3`, arrojando las siguientes métricas globales:
 
-- **Total de Nodos Registrados**: $5,503$ nodos de código, clases, métodos y metadatos.
-- **Aristas / Relaciones Inter-módulo**: $9,591$ conexiones.
-- **Comunidades Estructurales**: $349$ comunidades funcionales desglosadas.
+- **Total de Nodos Registrados**: $5,515$ nodos de código, clases, métodos y metadatos.
+- **Aristas / Relaciones Inter-módulo**: $9,610$ conexiones.
+- **Comunidades Estructurales**: $348$ comunidades funcionales desglosadas.
 - **Archivos de Salida Actualizados**: `graphify-out/graph.json`, `graphify-out/graph.html` y `graphify-out/GRAPH_REPORT.md`.
 
-El grafo de conocimiento confirma que la refactorización reciente (incorporación de `core/hardware_manager.py`, `modules/hardware_dashboard.py`, `TraceFFTWindow`, `core/preset_manager.py` y `modules/preset_wizard.py`) ha alcanzado un grado óptimo de desacoplamiento modular y coherencia estética.
+El grafo de conocimiento confirma que la refactorización reciente (incorporación de `core/hardware_manager.py`, `modules/hardware_dashboard.py`, `TraceFFTWindow`, `core/preset_manager.py`, `modules/preset_wizard.py` y la sincronización total de `contrapropagante.py`) ha alcanzado un grado óptimo de desacoplamiento modular y coherencia estética.
 
 ---
 
@@ -50,6 +50,7 @@ Actualmente, **PyPrinting 3.0** representa una suite madura de adquisición y co
 |---|---|---|---|---|
 | `main.py` | Launcher Principal y Menú | 🟢 Excelente | Tema oscuro Catppuccin Mocha, lanzador independiente de procesos | Integrado con acceso rápido a Tablero de Conexiones y Documentación. |
 | `app.py` | Suite Principal Multihilo | 🟢 Excelente | Interconexión síncrona/asíncrona de 8 hilos secundarios | Barra de estado global dinámica e integración del Dock de Conexiones. |
+| `contrapropagante.py` | Suite Contrapropagante Dual | 🟢 Excelente | Excitación dual TOP/BOT síncrona con 100% de paridad con `app.py` | Tablero de Conexiones, Presets `.txt`, Wizard, FFT de trazas y `gridScanFinishedSignal`. |
 | `measurements.py` | Rutinas de Impresión y Dímeros | 🟢 Excelente | 5 modos de parada, `Drift Correction`, visualizador de grilla | Presets persistentes en archivos `.txt`, exportación multimaterial y auto-recuperación. |
 | `focus.py` | Autofoco Axial Z por Correlación | 🟢 Excelente | Búsqueda por rango dinámico y ajuste parabólico | Optimización de tiempos de respuesta en Z e integración con flipper óptico. |
 | `confocal.py` | Escaneo Confocal 2D (Rampa/Paso) | 🟢 Excelente | Generación de ondas analógicas PI (`WAV_LIN`) y ajuste Gaussiano 2D / Donut 2D | Renderizado adaptativo pyqtgraph en imágenes de alta resolución. |

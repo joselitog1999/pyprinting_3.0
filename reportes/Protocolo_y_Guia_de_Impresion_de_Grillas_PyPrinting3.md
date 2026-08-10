@@ -50,7 +50,11 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 ## 3. Protocolo Paso a Paso para la Impresión de Grillas ("DO PRINTING")
 
 ### Paso 1: Configuración Inicial de Entorno y Directorio Diario
-1. Ejecutar el lanzador principal `main.py` o presionar el acceso directo **`🚀 Iniciar Microscopio Derecho (app.py)`**.
+1. **Selección del Microscopio**:
+   - Para el **Microscopio Derecho (Monomodo)**: Ejecutar `main.py` y presionar **`🚀 Iniciar Microscopio Derecho (app.py)`**.
+   - Para el **Microscopio Contrapropagante (Excitación Dual TOP/BOT)**: Ejecutar `main.py` y presionar **`🔍 Microscopio Contrapropagante (contrapropagante.py)`**.
+     > [!NOTE]
+     > El microscopio contrapropagante (`contrapropagante.py`) cuenta con la misma suite de software que `app.py` (tablero de seguridad, presets `.txt`, wizard, FFT de trazas y auto-recuperación), permitiendo la impresión idéntica de grillas pero con iluminación y adquisición confocal síncrona superior e inferior.
 2. En la barra superior de menús, ir a **`Files` $\rightarrow$ `Create Daily Dir (Ctrl+S)`**.
 3. Seleccionar la carpeta raíz de trabajo (ej. `C:/Data`). El sistema creará automáticamente la subcarpeta del día con formato `YYYY-MM-DD` (ej. `C:/Data/2026-08-06`).
 
@@ -58,44 +62,47 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 
 ### Paso 2: Acomodación Óptica Manual y Enfoque en Vidrio
 1. En el dock **`Shutters / Flipper / Láser 532`**, seleccionar la línea láser de excitación (ej. `532 nm`).
-2. Ajustar el atenuador de potencia a **`Low Power`** y posteriormente buscar una zona ideal para impresion de forma manual.
+2. Ajustar el atenuador de potencia a **`Low Power`** y posteriormente buscar una zona ideal para impresión de forma manual.
 3. Mediante el micrométrico manual del objetivo y la cámara réflex Live View (`camera.py`), enfocar nítidamente la superficie del sustrato de vidrio.
-4. Una vez identificada la zona, ajustar el atenuador de potencia a **`High Power`** para lograr la intensidad necesaria de presión de radiación para realizar la impresion.
+4. Una vez identificada la zona, ajustar el atenuador de potencia a **`High Power`** para lograr la intensidad necesaria de presión de radiación para realizar la impresión.
 
 ---
 
 ### Paso 3: Escaneo Confocal y Centrado de Partícula
-1. En el dock **`Confocal`**, configurar el área de escaneo (ej. `Range x/y` = $5.0\ \mu\text{m}$, `Pixels x/y` = $100 \times 100$).
+1. En el dock **`Confocal`** (o **`Confocal Contrapropagante Dual`** en `contrapropagante.py`), configurar el área de escaneo (ej. `Range x/y` = $5.0\ \mu\text{m}$, `Pixels x/y` = $100 \times 100$).
 2. Presionar **`Start Scan`** para registrar la imagen confocal 2D de la nanopartícula de referencia.
-3. Seleccionar el método de centrado analítico `method_center` = `center of mass` o `center of gauss`.
+3. Seleccionar el método de centrado analítico `method_center` = `center of mass` o `center of gauss`. En `contrapropagante.py`, seleccionar también la referencia deseada (`Ref. Preference`: TOP o BOT).
 4. Con la casilla **`Auto CM`** marcada, el sistema moverá automáticamente la platina piezoeléctrica PI al centroide exacto de la partícula.
 
 ---
 
 ### Paso 4: Ajuste Axial Z (`Go to maximum`) y Congelado de Referencia (`Lock focus`)
 1. En el dock **`Focus z`**, presionar **`Go to maximum (F8)`**. La platina ejecutará un barrido rápido en $Z$ y se ubicará en la cima de máxima fotoluminiscencia.
-2. Repetir el paso 3 y el paso 4.1 hasta obtener un buen centrado de la partícula y máximo fotoluminiscencia.
+2. Repetir el paso 3 y el paso 4.1 hasta obtener un buen centrado de la partícula y máxima fotoluminiscencia.
 3. En el dock **`Nanopositioning`**, desplazar lateralmente la platina $\approx 2.0\ \mu\text{m}$ en $X$ hacia una zona de vidrio limpio libre de partículas.
 4. Presionar **`Lock Focus (F9)`** para registrar el perfil axial de referencia $I_{\text{ref}}(z)$ de la interfaz sustrato-solución.
 5. Regresar la platina a la coordenada central de la partícula en $X$ e $Y$.
-6. Asegurarse de que el atenuador de potencia se encuentre en **`High Power`** pero el obturador cerrado, de modo que el sistema este listo para depositar una particula.
+6. Asegurarse de que el atenuador de potencia se encuentre en **`High Power`** pero el obturador cerrado, de modo que el sistema esté listo para depositar una partícula.
 
 ---
 
-### Paso 5: Apertura de la Ventana `Printing` y Fijado de Origen (`Set reference`)
+### Paso 5: Apertura de la Ventana `Printing` y Carga de Presets (`Preset Manager / Wizard`)
 1. En el menú superior, seleccionar **`Measurements` $\rightarrow$ `Printing`**. Se desplegará la ventana modular `Frontend` de impresión.
 2. Presionar el botón naranja **`Set reference`**:
    - El sistema leerá inmediatamente las coordenadas capacitivas reales de la platina PI ($X_0, Y_0, Z_0$) y las mostrará en las etiquetas `X ref`, `Y ref`, `Z ref`.
    - Todas las posiciones futuras de la grilla se calcularán relativas a este punto origen.
+3. **Carga o Creación de Presets Experimentales**:
+   - **Opción A (Preset desde Archivo `.txt`)**: Seleccionar un perfil predeterminado en el menú desplegable **Preset** (ej. `AuNP_60nm_ImpresionRapida.txt` o `AgNP_80nm_Nanodimeros.txt`).
+   - **Opción B (Asistente Guiado `🧙 Wizard`)**: Presionar **`🧙 Wizard`** para abrir el asistente de 5 pasos y configurar el criterio de parada, umbrales, tiempos $T_{\text{max}}$ y autofoco, guardando automáticamente el nuevo preset en `presets/`.
 
 ---
 
-### Paso 6: Configuracion del Focus shift & drift
-1. En la pestaña **`Focus drift`**, configurar los parámetros de impresión. Los parámetros son:
-- **`Autofocus every N`**: Indica cada cuántas nanopartículas se realizará un autofocus. Por ejemplo, si se establece en 5, se realizará un autofocus después de imprimir la 5ª, 10ª, 15ª nanopartícula, etc.
-- **`Shift x/y (um)`**: Desplazamiento lateral para garantizar una zona vacia donde ejecutar autofoco. Recomendable 2 um
-- **`Drift Correction`**: Activa o desactiva la corrección de deriva por partícula ancla. Cambia la posicion de P0 como particula in-array o particula de referencia.
-- **`Start X/Y (um)`**: Posicion inicial de la grilla de impresion con respecto a P0. Recomendable 2 um
+### Paso 6: Configuración de Focus Shift y Corrección de Deriva
+1. En la pestaña **`Focus drift`**, verificar los parámetros del preset cargado:
+- **`Autofocus every N`**: Indica cada cuántas nanopartículas se realizará un autofocus (ej. cada 5 nodos).
+- **`Shift x/y (µm)`**: Desplazamiento lateral para garantizar una zona limpia donde ejecutar el autofoco Z (recomendado: $2.0\,\mu\text{m}$).
+- **`Drift Correction`**: Activa la corrección de deriva por partícula ancla $X-Y$ en tiempo real.
+- **`Start X/Y (µm)`**: Posición inicial del arreglo respecto a la partícula ancla P0 (recomendado: $2.0\,\mu\text{m}$).
 
 ---
 
@@ -106,7 +113,7 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
      - **`Columns`**: Cantidad de columnas (ej. `4`).
      - **`Dist NP (µm)`**: Espaciamiento entre nanopartículas en la misma columna (ej. `3.0`).
      - **`Dist col (µm)`**: Espaciamiento entre columnas (ej. `3.0`).
-  2. Presionar **`Create grid`**. El casillero `Total targets` actualizará el conteo (ej. `16`) y desplegará el gráfico 2D de la grilla.
+  2. Presionar **`Create grid`**. El casillero `Total targets` actualizará el conteo (ej. `16`) y desplegará el gráfico 2D interactivo `Grid Pattern & Path Viewer 🗺️`.
 
 - **Opción B: Cargar Grilla Personalizada (`Load grid (.txt)`)**:
   1. Presionar **`Load grid (.txt)`** y seleccionar un archivo `.txt` conteniendo 2 columnas $(X, Y)$ en micrómetros.
@@ -118,12 +125,12 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 2. El sistema creará automáticamente una subcarpeta fechada con el nombre de la grilla en el directorio del día:
    `C:/Data/2026-08-06/20260806-120000_Printing_4x4_3umx3um/`
 3. El indicador se tornará **verde** mostrando la ruta del lote activo.
-4. Llenar Extra info (opcional) con informacion relevante del experimento.
+4. Llenar `Extra info` con la metainformación de la muestra.
 
 ---
 
 ### Paso 9: Configuración del Criterio de Parada y Parámetros
-Seleccionar el algoritmo deseado en el desplegable **`Criterio Parada`**:
+El algoritmo de interrupción en tiempo real se cargará automáticamente desde el preset o se podrá seleccionar manualmente en **`Criterio Parada`**:
 
 | Modo de Parada | Nombre en UI | Cuándo Utilizarlo | Parámetros a Configurar |
 |---|---|---|---|
@@ -135,11 +142,12 @@ Seleccionar el algoritmo deseado en el desplegable **`Criterio Parada`**:
 
 ---
 
-### Paso 9: Ejecución de la Impresión Automatizada (`Play ►`)
+### Paso 10: Ejecución de la Impresión Automatizada (`Play ►`)
 1. Presionar el botón **`Play ►`**.
 2. El sistema ejecutará automáticamente la secuencia ciclo a ciclo:
    $$\text{Mover a Nodo } i \longrightarrow \text{Autofoco Z (si corresponde)} \longrightarrow \text{Abrir Shutter \& Grabar Traza} \longrightarrow \text{Detección Parada} \longrightarrow \text{Cerrar Shutter \& Guardar } \texttt{NP\_iii.txt} \longrightarrow \text{Pre-Scan (Opción)} \longrightarrow \text{Mover a } i+1$$
-3. Para pausar en cualquier instante, presionar **`Pause`**. Para forzar el salto al siguiente nodo, presionar **`Next index ►`**.
+3. La **Barra de Estado Global** informará en vivo el progreso, y el visor **Grid Pattern & Path Viewer 🗺️** cambiará el color de los nodos impresos a 🟢 **Impresa** o 🔴 **Timeout**.
+4. Para pausar en cualquier instante, presionar **`Pause`**. Para forzar el salto al siguiente nodo, presionar **`Next index ►`**.
 
 ---
 

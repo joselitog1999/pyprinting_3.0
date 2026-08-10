@@ -382,6 +382,53 @@ Al iniciar la rutina con el botón **`Play ►`**:
 4. Se genera el archivo sintético de error de posicionamiento `printing_error_timestamp.txt` conteniendo los residuos en nanómetros ($\Delta x_{\text{nm}}, \Delta y_{\text{nm}}$) entre la posición teórica de la grilla y el centro de masa real.
 5. El botón **`Save Grid Info`** exporta el archivo `grid_info.txt` con la metainformación completa (Láser, Criterio de Parada, Umbrales, Potencia BFP, Tipo de NP, Sustrato y Comentarios).
 
+#### 3.8 Tablero de Conexiones & Seguridad de Hardware (`HardwareDashboardWidget` & `HardwareManager`)
+El **Tablero de Conexiones y Seguridad de Hardware** (accesible desde `Tools → Tablero de Conexiones` o `Ctrl+H`) constituye el centro neurálgico de telemetría y aislamiento del sistema:
+- **Matriz de Estado LED por Instrumento**:
+  - 🟢 **Verde (Conectado)**: Dispositivo físico detectado, inicializado y respondiendo nominalmente (NI-DAQmx Dev1, PI Piezo E-517/E-727, Cámara Thorlabs/USB, Láser 532 nm).
+  - 🟡 **Amarillo (Simulado)**: Dispositivo operando en modo Mock transparente bajo `SAFE_MODE`.
+  - 🔴 **Rojo (Error / Desconectado)**: Fallo de puerto USB/GPIB o ausencia de comunicación.
+  - ⚪ **Gris (Inactivo)**: Dispositivo presente pero deshabilitado temporalmente.
+- **Canal de Espectrómetro Inactivo**:
+  - Siguiendo la especificación del laboratorio, el canal del espectrómetro se encuentra registrado como `⚪ Inactivo — Pendiente de integración con PySpectrum`, con sus casilleros de interacción bloqueados hasta la incorporación oficial de la suite `PySpectrum`.
+- **Aislamiento por Software (*Soft Disconnect / Mock Isolation*)**:
+  - Cada instrumento cuenta con una casilla de verificación individual (*Soft Isolation*). Al marcar un equipo, el sistema interrumpe la comunicación física e ingresa en un estado de simulación local sin detener el resto de los hilos de adquisición ni congelar la GUI.
+- **Bitácora I/O en Tiempo Real y Re-scan en Caliente**:
+  - Consola gráfica de registros con marcas de tiempo (`HH:MM:SS.mmm`) que registra eventos I/O.
+  - Botón **`🔄 Re-scan Hardware`**: Ejecuta un ping síncrono a todos los puertos físicos sin necesidad de reiniciar la aplicación.
+
+#### 3.9 Transformada de Fourier (FFT) en Tiempo Real para Trazas (`TraceFFTWindow`)
+El módulo de trazas temporales incluye análisis espectral en tiempo real para caracterizar ruidos ópticos y mecánicos:
+- **Formulación Matemática de la Densidad Espectral de Potencia (PSD)**:
+  $$S(f) = \frac{|\operatorname{FFT}((I(t) - \bar{I}) \cdot w(t))|^2}{N \cdot f_s} \quad [\text{V}^2/\text{Hz}]$$
+  Donde $I(t)$ es la traza de fotodiodo adquirida a $f_s = 10\ \text{kHz}$, $\bar{I}$ es el valor medio substraído para eliminar la componente DC, y $w(t)$ es una **ventana de Hanning** aplicada para suprimir la fuga espectral (*spectral leakage*):
+  $$w(n) = 0.5 \left( 1 - \cos\left(\frac{2\pi n}{N-1}\right) \right)$$
+- **Marcador de Referencia de 50 Hz**:
+  - Cada ventana FFT despliega una línea vertical punteada en **50 Hz** (y sus armónicos de 100 Hz y 150 Hz) para la identificación inmediata de acoples de zumbido de la red eléctrica.
+- **Ventanas Flotantes Independientes**:
+  - Botones dedicados `📊 FFT L1` (en traza de Láser 1), `📊 FFT L2` (en traza de Láser 2) y `📊 FFT Power BS` (en la ventana de calibración del Beam Splitter).
+
+#### 3.10 Presets Persistentes en Archivos `.txt` y Wizard Guiado (`PresetManager` & `PresetWizardDialog`)
+- **Archivos de Configuración `.txt` en `presets/`**:
+  - Todos los conjuntos de parámetros experimentales (modo de parada, umbrales $V_{\text{abs}}$, $N_{\text{hold}}$, $T_{\text{max}}$, $M_{\text{before}}$, $M_{\text{after}}$, intervalos de autofoco y deriva) se almacenan en texto plano en la carpeta `presets/` con formato `clave = valor`.
+  - El menú desplegable **Preset** en `MeasFrontend` escanea dinámicamente este directorio.
+- **Asistente Guiado Multipaso (Wizard)**:
+  - Botón **`🧙 Wizard`**: Inicia un diálogo estructurado en 5 etapas (`QWizard`):
+    - *Paso 1*: Nombre del preset y notas del operador.
+    - *Paso 2*: Selección de Criterio de Parada (Modos 0 a 4) y umbrales.
+    - *Paso 3*: Temporización $T_{\text{max}}$ y muestras de integración (*Steps Before / After*).
+    - *Paso 4*: Autofoco Z, desplazamientos X/Y y corrección de deriva.
+    - *Paso 5*: Vista previa del archivo `.txt` y guardado automatizado.
+- **Botones `📂 Cargar` y `💾 Guardar`**: Permiten abrir o guardar directamente cualquier archivo `.txt` personalizado.
+
+#### 3.11 Exportación Multimaterial Trío, Barra de Estado Global y Auto-Recuperación
+- **Exportación Multimaterial Trío (`.tiff`, `.npy`, `.csv`)**:
+  - Cada imagen confocal 2D se exporta simultáneamente en **TIFF 16-bit uint** (imagen primaria para `image_analyzer.py` y `psf_analyzer.py`), **`.npy` binario NumPy** (matriz cruda de intensidades) y **`.csv` tabular** (matriz delimitada por comas).
+- **Barra de Estado Global de Procesos (`self.statusBar()`)**:
+  - Barra inferior en `app.py` y `contrapropagante.py` que transmite mensajes en tiempo real sobre el estado del microscopio (`📍 Posicionando e imprimiendo...`, `🔍 Autofoco Z...`, `⚡ Adquiriendo traza...`, `🔬 Escaneo confocal 2D...`, `🎉 Patrón completado`).
+- **Resguardo Automático ante Corte Eléctrico (`LAST_POS_FILE`)**:
+  - Actualización continua del archivo `Last_position.txt` tras cada nanopartícula impresa, guardando el índice $i_{\text{global}}$ y las coordenadas piezo para permitir la reanudación inmediata del experimento.
+
 ---
 
 ## 4. Módulo 2: PySpectrum *(En Desarrollo: Espectrometría, Termometría & Scattering)*
@@ -394,16 +441,28 @@ El panel **`🔮 PySpectrum`** (Fila 1, Columna 2 del lanzador `main.py`) está 
 
 ## 5. Módulo 3: Microscopio Contrapropagante (`contrapropagante.py`)
 
-El botón **`🔍 Microscopio Contrapropagante`** (Fila 1, Columna 3 del lanzador `main.py`) o la ejecución de `python contrapropagante.py` abren la suite para excitación dual síncrona TOP/BOT:
+El microscopio contrapropagante dual (`contrapropagante.py`) representa una **suite de software equivalente al microscopio derecho (`app.py`)**, compartiendo exactamente la misma infraestructura multihilo, el motor de mediciones automatizadas (`measurements.py`), el Tablero de Conexiones de Hardware (`HardwareDashboardWidget`), la gestión de presets en archivos `.txt`, la Transformada de Fourier (FFT) de trazas y el sistema de auto-recuperación ante cortes eléctricos.
 
-1. **Visualización Simétrica Dual**: Confocal TOP (objetivo superior seco/inmersión) a la izquierda, controles compartidos al centro y Confocal BOT (objetivo invertido de agua $60\times$ $\text{NA}=1.0$) a la derecha.
-2. **Mapeo Dinámico de Fotodiodos**: Vincula automáticamente la entrada analógica de adquisición según la línea láser seleccionada:
-   - `532 nm (Verde)` $\rightarrow$ Fotodiodo 0 (`ai0`).
-   - `637 nm (Rojo)` $\rightarrow$ Fotodiodo 1 (`ai1`).
-   - `592 nm (Amarillo)` $\rightarrow$ Fotodiodo 3 (`ai3`).
-3. **Lectura Sub-nanométrica de Posición**: Muestra en tiempo real las coordenadas centroides $(x_{\text{TOP}}, y_{\text{TOP}})$, $(x_{\text{BOT}}, y_{\text{BOT}})$ y calcula el vector de desalineación vectorial espacial:
-   $$\mathbf{\Delta r}_{\text{nm}} = \mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}} = \sqrt{(x_{\text{TOP}} - x_{\text{BOT}})^2 + (y_{\text{TOP}} - y_{\text{BOT}})^2} \times 1000 \quad [\text{nm}]$$
-4. **Acceso Directo a PSF Analyzer**: Botón **`📊 Analyze with PSF Analyzer`** que transfiere instantáneamente ambas confocales cargando TOP como Canal 1 y BOT como Canal 2 para la evaluación de perfiles 1D y desalineación.
+### 5.1 Especificidades del Sistema Contrapropagante Dual
+A diferencia del microscopio monomodo de un solo objetivo, `contrapropagante.py` opera con excitación dual e iluminación síncrona superior e inferior:
+
+1. **Visualización Simétrica Dual**:
+   - Muestra de manera simultánea la imagen confocal **TOP** (objetivo superior seco o de inmersión) a la izquierda y la imagen confocal **BOT** (objetivo inferior invertido de agua $60\times$ $\text{NA}=1.0$) a la derecha, con un panel central de control unificado.
+2. **Mapeo Multicanal de Fotodiodos**:
+   - Asigna dinámicamente las lecturas analógicas según la línea láser activa en cada brazo:
+     - `532 nm (Verde)` $\rightarrow$ Fotodiodo 0 (`ai0`).
+     - `637 nm (Rojo)` $\rightarrow$ Fotodiodo 1 (`ai1`).
+     - `592 nm (Amarillo)` $\rightarrow$ Fotodiodo 3 (`ai3`).
+3. **Selección de Centroide y Referencia Espacial**:
+   - Permite seleccionar el algoritmo de centrado de forma independiente para cada brazo (`center of mass`, `center of gauss` o `donut LG01` para el canal BOT).
+   - Selector **`Ref. Preference`**: Permite elegir si la posición de referencia para el centrado automático y el desplazamiento de la platina PI se toma del canal **TOP** (Canal 0) o del canal **BOT** (Canal 1).
+4. **Desalineación Espacial Vectorial ($\mathbf{\Delta r}_{\text{nm}}$)**:
+   - Deducción e informe automático de la distancia entre los focos ópticos superior e inferior:
+     $$\mathbf{\Delta r}_{\text{nm}} = \sqrt{(x_{\text{TOP}} - x_{\text{BOT}})^2 + (y_{\text{TOP}} - y_{\text{BOT}})^2} \times 1000 \quad [\text{nm}]$$
+5. **Transferencia Directa a PSF Analyzer**:
+   - Botón **`📊 Analyze with PSF Analyzer`**: Carga de forma automática ambas matrices confocales (TOP como Canal 1 y BOT como Canal 2) en `psf_analyzer.py` para la evaluación de residuales de ajuste y perfiles 1D comparativos.
+6. **Ejecución de Grillas en Excitación Dual**:
+   - Al iniciar secuencias en la pestaña `Printing` o `Dimers`, `contrapropagante.py` ejecuta el escaneo confocal dual emitiendo la señal `gridScanFinishedSignal` de 6 argumentos `(image_top, cm_top, image_gone, image_back, mode, number_scan)`, garantizando la sincronización completa con el motor de mediciones.
 
 ---
 

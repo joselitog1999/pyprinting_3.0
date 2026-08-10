@@ -27,14 +27,24 @@ printing3/
 │   ├── confocal.py       # Mapeo y escaneo confocal 2D/3D (Ramp/Step en XY, XZ, YZ) con ajuste PSF.
 │   ├── measurements.py   # Motor unificado de mediciones automatizadas (Grillas de Impresión y Dímeros).
 │   ├── focus.py          # Estabilización activa de foco Z (autofoco dinámico por autocorrelación).
-│   ├── trace.py          # Adquisición de trazas temporales a 10 kHz y calibración de potencia BS.
-│   └── camera.py         # Control de cámara réflex Canon EOS 500D (EDSDK Live View + Trackpy).
+│   ├── trace.py          # Adquisición de trazas a 10 kHz, FFT en tiempo real con marcador 50 Hz y Power BS.
+│   ├── camera.py         # Control de cámara réflex Canon EOS 500D (EDSDK Live View + Trackpy).
+│   ├── hardware_dashboard.py # Tablero gráfico de seguridad, matriz de LEDs y aislamiento por software.
+│   └── preset_wizard.py  # Asistente guiado de 5 pasos (QWizard) para creación de presets experimentales.
 │
 ├── 🔌 Capa de Abstracción de Hardware y Núcleo (`core/`)
+│   ├── hardware_manager.py# Singleton de telemetría, ping de dispositivos y Soft Isolation.
+│   ├── preset_manager.py  # Gestor de lectura/escritura de presets experimentales en archivos .txt.
 │   ├── nanopositioning.py# Control capacitivo cerrado de la platina piezoeléctrica PI E-517 (0.0 a 100.0 µm XYZ).
 │   ├── shutters.py       # Control de obturadores digitales (532, 637, 592 nm), flippers y láser 532 nm.
 │   ├── nidaq.py          # Abstracción unificada de tarjetas NI-DAQmx (canales analógicos y digitales).
 │   └── canon_edsdk.py    # Wrapper nativo C/Python para la API Canon EDSDK (Live View 25 FPS & 15 MP).
+│
+├── 📁 Archivos de Configuración de Presets (`presets/`)
+│   ├── AuNP_60nm_ImpresionRapida.txt
+│   ├── AuNP_60nm_AltaPotencia.txt
+│   ├── AgNP_80nm_Nanodimeros.txt
+│   └── Grilla_Extensa_10x10.txt
 │
 ├── 📐 Librerías Matemáticas y Analizadores (`analysis/` & raíz)
 │   ├── psf.py            # Ajuste Gaussiano 2D (7 parámetros), Centro de Masa y resolución multi-partícula.
