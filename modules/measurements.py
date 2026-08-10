@@ -1424,6 +1424,14 @@ class Backend(QObject):
             if arr is None or arr.size == 0:
                 continue
             arr_tr = np.transpose(arr)
+
+            # Exportación Multimaterial Secundaria (no altera ni reemplaza el TIFF primario)
+            try:
+                np.save(os.path.join(folder, f"{suffix}.npy"), arr_tr)
+                np.savetxt(os.path.join(folder, f"{suffix}.csv"), arr_tr, delimiter=",", fmt="%.5e")
+            except Exception:
+                pass
+
             if arr_tr.dtype != np.uint8 and arr_tr.dtype != np.uint16:
                 arr_min = float(np.min(arr_tr))
                 arr_max = float(np.max(arr_tr))
