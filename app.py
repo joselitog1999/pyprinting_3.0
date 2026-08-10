@@ -78,6 +78,7 @@ class Frontend(QMainWindow):
         self._add_action(fm, "Abrir directorio",        self.get_openDir,        "Ctrl+D")
         self._add_action(fm, "Cargar última posición",  self.load_last_position)
         tm = mb.addMenu("&Tools")
+        self._add_action(tm, "Tablero de Conexiones", self.tools_hardware_dashboard, "Ctrl+H")
         self._add_action(tm, "Cámara",                self.tools_camera)
         self._add_action(tm, "Analizador de Imágenes", self.tools_image_analyzer)
         self._add_action(tm, "PSF Analyzer",          self.tools_psf_analyzer)
@@ -89,28 +90,15 @@ class Frontend(QMainWindow):
         dm = mb.addMenu("&Docks")
         self._add_action(dm, "Guardar configuración",   self.save_docks)
         self._add_action(dm, "Restaurar configuración", self.load_docks)
+        
+        # Barra de Estado Global
+        self.statusBar().showMessage("🟢 PyPrinting listo | Todos los sistemas en estado nominal")
 
     def _setup_docks(self):
         grid = QGridLayout(self._cwidget)
         grid.setContentsMargins(0, 0, 0, 0)
         self.dockArea = DockArea()
         grid.addWidget(self.dockArea)
-
-        # ══════════════════════════════════════════════════════════════════════
-        # Layout original (cámara → ventana secundaria en Tools):
-        #
-        #  ┌─────────────────────┬───────────────────────┐
-        #  │  Confocal           │  Trace                │
-        #  ├──────────┬──────────┴──────────┬────────────┤
-        #  │  Nano    │  Focus z            │  Shutters  │
-        #  └──────────┴─────────────────────┴────────────┘
-        #
-        # Equivalente al original PyPrinting_UNSAM.py:
-        #   confocalDock → Trace a la derecha
-        #   focusDock    → bajo confocal
-        #   shuttersDock → a la derecha de focus
-        #   nanoDock     → a la izquierda de focus
-        # ══════════════════════════════════════════════════════════════════════
 
         # 1. Confocal — arriba izquierda
         confocalDock = Dock("Confocal", size=(600, 400))
@@ -136,7 +124,14 @@ class Frontend(QMainWindow):
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
 
-        # 5. Trace — abajo de todo ocupando todo el ancho de la ventana
+        # 5. Tablero de Conexiones & Hardware 🛡️ — a la derecha de shutters
+        from modules.hardware_dashboard import HardwareDashboardWidget
+        hardwareDock = Dock("Tablero de Conexiones & Hardware 🛡️", size=(400, 180))
+        self.hardwareWidget = HardwareDashboardWidget()
+        hardwareDock.addWidget(self.hardwareWidget)
+        self.dockArea.addDock(hardwareDock, "right", shuttersDock)
+
+        # 6. Trace — abajo de todo ocupando todo el ancho de la ventana
         traceDock = Dock("Trace", size=(1400, 260))
         self.traceWidget = TraceFrontend()
         traceDock.addWidget(self.traceWidget)
@@ -163,6 +158,10 @@ class Frontend(QMainWindow):
     def tools_image_analyzer(self): self.imageAnalyzerWindow.show(); self.imageAnalyzerWindow.raise_()
     def tools_psf_analyzer(self):   self.psfAnalyzerWindow.show(); self.psfAnalyzerWindow.raise_()
     def tools_laser532(self):       self.laser532Window.show()
+    def tools_hardware_dashboard(self):
+        if hasattr(self, 'hardwareWidget'):
+            self.hardwareWidget.show()
+            self.hardwareWidget.raise_()
 
     def save_docks(self):
         self._dock_state = self.dockArea.saveState()
@@ -278,6 +277,21 @@ class Backend(QObject):
         self.printingWorker.grid_scan_stopSignal.connect(
             self.confocalWorker.stop_scan)
 
+        self.printingWorker.stepsParametersSignal.connect(
+            self.traceWorker.parameters)
+
+        # Actualización de Barra de Estado Global en tiempo real
+        self.printingWorker.indexSignal.connect(
+            lambda i: self.statusBar().showMessage(f"📍 Posicionando e imprimiendo partícula {i}..."))
+        self.printingWorker.grid_autofocusSignal.connect(
+            lambda m: self.statusBar().showMessage("🔍 Ejecutando autofoco Z por correlación axial..."))
+        self.printingWorker.grid_traceSignal.connect(
+            lambda l, m: self.statusBar().showMessage(f"⚡ Adquiriendo traza fototérmica ({l}) a ALTA potencia..."))
+        self.printingWorker.grid_scanSignal.connect(
+            lambda l, m, n: self.statusBar().showMessage(f"🔬 Escaneo confocal 2D en curso ({n})..."))
+        self.printingWorker.patternFinishedSignal.connect(
+            lambda path: self.statusBar().showMessage(f"🎉 Patrón completado en: {path}"))
+
         # Dimers cycle
         self.dimersWorker.grid_move_finishSignal.connect(
             self.dimersWorker.grid_autofoco)
@@ -285,6 +299,8 @@ class Backend(QObject):
             self.focusWorker.focus_autocorr_lin_x2)
         self.dimersWorker.grid_traceSignal.connect(
             self.traceWorker.trace_configuration)
+        self.dimersWorker.stepsParametersSignal.connect(
+            self.traceWorker.parameters)
         self.dimersWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
         self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish)
         self.dimersWorker.grid_scanSignal.connect(

@@ -58,14 +58,15 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 
 ### Paso 2: Acomodación Óptica Manual y Enfoque en Vidrio
 1. En el dock **`Shutters / Flipper / Láser 532`**, seleccionar la línea láser de excitación (ej. `532 nm`).
-2. Ajustar el atenuador de potencia a **`High Power`** para lograr la intensidad necesaria de presión de radiación.
-3. Mediante el micrométrico manual y la cámara réflex Live View (`camera.py`), enfocar nítidamente la superficie del sustrato de vidrio.
+2. Ajustar el atenuador de potencia a **`Low Power`** y posteriormente buscar una zona ideal para impresion de forma manual.
+3. Mediante el micrométrico manual del objetivo y la cámara réflex Live View (`camera.py`), enfocar nítidamente la superficie del sustrato de vidrio.
+4. Una vez identificada la zona, ajustar el atenuador de potencia a **`High Power`** para lograr la intensidad necesaria de presión de radiación para realizar la impresion.
 
 ---
 
 ### Paso 3: Escaneo Confocal y Centrado de Partícula
 1. En el dock **`Confocal`**, configurar el área de escaneo (ej. `Range x/y` = $5.0\ \mu\text{m}$, `Pixels x/y` = $100 \times 100$).
-2. Presionar **`Start Scan`** para registrar la imagen confocal 2D de la nanopartícula o marca de referencia.
+2. Presionar **`Start Scan`** para registrar la imagen confocal 2D de la nanopartícula de referencia.
 3. Seleccionar el método de centrado analítico `method_center` = `center of mass` o `center of gauss`.
 4. Con la casilla **`Auto CM`** marcada, el sistema moverá automáticamente la platina piezoeléctrica PI al centroide exacto de la partícula.
 
@@ -73,9 +74,11 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 
 ### Paso 4: Ajuste Axial Z (`Go to maximum`) y Congelado de Referencia (`Lock focus`)
 1. En el dock **`Focus z`**, presionar **`Go to maximum (F8)`**. La platina ejecutará un barrido rápido en $Z$ y se ubicará en la cima de máxima fotoluminiscencia.
-2. En el dock **`Nanopositioning`**, desplazar lateralmente la platina $\approx 2.0\ \mu\text{m}$ en $X$ hacia una zona de vidrio limpio libre de partículas.
-3. Presionar **`Lock Focus (F9)`** para registrar el perfil axial de referencia $I_{\text{ref}}(z)$ de la interfaz sustrato-solución.
-4. Regresar la platina a la coordenada central de la partícula en $X$ e $Y$.
+2. Repetir el paso 3 y el paso 4.1 hasta obtener un buen centrado de la partícula y máximo fotoluminiscencia.
+3. En el dock **`Nanopositioning`**, desplazar lateralmente la platina $\approx 2.0\ \mu\text{m}$ en $X$ hacia una zona de vidrio limpio libre de partículas.
+4. Presionar **`Lock Focus (F9)`** para registrar el perfil axial de referencia $I_{\text{ref}}(z)$ de la interfaz sustrato-solución.
+5. Regresar la platina a la coordenada central de la partícula en $X$ e $Y$.
+6. Asegurarse de que el atenuador de potencia se encuentre en **`High Power`** pero el obturador cerrado, de modo que el sistema este listo para depositar una particula.
 
 ---
 
@@ -87,7 +90,16 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 
 ---
 
-### Paso 6: Generación o Carga de la Grilla de Posiciones
+### Paso 6: Configuracion del Focus shift & drift
+1. En la pestaña **`Focus drift`**, configurar los parámetros de impresión. Los parámetros son:
+- **`Autofocus every N`**: Indica cada cuántas nanopartículas se realizará un autofocus. Por ejemplo, si se establece en 5, se realizará un autofocus después de imprimir la 5ª, 10ª, 15ª nanopartícula, etc.
+- **`Shift x/y (um)`**: Desplazamiento lateral para garantizar una zona vacia donde ejecutar autofoco. Recomendable 2 um
+- **`Drift Correction`**: Activa o desactiva la corrección de deriva por partícula ancla. Cambia la posicion de P0 como particula in-array o particula de referencia.
+- **`Start X/Y (um)`**: Posicion inicial de la grilla de impresion con respecto a P0. Recomendable 2 um
+
+---
+
+### Paso 7: Generación o Carga de la Grilla de Posiciones
 - **Opción A: Generar Grilla Regular (`Create grid`)**:
   1. En la pestaña **`Grid`**, ingresar:
      - **`NPs/col`**: Cantidad de nanopartículas por columna (ej. `4`).
@@ -101,15 +113,16 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 
 ---
 
-### Paso 7: Creación de la Carpeta del Lote Experimental (`PRINTING folder`)
+### Paso 8: Creación de la Carpeta del Lote Experimental (`PRINTING folder`)
 1. Presionar el botón **`PRINTING folder`**.
 2. El sistema creará automáticamente una subcarpeta fechada con el nombre de la grilla en el directorio del día:
    `C:/Data/2026-08-06/20260806-120000_Printing_4x4_3umx3um/`
 3. El indicador se tornará **verde** mostrando la ruta del lote activo.
+4. Llenar Extra info (opcional) con informacion relevante del experimento.
 
 ---
 
-### Paso 8: Configuración del Criterio de Parada y Parámetros
+### Paso 9: Configuración del Criterio de Parada y Parámetros
 Seleccionar el algoritmo deseado en el desplegable **`Criterio Parada`**:
 
 | Modo de Parada | Nombre en UI | Cuándo Utilizarlo | Parámetros a Configurar |
@@ -122,17 +135,7 @@ Seleccionar el algoritmo deseado en el desplegable **`Criterio Parada`**:
 
 ---
 
-### Paso 9: Ajustes Adicionales (Focus Shift & Extra Info)
-1. **Pestaña `Focus shift`**:
-   - **`Autofocus every N`**: Ajustar `2` para realizar autofoco Z cada 2 nanopartículas.
-   - **`Shift x / Shift y (µm)`**: Ajustar `5.0` para que el autofoco axial se realice desplazando la platina $5.0\ \mu\text{m}$ a una zona limpia sin fotodesintegrar la partícula impresa.
-2. **Pestaña `Extra info`**:
-   - Completar la potencia `Power BFP (mW)`, el tipo de nanopartícula (`NP type`), el sustrato (`Substrate`) y comentarios.
-   - Presionar **`Save info`** para congelar la metainformación en `grid_info.txt`.
-
----
-
-### Paso 10: Ejecución de la Impresión Automatizada (`Play ►`)
+### Paso 9: Ejecución de la Impresión Automatizada (`Play ►`)
 1. Presionar el botón **`Play ►`**.
 2. El sistema ejecutará automáticamente la secuencia ciclo a ciclo:
    $$\text{Mover a Nodo } i \longrightarrow \text{Autofoco Z (si corresponde)} \longrightarrow \text{Abrir Shutter \& Grabar Traza} \longrightarrow \text{Detección Parada} \longrightarrow \text{Cerrar Shutter \& Guardar } \texttt{NP\_iii.txt} \longrightarrow \text{Pre-Scan (Opción)} \longrightarrow \text{Mover a } i+1$$

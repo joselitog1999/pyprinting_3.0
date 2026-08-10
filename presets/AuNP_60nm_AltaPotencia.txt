@@ -1,0 +1,30 @@
+# ==================================================================
+# PyPrinting 3.0 — Preset Experimental: AuNP 60nm — Alta Potencia (Anti-Paso)
+# Formato de Archivo de Configuración de Impresión Fototérmica
+# ==================================================================
+name = AuNP 60nm — Alta Potencia (Anti-Paso)
+description = Salto relativo con umbral absoluto y retención n_hold anti-paso
+
+# ── Criterio de Parada y Umbrales ──
+stop_mode = 1
+umbral_rel = 1.35
+umbral_abs = 2.500
+umbral_min = 0.000
+umbral_down = 0.80
+slope_flat = 2.0
+
+# ── Tiempos y Muestreo ──
+tmax = 15
+n_hold = 5
+steps_before = 10
+steps_after = 10
+
+# ── Autofoco Z y Corrección de Deriva ──
+autofocus_every = 2
+shift_x = 2.0
+shift_y = 2.0
+dx = 0.03
+dy = 0.03
+scan_preprint = True
+postscan = False
+drift_correction = True

@@ -28,11 +28,12 @@ import pyqtgraph as pg
 from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QWidget, QFrame, QGridLayout,
                                QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QComboBox,
-                               QPushButton, QCheckBox, QGroupBox, QProgressBar)
+                               QPushButton, QCheckBox, QGroupBox, QProgressBar,
+                               QFileDialog, QInputDialog, QMessageBox)
 from PyQt6.QtGui     import QIntValidator
 from pyqtgraph.dockarea import DockArea, Dock
 
-from config import (pi, SHUTTERS, DEFAULT_DATA_PATH,
+from config import (pi, SAFE_MODE, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE,
                     DEFAULT_GRID_NPS_COL, DEFAULT_GRID_COLS,
                     DEFAULT_GRID_DIST_NP, DEFAULT_GRID_DIST_COL,
                     DEFAULT_PRINTING_UMBRAL, DEFAULT_PRINTING_UMBRAL_DOWN,
@@ -303,6 +304,25 @@ class Frontend(QFrame):
             lambda: self._color_menu(self.grid_laser))
         self._color_menu(self.grid_laser)
 
+        # ── Presets Experimentales Basados en Archivos .txt ───────────────────
+        self.preset_combo = QComboBox()
+        self.preset_combo.setToolTip("Carga un perfil pre-configurado almacenado en un archivo de texto plano (.txt).")
+        self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
+
+        self.btn_preset_wizard = QPushButton("🧙 Wizard")
+        self.btn_preset_wizard.setToolTip("Abre el Asistente Guiado multipaso para crear y guardar un nuevo preset .txt.")
+        self.btn_preset_wizard.clicked.connect(self._on_launch_wizard)
+
+        self.btn_preset_load = QPushButton("📂 Cargar")
+        self.btn_preset_load.setToolTip("Abre un archivo de preset .txt externo.")
+        self.btn_preset_load.clicked.connect(self._on_load_preset_file)
+
+        self.btn_preset_save = QPushButton("💾 Guardar")
+        self.btn_preset_save.setToolTip("Guarda la configuración actual de la interfaz como un nuevo preset .txt.")
+        self.btn_preset_save.clicked.connect(self._on_save_preset_file)
+
+        self._refresh_presets_combo()
+
         # ── Selector de 4 Modos de Criterio de Parada ─────────────────────────
         self.stop_mode_combo = QComboBox()
         self.stop_mode_combo.addItems([
@@ -474,42 +494,54 @@ class Frontend(QFrame):
         plo.addWidget(self.imprimir_button,    0, 0, 1, 2)
         plo.addWidget(self.NameDirValue,       0, 2, 1, 2)
 
-        # Fila 1: Selector de Criterio de Parada
-        plo.addWidget(QLabel("Criterio Parada:"), 1, 0)
-        plo.addWidget(self.stop_mode_combo,       1, 1, 1, 3)
+        # Fila 1: Presets (.txt) y Botones de Wizard / Cargar / Guardar
+        plo.addWidget(QLabel("Preset (.txt):"), 1, 0)
+        plo.addWidget(self.preset_combo,        1, 1)
 
-        # Fila 2: Láser | Umbral Relativo
-        plo.addWidget(QLabel("Láser:"),        2, 0); plo.addWidget(self.grid_laser,       2, 1)
-        self.lbl_umbral_rel = QLabel("Umbral rel:"); plo.addWidget(self.lbl_umbral_rel, 2, 2); plo.addWidget(self.umbralEdit, 2, 3)
+        preset_btns_hlo = QHBoxLayout()
+        preset_btns_hlo.setContentsMargins(0, 0, 0, 0)
+        preset_btns_hlo.setSpacing(4)
+        preset_btns_hlo.addWidget(self.btn_preset_wizard)
+        preset_btns_hlo.addWidget(self.btn_preset_load)
+        preset_btns_hlo.addWidget(self.btn_preset_save)
+        plo.addLayout(preset_btns_hlo, 1, 2, 1, 2)
 
-        # Fila 3: Umbral Absoluto (V) | N hold steps
-        self.lbl_umbral_abs = QLabel("Umbral Abs (V):"); plo.addWidget(self.lbl_umbral_abs, 3, 0); plo.addWidget(self.umbral_absEdit, 3, 1)
-        self.lbl_n_hold     = QLabel("N hold steps:");  plo.addWidget(self.lbl_n_hold,     3, 2); plo.addWidget(self.n_holdEdit,     3, 3)
+        # Fila 2: Selector de Criterio de Parada
+        plo.addWidget(QLabel("Criterio Parada:"), 2, 0)
+        plo.addWidget(self.stop_mode_combo,       2, 1, 1, 3)
 
-        # Fila 4: Umbral Mín (V) | Slope Flat (V/s)
-        self.lbl_umbral_min = QLabel("Umbral Mín (V):"); plo.addWidget(self.lbl_umbral_min, 4, 0); plo.addWidget(self.slope_minEdit,  4, 1)
-        self.lbl_slope_flat = QLabel("Slope Flat:");    plo.addWidget(self.lbl_slope_flat, 4, 2); plo.addWidget(self.slope_flatEdit, 4, 3)
+        # Fila 3: Láser | Umbral Relativo
+        plo.addWidget(QLabel("Láser:"),        3, 0); plo.addWidget(self.grid_laser,       3, 1)
+        self.lbl_umbral_rel = QLabel("Umbral rel:"); plo.addWidget(self.lbl_umbral_rel, 3, 2); plo.addWidget(self.umbralEdit, 3, 3)
 
-        # Fila 5: Umbral down | T max (s)
-        plo.addWidget(QLabel("Umbral down:"),  5, 0); plo.addWidget(self.umbral_downEdit,   5, 1)
-        plo.addWidget(QLabel("T max (s):"),    5, 2); plo.addWidget(self.tmaxEdit,          5, 3)
+        # Fila 4: Umbral Absoluto (V) | N hold steps
+        self.lbl_umbral_abs = QLabel("Umbral Abs (V):"); plo.addWidget(self.lbl_umbral_abs, 4, 0); plo.addWidget(self.umbral_absEdit, 4, 1)
+        self.lbl_n_hold     = QLabel("N hold steps:");  plo.addWidget(self.lbl_n_hold,     4, 2); plo.addWidget(self.n_holdEdit,     4, 3)
 
-        # Fila 6: Steps before | Steps after
-        self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 6, 0); plo.addWidget(self.steps_beforeEdit, 6, 1)
-        self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  6, 2); plo.addWidget(self.steps_afterEdit,  6, 3)
+        # Fila 5: Umbral Mín (V) | Slope Flat (V/s)
+        self.lbl_umbral_min = QLabel("Umbral Mín (V):"); plo.addWidget(self.lbl_umbral_min, 5, 0); plo.addWidget(self.slope_minEdit,  5, 1)
+        self.lbl_slope_flat = QLabel("Slope Flat:");    plo.addWidget(self.lbl_slope_flat, 5, 2); plo.addWidget(self.slope_flatEdit, 5, 3)
 
-        # Fila 7: Scan pre-print | Post scan
-        plo.addWidget(self.scan_check,         7, 0, 1, 2)
+        # Fila 6: Umbral down | T max (s)
+        plo.addWidget(QLabel("Umbral down:"),  6, 0); plo.addWidget(self.umbral_downEdit,   6, 1)
+        plo.addWidget(QLabel("T max (s):"),    6, 2); plo.addWidget(self.tmaxEdit,          6, 3)
+
+        # Fila 7: Steps before | Steps after
+        self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 7, 0); plo.addWidget(self.steps_beforeEdit, 7, 1)
+        self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  7, 2); plo.addWidget(self.steps_afterEdit,  7, 3)
+
+        # Fila 8: Scan pre-print | Post scan
+        plo.addWidget(self.scan_check,         8, 0, 1, 2)
         if self.mode == "dimers":
-            plo.addWidget(self.postscan_check, 7, 2, 1, 2)
+            plo.addWidget(self.postscan_check, 8, 2, 1, 2)
 
-        # Fila 8: Controles de reproducción Play / Pause / Next Index
-        plo.addWidget(self.play_button,        8, 0); plo.addWidget(self.pause_button,      8, 1)
-        plo.addWidget(self.next_button,        8, 2, 1, 2)
+        # Fila 9: Controles de reproducción Play / Pause / Next Index
+        plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
+        plo.addWidget(self.next_button,        9, 2, 1, 2)
 
-        # Fila 9: Total targets | Target Index
-        plo.addWidget(QLabel("Total targets:"), 9, 0); plo.addWidget(self.particulasEdit,      9, 1)
-        plo.addWidget(QLabel("Target Index:"),  9, 2); plo.addWidget(self.indice_impresionEdit, 9, 3)
+        # Fila 10: Total targets | Target Index
+        plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,      10, 1)
+        plo.addWidget(QLabel("Target Index:"),  10, 2); plo.addWidget(self.indice_impresionEdit, 10, 3)
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -598,6 +630,97 @@ class Frontend(QFrame):
     def _on_grid_node_clicked(self, idx: int):
         self.indice_impresionEdit.setText(str(idx))
         self.new_index_Signal.emit(idx)
+
+    def _refresh_presets_combo(self):
+        from core.preset_manager import PresetManager
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self._preset_list = PresetManager.get_available_presets()
+
+        self.preset_combo.addItem("Preset: Personalizado / Libre", None)
+        for p in self._preset_list:
+            self.preset_combo.addItem(f"📄 {p.get('name', 'Sin nombre')}", p)
+        self.preset_combo.blockSignals(False)
+
+    def _on_preset_changed(self, idx: int):
+        data = self.preset_combo.itemData(idx)
+        if not data:
+            return
+
+        if "stop_mode" in data:
+            try: self.stop_mode_combo.setCurrentIndex(int(data["stop_mode"]))
+            except ValueError: pass
+        if "umbral_rel" in data: self.umbralEdit.setText(data["umbral_rel"])
+        if "umbral_abs" in data: self.umbral_absEdit.setText(data["umbral_abs"])
+        if "umbral_min" in data: self.slope_minEdit.setText(data["umbral_min"])
+        if "umbral_down" in data: self.umbral_downEdit.setText(data["umbral_down"])
+        if "slope_flat" in data: self.slope_flatEdit.setText(data["slope_flat"])
+        if "tmax" in data: self.tmaxEdit.setText(data["tmax"])
+        if "n_hold" in data: self.n_holdEdit.setText(data["n_hold"])
+        if "steps_before" in data: self.steps_beforeEdit.setText(data["steps_before"])
+        if "steps_after" in data: self.steps_afterEdit.setText(data["steps_after"])
+        if "autofocus_every" in data: self.autofocEdit.setText(data["autofocus_every"])
+        if "shift_x" in data: self.shiftxEdit.setText(data["shift_x"])
+        if "shift_y" in data: self.shiftyEdit.setText(data["shift_y"])
+        if "dx" in data: self.dxEdit.setText(data["dx"])
+        if "dy" in data: self.dyEdit.setText(data["dy"])
+        if "scan_preprint" in data: self.scan_check.setChecked(data["scan_preprint"].lower() == "true")
+        if "postscan" in data and hasattr(self, 'postscan_check'):
+            self.postscan_check.setChecked(data["postscan"].lower() == "true")
+        if "drift_correction" in data: self.drift_check.setChecked(data["drift_correction"].lower() == "true")
+
+    def _on_launch_wizard(self):
+        from modules.preset_wizard import PresetWizardDialog
+        dlg = PresetWizardDialog(self)
+        if dlg.exec():
+            self._refresh_presets_combo()
+            if dlg.created_preset_path:
+                for i in range(self.preset_combo.count()):
+                    item_data = self.preset_combo.itemData(i)
+                    if item_data and item_data.get("_filepath") == dlg.created_preset_path:
+                        self.preset_combo.setCurrentIndex(i)
+                        break
+
+    def _on_load_preset_file(self):
+        from core.preset_manager import PresetManager, PRESETS_DIR
+        path, _ = QFileDialog.getOpenFileName(self, "Cargar Archivo Preset .txt", PRESETS_DIR, "Archivos Preset (*.txt)")
+        if path:
+            pdata = PresetManager.load_preset_file(path)
+            pdata["_filepath"] = path
+            self.preset_combo.addItem(f"📂 {pdata.get('name', 'Custom')}", pdata)
+            self.preset_combo.setCurrentIndex(self.preset_combo.count() - 1)
+
+    def _on_save_preset_file(self):
+        from core.preset_manager import PresetManager, PRESETS_DIR
+        name, ok = QInputDialog.getText(self, "Guardar Preset .txt", "Nombre del Preset:")
+        if ok and name:
+            fname = name.replace(" ", "_").replace("—", "_") + ".txt"
+            fpath = os.path.join(PRESETS_DIR, fname)
+            data = {
+                "name": name,
+                "description": "Preset guardado manualmente desde la interfaz de PyPrinting",
+                "stop_mode": str(self.stop_mode_combo.currentIndex()),
+                "umbral_rel": self.umbralEdit.text(),
+                "umbral_abs": self.umbral_absEdit.text(),
+                "umbral_min": self.slope_minEdit.text(),
+                "umbral_down": self.umbral_downEdit.text(),
+                "slope_flat": self.slope_flatEdit.text(),
+                "tmax": self.tmaxEdit.text(),
+                "n_hold": self.n_holdEdit.text(),
+                "steps_before": self.steps_beforeEdit.text(),
+                "steps_after": self.steps_afterEdit.text(),
+                "autofocus_every": self.autofocEdit.text(),
+                "shift_x": self.shiftxEdit.text(),
+                "shift_y": self.shiftyEdit.text(),
+                "dx": self.dxEdit.text(),
+                "dy": self.dyEdit.text(),
+                "scan_preprint": str(self.scan_check.isChecked()),
+                "postscan": str(self.postscan_check.isChecked() if hasattr(self, 'postscan_check') else False),
+                "drift_correction": str(self.drift_check.isChecked())
+            }
+            saved_path = PresetManager.save_preset_file(fpath, data)
+            self._refresh_presets_combo()
+            QMessageBox.information(self, "Preset Guardado", f"¡Preset .txt guardado exitosamente en:\n{saved_path}")
 
     def _on_stopping_mode_changed(self, idx: int):
         """Muestra u oculta los casilleros de la interfaz según el Modo de Parada seleccionado (0 a 3)."""
@@ -857,11 +980,15 @@ class Backend(QObject):
 
     @pyqtSlot(list)
     def grid_info(self, info: list):
-        if hasattr(self, 'new_folder') and os.path.exists(self.new_folder):
-            path = os.path.join(self.new_folder, "grid_info.txt")
-            with open(path, "w", encoding="utf-8") as f:
-                for line in info:
-                    f.write(f"{line[0]}\t{line[1]}\n")
+        target_dir = getattr(self, 'new_folder', None)
+        if not target_dir or target_dir == str(DEFAULT_DATA_PATH) or not os.path.exists(target_dir):
+            print(f"[Measurements] ⚠️ Carpeta del lote no creada aún. Presione el botón '{self.mode_arg.capitalize()} folder' primero.")
+            return
+        path = os.path.join(target_dir, "grid_info.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            for line in info:
+                f.write(f"{line[0]}\t{line[1]}\n")
+        print(f"[Measurements] 📄 Archivo grid_info.txt guardado exitosamente en: {path}")
 
     def _read_pos(self):
         pos = pi.qPOS()
@@ -984,6 +1111,8 @@ class Backend(QObject):
         self.scanbool       = scanbool
         self.postscanbool   = postscanbool
         self.hold_counter   = 0
+        if hasattr(self, 'stepsParametersSignal'):
+            self.stepsParametersSignal.emit([self.steps_after, self.steps_before])
 
     @pyqtSlot()
     def grid_measurment(self):
@@ -1014,7 +1143,11 @@ class Backend(QObject):
 
         self._grid_move()
 
+    stepsParametersSignal = pyqtSignal(list)
+
     def _grid_move(self):
+        if hasattr(self, 'grid_x') and len(self.grid_x) > 0:
+            self.i_global = max(0, min(self.i_global, len(self.grid_x) - 1))
         axes    = [1, 2]
         targets = [self.grid_x[self.i_global] + self.startX,
                    self.grid_y[self.i_global] + self.startY]
@@ -1055,14 +1188,15 @@ class Backend(QObject):
             pi.MOV([1, 2], [self.startX, self.startY])
             time.sleep(0.1)
             # Mantener flipper arriba (baja potencia) para el escaneo confocal de drift
+            up_flipper(); time.sleep(0.5)
             self.number_scan = "drift_scan"
             self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
         else:
-            down_flipper(); time.sleep(1)
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
 
     def _grid_trace(self):
+        down_flipper(); time.sleep(0.5)  # Conmutar estrictamente a ALTA potencia para la traza de impresión
         open_shutter(self.laser); time.sleep(0.01)
         self.timer_inicio = time.time()
         self.hold_counter = 0
@@ -1158,6 +1292,7 @@ class Backend(QObject):
             self._grid_detect()
 
     def _grid_center_scan(self):
+        up_flipper(); time.sleep(0.5)  # Conmutar estrictamente a BAJA potencia para el escaneo 2D de centrado
         self.number_scan = "center_scan"
         self.grid_scanSignal.emit(self.laser, self.mode_printing, self.number_scan)
 

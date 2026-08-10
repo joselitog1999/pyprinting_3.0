@@ -1,0 +1,30 @@
+# ==================================================================
+# PyPrinting 3.0 — Preset Experimental: AgNP 80nm — Nanodímeros Plasmónicos
+# Formato de Archivo de Configuración de Impresión Fototérmica
+# ==================================================================
+name = AgNP 80nm — Nanodímeros Plasmónicos
+description = Impresión de alta precisión para parejas de dímeros con gap sub-50nm
+
+# ── Criterio de Parada y Umbrales ──
+stop_mode = 3
+umbral_rel = 1.30
+umbral_abs = 2.000
+umbral_min = 0.000
+umbral_down = 0.80
+slope_flat = 1.5
+
+# ── Tiempos y Muestreo ──
+tmax = 20
+n_hold = 5
+steps_before = 10
+steps_after = 10
+
+# ── Autofoco Z y Corrección de Deriva ──
+autofocus_every = 2
+shift_x = 2.0
+shift_y = 2.0
+dx = 0.03
+dy = 0.03
+scan_preprint = True
+postscan = True
+drift_correction = True

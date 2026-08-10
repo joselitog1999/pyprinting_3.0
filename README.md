@@ -55,7 +55,8 @@ printing3/
         ├── Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md
         ├── Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md
         ├── Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md
-        └── Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md
+        ├── Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md
+        └── Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md
 ```
 
 ---

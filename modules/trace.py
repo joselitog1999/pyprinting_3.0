@@ -33,6 +33,69 @@ from nidaq  import (open_shutter, close_shutter,
 SHUTTERS_LASER2 = ["None"] + list(SHUTTERS)
 
 
+class TraceFFTWindow(QWidget):
+    """Ventana independiente para el análisis espectral en tiempo real por Transformada de Fourier (FFT)."""
+
+    def __init__(self, title_name: str, pen_color: str = "#89b4fa", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Espectro de Potencias (FFT) — {title_name}")
+        self.resize(640, 420)
+        self.pen_color = pen_color
+        self._setup_ui(title_name)
+
+    def _setup_ui(self, title_name: str):
+        vlo = QVBoxLayout(self)
+        vlo.setContentsMargins(8, 8, 8, 8)
+
+        # Barra superior con telemetría de picos
+        self.lbl_info = QLabel("<b>Pico Principal:</b> 0.0 Hz | <b>Magnitud:</b> 0.000 V/√Hz")
+        self.lbl_info.setStyleSheet("color: #cdd6f4; font-size: 10pt; background-color: #1e1e2e; padding: 6px; border-radius: 4px; border: 1px solid #313244;")
+        vlo.addWidget(self.lbl_info)
+
+        # Gráfico pyqtgraph FFT
+        self.fftWidget = pg.GraphicsLayoutWidget()
+        self.pFFT = self.fftWidget.addPlot(row=0, col=0, title=f"Espectro de Densidad de Potencia — {title_name}")
+        self.pFFT.showGrid(x=True, y=True)
+        self.pFFT.setLabel("left", "Densidad Espectral (V²/Hz)")
+        self.pFFT.setLabel("bottom", "Frecuencia (Hz)")
+        
+        # Marcador de 50 Hz (Ruido de línea eléctrica)
+        self.line_50hz = pg.InfiniteLine(pos=50.0, angle=90, pen=pg.mkPen("#f38ba8", width=1, style=Qt.PenStyle.DashLine), label="50 Hz")
+        self.pFFT.addItem(self.line_50hz)
+
+        self.curve_fft = self.pFFT.plot(pen=pg.mkPen(self.pen_color, width=1.8))
+        vlo.addWidget(self.fftWidget, stretch=1)
+
+    def update_fft(self, timeaxis: np.ndarray, signal_data: np.ndarray):
+        if timeaxis is None or signal_data is None or len(signal_data) < 16:
+            return
+        try:
+            t = np.asarray(timeaxis, dtype=np.float64)
+            y = np.asarray(signal_data, dtype=np.float64)
+            dt = np.mean(np.diff(t)) if len(t) > 1 else 0.001
+            if dt <= 0:
+                dt = 0.001
+            fs = 1.0 / dt
+            N = len(y)
+            y_detrend = y - np.mean(y) # Eliminar componente DC
+            
+            # Ventana Hanning para reducir fugas espectrales
+            window = np.hanning(N)
+            fft_vals = np.fft.rfft(y_detrend * window)
+            freqs = np.fft.rfftfreq(N, d=dt)
+            psd = (np.abs(fft_vals) ** 2) / (N * fs + 1e-12)
+
+            self.curve_fft.setData(freqs, psd)
+
+            if len(psd) > 1:
+                peak_idx = np.argmax(psd[1:]) + 1 # Ignorar bin 0 DC
+                peak_freq = freqs[peak_idx]
+                peak_amp = np.sqrt(psd[peak_idx])
+                self.lbl_info.setText(f"<b>Pico Principal:</b> {peak_freq:.1f} Hz | <b>Magnitud:</b> {peak_amp:.3e} V/√Hz")
+        except Exception:
+            pass
+
+
 class PowerBSWindow(QWidget):
     """Ventana independiente para calibración y monitoreo de potencia en BS (Trace on BS)."""
     powerBsActiveSignal = pyqtSignal(bool)
@@ -45,6 +108,7 @@ class PowerBSWindow(QWidget):
         self.resize(580, 520)
 
         self.mean_BS = 0.0
+        self.fftWindowBS = TraceFFTWindow("Power in BS", pen_color="#f9e2af")
         self._setup_ui()
 
     def _setup_ui(self):
@@ -82,8 +146,13 @@ class PowerBSWindow(QWidget):
         self.save_bs_button.setStyleSheet("QPushButton { background-color: #d4ac0d; color: #111; font-weight: bold; }")
         self.save_bs_button.clicked.connect(lambda: self.saveBsSignal.emit())
 
-        lo.addWidget(self.btn_power_bs,        0, 0, 1, 3)
-        lo.addWidget(self.save_bs_button,     0, 3, 1, 1)
+        self.btn_fft_bs = QPushButton("📊 FFT Power BS")
+        self.btn_fft_bs.setStyleSheet("QPushButton { background-color: #89b4fa; color: #111; font-weight: bold; }")
+        self.btn_fft_bs.clicked.connect(lambda: self.fftWindowBS.show())
+
+        lo.addWidget(self.btn_power_bs,        0, 0, 1, 2)
+        lo.addWidget(self.save_bs_button,     0, 2, 1, 1)
+        lo.addWidget(self.btn_fft_bs,          0, 3, 1, 1)
         lo.addWidget(QLabel("Power BFP (mW):"), 1, 1)
         lo.addWidget(QLabel("Photodiode (V):"), 1, 2)
         lo.addWidget(QLabel("High:"),  2, 0); lo.addWidget(self.High_mW, 2, 1)
@@ -125,6 +194,8 @@ class PowerBSWindow(QWidget):
     def update_bs_data(self, timeaxis: np.ndarray, bs_data: np.ndarray, mean_bs: float):
         if timeaxis is not None and bs_data is not None and len(timeaxis) > 0 and len(bs_data) == len(timeaxis):
             self.curve_BS.setData(np.asarray(timeaxis, dtype=np.float64), np.asarray(bs_data, dtype=np.float64))
+            if self.fftWindowBS.isVisible():
+                self.fftWindowBS.update_fft(timeaxis, bs_data)
         self.mean_BS = round(mean_bs, 3)
         try:
             slope     = float(self.slope_Edit.text())
@@ -159,6 +230,8 @@ class Frontend(QFrame):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mean_BS = 0.0
+        self.fftWindowL1 = TraceFFTWindow("Láser 1", pen_color="#3ecf8e")
+        self.fftWindowL2 = TraceFFTWindow("Láser 2", pen_color="#e5534b")
         self.powerBSWindow = PowerBSWindow()
         self.powerBSWindow.powerBsActiveSignal.connect(lambda act: self.bsOnlyActiveSignal.emit(act))
         self.powerBSWindow.saveBsSignal.connect(lambda: self.saveBsSignal.emit())
@@ -190,6 +263,8 @@ class Frontend(QFrame):
         l2_name = self.trace_laser2.currentText()
         self.pL1.setTitle(f"Trace {l1_name}")
         self.pL2.setTitle(f"Trace {l2_name}")
+        self.fftWindowL1.setWindowTitle(f"Espectro de Potencias (FFT) — Trace {l1_name}")
+        self.fftWindowL2.setWindowTitle(f"Espectro de Potencias (FFT) — Trace {l2_name}")
         self._color_menu1()
         self._color_menu2()
 
@@ -234,6 +309,14 @@ class Frontend(QFrame):
         self.setPowerBSButton = QPushButton("View Power BS")
         self.setPowerBSButton.clicked.connect(self._get_power_bs)
 
+        self.btn_fft_l1 = QPushButton("📊 FFT L1")
+        self.btn_fft_l1.setToolTip("Abre la ventana flotante con el espectro de potencias FFT en tiempo real para el Láser 1.")
+        self.btn_fft_l1.clicked.connect(lambda: self.fftWindowL1.show())
+
+        self.btn_fft_l2 = QPushButton("📊 FFT L2")
+        self.btn_fft_l2.setToolTip("Abre la ventana flotante con el espectro de potencias FFT en tiempo real para el Láser 2.")
+        self.btn_fft_l2.clicked.connect(lambda: self.fftWindowL2.show())
+
         self.PointLabel = QLabel("<b>0.00 | 0.00</b>")
         self.PointLabel.setTextFormat(Qt.TextFormat.RichText)
 
@@ -244,8 +327,10 @@ class Frontend(QFrame):
 
         pg_lo.addWidget(QLabel("Láser 1:"))
         pg_lo.addWidget(self.trace_laser1)
+        pg_lo.addWidget(self.btn_fft_l1)
         pg_lo.addWidget(QLabel("Láser 2:"))
         pg_lo.addWidget(self.trace_laser2)
+        pg_lo.addWidget(self.btn_fft_l2)
         pg_lo.addWidget(self.traceButton)
         pg_lo.addWidget(self.PointLabel)
         pg_lo.addWidget(self.saveButton)
@@ -300,8 +385,12 @@ class Frontend(QFrame):
 
         if len(t) > 0 and len(i1) == len(t):
             self.curve_L1.setData(t, i1)
+            if self.fftWindowL1.isVisible():
+                self.fftWindowL1.update_fft(t, i1)
         if len(t) > 0 and len(i2) == len(t):
             self.curve_L2.setData(t, i2)
+            if self.fftWindowL2.isVisible():
+                self.fftWindowL2.update_fft(t, i2)
 
         self.PointLabel.setText(f"<b>{med2:.3f} | {med:.3f}</b>")
 
@@ -497,8 +586,17 @@ class Backend(QObject):
                 if isinstance(active_l2_name, int):
                     active_l2_name = SHUTTERS[active_l2_name] if 0 <= active_l2_name < len(SHUTTERS) else SHUTTERS[0]
 
-                ch_l1 = PD_CHANNELS.get(active_l1_name, 0)
-                ch_l2 = PD_CHANNELS.get(active_l2_name, 1)
+                def _get_pd_channel(laser_key, default_ch):
+                    if laser_key in PD_CHANNELS:
+                        return PD_CHANNELS[laser_key]
+                    str_key = str(laser_key)
+                    for k, ch in PD_CHANNELS.items():
+                        if str_key in str(k) or str(k) in str_key:
+                            return ch
+                    return default_ch
+
+                ch_l1 = _get_pd_channel(active_l1_name, 0)
+                ch_l2 = _get_pd_channel(active_l2_name, 1)
                 ch_bs = PD_CHANNELS.get("BS", 6)
 
                 ch_l1_idx = PD_CHANS_LIST.index(ch_l1) if ch_l1 in PD_CHANS_LIST else 0

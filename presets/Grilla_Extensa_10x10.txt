@@ -1,0 +1,30 @@
+# ==================================================================
+# PyPrinting 3.0 — Preset Experimental: Grilla Extensa 10x10 (Criterio Híbrido)
+# Formato de Archivo de Configuración de Impresión Fototérmica
+# ==================================================================
+name = Grilla Extensa 10x10 (Criterio Híbrido)
+description = Grilla de 100 posiciones con autofoco Z cada 2 partículas y corrección de deriva
+
+# ── Criterio de Parada y Umbrales ──
+stop_mode = 3
+umbral_rel = 1.20
+umbral_abs = 2.500
+umbral_min = 0.000
+umbral_down = 0.80
+slope_flat = 2.0
+
+# ── Tiempos y Muestreo ──
+tmax = 20
+n_hold = 5
+steps_before = 10
+steps_after = 10
+
+# ── Autofoco Z y Corrección de Deriva ──
+autofocus_every = 2
+shift_x = 2.0
+shift_y = 2.0
+dx = 0.03
+dy = 0.03
+scan_preprint = True
+postscan = False
+drift_correction = True
