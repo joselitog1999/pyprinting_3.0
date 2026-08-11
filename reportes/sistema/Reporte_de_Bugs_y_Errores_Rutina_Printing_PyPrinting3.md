@@ -2,12 +2,13 @@
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
 **Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
-**Fecha de Evaluación**: 10 de Agosto de 2026  
+**Fecha de Evaluación**: 11 de Agosto de 2026  
+**Ubicación del Reporte**: `reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md`  
 **Documentos de Referencia Auditados**:
-- `reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md` *(Modificado recientemente por el usuario)*
-- `reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md`
-- `reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md`
-- `main.py`, `app.py`, `modules/measurements.py`, `modules/trace.py`, `modules/focus.py`, `modules/confocal.py`, `config.py`
+- `reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md`
+- `reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md`
+- `reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md`
+- `main.py`, `app.py`, `contrapropagante.py`, `modules/measurements.py`, `modules/trace.py`, `modules/focus.py`, `modules/confocal.py`, `modules/hardware_dashboard.py`, `config.py`
 
 ---
 

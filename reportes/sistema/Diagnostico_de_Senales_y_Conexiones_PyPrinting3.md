@@ -2,8 +2,8 @@
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
 **Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
-**Fecha de Publicación**: 6 de Agosto de 2026  
-**Documento de Referencia**: `reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md`  
+**Fecha de Publicación**: 11 de Agosto de 2026  
+**Documento de Referencia**: `reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md`  
 **Arquitectura**: Qt Event-Driven Architecture (`PyQt6` / `QThread` / `pyqtSignal` / `pyqtSlot`)
 
 ---

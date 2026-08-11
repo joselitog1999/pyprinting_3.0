@@ -2,8 +2,8 @@
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
 **Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
-**Fecha de Publicación**: 10 de Agosto de 2026  
-**Ubicación del Reporte**: `reportes/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md`  
+**Fecha de Publicación**: 11 de Agosto de 2026  
+**Ubicación del Reporte**: `reportes/sistema/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md`  
 
 ---
 

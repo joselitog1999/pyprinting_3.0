@@ -1,7 +1,8 @@
 # Diagnóstico Integral y Análisis Comparativo de PyPrinting 3.0 vs PyPrinting 2
 
-**Fecha de Ejecución**: 7 de Agosto de 2026  
-**Ámbito del Diagnóstico**: `main.py`, `app.py`, `contrapropagante.py`, `modules/measurements.py`, `modules/trace.py`, `modules/focus.py`, `modules/confocal.py`, `modules/camera.py`, `config.py`, `nidaq.py`, `pi.py`.  
+**Fecha de Publicación**: 11 de Agosto de 2026  
+**Ubicación del Reporte**: `reportes/sistema/Diagnostico_Integral_y_Comparativo_PyPrinting3.md`  
+**Ámbito del Diagnóstico**: `main.py`, `app.py`, `contrapropagante.py`, `modules/measurements.py`, `modules/trace.py`, `modules/focus.py`, `modules/confocal.py`, `modules/camera.py`, `modules/hardware_dashboard.py`, `config.py`, `core/`.  
 **Referencia Ground Truth**: `c:\Users\josel\Documents\Obsidian_Vault\printing2` (PyPrinting 2).
 
 ---

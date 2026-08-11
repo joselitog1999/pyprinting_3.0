@@ -1,14 +1,15 @@
 # Respuestas a las Preguntas de Arquitectura y Evaluación de Graphify en PyPrinting 3.0
 
 **Autor**: Equipo de Desarrolladores de PyPrinting 3.0 (INS-UNSAM / CONICET)  
-**Fecha**: 6 de Agosto de 2026  
+**Fecha**: 11 de Agosto de 2026  
+**Ubicación del Reporte**: `reportes/sistema/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md`  
 **Documento Fuente**: `graphify-out/GRAPH_REPORT.md`  
 
 ---
 
 ## 1. Introducción
 
-El análisis del grafo de conocimiento generado por **Graphify** (`graphify update .`) identificó 5,307 nodos, 9,273 aristas y 334 comunidades en el repositorio `printing3`. Al final del informe `GRAPH_REPORT.md`, el motor analítico sugiere 7 preguntas fundamentales sobre la arquitectura del software, la centralidad de los nodos y la oportunidad de refactorización modular.
+El análisis del grafo de conocimiento generado por **Graphify** (`graphify update .`) identificó 5,532 nodos, 9,630 aristas y 351 comunidades en el repositorio `printing3`. Al final del informe `GRAPH_REPORT.md`, el motor analítico sugiere 7 preguntas fundamentales sobre la arquitectura del software, la centralidad de los nodos y la oportunidad de refactorización modular.
 
 Este documento ofrece las respuestas técnicas y la evaluación de ingeniería para cada una de las interrogantes planteadas.
 

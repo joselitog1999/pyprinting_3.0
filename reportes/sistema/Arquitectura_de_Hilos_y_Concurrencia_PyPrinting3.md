@@ -2,9 +2,9 @@
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM)**  
 **Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
-**Fecha de Publicación**: 6 de Agosto de 2026  
-**Documento de Referencia**: `reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md`  
-**Módulos de Implementación**: `app.py`, `modules/camera.py`, `modules/measurements.py`, `modules/trace.py`, `core/canon_edsdk.py`
+**Fecha de Publicación**: 11 de Agosto de 2026  
+**Documento de Referencia**: `reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md`  
+**Módulos de Implementación**: `app.py`, `contrapropagante.py`, `modules/camera.py`, `modules/measurements.py`, `modules/trace.py`, `modules/hardware_dashboard.py`, `core/hardware_manager.py`
 
 ---
 

@@ -2,8 +2,8 @@
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
 **Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
-**Fecha de Publicación**: 10 de Agosto de 2026  
-**Ubicación del Reporte**: `reportes/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md`  
+**Fecha de Publicación**: 11 de Agosto de 2026  
+**Ubicación del Reporte**: `reportes/sistema/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md`  
 
 ---
 
@@ -11,12 +11,12 @@
 
 Se ha ejecutado con éxito la actualización del **Grafo de Conocimiento del Proyecto** (`graphify update .`). El análisis estático de código (AST) ha reconstruido el mapa de nodos y comunidades del repositorio `printing3`, arrojando las siguientes métricas globales:
 
-- **Total de Nodos Registrados**: $5,515$ nodos de código, clases, métodos y metadatos.
-- **Aristas / Relaciones Inter-módulo**: $9,610$ conexiones.
-- **Comunidades Estructurales**: $348$ comunidades funcionales desglosadas.
+- **Total de Nodos Registrados**: $5,532$ nodos de código, clases, métodos y metadatos.
+- **Aristas / Relaciones Inter-módulo**: $9,630$ conexiones.
+- **Comunidades Estructurales**: $351$ comunidades funcionales desglosadas.
 - **Archivos de Salida Actualizados**: `graphify-out/graph.json`, `graphify-out/graph.html` y `graphify-out/GRAPH_REPORT.md`.
 
-El grafo de conocimiento confirma que la refactorización reciente (incorporación de `core/hardware_manager.py`, `modules/hardware_dashboard.py`, `TraceFFTWindow`, `core/preset_manager.py`, `modules/preset_wizard.py` y la sincronización total de `contrapropagante.py`) ha alcanzado un grado óptimo de desacoplamiento modular y coherencia estética.
+El grafo de conocimiento confirma que la refactorización reciente (incorporación de `core/hardware_manager.py`, `HardwareDashboardWindow`, `TraceFFTWindow`, `core/preset_manager.py`, `modules/preset_wizard.py` y la sincronización total de `contrapropagante.py`) ha alcanzado un grado óptimo de desacoplamiento modular y coherencia estética.
 
 ---
 

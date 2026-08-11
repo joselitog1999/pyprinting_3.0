@@ -2,8 +2,8 @@
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM)**  
 **Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
-**Fecha de Publicación**: 6 de Agosto de 2026  
-**Documento de Referencia**: `reportes/Modulo_Camara_Canon_EOS500D_PyPrinting3.md`  
+**Fecha de Publicación**: 11 de Agosto de 2026  
+**Documento de Referencia**: `reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md`  
 **Módulos de Implementación**: `core/canon_edsdk.py`, `modules/camera.py`
 
 ---
