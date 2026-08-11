@@ -200,3 +200,35 @@ class HardwareDashboardWidget(QFrame):
 
     def _clear_log(self):
         self.log_text.clear()
+
+
+class HardwareDashboardWindow(QMainWindow):
+    """
+    Ventana independiente para el Tablero de Conexiones, Seguridad y Aislamiento de Hardware.
+    Permite visualizar la matriz de estado de instrumentos, aislar dispositivos por software
+    y revisar la bitácora I/O sin saturar el espacio de trabajo de la GUI principal.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Tablero de Conexiones, Seguridad y Aislamiento de Hardware 🛡️ — PyPrinting 3.0")
+        self.resize(850, 580)
+        self.setMinimumSize(720, 480)
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #11111b;
+            }
+        """)
+
+        self.widget = HardwareDashboardWidget(self)
+        self.setCentralWidget(self.widget)
+
+
+if __name__ == "__main__":
+    import sys
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    win = HardwareDashboardWindow()
+    win.show()
+    sys.exit(app.exec())
+

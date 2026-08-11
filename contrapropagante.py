@@ -758,20 +758,16 @@ class ContrapropaganteMainWindow(QMainWindow):
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
 
-        # 5. Tablero de Conexiones & Hardware 🛡️ — a la derecha de shutters
-        from modules.hardware_dashboard import HardwareDashboardWidget
-        hardwareDock = Dock("Tablero de Conexiones & Hardware 🛡️", size=(400, 180))
-        self.hardwareWidget = HardwareDashboardWidget()
-        hardwareDock.addWidget(self.hardwareWidget)
-        self.dockArea.addDock(hardwareDock, "right", shuttersDock)
-
-        # 6. Trace — abajo de todo ocupando todo el ancho
+        # 5. Trace — abajo de todo ocupando todo el ancho
         traceDock = Dock("Trace", size=(1400, 240))
         self.traceWidget = TraceFrontend()
         traceDock.addWidget(self.traceWidget)
         self.dockArea.addDock(traceDock, "bottom")
 
         # Flotantes
+        from modules.hardware_dashboard import HardwareDashboardWindow
+        self.hardwareWindow = HardwareDashboardWindow()
+        self.hardwareWidget = self.hardwareWindow.widget
         self.cameraWindow = CameraWindow()
         self.imageAnalyzerWindow = ImageAnalyzerWindow()
         self.psfAnalyzerWindow = PSFAnalyzerWindow()
@@ -782,9 +778,10 @@ class ContrapropaganteMainWindow(QMainWindow):
         self.dual_frontend.analyzePSFSignal.connect(self._on_analyze_psf)
 
     def tools_hardware_dashboard(self):
-        if hasattr(self, 'hardwareWidget'):
-            self.hardwareWidget.show()
-            self.hardwareWidget.raise_()
+        self.hardwareWindow.show()
+        self.hardwareWindow.raise_()
+        self.hardwareWindow.activateWindow()
+
 
     def _on_analyze_psf(self):
         img_t = self.dual_frontend.image_top

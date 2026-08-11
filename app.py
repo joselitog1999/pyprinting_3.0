@@ -124,20 +124,16 @@ class Frontend(QMainWindow):
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
 
-        # 5. Tablero de Conexiones & Hardware 🛡️ — a la derecha de shutters
-        from modules.hardware_dashboard import HardwareDashboardWidget
-        hardwareDock = Dock("Tablero de Conexiones & Hardware 🛡️", size=(400, 180))
-        self.hardwareWidget = HardwareDashboardWidget()
-        hardwareDock.addWidget(self.hardwareWidget)
-        self.dockArea.addDock(hardwareDock, "right", shuttersDock)
-
-        # 6. Trace — abajo de todo ocupando todo el ancho de la ventana
+        # 5. Trace — abajo de todo ocupando todo el ancho de la ventana
         traceDock = Dock("Trace", size=(1400, 260))
         self.traceWidget = TraceFrontend()
         traceDock.addWidget(self.traceWidget)
         self.dockArea.addDock(traceDock, "bottom")
 
         # ── Ventanas flotantes (bajo demanda desde menú) ─────────────────────
+        from modules.hardware_dashboard import HardwareDashboardWindow
+        self.hardwareWindow      = HardwareDashboardWindow()# Tools → Tablero de Conexiones (Ctrl+H)
+        self.hardwareWidget      = self.hardwareWindow.widget  # Para compatibilidad de señal
         self.cameraWindow        = CameraWindow()          # Tools → Cámara
         self.imageAnalyzerWindow = ImageAnalyzerWindow()   # Tools → Analizador de Imágenes
         self.psfAnalyzerWindow   = PSFAnalyzerWindow()     # Tools → PSF Analyzer
@@ -159,9 +155,10 @@ class Frontend(QMainWindow):
     def tools_psf_analyzer(self):   self.psfAnalyzerWindow.show(); self.psfAnalyzerWindow.raise_()
     def tools_laser532(self):       self.laser532Window.show()
     def tools_hardware_dashboard(self):
-        if hasattr(self, 'hardwareWidget'):
-            self.hardwareWidget.show()
-            self.hardwareWidget.raise_()
+        self.hardwareWindow.show()
+        self.hardwareWindow.raise_()
+        self.hardwareWindow.activateWindow()
+
 
     def save_docks(self):
         self._dock_state = self.dockArea.saveState()

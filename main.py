@@ -372,15 +372,15 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("app.py", "Microscopio Derecho")
         )
 
-        # 2. PySpectrum (En desarrollo futuro)
-        card_pyspectrum = ApplicationCard(
-            icon_str="🔮",
-            title="PySpectrum",
-            subtitle="Próximamente — Espectrometría",
-            description="Manejo integrado de espectrómetro (extensión de Andor Solis), rutinas de nano-termometría fotónica, espectros de scattering y escaneo.",
-            button_text="🔮 En Desarrollo Futuro",
-            button_color="#585B70",
-            is_disabled=True
+        # 2. Tablero de Conexiones & Hardware (modules/hardware_dashboard.py)
+        card_hardware = ApplicationCard(
+            icon_str="🛡️",
+            title="Tablero de Conexiones",
+            subtitle="Seguridad & Aislamiento I/O",
+            description="Monitoreo en vivo de matriz de instrumentos (NI-DAQmx, PI Piezo, Cámara, Láser, Espectrómetro), aislamiento por software (Mock) y bitácora I/O.",
+            button_text="🛡️ Abrir Tablero de Conexiones",
+            button_color="#A6E3A1",
+            launch_callback=self._launch_hardware_dashboard
         )
 
         # 3. Microscopio Contrapropagante (contrapropagante.py)
@@ -445,9 +445,9 @@ class MainWindowLauncher(QMainWindow):
         )
 
         # Ubicación en grilla:
-        # Fila 1: Microscopio Derecho, PySpectrum, Contrapropagante
+        # Fila 1: Microscopio Derecho, Tablero de Conexiones, Contrapropagante
         grid.addWidget(card_app, 0, 0)
-        grid.addWidget(card_pyspectrum, 0, 1)
+        grid.addWidget(card_hardware, 0, 1)
         grid.addWidget(card_contra, 0, 2)
 
         # Fila 2: Cámara Live, Modulación Láser 532, PSF Analyzer
@@ -539,6 +539,24 @@ class MainWindowLauncher(QMainWindow):
             self.statusBar().showMessage(f"Lanzado 'Modulación Láser 532 nm' con PID {proc.pid}.")
         except Exception as e:
             QMessageBox.critical(self, "Error de Ejecución", f"Fallo al ejecutar Modulación Láser 532 nm:\n{e}")
+
+    def _launch_hardware_dashboard(self):
+        env = os.environ.copy()
+        if self.chk_safe_mode.isChecked():
+            env["PYPRINTING_SAFE"] = "1"
+
+        code = (
+            "import sys; from PyQt6.QtWidgets import QApplication; "
+            "from modules.hardware_dashboard import HardwareDashboardWindow; app = QApplication(sys.argv); "
+            "win = HardwareDashboardWindow(); win.show(); sys.exit(app.exec())"
+        )
+        try:
+            proc = subprocess.Popen([sys.executable, "-c", code], env=env, cwd=str(Path(__file__).parent))
+            self.processes.append(proc)
+            self.statusBar().showMessage(f"Lanzado 'Tablero de Conexiones & Hardware' con PID {proc.pid}.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Ejecución", f"Fallo al ejecutar Tablero de Conexiones:\n{e}")
+
 
     def _open_document(self, filename: str):
         root = Path(__file__).parent

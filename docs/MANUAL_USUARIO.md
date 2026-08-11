@@ -382,8 +382,12 @@ Al iniciar la rutina con el botón **`Play ►`**:
 4. Se genera el archivo sintético de error de posicionamiento `printing_error_timestamp.txt` conteniendo los residuos en nanómetros ($\Delta x_{\text{nm}}, \Delta y_{\text{nm}}$) entre la posición teórica de la grilla y el centro de masa real.
 5. El botón **`Save Grid Info`** exporta el archivo `grid_info.txt` con la metainformación completa (Láser, Criterio de Parada, Umbrales, Potencia BFP, Tipo de NP, Sustrato y Comentarios).
 
-#### 3.8 Tablero de Conexiones & Seguridad de Hardware (`HardwareDashboardWidget` & `HardwareManager`)
-El **Tablero de Conexiones y Seguridad de Hardware** (accesible desde `Tools → Tablero de Conexiones` o `Ctrl+H`) constituye el centro neurálgico de telemetría y aislamiento del sistema:
+#### 3.8 Tablero de Conexiones & Seguridad de Hardware (`HardwareDashboardWindow`, `HardwareDashboardWidget` & `HardwareManager`)
+El **Tablero de Conexiones y Seguridad de Hardware** constituye el centro neurálgico de telemetría y aislamiento del sistema. Se encuentra configurado como una **ventana independiente flotante** (`HardwareDashboardWindow`) accesible desde:
+1. **Lanzador Principal (`main.py`)**: Tarjeta activa **`🛡️ Tablero de Conexiones`** (Fila 1, Columna 2).
+2. **Microscopio Derecho (`app.py`)**: Menú **`Tools → Tablero de Conexiones`** (`Ctrl+H`) y menú **`Docks`**.
+3. **Microscopio Contrapropagante (`contrapropagante.py`)**: Menú **`Tools → Tablero de Conexiones`** (`Ctrl+H`) y menú **`Docks`**.
+
 - **Matriz de Estado LED por Instrumento**:
   - 🟢 **Verde (Conectado)**: Dispositivo físico detectado, inicializado y respondiendo nominalmente (NI-DAQmx Dev1, PI Piezo E-517/E-727, Cámara Thorlabs/USB, Láser 532 nm).
   - 🟡 **Amarillo (Simulado)**: Dispositivo operando en modo Mock transparente bajo `SAFE_MODE`.
