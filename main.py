@@ -372,15 +372,15 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("app.py", "Microscopio Derecho")
         )
 
-        # 2. Tablero de Conexiones & Hardware (modules/hardware_dashboard.py)
-        card_hardware = ApplicationCard(
-            icon_str="🛡️",
-            title="Tablero de Conexiones",
-            subtitle="Seguridad & Aislamiento I/O",
-            description="Monitoreo en vivo de matriz de instrumentos (NI-DAQmx, PI Piezo, Cámara, Láser, Espectrómetro), aislamiento por software (Mock) y bitácora I/O.",
-            button_text="🛡️ Abrir Tablero de Conexiones",
-            button_color="#A6E3A1",
-            launch_callback=self._launch_hardware_dashboard
+        # 2. PySpectrum (En desarrollo futuro — Desconectado)
+        card_pyspectrum = ApplicationCard(
+            icon_str="🔮",
+            title="PySpectrum",
+            subtitle="Próximamente — Espectrometría",
+            description="Manejo integrado de espectrómetro (extensión de Andor Solis), rutinas de nano-termometría fotónica, espectros de scattering y escaneo.",
+            button_text="🔮 En Desarrollo Futuro",
+            button_color="#585B70",
+            is_disabled=True
         )
 
         # 3. Microscopio Contrapropagante (contrapropagante.py)
@@ -438,16 +438,27 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("image_analyzer.py", "Analizador de Imágenes")
         )
 
-        # 8. Documentación y Créditos
+        # 8. Tablero de Conexiones & Hardware (modules/hardware_dashboard.py)
+        card_hardware = ApplicationCard(
+            icon_str="🛡️",
+            title="Tablero de Conexiones",
+            subtitle="Seguridad & Aislamiento I/O",
+            description="Monitoreo en vivo de matriz de instrumentos (NI-DAQmx, PI Piezo, Cámara, Láser, Espectrómetro), aislamiento por software (Mock) y bitácora I/O.",
+            button_text="🛡️ Abrir Tablero de Conexiones",
+            button_color="#A6E3A1",
+            launch_callback=self._launch_hardware_dashboard
+        )
+
+        # 9. Documentación y Créditos
         card_docs = DocAndCreditsCard(
             open_doc_callback=self._open_document,
             show_credits_callback=self._show_credits
         )
 
-        # Ubicación en grilla:
-        # Fila 1: Microscopio Derecho, Tablero de Conexiones, Contrapropagante
+        # Ubicación en grilla 3x3:
+        # Fila 1: Microscopio Derecho, PySpectrum (Futuro), Contrapropagante
         grid.addWidget(card_app, 0, 0)
-        grid.addWidget(card_hardware, 0, 1)
+        grid.addWidget(card_pyspectrum, 0, 1)
         grid.addWidget(card_contra, 0, 2)
 
         # Fila 2: Cámara Live, Modulación Láser 532, PSF Analyzer
@@ -455,11 +466,13 @@ class MainWindowLauncher(QMainWindow):
         grid.addWidget(card_laser, 1, 1)
         grid.addWidget(card_psf, 1, 2)
 
-        # Fila 3: Analizador de imágenes, Créditos y Guías
+        # Fila 3: Analizador de Imágenes, Tablero de Conexiones, Créditos y Guías
         grid.addWidget(card_img, 2, 0)
-        grid.addWidget(card_docs, 2, 1, 1, 2)
+        grid.addWidget(card_hardware, 2, 1)
+        grid.addWidget(card_docs, 2, 2)
 
         main_vlo.addLayout(grid)
+
 
         # Status Bar
         self.statusBar().showMessage("Sistema listo — Seleccione un módulo para iniciar.")
