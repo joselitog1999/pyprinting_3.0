@@ -10,7 +10,7 @@ y monitorear la bitácora de eventos I/O en tiempo real.
 from __future__ import annotations
 import os
 from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout,
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout,
                                QLabel, QPushButton, QCheckBox, QTextEdit, QGroupBox,
                                QHeaderView, QTableWidget, QTableWidgetItem)
 from PyQt6.QtGui import QColor, QFont
