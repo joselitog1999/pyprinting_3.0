@@ -543,8 +543,11 @@ class MainWindowLauncher(QMainWindow):
 
         code = (
             "import sys; from PyQt6.QtWidgets import QApplication; "
-            "from modules.camera import Laser532Window; app = QApplication(sys.argv); "
-            "win = Laser532Window(); win.show(); sys.exit(app.exec())"
+            "from modules.camera import Laser532Window, Laser532Backend; "
+            "app = QApplication(sys.argv); "
+            "win = Laser532Window(); backend = Laser532Backend(); "
+            "backend.make_connection(win); "
+            "win.show(); sys.exit(app.exec())"
         )
         try:
             proc = subprocess.Popen([sys.executable, "-c", code], env=env, cwd=str(Path(__file__).parent))
