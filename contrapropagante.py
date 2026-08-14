@@ -201,9 +201,9 @@ class ConfocalDualFrontend(QWidget):
         laser_box = QGroupBox("Iluminación Dual (Filtros Dicroicos / Notch)")
         laser_glo = QGridLayout(laser_box)
         self.scan_laser_top = QComboBox()
-        self.scan_laser_top.addItems(["532 nm (green)", "637 nm (red)", "592 nm (yellow)"])
+        self.scan_laser_top.addItems(SHUTTERS)
         self.scan_laser_bot = QComboBox()
-        self.scan_laser_bot.addItems(["532 nm (green)"])
+        self.scan_laser_bot.addItems(SHUTTERS)
 
         laser_glo.addWidget(QLabel("Láser TOP (Derecho → PD1):"), 0, 0)
         laser_glo.addWidget(self.scan_laser_top, 0, 1)
@@ -369,8 +369,8 @@ class ConfocalDualFrontend(QWidget):
     def get_dual_img(self, img_top: np.ndarray, img_bot: np.ndarray):
         self.image_top = img_top
         self.image_bot = img_bot
-        self.img_top.setImage(img_top)
-        self.img_bot.setImage(img_bot)
+        self.img_top.setImage(img_top, autoLevels=True)
+        self.img_bot.setImage(img_bot, autoLevels=True)
 
     @pyqtSlot(list, list)
     def update_cm_results(self, cm_top: list, cm_bot: list):
@@ -509,16 +509,16 @@ class ConfocalDualBackend(QObject):
         self.mode_printing = mode_printing
         self.number_scan   = number_scan
         self.is_grid_routine = True
-        top_idx = 0
-        bot_idx = 1 if len(SHUTTERS) > 1 else 0
+        top_idx = SHUTTERS.index(laser) if laser in SHUTTERS else 0
+        bot_idx = 0
         self.start_scan(top_idx, bot_idx)
 
     @pyqtSlot(int, int)
     def start_scan(self, top_laser_idx: int, bot_laser_idx: int):
         self._ensure_timer()
         self.signal_scan_stop = False
-        self.top_laser_idx = top_laser_idx
-        self.bot_laser_idx = bot_laser_idx
+        self.top_laser_idx = max(0, min(len(SHUTTERS) - 1, top_laser_idx))
+        self.bot_laser_idx = max(0, min(len(SHUTTERS) - 1, bot_laser_idx))
         self.scan_ramp_parameters([self.range_x, self.range_y, self.Nx, self.Ny])
 
         self.image_top = np.zeros((self.Ny, self.Nx))
@@ -536,6 +536,7 @@ class ConfocalDualBackend(QObject):
         self.signal_scan_stop = True
         if self.PDtimer_rampxy and self.PDtimer_rampxy.isActive():
             self.PDtimer_rampxy.stop()
+        close_all_shutters()
 
     def _read_pos(self) -> tuple[float, float, float]:
         if SAFE_MODE:
@@ -564,9 +565,7 @@ class ConfocalDualBackend(QObject):
     def _scan_ramp_xy(self):
         if self.signal_scan_stop or self.i >= self.Ny:
             self.PDtimer_rampxy.stop()
-            close_shutter("532 nm (green)")
-            close_shutter("637 nm (red)")
-            close_shutter("592 nm (yellow)")
+            close_all_shutters()
             self.measure_CM()
             if getattr(self, 'is_grid_routine', False):
                 self.is_grid_routine = False
@@ -585,39 +584,53 @@ class ConfocalDualBackend(QObject):
         channels_triggers(task, "X")
         pi.WGO(1, 1)
 
-        if SAFE_MODE:
-            # Simular imágenes gaussianas sintéticas con ligera diferencia espacial
-            grid_x, grid_y = np.meshgrid(np.linspace(-1, 1, self.Nx), np.linspace(-1, 1, self.Ny))
-            g_top = np.exp(-((grid_x - 0.05)**2 + (grid_y - 0.02)**2) / 0.15) * 8.5
-            g_bot = np.exp(-((grid_x + 0.03)**2 + (grid_y + 0.04)**2) / 0.18) * 7.2
-            self.image_top[self.i, :] = g_top[self.i, :]
-            self.image_bot[self.i, :] = g_bot[self.i, :]
-        else:
-            from config import PD_CHANNELS, TRIGGER_CHANNELS
-            data = task.read(number_of_samples_per_channel=self.Nramp)
-            data = np.array(data)
+        try:
+            if SAFE_MODE:
+                # Simular imágenes gaussianas sintéticas con ligera diferencia espacial
+                grid_x, grid_y = np.meshgrid(np.linspace(-1, 1, self.Nx), np.linspace(-1, 1, self.Ny))
+                g_top = np.exp(-((grid_x - 0.05)**2 + (grid_y - 0.02)**2) / 0.15) * 8.5
+                g_bot = np.exp(-((grid_x + 0.03)**2 + (grid_y + 0.04)**2) / 0.18) * 7.2
+                self.image_top[self.i, :] = g_top[self.i, :]
+                self.image_bot[self.i, :] = g_bot[self.i, :]
+            else:
+                from config import PD_CHANNELS, TRIGGER_CHANNELS
+                data = task.read(number_of_samples_per_channel=self.Nramp)
+                data = np.array(data)
 
-            top_laser_name = SHUTTERS[self.top_laser_idx]
-            bot_laser_name = SHUTTERS[self.bot_laser_idx]
-            top_pd_chan = PD_CHANNELS.get(top_laser_name, 0)
-            bot_pd_chan = PD_CHANNELS.get(bot_laser_name, 0)
+                top_laser_name = SHUTTERS[self.top_laser_idx]
+                bot_laser_name = SHUTTERS[self.bot_laser_idx]
+                top_pd_chan = PD_CHANNELS.get(top_laser_name, 0)
+                bot_pd_chan = PD_CHANNELS.get(bot_laser_name, 0)
 
-            ph_top = data[top_pd_chan]
-            ph_bot = data[bot_pd_chan]
-            trig_chan = TRIGGER_CHANNELS.get("X", 4)
-            trig = data[trig_chan] if len(data) > trig_chan else data[-1]
+                ph_top = data[top_pd_chan]
+                ph_bot = data[bot_pd_chan]
+                trig_chan = TRIGGER_CHANNELS.get("X", 4)
+                trig = data[trig_chan] if len(data) > trig_chan else data[-1]
 
-            d = np.diff(trig); L = len(trig)
-            asc = np.where(d >= 1.5)[0]; dsc = np.where(d <= -1.5)[0]
-            if len(asc) and len(dsc):
-                fa = asc[0]; fd_i = np.where(dsc > fa + L/6)[0]; fd = dsc[fd_i[0]] if len(fd_i) else fa
-                g_top = ph_top[fa:fd]; g_bot = ph_bot[fa:fd]
-                # Promedio por píxel
+                d = np.diff(trig); L = len(trig)
+                asc = np.where(d >= 1.5)[0]; dsc = np.where(d <= -1.5)[0]
+                if len(asc) and len(dsc):
+                    fa = asc[0]; fd_i = np.where(dsc > fa + L/6)[0]; fd = dsc[fd_i[0]] if len(fd_i) else fa
+                    g_top = ph_top[fa:fd] if fd > fa else ph_top[:L//2]
+                    g_bot = ph_bot[fa:fd] if fd > fa else ph_bot[:L//2]
+                else:
+                    g_top = ph_top[:L//2]
+                    g_bot = ph_bot[:L//2]
+
+                # Promedio / Interpolación por píxel
                 n_g = len(g_top)
                 if n_g >= self.Nx:
                     pts_px = n_g // self.Nx
                     self.image_top[self.i, :] = [g_top[k*pts_px:(k+1)*pts_px].mean() for k in range(self.Nx)]
                     self.image_bot[self.i, :] = [g_bot[k*pts_px:(k+1)*pts_px].mean() for k in range(self.Nx)]
+                else:
+                    self.image_top[self.i, :] = np.interp(np.linspace(0, max(0, n_g-1), self.Nx), np.arange(n_g), g_top)
+                    self.image_bot[self.i, :] = np.interp(np.linspace(0, max(0, n_g-1), self.Nx), np.arange(n_g), g_bot)
+        finally:
+            try:
+                task.close()
+            except Exception:
+                pass
 
         self.dataDualSignal.emit(self.image_top, self.image_bot)
         self.i += 1
@@ -791,6 +804,9 @@ class ContrapropaganteMainWindow(QMainWindow):
             return
         px_size = round(float(self.dual_frontend.scanrangeEdit.text()) / int(self.dual_frontend.NxEdit.text()), 4)
         self.psfAnalyzerWindow.load_dual_images(img_t, img_b, px_size)
+        self.psfAnalyzerWindow.show()
+        self.psfAnalyzerWindow.raise_()
+        self.psfAnalyzerWindow.activateWindow()
 
     def save_docks(self):
         self._dock_state = self.dockArea.saveState()
