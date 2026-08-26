@@ -35,8 +35,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                                QTableWidget, QTableWidgetItem, QHeaderView,
                                QGroupBox, QMessageBox, QFileDialog, QSplitter,
-                               QDialog, QSlider, QDoubleSpinBox, QComboBox, QFormLayout,
-                               QStackedWidget)
+                               QDialog, QSlider, QDoubleSpinBox, QSpinBox, QComboBox, QFormLayout,
+                               QStackedWidget, QDialogButtonBox)
 from PyQt6.QtGui     import (QPainter, QPen, QColor, QFont, QPixmap, QImage)
 
 from config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
@@ -790,9 +790,9 @@ class ImageAnalyzerWidget(QWidget):
                     if ids is not None and len(ids) > 0:
                         spots = loc._cut_spots(movie, ids, box_sz)
                         if fit_m == "gausslq":
-                            df = loc._fit2d_gausslq(spots, ids, box_sz)
+                            df = loc._fit2d_gausslq(spots, ids, box_sz, em=False, multiprocess=False)
                         elif fit_m == "avg":
-                            df = loc._fit2d_avg(spots, ids, box_sz)
+                            df = loc._fit2d_avg(spots, ids, box_sz, em=False, multiprocess=False)
                         else:
                             df = loc._fit2d_gaussmle(spots, ids, box_sz, multiprocess=False)
                     else:

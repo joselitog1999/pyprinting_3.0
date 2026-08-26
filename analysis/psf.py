@@ -166,8 +166,7 @@ def richardson_lucy_deconv(image: np.ndarray, psf_kernel: np.ndarray, num_iter: 
 
     is_rgb = (image.ndim == 3 and image.shape[2] in (3, 4))
     if is_rgb:
-        channels = [image[:, :, c].astype(float) for c in range(image.shape[2])]
-        deconv_channels = [_richardson_lucy_2d(c, psf_kernel, num_iter, clip) for c in range(min(3, image.shape[2]))]
+        deconv_channels = [_richardson_lucy_2d(image[:, :, c].astype(float), psf_kernel, num_iter, clip) for c in range(min(3, image.shape[2]))]
         res = np.stack(deconv_channels, axis=-1)
         if image.shape[2] == 4:
             res = np.dstack([res, image[:, :, 3]])

@@ -5,6 +5,9 @@
 
 ---
 
+> [!TIP]
+> 📂 **Documentación Modular Detallada**: Para consultar la ficha técnica, maqueta visual y especificación de controles I/O de cada módulo por separado, visitá la carpeta [**`docs/modulos/` (Índice de Módulos)**](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/README.md).
+
 ## 📖 Índice General
 
 1. [Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")](#1-panel-de-inicio-principal-mainpy--bienvenidos-al-printing)

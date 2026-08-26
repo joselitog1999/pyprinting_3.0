@@ -1,0 +1,130 @@
+# 🔬 Módulo 05: Analizador de PSF 2D (`analysis/psf_analyzer.py`)
+
+**Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
+**Archivo Fuente**: [`analysis/psf_analyzer.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf_analyzer.py) / [`analysis/psf.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf.py)  
+**Lanzador Rápido**: Botón 7 en [`main.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/main.py) o `Tools -> PSF Analyzer` desde `app.py`
+
+---
+
+## 1. 🏷️ Resumen y Rol en el Sistema
+
+El módulo **PSF Analyzer** es la herramienta analítica de metrología óptica encargada de caracterizar la **Función de Dispersión de Punto (*Point Spread Function*, PSF)** de los haces de excitación láser y la respuesta de emisión de nanopartículas individuales.
+
+Capacidades destacadas:
+- **Ajuste No Lineal Gaussiano 2D Completo (7 Parámetros)**: Calcula centroide sub-nanométrico $(x_0, y_0)$, amplitudes, anchos espaciales $(\sigma_x, \sigma_y)$, ángulo de rotación elíptica $\theta$, fondo constante $z_0$ y $\text{FWHM} = 2\sqrt{2\ln 2}\sigma \approx 2.355\sigma$.
+- **Modelado de Haces Donut ($LG_{01}$)**: Ajusta el perfil anular de modos Laguerre-Gaussianos utilizados en microscopía de super-resolución y manipulación óptica.
+- **Visualizador Triple Sincronizado**: Presenta lado a lado la **Imagen Original**, el **Modelo Ajustado** y el **Mapa de Residuales** ($\text{Original} - \text{Modelo}$) con escala de color unificada.
+- **Perfiles 1D Intersectados por el Centroide**: Gráficos instantáneos de cortes transversales en X e Y con superposición de la curva teórica.
+- **Métricas de Calidad Óptica**: Cálculo automático del coeficiente de determinación $R^2$, relación señal-ruido ($\text{SNR}$ en $\text{dB}$) y porcentaje de elipticidad $\epsilon = 1 - \sigma_{\min}/\sigma_{\max}$.
+
+---
+
+## 2. 🖼️ Maqueta de la Interfaz Visual (ASCII Layout)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  PyPrinting 3.0 — Analizador de Función de Dispersión de Punto (PSF 2D Analyzer)                      -  □  ×    │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  PANEL DE CONFIGURACIÓN Y CARGA DE DATOS                                                                         │
+│  [ 📂 Cargar Imagen / Scan ]  [ 💾 Exportar Reporte ]  │ Modelo: [ Gaussiano 2D (Elíptico) ▼]  Tamaño: [ 5.0 ] µm│
+│  [X] Invertir Intensidad (Valles a Picos)  │ Píxel Scale: [ 0.0833 ] µm/px  │ [ 🎯 Ajustar Automático (Fit) ]     │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  VISUALIZADOR TRIPLE 2D (Original | Ajuste Teórico | Residuales)                                                 │
+│  ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┐               │
+│  │ 1. IMAGEN ORIGINAL            │ 2. MODELO AJUSTADO            │ 3. MAPA DE RESIDUALES         │               │
+│  │ ┌───────────────────────────┐ │ ┌───────────────────────────┐ │ ┌───────────────────────────┐ │               │
+│  │ │          ...              │ │ │          ...              │ │ │          ...              │ │               │
+│  │ │        .:::::.            │ │ │        .:::::.            │ │ │        . : .              │ │               │
+│  │ │       .::::::: .          │ │ │       .:::::::.           │ │ │       .     .             │ │               │
+│  │ │        .:::::.            │ │ │        .:::::.            │ │ │        . : .              │ │               │
+│  │ │          ...              │ │ │          ...              │ │ │          ...              │ │               │
+│  │ └───────────────────────────┘ │ └───────────────────────────┘ │ └───────────────────────────┘ │               │
+│  │ Pico: 8.45 V | Fondo: 0.12 V│ │ R²: 0.9942 | SNR: 24.8 dB  │ │ RMS Residual: 0.042 V       │               │
+│  └─────────────────────────────┴─┴─────────────────────────────┴─┴─────────────────────────────┘               │
+├─────────────────────────────────────────────────────────────────┬────────────────────────────────────────────────┤
+│  PERFILES CORTADOS 1D (Cortes X / Y por el Centroide)           │  TABLA DE PARÁMETROS METROLÓGICOS              │
+│  ┌───────────────────────────────────────────────────────────┐  │  • Centroide X:  +2.458 ± 0.003 µm             │
+│  │ 8.0|      /█\    ── Datos Experimentales                  │  │  • Centroide Y:  +2.512 ± 0.003 µm             │
+│  │    |     / █ \   ── Curva de Ajuste No Lineal             │  │  • FWHM X:       278.4 ± 1.8 nm                │
+│  │ 4.0|    /  █  \                                           │  │  • FWHM Y:       286.1 ± 1.9 nm                │
+│  │    |   /   █   \                                          │  │  • Elipticidad:  2.69 % (Simetría casi pura)   │
+│  │ 0.0└──/────█────\──────────────────────────────── X / Y   │  │  • Ángulo θ:     14.2°                         │
+│  └───────────────────────────────────────────────────────────┘  │  • Amplitud A:   8.33 V  |  Fondo z0: 0.12 V   │
+├─────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────┤
+│  🟢 Ajuste convergente (Levenberg-Marquardt) en 14 iteraciones | R² = 0.9942 | FWHM_promedio = 282.2 nm          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. 🎛️ Catálogo de Botones y Controles
+
+| Control / Botón | Tipo de Widget | Valores / Opciones | Descripción Técnica |
+|---|---|---|---|
+| `Cargar Imagen / Scan` | `QPushButton` | Archivos `.tiff, .npy, .csv, .jpg, .png` | Importa una matriz 2D de intensidad confocal o imagen óptica de cámara. |
+| `Modelo de Ajuste` | `QComboBox` | `Gaussiano 2D`, `Donut LG01`, `Gaussiano 1D` | Selecciona la función analítica que optimizará el solver. |
+| `Tamaño Campo` | `QLineEdit` | $0.1 - 100.0\ \mu\text{m}$ | Dimensión física del lado de la imagen para calibrar el eje métrico. |
+| `Píxel Scale` | `QLineEdit` | $\mu\text{m}/\text{px}$ | Factor de conversión métrico obtenido automáticamente o fijado manualmente. |
+| `Invertir Intensidad` | `QCheckBox` | `ON / OFF` | Invierte la señal ($I_{\text{inv}} = \max(I) - I$) para analizar valles/dips de scattering. |
+| `Ajustar Automático` | `QPushButton` | Algoritmo LM | Ejecuta la estimación inicial por momentos y optimiza los parámetros por Levenberg-Marquardt. |
+| `Exportar Reporte` | `QPushButton` | Texto / PNG | Genera un informe metrológico estructurado con gráficos y métricas. |
+
+---
+
+## 4. 📥 Archivos de Entrada que Solicita
+
+1. **Mapas Confocales PyPrinting (`NPscan_*.tiff`, `.npy`, `.csv`)**:
+   - Matrices flotantes o enteras de $N \times M$ píxeles.
+2. **Fotografías de Cámara Réflex o CMOS (`Foto_*.tiff`, `.jpg`, `.png`)**:
+   - Si la imagen es RGB, el analizador extrae automáticamente la luminancia monocromática ($Y = 0.299R + 0.587G + 0.114B$).
+
+---
+
+## 5. 📤 Archivos de Salida que Genera
+
+1. **Reporte Metrológico de Ajuste (`psf_fit_results_YYYYMMDD_HHMMSS.txt`)**:
+   - *Estructura*:
+     ```
+     ============================================================
+     PyPrinting 3.0 — REPORTE METROLÓGICO DE AJUSTE DE PSF 2D
+     ============================================================
+     Fecha y Hora:        2026-08-26 15:45:00
+     Modelo Empleado:     Gaussiano 2D Elíptico (7 Parámetros)
+     Bondad de Ajuste R²: 0.9942
+     Relación Señal/Ruido: 24.8 dB
+     ------------------------------------------------------------
+     PARÁMETROS ÓPTICOS ESTIMADOS:
+     • Centroide X (x0):  +2.4580 ± 0.0032 µm
+     • Centroide Y (y0):  +2.5120 ± 0.0031 µm
+     • Amplitud Pico (A):  8.3320 ± 0.0450 V
+     • Fondo (z0):         0.1210 ± 0.0080 V
+     • Sigma X (σx):       118.20 ± 0.85 nm
+     • Sigma Y (σy):       121.50 ± 0.90 nm
+     • FWHM X:             278.40 ± 1.80 nm
+     • FWHM Y:             286.10 ± 1.90 nm
+     • Elipticidad:        2.69 %
+     • Ángulo Rotación θ:  14.2°
+     ============================================================
+     ```
+2. **Figura Triple de Publicación (`psf_fit_triple_view.png`)**:
+   - Imagen de alta resolución ($300\ \text{DPI}$) conteniendo los tres paneles y perfiles 1D.
+
+---
+
+## 6. ⚙️ Formulación Matemática del Ajuste 2D
+
+El modelo **Gaussiano 2D Elíptico con Rotación** implementado en [`analysis/psf.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf.py) se define como:
+
+$$I(x, y) = z_0 + A \cdot \exp\left( -\left[ a(x - x_0)^2 + 2b(x - x_0)(y - y_0) + c(y - y_0)^2 \right] \right)$$
+
+donde los coeficientes tensoriales dependen del ángulo de rotación $\theta$:
+$$a = \frac{\cos^2\theta}{2\sigma_x^2} + \frac{\sin^2\theta}{2\sigma_y^2}, \quad b = -\frac{\sin(2\theta)}{4\sigma_x^2} + \frac{\sin(2\theta)}{4\sigma_y^2}, \quad c = \frac{\sin^2\theta}{2\sigma_x^2} + \frac{\cos^2\theta}{2\sigma_y^2}$$
+
+El ancho a mitad de altura ($\text{FWHM}$) en cada eje principal se calcula rigurosamente como:
+$$\text{FWHM}_x = 2\sqrt{2\ln 2}\,\sigma_x \approx 2.35482\,\sigma_x, \qquad \text{FWHM}_y = 2\sqrt{2\ln 2}\,\sigma_y \approx 2.35482\,\sigma_y$$
+
+---
+
+## 7. 🔗 Referencias Cruzadas
+- [📘 Manual de Usuario — Sección 7: Ajuste de PSF y Metrología Óptica](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#7-ajuste-de-psf-y-metrología-óptica)
+- [📑 Reporte Científico de PSF (`reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md)

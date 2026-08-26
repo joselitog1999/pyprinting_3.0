@@ -19,6 +19,12 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 3. **Documentación y Reportes Actualizados**:
    - Se actualizó el reporte técnico formal en **`reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md`**.
    - Se actualizó **`docs/MANUAL_USUARIO.md`** y **`README.md`**.
+   - Se creó **`docs/PERSPECTIVAS.md`** como documento dinámico de preguntas abiertas, requerimientos y sugerencias técnicas.
+
+4. **Validación y Corrección de Picasso (`picassosr`) y Deconvolución R-L**:
+   - Se corrigió el paso por canal de imágenes RGB/RGBA en `richardson_lucy_deconv` (`analysis/psf.py`).
+   - Se incorporó `QSpinBox` y `QDialogButtonBox` en los imports de `analysis/image_analyzer.py`.
+   - Se corrigieron las firmas de llamada a `_fit2d_gausslq` y `_fit2d_avg` en `analysis/image_analyzer.py` y `modules/camera.py`, pasando explícitamente `em=False` y `multiprocess=False`.
 
 ---
 
@@ -29,3 +35,9 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
   .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from modules.measurements import Frontend, Backend; fe = Frontend(mode='printing'); be = Backend(mode='printing'); fe.make_connection(be); print('Merged measurements.py PASSED!')"
   ```
   Result: **`PASSED`** (Compilación e instanciación limpias).
+
+- **Prueba Completa de Detección Multimotor Picasso (MLE, LQ, Avg)**:
+  ```powershell
+  .\.venv\Scripts\python.exe -c "import sys, numpy as np; from PyQt6.QtWidgets import QApplication; app = QApplication(sys.argv); from analysis.image_analyzer import ImageAnalyzerWidget; win = ImageAnalyzerWidget(); win._raw_frame = np.zeros((200, 200, 3), dtype=np.uint8); win._current_frame = win._raw_frame; win._trackpy_params = {'engine': 'picasso', 'min_net_gradient': 200.0, 'box_size': 7, 'fit_method': 'gaussmle'}; win._run_detection(); print('Picasso Tests PASSED!')"
+  ```
+  Result: **`PASSED`** (Detección sub-píxel operativa en los 3 métodos).

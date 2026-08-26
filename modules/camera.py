@@ -2617,9 +2617,9 @@ class TrackpyDialog(QDialog):
                     if ids is not None and len(ids) > 0:
                         spots = loc._cut_spots(movie, ids, box_sz)
                         if fit_m == "gausslq":
-                            df = loc._fit2d_gausslq(spots, ids, box_sz)
+                            df = loc._fit2d_gausslq(spots, ids, box_sz, em=False, multiprocess=False)
                         elif fit_m == "avg":
-                            df = loc._fit2d_avg(spots, ids, box_sz)
+                            df = loc._fit2d_avg(spots, ids, box_sz, em=False, multiprocess=False)
                         else:
                             df = loc._fit2d_gaussmle(spots, ids, box_sz, multiprocess=False)
                     else:
