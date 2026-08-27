@@ -269,13 +269,13 @@ class Frontend(QFrame):
         self._color_menu2()
 
     def _color_menu1(self):
-        color_map = {"532": "color: green;", "637": "color: red;", "592": "color: #d4ac0d; font-weight: bold;"}
+        color_map = {"532": "color: green;", "637": "color: red;", "592": "color: #d4ac0d; font-weight: bold;", "808": "color: #ad1457; font-weight: bold;"}
         txt = self.trace_laser1.currentText()
         c = next((v for k, v in color_map.items() if k in txt), "color: white;")
         self.trace_laser1.setStyleSheet(f"QComboBox {{ {c} }}")
 
     def _color_menu2(self):
-        color_map = {"532": "color: green;", "637": "color: red;", "592": "color: #d4ac0d; font-weight: bold;"}
+        color_map = {"532": "color: green;", "637": "color: red;", "592": "color: #d4ac0d; font-weight: bold;", "808": "color: #ad1457; font-weight: bold;"}
         txt = self.trace_laser2.currentText()
         c = next((v for k, v in color_map.items() if k in txt), "color: white;")
         self.trace_laser2.setStyleSheet(f"QComboBox {{ {c} }}")

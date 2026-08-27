@@ -88,7 +88,7 @@ class Frontend(QFrame):
         lo.addWidget(self.show_autocorr_btn,       4, 0)
 
     def _color_menu(self):
-        colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: blue;", "color: darkred;"]
+        colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: #ad1457; font-weight: bold;", "color: blue;"]
         idx = self.focus_laser.currentIndex()
         if 0 <= idx < len(colors):
             self.focus_laser.setStyleSheet(f"QComboBox {{ {colors[idx]} }}")

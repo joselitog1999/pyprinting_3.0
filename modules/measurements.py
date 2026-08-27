@@ -740,7 +740,7 @@ class Frontend(QFrame):
         self.lbl_slope_flat.setVisible(show_slope);    self.slope_flatEdit.setVisible(show_slope)
 
     def _color_menu(self, combo: QComboBox):
-        colors = ["#2e7d32", "#c62828", "#f57f17"] # verde, rojo, amarillo
+        colors = ["#2e7d32", "#c62828", "#f57f17", "#880e4f"] # verde, rojo, amarillo, infrarrojo (808nm)
         idx = combo.currentIndex()
         c = colors[idx] if idx < len(colors) else "#ffffff"
         combo.setStyleSheet(f"background-color: {c}; color: white; font-weight: bold;")

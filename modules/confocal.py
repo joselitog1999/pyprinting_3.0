@@ -135,7 +135,7 @@ class Frontend(QFrame):
         )
 
     def _color_menu(self, combo: QComboBox):
-        colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: blue;", "color: darkred;"]
+        colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: #ad1457; font-weight: bold;", "color: blue;"]
         idx = combo.currentIndex()
         if 0 <= idx < len(colors):
             combo.setStyleSheet(f"QComboBox {{ {colors[idx]} }}")

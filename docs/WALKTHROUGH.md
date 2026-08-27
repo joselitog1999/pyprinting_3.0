@@ -27,10 +27,16 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
    - Se corrigieron las firmas de llamada a `_fit2d_gausslq` y `_fit2d_avg` en `analysis/image_analyzer.py` y `modules/camera.py`, pasando explícitamente `em=False` y `multiprocess=False`.
 
 5. **Calibración de Canales Físicos Reales del Banco Óptico (`config.py`)**:
-   - Se actualizaron las líneas digitales de obturadores TTL: `SHUTTER_CHANNELS = [11, 8, 9]` (532 nm en línea 11, 637 nm en línea 8, 592 nm en línea 9).
-   - Se ajustó la polaridad física real de los relés: `SHUTTER_POLARITY = {532nm: False (Activo Bajo), 637nm: True, 592nm: True}`.
-   - Se re-mapearon los canales de entrada analógica de fotodiodos: `PD_CHANNELS = {532nm: ai0, 637nm: ai2, 592nm: ai1, BS: ai6}`.
+   - Se actualizaron las líneas digitales de obturadores TTL: `SHUTTER_CHANNELS = [11, 8, 9, 10]`.
+   - Se ajustó la polaridad física real de los relés: `SHUTTER_POLARITY = {532nm: False (Activo Bajo), 637nm: True, 592nm: True, 808nm: True}`.
+   - Se re-mapearon los canales de entrada analógica de fotodiodos: `PD_CHANNELS = {532nm: ai0, 637nm: ai2, 592nm: ai1, 808nm: ai3, BS: ai6}`.
    - Se resolvió y eliminó el ítem 1.3 de `docs/PERSPECTIVAS.md` conforme al protocolo de mantenimiento.
+
+6. **Integración Completa de la Línea Láser 808 nm (Infrarrojo - IR)**:
+   - Se incorporó `"808 nm (IR)"` a `SHUTTERS` con obturador en la línea digital `port0/line10` y canal de fotodiodo en `Dev1/ai3`.
+   - Se actualizó el panel de control de obturadores ([`core/shutters.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py)) con el 4to botón `shutter3button`, señal `shutter3_signal` y slot `shutter3`.
+   - Se actualizaron los selectores de color de todos los módulos (`measurements.py`, `trace.py`, `focus.py`, `confocal.py`, `contrapropagante.py`) con el color `#ad1457` / borravino para la línea infrarroja.
+   - Se validaron todos los módulos y la apertura/cierre de obturadores y lectura de fotodiodos en modo seguro y nominal.
 
 ---
 

@@ -27,6 +27,7 @@ class Frontend(QFrame):
     shutter0_signal         = pyqtSignal(bool)
     shutter1_signal         = pyqtSignal(bool)
     shutter2_signal         = pyqtSignal(bool)
+    shutter3_signal         = pyqtSignal(bool)
     flipper_signal          = pyqtSignal(bool)
     flipper_notch532_signal = pyqtSignal(bool)
     laser532_signal         = pyqtSignal(float)
@@ -46,6 +47,10 @@ class Frontend(QFrame):
 
     def _shutter2_check(self):
         self.shutter2_signal.emit(self.shutter2button.isChecked())
+
+    def _shutter3_check(self):
+        if hasattr(self, 'shutter3button') and self.shutter3button is not None:
+            self.shutter3_signal.emit(self.shutter3button.isChecked())
 
     def _power_check(self):
         checked = self.powerbutton.isChecked()
@@ -96,6 +101,14 @@ class Frontend(QFrame):
         self.shutter2button.setStyleSheet("color: #d4ac0d; font-weight: bold;")
         self.shutter2button.setToolTip("Abrir/cerrar shutter 592 nm (amarillo)")
 
+        if len(SHUTTERS) > 3:
+            self.shutter3button = QCheckBox(SHUTTERS[3])
+            self.shutter3button.clicked.connect(self._shutter3_check)
+            self.shutter3button.setStyleSheet("color: #ad1457; font-weight: bold;")
+            self.shutter3button.setToolTip("Abrir/cerrar shutter 808 nm (infrarrojo)")
+        else:
+            self.shutter3button = None
+
         # ── Flippers ─────────────────────────────────────────────────────────
         self.powerbutton = QCheckBox("Low\npower")
         self.powerbutton.clicked.connect(self._power_check)
@@ -131,6 +144,8 @@ class Frontend(QFrame):
         grid.addWidget(self.shutter0button,  0, 0)
         grid.addWidget(self.shutter1button,  1, 0)
         grid.addWidget(self.shutter2button,  2, 0)
+        if self.shutter3button is not None:
+            grid.addWidget(self.shutter3button, 3, 0)
         grid.addWidget(self.powerbutton,     1, 1)
         grid.addWidget(self.notch532button,  2, 1)
 
@@ -170,6 +185,14 @@ class Backend(QObject):
             close_shutter(SHUTTERS[2])
 
     @pyqtSlot(bool)
+    def shutter3(self, state: bool):
+        if len(SHUTTERS) > 3:
+            if state:
+                open_shutter(SHUTTERS[3])
+            else:
+                close_shutter(SHUTTERS[3])
+
+    @pyqtSlot(bool)
     def power_change(self, high: bool):
         down_flipper() if high else up_flipper()
 
@@ -190,6 +213,8 @@ class Backend(QObject):
         frontend.shutter0_signal.connect(self.shutter0)
         frontend.shutter1_signal.connect(self.shutter1)
         frontend.shutter2_signal.connect(self.shutter2)
+        if hasattr(frontend, 'shutter3_signal'):
+            frontend.shutter3_signal.connect(self.shutter3)
         frontend.flipper_signal.connect(self.power_change)
         frontend.flipper_notch532_signal.connect(self.notch532_change)
         frontend.laser532_signal.connect(self.set_laser532)
