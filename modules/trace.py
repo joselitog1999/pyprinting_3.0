@@ -4,11 +4,13 @@ trace.py — Adquisición continua de fotodiodos y trazado en tiempo real
 PyPrinting — UNSAM Nanofotónica  —  PyQt6
 
 Funcionalidades:
-  - Trazado continuo en tiempo real de 2 Lásers a la vez (Láser 1 y Láser 2 seleccionables).
-  - Botón compartido de Play/Stop y Guardar Traza.
-  - Ventana flotante e independiente de Calibración BS (PowerBSWindow) con gráfico "Trace on BS" integrado.
-  - Auto-activación del botón Power BS mientras la ventana de calibración esté abierta.
-  - Emisión unificada a printing / dimers.
+  - Trazado continuo en tiempo real con soporte para Láser 1 y Láser 2.
+  - Láser 2 configurable con opciones: "None" (oculta gráfico 2 para ver 1 sola traza completa),
+    "BS" (monitoreo directo del fotodiodo Beam Splitter en el gráfico 2), o cualquier línea láser física.
+  - Tasa de refresco visual optimizada a ~30 FPS para evitar saturación del Event Loop de Qt.
+  - Ventana flotante de análisis espectral FFT en tiempo real con tasa de refresco configurable (1 a 1.5 s).
+  - Ventana de calibración "Power in BS" independiente con inicio bajo demanda (sin auto-ejecución no deseada).
+  - Emisión unificada y sincronizada para nanofabricación (printing / dimers).
 """
 from __future__ import annotations
 import os
@@ -30,17 +32,20 @@ from config import (SHUTTERS, DEFAULT_DATA_PATH,
 from nidaq  import (open_shutter, close_shutter,
                     channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
 
-SHUTTERS_LASER2 = ["None"] + list(SHUTTERS)
+SHUTTERS_LASER2 = ["None", "BS"] + list(SHUTTERS)
 
 
 class TraceFFTWindow(QWidget):
-    """Ventana independiente para el análisis espectral en tiempo real por Transformada de Fourier (FFT)."""
+    """Ventana independiente para el análisis espectral en tiempo real por Transformada de Fourier (FFT).
+    Incluye limitación de tasa de refresco (1 a 1.5 s) para máxima fluidez y bajo consumo de CPU."""
 
     def __init__(self, title_name: str, pen_color: str = "#89b4fa", parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Espectro de Potencias (FFT) — {title_name}")
         self.resize(640, 420)
         self.pen_color = pen_color
+        self._last_update_time = 0.0
+        self.update_interval_sec = 1.0  # Refresco de FFT cada 1 segundo
         self._setup_ui(title_name)
 
     def _setup_ui(self, title_name: str):
@@ -67,6 +72,14 @@ class TraceFFTWindow(QWidget):
         vlo.addWidget(self.fftWidget, stretch=1)
 
     def update_fft(self, timeaxis: np.ndarray, signal_data: np.ndarray):
+        if not self.isVisible():
+            return
+
+        now = time.time()
+        if now - self._last_update_time < self.update_interval_sec:
+            return
+        self._last_update_time = now
+
         if timeaxis is None or signal_data is None or len(signal_data) < 16:
             return
         try:
@@ -207,8 +220,7 @@ class PowerBSWindow(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.btn_power_bs.setChecked(True)
-        self.powerBsActiveSignal.emit(True)
+        # Modo pasivo: No forzar inicio automático para evitar lentitud y disparos involuntarios
 
     def closeEvent(self, event):
         self.btn_power_bs.setChecked(False)
@@ -262,20 +274,45 @@ class Frontend(QFrame):
         l1_name = self.trace_laser1.currentText()
         l2_name = self.trace_laser2.currentText()
         self.pL1.setTitle(f"Trace {l1_name}")
-        self.pL2.setTitle(f"Trace {l2_name}")
         self.fftWindowL1.setWindowTitle(f"Espectro de Potencias (FFT) — Trace {l1_name}")
-        self.fftWindowL2.setWindowTitle(f"Espectro de Potencias (FFT) — Trace {l2_name}")
+
+        if l2_name == "None":
+            self.pL2.hide()
+            self.btn_fft_l2.setEnabled(False)
+        elif l2_name == "BS":
+            self.pL2.show()
+            self.pL2.setTitle("Trace on BS (Fotodiodo Divisor)")
+            self.btn_fft_l2.setEnabled(True)
+            self.fftWindowL2.setWindowTitle("Espectro de Potencias (FFT) — Trace BS")
+        else:
+            self.pL2.show()
+            self.pL2.setTitle(f"Trace {l2_name}")
+            self.btn_fft_l2.setEnabled(True)
+            self.fftWindowL2.setWindowTitle(f"Espectro de Potencias (FFT) — Trace {l2_name}")
+
         self._color_menu1()
         self._color_menu2()
 
     def _color_menu1(self):
-        color_map = {"532": "color: green;", "637": "color: red;", "592": "color: #d4ac0d; font-weight: bold;", "808": "color: #ad1457; font-weight: bold;"}
+        color_map = {
+            "532": "color: green;",
+            "637": "color: red;",
+            "592": "color: #d4ac0d; font-weight: bold;",
+            "808": "color: #ad1457; font-weight: bold;"
+        }
         txt = self.trace_laser1.currentText()
         c = next((v for k, v in color_map.items() if k in txt), "color: white;")
         self.trace_laser1.setStyleSheet(f"QComboBox {{ {c} }}")
 
     def _color_menu2(self):
-        color_map = {"532": "color: green;", "637": "color: red;", "592": "color: #d4ac0d; font-weight: bold;", "808": "color: #ad1457; font-weight: bold;"}
+        color_map = {
+            "None": "color: #a6adc8; font-style: italic;",
+            "BS": "color: #f9e2af; font-weight: bold;",
+            "532": "color: green;",
+            "637": "color: red;",
+            "592": "color: #d4ac0d; font-weight: bold;",
+            "808": "color: #ad1457; font-weight: bold;"
+        }
         txt = self.trace_laser2.currentText()
         c = next((v for k, v in color_map.items() if k in txt), "color: white;")
         self.trace_laser2.setStyleSheet(f"QComboBox {{ {c} }}")
@@ -288,11 +325,17 @@ class Frontend(QFrame):
         sc_f2 = QShortcut(QKeySequence("F2"), self)
         sc_f2.activated.connect(self._get_stop)
 
-        # Selección de Lásers Simultáneos (Ambos desplegables contienen la lista completa de SHUTTERS)
-        self.trace_laser1 = QComboBox(); self.trace_laser1.addItems(SHUTTERS); self.trace_laser1.setFixedWidth(120)
-        self.trace_laser2 = QComboBox(); self.trace_laser2.addItems(SHUTTERS); self.trace_laser2.setFixedWidth(120)
-        if len(SHUTTERS) > 1:
-            self.trace_laser2.setCurrentIndex(1) # Default 637 nm
+        # Selección de Lásers:
+        # Láser 1: Todos los lásers físicos disponibles
+        # Láser 2: Opción "None" (para ver 1 sola traza), "BS" (para ver fotodiodo divisor) y todos los lásers físicos
+        self.trace_laser1 = QComboBox()
+        self.trace_laser1.addItems(SHUTTERS)
+        self.trace_laser1.setFixedWidth(120)
+
+        self.trace_laser2 = QComboBox()
+        self.trace_laser2.addItems(SHUTTERS_LASER2)
+        self.trace_laser2.setFixedWidth(120)
+        self.trace_laser2.setCurrentIndex(0) # Default "None" (1 sola traza activa)
 
         self.trace_laser1.currentIndexChanged.connect(self._on_laser_changed)
         self.trace_laser2.currentIndexChanged.connect(self._on_laser_changed)
@@ -314,7 +357,7 @@ class Frontend(QFrame):
         self.btn_fft_l1.clicked.connect(lambda: self.fftWindowL1.show())
 
         self.btn_fft_l2 = QPushButton("📊 FFT L2")
-        self.btn_fft_l2.setToolTip("Abre la ventana flotante con el espectro de potencias FFT en tiempo real para el Láser 2.")
+        self.btn_fft_l2.setToolTip("Abre la ventana flotante con el espectro de potencias FFT en tiempo real para el Láser 2 o BS.")
         self.btn_fft_l2.clicked.connect(lambda: self.fftWindowL2.show())
 
         self.PointLabel = QLabel("<b>0.00 | 0.00</b>")
@@ -339,8 +382,8 @@ class Frontend(QFrame):
 
         # ── Área de Trazas Dobles en Vivo (Láser 1 y Láser 2 con Títulos Dinámicos) ──
         self.traceWidget = pg.GraphicsLayoutWidget()
-        self.pL1  = self.traceWidget.addPlot(row=0, col=0, title=f"Trace {self.trace_laser1.currentText()}")
-        self.pL2  = self.traceWidget.addPlot(row=0, col=1, title=f"Trace {self.trace_laser2.currentText()}")
+        self.pL1 = self.traceWidget.addPlot(row=0, col=0, title=f"Trace {self.trace_laser1.currentText()}")
+        self.pL2 = self.traceWidget.addPlot(row=0, col=1, title=f"Trace {self.trace_laser2.currentText()}")
 
         for p in (self.pL1, self.pL2):
             p.showGrid(x=True, y=True)
@@ -379,15 +422,17 @@ class Frontend(QFrame):
         SHOW = 1000
         sl  = slice(max(0, n - SHOW), n)
         t   = np.asarray(timeaxis[sl] if n >= SHOW else timeaxis, dtype=np.float64)
-        i1  = np.asarray(intensity_l1[sl] if n >= SHOW else intensity_l1, dtype=np.float64)
-        i2  = np.asarray(intensity_l2[sl] if n >= SHOW else intensity_l2, dtype=np.float64)
-        bs  = np.asarray(intensity_BS[sl] if n >= SHOW else intensity_BS, dtype=np.float64)
+        i1  = np.asarray(intensity_l1[sl] if n >= SHOW else intensity_l1, dtype=np.float64) if len(intensity_l1) else np.array([])
+        i2  = np.asarray(intensity_l2[sl] if n >= SHOW else intensity_l2, dtype=np.float64) if len(intensity_l2) else np.array([])
+        bs  = np.asarray(intensity_BS[sl] if n >= SHOW else intensity_BS, dtype=np.float64) if len(intensity_BS) else np.array([])
 
         if len(t) > 0 and len(i1) == len(t):
             self.curve_L1.setData(t, i1)
             if self.fftWindowL1.isVisible():
                 self.fftWindowL1.update_fft(t, i1)
-        if len(t) > 0 and len(i2) == len(t):
+
+        l2_mode = self.trace_laser2.currentText()
+        if l2_mode != "None" and len(t) > 0 and len(i2) == len(t):
             self.curve_L2.setData(t, i2)
             if self.fftWindowL2.isVisible():
                 self.fftWindowL2.update_fft(t, i2)
@@ -417,7 +462,7 @@ class Backend(QObject):
         self.steps_after  = DEFAULT_TRACE_STEPS_AFTER
         self.steps_before = DEFAULT_TRACE_STEPS_BEFORE
         self.laser1       = SHUTTERS[0]
-        self.laser2       = SHUTTERS[1] if len(SHUTTERS) > 1 else SHUTTERS[0]
+        self.laser2       = "None"
         self.mode_printing = "none"
         self.bs_only_mode = False
 
@@ -454,7 +499,7 @@ class Backend(QObject):
                 self.timer_bs_inicio = time.time()
                 self.bs_timeaxis = np.array([])
                 self.bs_intensity = np.array([])
-                self.bs_timer.start(10)
+                self.bs_timer.start(35) # ~30 FPS para actualización suave sin lag
         else:
             if self.bs_timer and self.bs_timer.isActive():
                 self.bs_timer.stop()
@@ -481,24 +526,24 @@ class Backend(QObject):
         self.bs_intensity = np.append(self.bs_intensity, val_bs)
         mean_BS = float(np.mean(self.bs_intensity[-self.N:])) if len(self.bs_intensity) >= self.N else val_bs
 
-        # Emitir estructura compatible con frontend get_data
-        data = [self._n_bs, self.bs_timeaxis, np.zeros_like(self.bs_intensity), np.zeros_like(self.bs_intensity),
+        # Emitir estructura sin sobreescribir con ceros el gráfico 1
+        data = [self._n_bs, self.bs_timeaxis, np.array([]), self.bs_intensity,
                 0.0, 0.0, self.bs_intensity, mean_BS]
         self.dataSignal.emit(data)
 
     # ── Control de la traza principal ─────────────────────────────────────────
 
     @pyqtSlot(bool, int, int)
-    def play_pause(self, play: bool, color_laser1: int = 0, color_laser2: int = 0):
+    def play_pause(self, play: bool, color_laser1: int = 0, color_laser2_idx: int = 0):
         if 0 <= color_laser1 < len(SHUTTERS):
             self.laser1 = SHUTTERS[color_laser1]
         else:
             self.laser1 = SHUTTERS[0]
 
-        if 0 <= color_laser2 < len(SHUTTERS):
-            self.laser2 = SHUTTERS[color_laser2]
+        if 0 <= color_laser2_idx < len(SHUTTERS_LASER2):
+            self.laser2 = SHUTTERS_LASER2[color_laser2_idx]
         else:
-            self.laser2 = SHUTTERS[1] if len(SHUTTERS) > 1 else SHUTTERS[0]
+            self.laser2 = "None"
 
         self.mode_printing = "none"
         if play:
@@ -516,9 +561,10 @@ class Backend(QObject):
         if self.pointtimer is None:
             self.pointtimer = QTimer(self)
             self.pointtimer.timeout.connect(self._trace_update)
+
         if hasattr(self, 'laser1') and self.laser1 != "None":
             open_shutter(self.laser1)
-        if hasattr(self, 'laser2') and self.laser2 != "None":
+        if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
             open_shutter(self.laser2)
 
         self._n           = 0
@@ -527,14 +573,14 @@ class Backend(QObject):
         self.intensity_l1 = np.array([])
         self.intensity_l2 = np.array([])
         self.intensity_BS = np.array([])
-        self.pointtimer.start(10)
+        self.pointtimer.start(35) # ~30 FPS para fluidez óptima
 
     def _stop_and_save(self):
         if self.pointtimer and self.pointtimer.isActive():
             self.pointtimer.stop()
         if hasattr(self, 'laser1') and self.laser1 != "None":
             close_shutter(self.laser1)
-        if hasattr(self, 'laser2') and self.laser2 != "None":
+        if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
             close_shutter(self.laser2)
 
     @pyqtSlot(list)
@@ -555,6 +601,7 @@ class Backend(QObject):
                 self.laser1 = SHUTTERS[laser_input]
         elif isinstance(laser_input, str):
             self.laser1 = laser_input
+        self.laser2 = "None"
         self.mode_printing = mode_printing
         self._start()
 
@@ -567,24 +614,24 @@ class Backend(QObject):
     def _trace_update(self):
         self._n += 1
 
+        active_l1_name = getattr(self, 'laser1', SHUTTERS[0])
+        active_l2_name = getattr(self, 'laser2', "None")
+
         if SAFE_MODE:
-            val_l1 = (1.0 + 0.3 * np.sin(self._n * 0.1) + np.random.normal(0, 0.05)) if getattr(self, 'laser1', 'None') != "None" else 0.0
-            val_l2 = (0.8 + 0.2 * np.sin(self._n * 0.15) + np.random.normal(0, 0.04)) if getattr(self, 'laser2', 'None') != "None" else 0.0
+            val_l1 = (1.0 + 0.3 * np.sin(self._n * 0.1) + np.random.normal(0, 0.05)) if active_l1_name != "None" else 0.0
             val_bs = (0.5 + 0.1 * np.cos(self._n * 0.1) + np.random.normal(0, 0.02))
+            if active_l2_name == "None":
+                val_l2 = 0.0
+            elif active_l2_name == "BS":
+                val_l2 = val_bs
+            else:
+                val_l2 = (0.8 + 0.2 * np.sin(self._n * 0.15) + np.random.normal(0, 0.04))
         else:
             try:
                 task = channels_photodiodos(self.rate, self.N)
                 lectura_total = task.read(self.N)
                 task.wait_until_done()
                 task.close()
-
-                active_l1_name = getattr(self, 'laser1', SHUTTERS[0])
-                active_l2_name = getattr(self, 'laser2', SHUTTERS[1] if len(SHUTTERS) > 1 else SHUTTERS[0])
-
-                if isinstance(active_l1_name, int):
-                    active_l1_name = SHUTTERS[active_l1_name] if 0 <= active_l1_name < len(SHUTTERS) else SHUTTERS[0]
-                if isinstance(active_l2_name, int):
-                    active_l2_name = SHUTTERS[active_l2_name] if 0 <= active_l2_name < len(SHUTTERS) else SHUTTERS[0]
 
                 def _get_pd_channel(laser_key, default_ch):
                     if laser_key in PD_CHANNELS:
@@ -595,17 +642,26 @@ class Backend(QObject):
                             return ch
                     return default_ch
 
-                ch_l1 = _get_pd_channel(active_l1_name, 0)
-                ch_l2 = _get_pd_channel(active_l2_name, 1)
                 ch_bs = PD_CHANNELS.get("BS", 6)
-
-                ch_l1_idx = PD_CHANS_LIST.index(ch_l1) if ch_l1 in PD_CHANS_LIST else 0
-                ch_l2_idx = PD_CHANS_LIST.index(ch_l2) if ch_l2 in PD_CHANS_LIST else 1
                 ch_bs_idx = PD_CHANS_LIST.index(ch_bs) if ch_bs in PD_CHANS_LIST else (len(PD_CHANS_LIST) - 1)
-
-                val_l1 = float(np.mean(lectura_total[ch_l1_idx]))
-                val_l2 = float(np.mean(lectura_total[ch_l2_idx]))
                 val_bs = float(np.mean(lectura_total[ch_bs_idx]))
+
+                if active_l1_name != "None":
+                    ch_l1 = _get_pd_channel(active_l1_name, 0)
+                    ch_l1_idx = PD_CHANS_LIST.index(ch_l1) if ch_l1 in PD_CHANS_LIST else 0
+                    val_l1 = float(np.mean(lectura_total[ch_l1_idx]))
+                else:
+                    val_l1 = 0.0
+
+                if active_l2_name == "None":
+                    val_l2 = 0.0
+                elif active_l2_name == "BS":
+                    val_l2 = val_bs
+                else:
+                    ch_l2 = _get_pd_channel(active_l2_name, 1)
+                    ch_l2_idx = PD_CHANS_LIST.index(ch_l2) if ch_l2 in PD_CHANS_LIST else 1
+                    val_l2 = float(np.mean(lectura_total[ch_l2_idx]))
+
             except Exception as e:
                 print(f"[Trace Error] Error al leer NI-DAQ: {e}")
                 val_l1, val_l2, val_bs = 0.0, 0.0, 0.0
@@ -664,3 +720,14 @@ class Backend(QObject):
         header = f"Power BS Trace Data - PyPrinting\nTime(s)\tIntensity_BS(V)"
         np.savetxt(path, data, fmt="%.6f", delimiter="\t", header=header)
         print(f"[PowerBS] Traza de potencia guardada en: {path}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+if __name__ == "__main__":
+    import sys
+    app = QApplication(sys.argv)
+    fe = Frontend()
+    be = Backend()
+    fe.make_connection(be)
+    fe.show()
+    sys.exit(app.exec())

@@ -38,6 +38,12 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
    - Se actualizaron los selectores de color de todos los módulos (`measurements.py`, `trace.py`, `focus.py`, `confocal.py`, `contrapropagante.py`) con el color `#ad1457` / borravino para la línea infrarroja.
    - Se validaron todos los módulos y la apertura/cierre de obturadores y lectura de fotodiodos en modo seguro y nominal.
 
+7. **Optimización del Módulo de Trazas (`modules/trace.py`)**:
+   - **Opciones `"None"` y `"BS"` en Láser 2**: Se extendieron las opciones de `trace_laser2` para permitir visualizar una única traza a pantalla completa (`"None"` oculta `pL2` y apaga su obturador) o monitorear directamente el fotodiodo divisor (`"BS"` titula el gráfico `"Trace on BS"` y grafica la señal de `Dev1/ai6`).
+   - **Desacoplamiento de `Power in BS`**: Se eliminó la auto-activación al abrir la ventana flotante (`showEvent` en modo pasivo); ahora solo mide bajo demanda al presionar `Active Power BS Measurement` o durante la traza principal.
+   - **Tasa de Refresco de FFT Limitada a 1.0 s**: La ventana de espectro de densidad de potencia FFT `TraceFFTWindow` procesa la transformada y los picos a intervalos controlados de 1 segundo solo si está visible, eliminando la sobrecarga computacional.
+   - **Fluidez Visual a ~30 FPS**: Se optimizó la tasa de refresco del timer de Qt a 35 ms, garantizando una interfaz completamente fluida sin bloqueos ni saturación del *Event Loop*.
+
 ---
 
 ## 🧪 Validación Realizada
