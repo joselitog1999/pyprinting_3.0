@@ -26,6 +26,12 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
    - Se incorporó `QSpinBox` y `QDialogButtonBox` en los imports de `analysis/image_analyzer.py`.
    - Se corrigieron las firmas de llamada a `_fit2d_gausslq` y `_fit2d_avg` en `analysis/image_analyzer.py` y `modules/camera.py`, pasando explícitamente `em=False` y `multiprocess=False`.
 
+5. **Calibración de Canales Físicos Reales del Banco Óptico (`config.py`)**:
+   - Se actualizaron las líneas digitales de obturadores TTL: `SHUTTER_CHANNELS = [11, 8, 9]` (532 nm en línea 11, 637 nm en línea 8, 592 nm en línea 9).
+   - Se ajustó la polaridad física real de los relés: `SHUTTER_POLARITY = {532nm: False (Activo Bajo), 637nm: True, 592nm: True}`.
+   - Se re-mapearon los canales de entrada analógica de fotodiodos: `PD_CHANNELS = {532nm: ai0, 637nm: ai2, 592nm: ai1, BS: ai6}`.
+   - Se resolvió y eliminó el ítem 1.3 de `docs/PERSPECTIVAS.md` conforme al protocolo de mantenimiento.
+
 ---
 
 ## 🧪 Validación Realizada

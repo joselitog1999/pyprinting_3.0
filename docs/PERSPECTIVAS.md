@@ -20,9 +20,6 @@
   - **Puntos a definir**:
     - Determinar si se procede a dividir la clase en 3 subsistemas desacoplados (`GridCoordinatesManager`, `PrintingExecutionEngine` y `DriftCorrectionEngine`) para cumplir con el Principio de Responsabilidad Única (SRP) y elevar la cohesión del código.
 
-- [ ] **1.3 Calibración de Hardware Real en Microscopio Contrapropagante (`contrapropagante.py`)**:
-  - Validar si la asignación de canales analógicos NI-DAQmx (`ai0` a `ai7`), canales digitales de obturadores TTL y polaridades del actuador piezoeléctrico en el microscopio contrapropagante dual corresponden exactamente con el conexionado físico actual del banco óptico o si requieren re-mapeo.
-
 ---
 
 ## 💡 2. Sugerencias Técnicas, Metrológicas y de Usabilidad
