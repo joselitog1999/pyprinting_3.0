@@ -34,7 +34,8 @@ class HardwareManager(QObject):
         "NI-DAQmx (Dev1)",
         "Cámara USB/Thorlabs",
         "Láser 532 nm (AO2)",
-        "Espectrómetro USB (PySpectrum)"
+        "Espectrógrafo Andor Shamrock",
+        "Cámara Andor CCD (Espectros)"
     ]
 
     def __init__(self, parent=None):
@@ -48,10 +49,7 @@ class HardwareManager(QObject):
     def _init_defaults(self):
         for dev in self.DEVICES:
             self.device_isolated[dev] = False
-            if dev == "Espectrómetro USB (PySpectrum)":
-                self.device_states[dev] = "inactive"
-                self.device_details[dev] = "Inactivo — Pendiente de integración con PySpectrum"
-            elif SAFE_MODE:
+            if SAFE_MODE:
                 self.device_states[dev] = "mock"
                 self.device_details[dev] = "Simulación activa (SAFE_MODE)"
             else:
@@ -68,12 +66,6 @@ class HardwareManager(QObject):
 
     def connect_device(self, dev: str) -> bool:
         """Intenta la conexión física real de un instrumento específico en caliente."""
-        if dev == "Espectrómetro USB (PySpectrum)":
-            self.device_states[dev] = "inactive"
-            self.device_details[dev] = "Inactivo — Pendiente de integración con PySpectrum"
-            self.deviceStatusSignal.emit(dev, "inactive", self.device_details[dev])
-            return False
-
         if self.device_isolated.get(dev, False):
             self.device_states[dev] = "mock"
             self.device_details[dev] = "Aislado manualmente por software (Soft Mock)"
@@ -124,7 +116,7 @@ class HardwareManager(QObject):
                     self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
                     return False
 
-            elif "Cámara" in dev:
+            elif "Cámara USB" in dev:
                 self.device_states[dev] = "connected"
                 self.device_details[dev] = "Cámara lista a 30 FPS"
                 self.log("SUCCESS", f"[{dev}] Módulo de cámara vinculado y listo.")
@@ -132,7 +124,6 @@ class HardwareManager(QObject):
                 return True
 
             elif "Láser" in dev:
-                # El láser analógico depende de la tarjeta NI-DAQ
                 if self.device_states.get("NI-DAQmx (Dev1)") == "connected":
                     self.device_states[dev] = "connected"
                     self.device_details[dev] = "Canal analógico AO2 disponible"
@@ -142,6 +133,26 @@ class HardwareManager(QObject):
                     self.device_details[dev] = "Requiere tarjeta NI-DAQmx conectada"
                 self.deviceStatusSignal.emit(dev, self.device_states[dev], self.device_details[dev])
                 return self.device_states[dev] == "connected"
+
+            elif "Shamrock" in dev:
+                from pyspectrum.drivers.shamrock_driver import get_shamrock, DEVICE
+                sh = get_shamrock()
+                ret, sn = sh.ShamrockGetSerialNumber(DEVICE)
+                self.device_states[dev] = "connected"
+                self.device_details[dev] = f"Espectrógrafo detectado (SN: {sn})"
+                self.log("SUCCESS", f"[{dev}] Andor Shamrock conectado: {sn}")
+                self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                return True
+
+            elif "Andor CCD" in dev:
+                from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+                cam = get_andor_ccd()
+                status, temp = cam.get_temperature()
+                self.device_states[dev] = "connected"
+                self.device_details[dev] = f"Sensor CCD listo ({temp:.1f} °C)"
+                self.log("SUCCESS", f"[{dev}] Cámara Andor CCD conectada.")
+                self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                return True
 
         except Exception as e:
             self.device_states[dev] = "disconnected"

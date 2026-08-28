@@ -50,6 +50,14 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
    - **Reconexión y Desconexión en Caliente (Hot-Plug)**: Se incorporaron métodos `connect_device()` y `disconnect_device()` en `HardwareManager` para conectar o desconectar instrumentos físicos mientras la aplicación está en marcha.
    - **Tablero de Conexiones Interactivo (`modules/hardware_dashboard.py`)**: Cada instrumento cuenta con botones activos de acción **"🔌 Conectar"** / **"⏏️ Desconectar"** y checkbox de **"Aislar (Soft Mock)"** con reporte en tiempo real a la bitácora I/O.
 
+9. **Integración Completa y Modernización de PySpectrum 3.0**:
+   - **Paquete Modular `pyspectrum/` y Lanzador `pyspectrum.py`**: Migración al 100% a `PyQt6` con arquitectura modular desacoplada y diseño visual moderno.
+   - **Controladores Resilientes y Mocks**: Implementación de `_MockShamrock` y `_MockAndorCCD` con espectros sintéticos y soporte para hardware físico mediante Ctypes (`ShamrockCIF.dll`, `atmcd64d.dll`).
+   - **Calibración y Step and Glue**: Integración del algoritmo de cosido espectral de banda ancha (450 a 950 nm), normalización por lámpara halógena y ajustes polinomiales de resonancia plasmónica (SPR) y banda Raman del agua (~3300 cm⁻¹).
+   - **Mapeo Confocal Hiperespectral $(X, Y, \lambda)$**: Mapeo 2D y 3D coordinando la platina piezoeléctrica PI con el detector Andor CCD.
+   - **Rutinas Nanofotónicas**: Fotoluminiscencia, cinética de crecimiento de nanopartículas y caracterización de dímeros plasmónicos.
+   - **Tarjeta Activa en `main.py`**: Habilitación del botón "PySpectrum 3.0" en el panel de inicio principal.
+
 ---
 
 ## 🧪 Validación Realizada

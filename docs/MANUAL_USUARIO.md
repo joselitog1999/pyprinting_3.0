@@ -32,7 +32,7 @@
    - [3.5 Dock: Shutters / Flipper / Láser 532](#35-dock-shutters--flipper--láser-532)
    - [3.6 Dock: Nanopositioning (Platina Piezoeléctrica PI)](#36-dock-nanopositioning-platina-piezoeléctrica-pi)
    - [3.7 Ventana de Mediciones (Printing Automatizado de Grillas & Dímeros)](#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
-4. [Módulo 2: PySpectrum *(En Desarrollo: Espectrometría, Termometría & Scattering)*](#4-módulo-2-pyspectrum-en-desarrollo-espectrometría-termometría--scattering)
+4. [Módulo 2: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)](#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
 5. [Módulo 3: Microscopio Contrapropagante (`contrapropagante.py`)](#5-módulo-3-microscopio-contrapropagante-contrapropagantepy)
 6. [Módulo 4: PyPrinting 2 (Legacy — `PyPrinting_UNSAM.py`)](#6-módulo-4-pyprinting-2-legacy--pyprinting_unsampy)
 7. [Módulo 5: Cámara Live View (`camera.py` — Suite Canon EDSDK & Microfotónica)](#7-módulo-5-cámara-live-view-camerapy--suite-canon-edsdk--microfotónica)
@@ -438,11 +438,29 @@ El módulo de trazas temporales incluye análisis espectral en tiempo real para 
 
 ---
 
-## 4. Módulo 2: PySpectrum *(En Desarrollo: Espectrometría, Termometría & Scattering)*
+## 4. Módulo 2: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)
 
-El panel **`🔮 PySpectrum`** (Fila 1, Columna 2 del lanzador `main.py`) está diseñado como el reemplazo nativo en Python del software comercial *Andor Solis*:
-* **Integración CCD/EMCCD**: Control directo de cámaras espectroscópicas Andor/Princeton.
-* **Nano-termometría Fotónica**: Algoritmos de deconvolución de espectros de fluorescencia y dispersión Raman/Plasmónica para medir temperatura local a escala geométrica nanométrica.
+El panel **`🌈 PySpectrum 3.0`** (Fila 1, Columna 2 del lanzador `main.py`) es la estación central para la caracterización espectral de nanopartículas, cosido de banda ancha (*Step and Glue*), mapeo hiperespectral 2D/3D y cinéticas nanofotónicas.
+
+### 4.1 Arquitectura y Conexión de Hardware
+- **Espectrógrafo Andor Shamrock (SR-303i / SR-500i)**: Control de redes de difracción (150 l/mm, 1200 l/mm, espejo), ranuras micrométricas motorizadas (10 a 2500 µm), obturador interno y flippers de puerto (fibra vs ranura).
+- **Detector Andor CCD / EMCCD (Newton / iDus)**: Enfriamiento Peltier con control PID hasta $-10\ ^\circ\text{C}$, visualización en vivo 2D a 30 FPS y perfil espectral 1D colapsado.
+- **Modo Seguro y Simulación Transparente**: Controladores `_MockShamrock` y `_MockAndorCCD` que permiten operar sin hardware físico conectado, generando perfiles plasmónicos sintéticos con ruido instrumental.
+
+### 4.2 Modos de Operación y Algoritmos
+1. **Espectro Simple**: Adquisición monocanal en torno a $\lambda_{\text{center}}$ fija.
+2. **Step & Glue (Cosido Continuo)**:
+   - Adquisición concatenada de múltiples bandas (ej. 450 a 950 nm) con solapamiento angular suave ($20\%$).
+   - **Normalización Halógena**: Corrección de la eficiencia de red y respuesta cuántica del detector dividiendo por el perfil de referencia de la lámpara halógena (`pyspectrum/calibration/data/`).
+3. **Ajustes Analíticos en Tiempo Real**:
+   - **Ajuste Polinomial SPR**: Detección automática del pico de resonancia plasmónica ($\lambda_{\text{max}}$, FWHM y amplitud).
+   - **Ajuste Raman de Agua**: Deconvolución Lorentziana de la banda OH (~3300 cm⁻¹) para calibración y termometría óptica.
+4. **Mapeo Confocal Hiperespectral $(X, Y, \lambda)$**:
+   - Coordinación síncrona de la platina piezoeléctrica PI con el detector Andor CCD para construir cubos de datos tridimensionales de $N_x \times N_y$ espectros.
+5. **Rutinas Nanofotónicas Especializadas**:
+   - *Fotoluminiscencia & Anti-Stokes*: Registro temporal $I(\lambda, t)$ bajo excitación láser con control de obturador TTL.
+   - *Cinética de Crecimiento*: Seguimiento continuo del desplazamiento del pico plasmónico $\lambda_{\text{max}}(t)$ durante síntesis fototérmica.
+   - *Dímeros Plasmónicos*: Espectros dependientes de la polarización (paralela vs perpendicular) y cálculo de acoplamiento de campo cercano.
 
 ---
 

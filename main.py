@@ -372,15 +372,15 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("app.py", "Microscopio Derecho")
         )
 
-        # 2. PySpectrum (En desarrollo futuro — Desconectado)
+        # 2. PySpectrum 3.0 (pyspectrum.py)
         card_pyspectrum = ApplicationCard(
-            icon_str="🔮",
-            title="PySpectrum",
-            subtitle="Próximamente — Espectrometría",
-            description="Manejo integrado de espectrómetro (extensión de Andor Solis), rutinas de nano-termometría fotónica, espectros de scattering y escaneo.",
-            button_text="🔮 En Desarrollo Futuro",
-            button_color="#585B70",
-            is_disabled=True
+            icon_str="🌈",
+            title="PySpectrum 3.0",
+            subtitle="Espectroscopía & Mapeo Hiperespectral",
+            description="Control de espectrógrafo Andor Shamrock, cámara Andor CCD, cosido continuo Step & Glue, mapeo hiperespectral 2D/3D y cinéticas.",
+            button_text="🌈 Iniciar PySpectrum 3.0",
+            button_color="#CBA6F7",
+            launch_callback=lambda: self._launch_script("pyspectrum.py", "PySpectrum 3.0")
         )
 
         # 3. Microscopio Contrapropagante (contrapropagante.py)
