@@ -17,8 +17,13 @@ O directamente aquí para desarrollo:
 from __future__ import annotations
 import os
 import sys
+import logging
 import threading
 from pathlib import Path
+
+# Silenciar advertencia benigna de registro de pipython (GCSTranslator en Windows)
+logging.getLogger("PIlogger").setLevel(logging.ERROR)
+logging.getLogger("pipython").setLevel(logging.ERROR)
 
 # ── Registro de Rutas del Proyecto en sys.path ─────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
