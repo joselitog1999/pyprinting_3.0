@@ -408,7 +408,7 @@ class MainWindowLauncher(QMainWindow):
         # 5. Modulación Láser 532 nm (camera.py Laser532Window)
         card_laser = ApplicationCard(
             icon_str="⚡",
-            title="Modulación Láser 532 nm",
+            title="Láser verde (532 nm)",
             subtitle="Control de Potencia & Shutter 532",
             description="Ventana flotante de control de voltaje analógico DAC (1.0 V a 5.0 V) y conmutador directo del obturador verde de 532 nm.",
             button_text="⚡ Iniciar Control Láser 532",
