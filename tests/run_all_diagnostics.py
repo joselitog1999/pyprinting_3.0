@@ -1,0 +1,167 @@
+# -*- coding: utf-8 -*-
+"""
+run_all_diagnostics.py — Suite Unificada de Diagnóstico y Pruebas Automatizadas
+PyPrinting 3.0 — UNSAM Nanofotónica
+"""
+from __future__ import annotations
+import sys
+import os
+import time
+import tempfile
+from pathlib import Path
+
+# Configurar encoding UTF-8 seguro para Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+import numpy as np
+
+# Asegurar que el directorio raíz de printing3 esté en sys.path
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+# Forzar modo simulación seguro para el runner de pruebas
+os.environ["PYPRINTING_SAFE"] = "1"
+
+def run_tests():
+    print("=" * 70)
+    print("SUITE DE DIAGNOSTICO INTEGRAL Y VERIFICACION — PyPrinting 3.0")
+    print(f"Directorio Base: {BASE_DIR}")
+    print(f"Interprete Python: {sys.executable}")
+    print("=" * 70)
+
+    passed_count = 0
+    total_count = 0
+
+    def assert_test(name: str, condition: bool, details: str = ""):
+        nonlocal passed_count, total_count
+        total_count += 1
+        if condition:
+            passed_count += 1
+            print(f"  [PASS] {name} {details}")
+        else:
+            print(f"  [FAIL] {name} {details}")
+
+    # ── 1. Entorno y Dependencias ─────────────────────────────────────────────
+    print("\n1. Dependencias y Bibliotecas Principales")
+    for pkg in ['PyQt6', 'pyqtgraph', 'numpy', 'scipy', 'nidaqmx', 'pipython', 'tifffile', 'cv2', 'trackpy']:
+        try:
+            mod = __import__(pkg)
+            ver = getattr(mod, '__version__', 'instalado')
+            assert_test(f"Biblioteca {pkg}", True, f"({ver})")
+        except Exception as e:
+            assert_test(f"Biblioteca {pkg}", False, f"(Error: {e})")
+
+    # ── 2. Configuración Global y Canales I/O ─────────────────────────────────
+    print("\n2. Configuracion Global y Mapeo I/O")
+    import config
+    assert_test("SAFE_MODE configurado", isinstance(config.SAFE_MODE, bool), f"(SAFE_MODE={config.SAFE_MODE})")
+    assert_test("Lineas de Shutter (4 canales)", len(config.SHUTTERS) == 4, f"{config.SHUTTERS}")
+    assert_test("Canales de Shutter", config.SHTER_CHANNELS if hasattr(config, 'SHTER_CHANNELS') else config.SHUTTER_CHANNELS == [11, 8, 9, 10])
+    assert_test("Linea 808 nm presente", "808 nm (IR)" in config.SHUTTERS)
+    assert_test("Canal Divisor BS configurado", config.PD_CHANNELS.get("BS") == 6)
+
+    # ── 3. Controladores de Hardware & Mocks ──────────────────────────────────
+    print("\n3. Controladores de Hardware y Tolerancia a Fallos")
+    from core.nanopositioning import pi
+    pos = pi.qPOS()
+    assert_test("Platina PI Resiliente", isinstance(pos, dict) and '1' in pos, f"(Pos: {pos})")
+
+    from core.nidaq import open_shutter, close_shutter
+    for sh in config.SHUTTERS:
+        try:
+            open_shutter(sh)
+            close_shutter(sh)
+            assert_test(f"Obturador [{sh}]", True)
+        except Exception as e:
+            assert_test(f"Obturador [{sh}]", False, f"({e})")
+
+    from pyspectrum.drivers.shamrock_driver import get_shamrock, DEVICE
+    sh_driver = get_shamrock()
+    ret, sn = sh_driver.ShamrockGetSerialNumber(DEVICE)
+    assert_test("Espectrografo Shamrock", sh_driver is not None)
+
+    from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+    cam_ccd = get_andor_ccd()
+    ret, temp = cam_ccd.get_temperature()
+    frame = cam_ccd.get_most_recent_image()
+    assert_test("Camara Andor CCD", frame.shape == (1002, 1002), f"(Temp: {temp:.1f} °C, Frame: {frame.shape})")
+
+    # ── 4. Calibración y Procesamiento Espectral ──────────────────────────────
+    print("\n4. Calibracion y Cosido Espectral Step & Glue")
+    from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration, glue_steps
+    lamp = HalogenLampCalibration()
+    assert_test("Perfil Lampara Halogena", lamp.is_loaded)
+
+    wl1 = np.linspace(450, 600, 100)
+    sp1 = np.exp(-((wl1 - 530) / 30)**2)
+    wl2 = np.linspace(580, 750, 100)
+    sp2 = np.exp(-((wl2 - 530) / 30)**2)
+    w_concat = np.concatenate([wl1, wl2])
+    s_concat = np.concatenate([sp1, sp2])
+    w_glue, s_glue = glue_steps(w_concat, s_concat, number_pixel=100)
+    assert_test("Algoritmo Step & Glue Continuo", len(w_glue) > 0 and len(s_glue) > 0)
+
+    from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
+    w_fit, s_fit, lmax = fit_signal_polynomial(w_glue, s_glue, ends_notch=460, final_wave=740)
+    assert_test("Ajuste Polinomial SPR", 500 <= lmax <= 560, f"(λ_max={lmax:.2f} nm)")
+
+    # ── 5. Formatos de Archivos y Exportadores ────────────────────────────────
+    print("\n5. Intercambio de Archivos y Formatos")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        import tifffile
+        test_img = (np.random.rand(80, 80) * 65535).astype(np.uint16)
+        tif_file = str(tmp_path / "test.tiff")
+        tifffile.imwrite(tif_file, test_img)
+        assert_test("Exportador TIFF 16-bit", tifffile.imread(tif_file).shape == (80, 80))
+
+        npy_file = str(tmp_path / "test.npy")
+        np.save(npy_file, test_img)
+        assert_test("Formato NumPy .npy", np.load(npy_file).shape == (80, 80))
+
+        csv_file = str(tmp_path / "test.csv")
+        np.savetxt(csv_file, test_img, delimiter=",", fmt="%d")
+        assert_test("Formato CSV Tabular", np.loadtxt(csv_file, delimiter=",").shape == (80, 80))
+
+    # ── 6. Interfaz Gráfica y Aplicaciones Principales ────────────────────────
+    print("\n6. Instanciacion de Ventanas y Modulos Graficos PyQt6")
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    from main import MainWindowLauncher
+    main_win = MainWindowLauncher()
+    assert_test("Lanzador Principal (main.py)", main_win is not None)
+
+    from pyspectrum import PySpectrumWindow
+    spec_win = PySpectrumWindow()
+    assert_test("PySpectrum 3.0 (pyspectrum.py)", spec_win is not None)
+
+    from analysis.psf_analyzer import PSFAnalyzerWindow
+    psf_win = PSFAnalyzerWindow()
+    assert_test("PSF Analyzer (psf_analyzer.py)", psf_win is not None)
+
+    from analysis.image_analyzer import ImageAnalyzerWidget
+    img_win = ImageAnalyzerWidget()
+    assert_test("Image Analyzer (image_analyzer.py)", img_win is not None)
+
+    from modules.hardware_dashboard import HardwareDashboardWindow
+    hw_win = HardwareDashboardWindow()
+    assert_test("Tablero de Hardware (hardware_dashboard.py)", hw_win is not None)
+
+    # ── Resumen Final ─────────────────────────────────────────────────────────
+    print("\n" + "=" * 70)
+    print(f"RESULTADOS FINALES: {passed_count} / {total_count} pruebas superadas ({passed_count/total_count*100:.1f}%)")
+    if passed_count == total_count:
+        print("TODOS LOS DIAGNOSTICOS Y PRUEBAS PASARON AL 100% CON EXITO!")
+    else:
+        print("ALGUNAS PRUEBAS FALLARON. REVISAR DETALLES ARRIBA.")
+    print("=" * 70)
+    return passed_count == total_count
+
+if __name__ == "__main__":
+    success = run_tests()
+    sys.exit(0 if success else 1)

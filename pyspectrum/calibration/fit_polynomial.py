@@ -15,8 +15,11 @@ def calc_r2(observed: np.ndarray, fitted: np.ndarray) -> float:
     return 1.0 - (ssres / sstot) if sstot != 0 else 0.0
 
 
-def fit_polynomial(spectrum: np.ndarray, wavelength: np.ndarray, npol: int = 4) -> Tuple[np.ndarray, np.ndarray, float, float]:
-    """Ajusta un polinomio de grado npol a la curva espectral."""
+def fit_polynomial(spectrum: np.ndarray, wavelength: np.ndarray,
+                   npol: int = 4) -> Tuple[np.ndarray, np.ndarray, float, float]:
+    """Ajuste de polinomio de grado npol para determinar la longitud de onda de máxima resonancia."""
+    spectrum = np.asarray(spectrum, dtype=np.float64)
+    wavelength = np.asarray(wavelength, dtype=np.float64)
     if len(wavelength) < npol + 1:
         return spectrum, wavelength, 0.0, 0.0
 
@@ -37,6 +40,8 @@ def fit_signal_polynomial(wavelength_np: np.ndarray, signal_np: np.ndarray,
                           ends_notch: float = 540.0, final_wave: float = 850.0,
                           npol: int = 4) -> Tuple[np.ndarray, np.ndarray, float]:
     """Filtra rango Stokes y ajusta el polinomio de resonancia SPR."""
+    wavelength_np = np.asarray(wavelength_np, dtype=np.float64)
+    signal_np = np.asarray(signal_np, dtype=np.float64)
     sort_idx = np.argsort(wavelength_np)
     wave_sorted = wavelength_np[sort_idx]
     spec_sorted = signal_np[sort_idx]
