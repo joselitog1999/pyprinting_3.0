@@ -525,8 +525,7 @@ class MainWindowLauncher(QMainWindow):
                     return
 
         env = os.environ.copy()
-        if is_safe_mode:
-            env["PYPRINTING_SAFE"] = "1"
+        env["PYPRINTING_SAFE"] = "1" if is_safe_mode else "0"
 
         try:
             proc = subprocess.Popen([sys.executable, str(script_path)], env=env, cwd=str(Path(__file__).parent))
@@ -538,8 +537,7 @@ class MainWindowLauncher(QMainWindow):
 
     def _launch_laser_532(self):
         env = os.environ.copy()
-        if self.chk_safe_mode.isChecked():
-            env["PYPRINTING_SAFE"] = "1"
+        env["PYPRINTING_SAFE"] = "1" if self.chk_safe_mode.isChecked() else "0"
 
         code = (
             "import sys; from PyQt6.QtWidgets import QApplication; "
@@ -558,8 +556,7 @@ class MainWindowLauncher(QMainWindow):
 
     def _launch_hardware_dashboard(self):
         env = os.environ.copy()
-        if self.chk_safe_mode.isChecked():
-            env["PYPRINTING_SAFE"] = "1"
+        env["PYPRINTING_SAFE"] = "1" if self.chk_safe_mode.isChecked() else "0"
 
         code = (
             "import sys; from PyQt6.QtWidgets import QApplication; "

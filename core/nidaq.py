@@ -82,12 +82,22 @@ def _get_shutter_task():
     global _shutter_task
     if SAFE_MODE:
         return _MockNITask(len(SHUTTERS), 1)
+    try:
+        from core.hardware_manager import hardware_manager
+        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+            return _MockNITask(len(SHUTTERS), 1)
+    except Exception:
+        pass
     if _shutter_task is None:
-        _shutter_task = nidaqmx.Task()
-        for ch in SHUTTER_CHANNELS:
-            _shutter_task.do_channels.add_do_chan(
-                lines=f"{NIDAQ_DEVICE}/port0/line{ch}",
-                line_grouping=LineGrouping.CHAN_PER_LINE)
+        try:
+            _shutter_task = nidaqmx.Task()
+            for ch in SHUTTER_CHANNELS:
+                _shutter_task.do_channels.add_do_chan(
+                    lines=f"{NIDAQ_DEVICE}/port0/line{ch}",
+                    line_grouping=LineGrouping.CHAN_PER_LINE)
+        except Exception as e:
+            print(f"[NI-DAQ Warning] No se pudo inicializar tarea de shutters: {e}. Usando mock.")
+            return _MockNITask(len(SHUTTERS), 1)
     return _shutter_task
 
 
@@ -95,25 +105,45 @@ def _get_flipper_tasks():
     global _flipper_task0, _flipper_task1
     if SAFE_MODE:
         return _MockNITask(1, 1), _MockNITask(1, 1)
-    if _flipper_task0 is None:
-        _flipper_task0 = nidaqmx.Task()
-        _flipper_task0.ao_channels.add_ao_voltage_chan(FLIPPER_AO_DOWN)
-    if _flipper_task1 is None:
-        _flipper_task1 = nidaqmx.Task()
-        _flipper_task1.ao_channels.add_ao_voltage_chan(FLIPPER_AO_UP)
-    return _flipper_task0, _flipper_task1
+    try:
+        from core.hardware_manager import hardware_manager
+        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+            return _MockNITask(1, 1), _MockNITask(1, 1)
+    except Exception:
+        pass
+    try:
+        if _flipper_task0 is None:
+            _flipper_task0 = nidaqmx.Task()
+            _flipper_task0.ao_channels.add_ao_voltage_chan(FLIPPER_AO_DOWN)
+        if _flipper_task1 is None:
+            _flipper_task1 = nidaqmx.Task()
+            _flipper_task1.ao_channels.add_ao_voltage_chan(FLIPPER_AO_UP)
+        return _flipper_task0, _flipper_task1
+    except Exception as e:
+        print(f"[NI-DAQ Warning] No se pudo inicializar tarea de flippers: {e}. Usando mock.")
+        return _MockNITask(1, 1), _MockNITask(1, 1)
 
 
 def _get_flipper532_task():
     global _flipper532_task
     if SAFE_MODE:
         return _MockNITask(1, 1)
-    if _flipper532_task is None:
-        _flipper532_task = nidaqmx.Task()
-        _flipper532_task.do_channels.add_do_chan(
-            lines=f"{NIDAQ_DEVICE}/port0/line{FLIPPER_532_CHAN}",
-            line_grouping=LineGrouping.CHAN_PER_LINE)
-    return _flipper532_task
+    try:
+        from core.hardware_manager import hardware_manager
+        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+            return _MockNITask(1, 1)
+    except Exception:
+        pass
+    try:
+        if _flipper532_task is None:
+            _flipper532_task = nidaqmx.Task()
+            _flipper532_task.do_channels.add_do_chan(
+                lines=f"{NIDAQ_DEVICE}/port0/line{FLIPPER_532_CHAN}",
+                line_grouping=LineGrouping.CHAN_PER_LINE)
+        return _flipper532_task
+    except Exception as e:
+        print(f"[NI-DAQ Warning] No se pudo inicializar tarea de flipper 532: {e}. Usando mock.")
+        return _MockNITask(1, 1)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -126,9 +156,23 @@ def open_shutter(name: str) -> None:
     if SAFE_MODE:
         print(f"[NI MOCK] open_shutter({name})")
         return
-    idx = SHUTTERS.index(name)
-    _shutter_signal[idx] = SHUTTER_POLARITY[name]
-    _get_shutter_task().write(_shutter_signal, auto_start=True)
+    try:
+        from core.hardware_manager import hardware_manager
+        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+            print(f"[NI MOCK (Aislado)] open_shutter({name})")
+            return
+    except Exception:
+        pass
+    try:
+        idx = SHUTTERS.index(name)
+        _shutter_signal[idx] = SHUTTER_POLARITY[name]
+        t = _get_shutter_task()
+        if isinstance(t, _MockNITask):
+            print(f"[NI MOCK] open_shutter({name})")
+        else:
+            t.write(_shutter_signal, auto_start=True)
+    except Exception as e:
+        print(f"[NI-DAQ Error] open_shutter({name}): {e}")
 
 
 def close_shutter(name: str) -> None:
@@ -137,9 +181,23 @@ def close_shutter(name: str) -> None:
     if SAFE_MODE:
         print(f"[NI MOCK] close_shutter({name})")
         return
-    idx = SHUTTERS.index(name)
-    _shutter_signal[idx] = not SHUTTER_POLARITY[name]
-    _get_shutter_task().write(_shutter_signal, auto_start=True)
+    try:
+        from core.hardware_manager import hardware_manager
+        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+            print(f"[NI MOCK (Aislado)] close_shutter({name})")
+            return
+    except Exception:
+        pass
+    try:
+        idx = SHUTTERS.index(name)
+        _shutter_signal[idx] = not SHUTTER_POLARITY[name]
+        t = _get_shutter_task()
+        if isinstance(t, _MockNITask):
+            print(f"[NI MOCK] close_shutter({name})")
+        else:
+            t.write(_shutter_signal, auto_start=True)
+    except Exception as e:
+        print(f"[NI-DAQ Error] close_shutter({name}): {e}")
 
 
 def close_all_shutters() -> None:
@@ -150,15 +208,25 @@ def close_all_shutters() -> None:
 def up_flipper() -> None:
     if SAFE_MODE:
         print("[NI MOCK] up_flipper()"); return
-    t0, t1 = _get_flipper_tasks()
-    t1.write(5); time.sleep(0.003); t1.write(0)
+    try:
+        t0, t1 = _get_flipper_tasks()
+        if isinstance(t1, _MockNITask):
+            print("[NI MOCK] up_flipper()"); return
+        t1.write(5); time.sleep(0.003); t1.write(0)
+    except Exception as e:
+        print(f"[NI-DAQ Error] up_flipper: {e}")
 
 
 def down_flipper() -> None:
     if SAFE_MODE:
         print("[NI MOCK] down_flipper()"); return
-    t0, t1 = _get_flipper_tasks()
-    t0.write(5); time.sleep(0.003); t0.write(0)
+    try:
+        t0, t1 = _get_flipper_tasks()
+        if isinstance(t0, _MockNITask):
+            print("[NI MOCK] down_flipper()"); return
+        t0.write(5); time.sleep(0.003); t0.write(0)
+    except Exception as e:
+        print(f"[NI-DAQ Error] down_flipper: {e}")
 
 
 def flipper_notch532(desired: str) -> None:
@@ -168,41 +236,59 @@ def flipper_notch532(desired: str) -> None:
     if SAFE_MODE:
         _flipper_notch532_up = (desired == "up")
         print(f"[NI MOCK] flipper_notch532({desired})"); return
-    task     = _get_flipper532_task()
-    need_up  = desired == "up"
-    if need_up and not _flipper_notch532_up:
-        task.write(True); time.sleep(0.003); task.write(False)
-        _flipper_notch532_up = True
-    elif not need_up and _flipper_notch532_up:
-        task.write(True); time.sleep(0.003); task.write(False)
-        _flipper_notch532_up = False
+    try:
+        task = _get_flipper532_task()
+        if isinstance(task, _MockNITask):
+            _flipper_notch532_up = (desired == "up")
+            print(f"[NI MOCK] flipper_notch532({desired})"); return
+        need_up  = desired == "up"
+        if need_up and not _flipper_notch532_up:
+            task.write(True); time.sleep(0.003); task.write(False)
+            _flipper_notch532_up = True
+        elif not need_up and _flipper_notch532_up:
+            task.write(True); time.sleep(0.003); task.write(False)
+            _flipper_notch532_up = False
+    except Exception as e:
+        print(f"[NI-DAQ Error] flipper_notch532: {e}")
 
 
 def channels_photodiodos(rate: float, samps_per_chan: int):
-    """Devuelve una Task real o un _MockNITask según SAFE_MODE."""
+    """Devuelve una Task real o un _MockNITask según SAFE_MODE o disponibilidad."""
     if SAFE_MODE:
-        # n_channels = len(PD_CHANS_LIST) canales PD + 1 trigger
         return _MockNITask(len(PD_CHANS_LIST) + 1, samps_per_chan)
-    task = nidaqmx.Task()
-    for ch in PD_CHANS_LIST:
-        task.ai_channels.add_ai_voltage_chan(
-            physical_channel=f"{NIDAQ_DEVICE}/ai{ch}",
-            name_to_assign_to_channel=f"chan_PD{ch}")
-    task.timing.cfg_samp_clk_timing(
-        rate=rate,
-        sample_mode=AcquisitionType.FINITE,
-        samps_per_chan=samps_per_chan)
-    return task
+    try:
+        from core.hardware_manager import hardware_manager
+        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+            return _MockNITask(len(PD_CHANS_LIST) + 1, samps_per_chan)
+    except Exception:
+        pass
+    try:
+        task = nidaqmx.Task()
+        for ch in PD_CHANS_LIST:
+            task.ai_channels.add_ai_voltage_chan(
+                physical_channel=f"{NIDAQ_DEVICE}/ai{ch}",
+                name_to_assign_to_channel=f"chan_PD{ch}")
+        task.timing.cfg_samp_clk_timing(
+            rate=rate,
+            sample_mode=AcquisitionType.FINITE,
+            samps_per_chan=samps_per_chan)
+        return task
+    except Exception as e:
+        print(f"[NI-DAQ Warning] Error al crear task de fotodiodos ({e}). Usando mock.")
+        return _MockNITask(len(PD_CHANS_LIST) + 1, samps_per_chan)
 
 
 def channels_triggers(task, axis: str) -> None:
     """Agrega el canal de trigger. En SAFE_MODE el _MockNITask ya lo incluye."""
-    if SAFE_MODE:
+    if SAFE_MODE or isinstance(task, _MockNITask):
         return
-    ch = TRIGGER_CHANNELS[axis]
-    task.ai_channels.add_ai_voltage_chan(
-        physical_channel=f"{NIDAQ_DEVICE}/ai{ch}",
-        name_to_assign_to_channel=f"trigger_pi_{ch}")
+    try:
+        ch = TRIGGER_CHANNELS[axis]
+        task.ai_channels.add_ai_voltage_chan(
+            physical_channel=f"{NIDAQ_DEVICE}/ai{ch}",
+            name_to_assign_to_channel=f"trigger_pi_{ch}")
+    except Exception as e:
+        print(f"[NI-DAQ Warning] Error al agregar trigger {axis}: {e}")
 
 
 def set_laser532_voltage(v: float) -> None:
@@ -210,12 +296,21 @@ def set_laser532_voltage(v: float) -> None:
     v = max(LASER_532_V_MIN, min(LASER_532_V_MAX, v))
     if SAFE_MODE:
         print(f"[NI MOCK] láser 532 → {v:.3f} V"); return
-    if _laser532_task is None:
-        _laser532_task = nidaqmx.Task("laser532")
-        _laser532_task.ao_channels.add_ao_voltage_chan(
-            "Dev1/ao2", min_val=0.0, max_val=5.0)
-        _laser532_task.start()
-    _laser532_task.write(v)
+    try:
+        from core.hardware_manager import hardware_manager
+        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+            print(f"[NI MOCK (Aislado)] láser 532 → {v:.3f} V"); return
+    except Exception:
+        pass
+    try:
+        if _laser532_task is None:
+            _laser532_task = nidaqmx.Task("laser532")
+            _laser532_task.ao_channels.add_ao_voltage_chan(
+                "Dev1/ao2", min_val=0.0, max_val=5.0)
+            _laser532_task.start()
+        _laser532_task.write(v)
+    except Exception as e:
+        print(f"[NI-DAQ Error] set_laser532_voltage({v}): {e}")
 
 
 def close_all_tasks() -> None:

@@ -33,8 +33,7 @@ for sub in [BASE_DIR, BASE_DIR / "core", BASE_DIR / "modules", BASE_DIR / "analy
         sys.path.insert(0, sub_str)
 
 # ── Modo seguro ───────────────────────────────────────────────────────────────
-#SAFE_MODE: bool = os.getenv("PYPRINTING_SAFE", "0") == "1"
-SAFE_MODE= True
+SAFE_MODE: bool = os.getenv("PYPRINTING_SAFE", "0") == "1"
 # ── Cámara ────────────────────────────────────────────────────────────────────
 CAMERA_INDEX  = 1
 CAMERA_WIDTH  = 1280
@@ -226,28 +225,40 @@ class _MockPI:
 
 class _PIController:
     """
-    Singleton real: envuelve GCSDevice con conexión idempotente y thread-safe (RLock).
-    Solo se usa cuando SAFE_MODE = False.
+    Singleton real / resiliente: envuelve GCSDevice con conexión idempotente, thread-safe (RLock)
+    y tolerancia a fallas.
+    Si la platina está desconectada o apagada, opera en modo virtual transparente
+    sin arrojar excepciones fatales que bloqueen el inicio de la aplicación.
+    Permite conexión y desconexión segura en caliente (Hot-Plug).
     """
     _lock = threading.RLock()
 
     def __init__(self):
+        self._dev = None
+        self._connected = False
+        self._isolated = False
+        self._pos = {1: float(PI_HOME_POS[0]),
+                     2: float(PI_HOME_POS[1]),
+                     3: float(PI_HOME_POS[2])}
         try:
             from pipython import GCSDevice
             self._dev = GCSDevice()
         except Exception as e:
             print(f"[PI] pipython no disponible: {e}")
             self._dev = None
-        self._connected = False
 
-    def connect(self, serial: str = PI_SERIAL) -> None:
+    def connect(self, serial: str = PI_SERIAL) -> bool:
         import time
         with self._lock:
             if self._connected:
-                return
+                return True
             if self._dev is None:
-                print("[PI] No se puede conectar: pipython no instalado.")
-                return
+                try:
+                    from pipython import GCSDevice
+                    self._dev = GCSDevice()
+                except Exception as e:
+                    print(f"[PI] No se puede conectar: pipython no disponible ({e}).")
+                    return False
             try:
                 # 1. Auto-enumerar controladores USB PI conectados si están disponibles
                 conn_target = serial
@@ -269,56 +280,122 @@ class _PIController:
                 self._dev.SVO(PI_AXES, [True] * 3)
                 self._dev.VCO(PI_AXES, [False] * 3)
                 self._dev.MOV(PI_AXES, PI_HOME_POS)
+                t_start = time.time()
                 while not all(self._dev.qONT(PI_AXES).values()):
                     time.sleep(0.01)
+                    if time.time() - t_start > 3.0:
+                        break
                 self._connected = True
+                # Sincronizar posición leída
+                try:
+                    real_pos = self._dev.qPOS()
+                    for k in (1, 2, 3):
+                        if str(k) in real_pos:
+                            self._pos[k] = float(real_pos[str(k)])
+                        elif k in real_pos:
+                            self._pos[k] = float(real_pos[k])
+                except Exception:
+                    pass
                 print(f"[PI] Conectada exitosamente: {self._dev.qIDN().strip()}")
+                return True
             except Exception as e:
-                print(f"[PI] Error de conexión con platina PI (USB '{serial}'): {e}")
+                print(f"[PI] Platina no conectada o apagada (USB '{serial}'): {e}. Modo virtual activo.")
                 self._connected = False
+                return False
 
     def disconnect(self) -> None:
         import time
         with self._lock:
             if not self._connected or self._dev is None:
+                self._connected = False
                 return
             try:
                 self._dev.MOV(PI_AXES, [0, 0, 0])
-                time.sleep(0.1)
+                time.sleep(0.05)
                 self._dev.CloseConnection()
             except Exception as e:
                 print(f"[PI] Error al desconectar: {e}")
             self._connected = False
+            print("[PI] Desconectada de forma segura.")
 
     @property
     def connected(self) -> bool:
         with self._lock:
-            return self._connected
+            return self._connected and not self._isolated
+
+    def set_isolated(self, isolated: bool):
+        with self._lock:
+            self._isolated = isolated
 
     def qPOS(self, axes=None):
         with self._lock:
-            return self._dev.qPOS(axes) if axes is not None else self._dev.qPOS()
+            if self._connected and not self._isolated and self._dev is not None:
+                try:
+                    real = self._dev.qPOS(axes)
+                    for k in (1, 2, 3):
+                        if str(k) in real:
+                            self._pos[k] = float(real[str(k)])
+                        elif k in real:
+                            self._pos[k] = float(real[k])
+                    return real
+                except Exception as e:
+                    print(f"[PI] Error en lectura real qPOS ({e}) — usando posición virtual.")
+            return {"1": self._pos[1], "2": self._pos[2], "3": self._pos[3]}
 
     def qONT(self, axes=None):
         with self._lock:
-            return self._dev.qONT(axes) if axes is not None else self._dev.qONT()
+            if self._connected and not self._isolated and self._dev is not None:
+                try:
+                    return self._dev.qONT(axes)
+                except Exception:
+                    pass
+            if isinstance(axes, int):
+                return {axes: True}
+            axes = axes or PI_AXES
+            return {a: True for a in axes}
 
     def MOV(self, axes, targets):
         with self._lock:
-            return self._dev.MOV(axes, targets)
+            if isinstance(axes, int):
+                axes_list = [axes]
+                targets_list = [targets]
+            else:
+                axes_list = list(axes)
+                targets_list = list(targets)
+
+            for ax, tg in zip(axes_list, targets_list):
+                if ax in self._pos:
+                    self._pos[ax] = round(float(tg), 4)
+
+            if self._connected and not self._isolated and self._dev is not None:
+                try:
+                    return self._dev.MOV(axes, targets)
+                except Exception as e:
+                    print(f"[PI] Error en comando real MOV ({e}) — registrado en posición virtual.")
+            else:
+                print(f"[PI VIRTUAL] MOV {dict(zip(axes_list, targets_list))}")
 
     def __getattr__(self, name: str):
         if name.startswith("_"):
             raise AttributeError(name)
-        if self._dev is None:
-            raise RuntimeError(f"[PI] Dispositivo no inicializado (attr: {name})")
-        attr = getattr(self._dev, name)
-        if callable(attr):
-            def _locked_call(*args, **kwargs):
-                with self._lock:
-                    return attr(*args, **kwargs)
-            return _locked_call
-        return attr
+        if self._connected and not self._isolated and self._dev is not None:
+            try:
+                attr = getattr(self._dev, name)
+                if callable(attr):
+                    def _locked_call(*args, **kwargs):
+                        with self._lock:
+                            return attr(*args, **kwargs)
+                    return _locked_call
+                return attr
+            except AttributeError:
+                pass
+
+        # Si no está conectado o es no-op virtual
+        def _noop_safe(*args, **kwargs):
+            if name in ("qIDN",):
+                return "PI E-517 [Virtual/Desconectado]"
+            return None
+        return _noop_safe
 
 
 # ── Instancia global — el resto del código solo importa `pi` ─────────────────

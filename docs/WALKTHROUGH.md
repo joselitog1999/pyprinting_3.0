@@ -44,6 +44,12 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
    - **Tasa de Refresco de FFT Limitada a 1.0 s**: La ventana de espectro de densidad de potencia FFT `TraceFFTWindow` procesa la transformada y los picos a intervalos controlados de 1 segundo solo si está visible, eliminando la sobrecarga computacional.
    - **Fluidez Visual a ~30 FPS**: Se optimizó la tasa de refresco del timer de Qt a 35 ms, garantizando una interfaz completamente fluida sin bloqueos ni saturación del *Event Loop*.
 
+8. **Tolerancia a Fallas de Hardware, Hot-Plug y Control de Simulación Global**:
+   - **Sincronización Dinámica de `SAFE_MODE`**: Se corrigió `config.py` para leer en tiempo de ejecución la variable `PYPRINTING_SAFE`, permitiendo que el checkbox de `main.py` controle de verdad el modo simulación / laboratorio de todos los programas.
+   - **Controlador PI Resiliente**: Se refactorizó `_PIController` para mantener coordenadas virtuales en memoria si la platina PI está apagada o desconectada, permitiendo que `app.py` y todos los módulos inicien al 100% sin excepciones fatales.
+   - **Reconexión y Desconexión en Caliente (Hot-Plug)**: Se incorporaron métodos `connect_device()` y `disconnect_device()` en `HardwareManager` para conectar o desconectar instrumentos físicos mientras la aplicación está en marcha.
+   - **Tablero de Conexiones Interactivo (`modules/hardware_dashboard.py`)**: Cada instrumento cuenta con botones activos de acción **"🔌 Conectar"** / **"⏏️ Desconectar"** y checkbox de **"Aislar (Soft Mock)"** con reporte en tiempo real a la bitácora I/O.
+
 ---
 
 ## 🧪 Validación Realizada

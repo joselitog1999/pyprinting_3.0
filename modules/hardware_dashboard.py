@@ -3,9 +3,9 @@
 hardware_dashboard.py — Tablero de Conexiones, Seguridad y Aislamiento de Hardware
 PyPrinting 3.0 — UNSAM Nanofotónica
 
-Widget gráfico para visualizar la matriz de conexiones de instrumentos (NI-DAQmx, PI Piezo,
-Cámara, Láser, Espectrómetro), gestionar el aislamiento por software (Soft Mock Isolation)
-y monitorear la bitácora de eventos I/O en tiempo real.
+Widget gráfico interactivo para monitorear, conectar, desconectar y aislar instrumentos
+(NI-DAQmx, PI Piezo, Cámara, Láser, Espectrómetro) en caliente (Hot-Plug & Soft Mock Isolation),
+con bitácora I/O en tiempo real.
 """
 from __future__ import annotations
 import os
@@ -21,15 +21,15 @@ from core.hardware_manager import hardware_manager, HardwareManager
 class HardwareDashboardWidget(QFrame):
     """
     Tablero de Conexiones y Seguridad de Hardware.
-    Permite evaluar condiciones de comunicación, aislar instrumentos individualmente
-    y visualizar la bitácora de telemetría del microscopio.
+    Permite evaluar condiciones de comunicación, conectar/desconectar instrumentos en caliente,
+    aislarlos individualmente (Soft Mock) y visualizar la bitácora de telemetría del microscopio.
     """
 
     STATUS_COLORS = {
-        "connected": ("#a6e3a1", "🟢 Conectado"),
-        "mock":      ("#f9e2af", "🟡 Simulado (Mock)"),
+        "connected":    ("#a6e3a1", "🟢 Conectado"),
+        "mock":         ("#f9e2af", "🟡 Simulado (Mock)"),
         "disconnected": ("#f38ba8", "🔴 Desconectado"),
-        "inactive":  ("#6c7086", "⚪ Inactivo (PySpectrum Pending)")
+        "inactive":     ("#6c7086", "⚪ Inactivo (PySpectrum)")
     }
 
     def __init__(self, parent=None):
@@ -97,8 +97,8 @@ class HardwareDashboardWidget(QFrame):
         lbl_title = QLabel("🛡️ <b>Tablero de Conexiones & Seguridad de Hardware</b>")
         lbl_title.setStyleSheet("font-size: 11pt; color: #89b4fa;")
 
-        self.btn_rescan = QPushButton("🔄 Re-scan Hardware")
-        self.btn_rescan.setToolTip("Re-escanea en caliente la presencia de conexiones físicas USB/GPIB/NI-DAQ.")
+        self.btn_rescan = QPushButton("🔄 Re-scan Todo")
+        self.btn_rescan.setToolTip("Re-escanea y reconecta en caliente todos los instrumentos físicos detectados.")
         self.btn_rescan.clicked.connect(lambda: hardware_manager.rescan_hardware())
 
         self.btn_clear_log = QPushButton("🧹 Limpiar Bitácora")
@@ -112,14 +112,14 @@ class HardwareDashboardWidget(QFrame):
         main_layout.addLayout(header_hlo)
 
         # ── Matriz de Estado e Instrumentos ───────────────────────────────────
-        devices_box = QGroupBox("Matriz de Conexión de Instrumentos & Aislamiento por Software")
+        devices_box = QGroupBox("Matriz de Conexión de Instrumentos, Hot-Plug & Aislamiento")
         devices_glo = QGridLayout(devices_box)
         devices_glo.setHorizontalSpacing(15)
         devices_glo.setVerticalSpacing(8)
 
         self.dev_widgets = {}
 
-        headers = ["Instrumento", "Estado de Conexión", "Detalle de Telemetría", "Aislamiento (Soft Mock)"]
+        headers = ["Instrumento", "Estado de Conexión", "Detalle de Telemetría", "Acción I/O", "Aislamiento (Soft Mock)"]
         for col, h in enumerate(headers):
             lbl_h = QLabel(f"<b>{h}</b>")
             lbl_h.setStyleSheet("color: #a6adc8; font-size: 9pt;")
@@ -130,32 +130,40 @@ class HardwareDashboardWidget(QFrame):
             lbl_dev.setStyleSheet("font-weight: bold;")
 
             lbl_status = QLabel("⚪ Inactivo")
-            lbl_status.setFixedWidth(150)
+            lbl_status.setFixedWidth(160)
             lbl_status.setStyleSheet("font-family: monospace; font-weight: bold; padding: 2px 6px; border-radius: 3px; background-color: #313244;")
 
-            lbl_detail = QLabel("Esperando inicialización...")
+            lbl_detail = QLabel("Esperando verificación...")
             lbl_detail.setStyleSheet("color: #a6adc8; font-size: 9pt;")
+
+            btn_action = QPushButton("🔌 Conectar")
+            btn_action.setFixedWidth(110)
+            btn_action.setToolTip(f"Conectar o desconectar {dev_name} en caliente.")
 
             chk_isolate = QCheckBox("Aislar (Mock)")
             chk_isolate.setToolTip(f"Aísla {dev_name} conmutando a modo simulación (Soft Mock) para pruebas seguras.")
-            
+
             if dev_name == "Espectrómetro USB (PySpectrum)":
+                btn_action.setEnabled(False)
                 chk_isolate.setEnabled(False)
-                chk_isolate.setToolTip("Módulo Espectrómetro Inactivo — Pendiente de integración con PySpectrum en futuros desarrollos.")
+                chk_isolate.setToolTip("Módulo Espectrómetro Inactivo — Pendiente de integración con PySpectrum.")
                 lbl_dev.setStyleSheet("font-weight: bold; color: #6c7086;")
                 lbl_detail.setStyleSheet("color: #6c7086; font-size: 9pt; font-style: italic;")
 
+            btn_action.clicked.connect(lambda _, d=dev_name: self._handle_action_button(d))
             chk_isolate.toggled.connect(lambda chk, d=dev_name: hardware_manager.toggle_isolation(d, chk))
 
             devices_glo.addWidget(lbl_dev, row, 0)
             devices_glo.addWidget(lbl_status, row, 1)
             devices_glo.addWidget(lbl_detail, row, 2)
-            devices_glo.addWidget(chk_isolate, row, 3)
+            devices_glo.addWidget(btn_action, row, 3)
+            devices_glo.addWidget(chk_isolate, row, 4)
 
             self.dev_widgets[dev_name] = {
-                "status": lbl_status,
-                "detail": lbl_detail,
-                "isolate": chk_isolate
+                "status":     lbl_status,
+                "detail":     lbl_detail,
+                "action_btn": btn_action,
+                "isolate":    chk_isolate
             }
 
         main_layout.addWidget(devices_box)
@@ -174,6 +182,13 @@ class HardwareDashboardWidget(QFrame):
         hardware_manager.deviceStatusSignal.connect(self._on_device_status_update)
         hardware_manager.hardwareLogSignal.connect(self._on_hardware_log)
 
+    def _handle_action_button(self, dev_name: str):
+        state = hardware_manager.device_states.get(dev_name, "disconnected")
+        if state == "connected":
+            hardware_manager.disconnect_device(dev_name)
+        else:
+            hardware_manager.connect_device(dev_name)
+
     @pyqtSlot(str, str, str)
     def _on_device_status_update(self, dev_name: str, status_str: str, detail_msg: str):
         if dev_name in self.dev_widgets:
@@ -186,13 +201,22 @@ class HardwareDashboardWidget(QFrame):
             )
             w["detail"].setText(detail_msg)
 
+            # Actualizar botón de acción dinámica
+            if dev_name != "Espectrómetro USB (PySpectrum)":
+                if status_str == "connected":
+                    w["action_btn"].setText("⏏️ Desconectar")
+                    w["action_btn"].setStyleSheet("background-color: #f38ba8; color: #111; font-weight: bold;")
+                else:
+                    w["action_btn"].setText("🔌 Conectar")
+                    w["action_btn"].setStyleSheet("background-color: #a6e3a1; color: #111; font-weight: bold;")
+
     @pyqtSlot(str, str, str)
     def _on_hardware_log(self, ts: str, level: str, msg: str):
         color_map = {
-            "INFO": "#89b4fa",
+            "INFO":    "#89b4fa",
             "SUCCESS": "#a6e3a1",
             "WARNING": "#f9e2af",
-            "ERROR": "#f38ba8"
+            "ERROR":   "#f38ba8"
         }
         c = color_map.get(level, "#cdd6f4")
         html_msg = f"<span style='color: #6c7086;'>[{ts}]</span> <b style='color: {c};'>[{level}]</b> {msg}"
@@ -205,15 +229,15 @@ class HardwareDashboardWidget(QFrame):
 class HardwareDashboardWindow(QMainWindow):
     """
     Ventana independiente para el Tablero de Conexiones, Seguridad y Aislamiento de Hardware.
-    Permite visualizar la matriz de estado de instrumentos, aislar dispositivos por software
+    Permite visualizar la matriz de estado de instrumentos, conectar/desconectar dispositivos por software
     y revisar la bitácora I/O sin saturar el espacio de trabajo de la GUI principal.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Tablero de Conexiones, Seguridad y Aislamiento de Hardware 🛡️ — PyPrinting 3.0")
-        self.resize(850, 580)
-        self.setMinimumSize(720, 480)
+        self.resize(880, 590)
+        self.setMinimumSize(750, 500)
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #11111b;
@@ -231,4 +255,3 @@ if __name__ == "__main__":
     win = HardwareDashboardWindow()
     win.show()
     sys.exit(app.exec())
-
