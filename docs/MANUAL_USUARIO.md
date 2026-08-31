@@ -329,11 +329,13 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
 > Para consultar el protocolo experimental completo paso a paso ("DO PRINTING") y la guía detallada de operación, remítase al reporte especializado:  
 > [Guía y Protocolo de Impresión de Grillas (reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
 
-#### 3.7.1 Pestaña `Printing` (Impresión Automatizada de Grillas)
+#### 3.7.1 Controles Principales de `Printing` y `Dimers`
+- **`Custom Name` (Nombre Personalizado de Lote)**: Casilla interactiva de texto para asignar un nombre descriptivo a la subcarpeta del lote y a los reportes de optimización (ej. `AuNP_60nm_BatchA`). Si se deja vacía, se utiliza automáticamente el nombre de la grilla (`<GridName>`, ej. `5x5_drift_5.0umx5.0um`).
 - **`Create Grid`**: Configura la matriz simétrica definiendo número de partículas por columna (`NPs/col`), número de columnas (`Cols`), espaciamiento entre nanopartículas (`Dist NP µm`) y espaciamiento entre columnas (`Dist Col µm`).
 - **`Load Grid`**: Carga una matriz de posiciones personalizadas $(X, Y)$ desde un archivo de texto plano `.txt`.
-- **`Set reference`**: Captura la posición actual de los sensores capacitivos de la platina PI como origen absoluto de la grilla $(X_0, Y_0, Z_0)$.
+- **`Set reference`**: Captura la posición actual de los sensores capacitivos de la platina PI como origen absoluto de la grilla $(X_0, Y_0, Z_0)$ y cambia a color verde de confirmación.
 - **`Go to reference`**: Retorna inmediatamente la platina a las coordenadas origen.
+- **`Reset all 🔄`**: Restablecimiento atómico completo que devuelve el origen a $\text{NaN}$, limpia acumuladores de deriva lateral y axial, reinicia el botón de referencia a naranja, vacía la casilla de nombre custom y restablece la grilla interactiva.
 - **`Display 2D del Patrón & Camino (`Grid Pattern & Path Viewer 🗺️`)**:
   - **Dock Desplegable Integrado**: Previsualización gráfica 2D de la matriz completa ajustada a la orientación del sistema cartesiano físico del microscopio (rotado $90^\circ$ a la derecha: eje $+X$ hacia abajo, eje $+Y$ a la derecha):
     - ⚪ **Pendiente** (Gris): Nodos futuros.
@@ -348,18 +350,21 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
     - **Click en Nodo**: Al presionar cualquier partícula en la gráfica 2D, el casillero `Target Index` se actualiza inmediatamente a ese nodo.
 - **`Barra de Progreso`**: Indicador gráfico (`QProgressBar`) del avance porcentual del lote ($i / N_{\text{total}}$).
 - **`T max (s)`**: Tiempo máximo de residencia por nodo (segundos) antes de abortar por tiempo agotado (*timeout*) si no se gatilla la condición de parada.
+- **`N hold steps` (Filtro Anti-Partículas de Paso)**:
+  - Exige que la señal de fotodiodo se mantenga por encima de la condición de detección durante $N$ lecturas consecutivas ($\sim 30 - 50\ \text{ms}$ para $N=5$).
+  - Si una nanopartícula en suspensión browniana solo cruza el haz de forma transitoria (duración $\sim 10\ \text{ms}$), el contador `hold_counter` se reinicia inmediatamente a 0, evitando el cierre erróneo del obturador en falsos positivos.
 - **`Steps before / after`**:
-  - `Steps before`: Número de muestras analógicas adquiridas antes de abrir el obturador para calcular la línea base $I_{\text{old}}$.
+  - `Steps before`: Muestras analógicas adquiridas antes de abrir el obturador para calcular la línea base $I_{\text{old}}$.
   - `Steps after`: Muestras adicionales adquiridas inmediatamente después del cierre del obturador para registrar la meseta post-impresión.
-- **`Autofocus Every N`**: Frecuencia de ejecución del autofoco dinámico en Z (ej. cada 2 nodos) para compensar derivas mecánicas durante grillas extensas.
-- **`Shift X / Shift Y (µm)`**: Desplazamiento lateral offset introducido temporalmente para realizar el autofoco axial en una zona limpia contigua sin perturbar el nodo actual.
-- **`Drift Correction (Partícula 0)`**:
-  - **`[ ] Drift Correction (P0)?`**: Activa la corrección de deriva termomecánica $X-Y$ automatizada por partícula ancla.
-  - **`Start X / Start Y (µm)`**: Offset de separación inicial del arreglo impreso respecto a la Partícula 0 (predeterminado: $2.0, 2.0\,\mu\text{m}$).
-  - **Flujo de Trabajo**: Tras cada ciclo de autofoco Z, la platina retorna a la **Partícula 0** en $(0,0)$, ejecuta un escaneo confocal rápido $2\times 2\,\mu\text{m}$, calcula el desplazamiento del centro de masa $(\delta x, \delta y)$ y compensa la posición de todos los nodos restantes en tiempo real.
-  - > [!NOTE]
-    > Para consultar la fundamentación física, modelado estocástico y propagación de errores del método, consulte el reporte:  
-    > [Corrección de Deriva Termomecánica (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
+- **`Protocolo de Doble Autofoco con Desplazamiento Seguro`**:
+  - **Etapa 1/4**: Desplazamiento a zona limpia desplazada $(-1, -1)\ \mu\text{m}$ de la Partícula Ancla $P_0$ $\rightarrow$ Autofoco axial 1 a baja potencia.
+  - **Etapa 2/4**: Microescaneo confocal 2D de $P_0$ a baja potencia $\rightarrow$ Cálculo del centro de masa y deriva lateral $(\Delta x, \Delta y)$.
+  - **Etapa 3/4**: Retorno al sitio del nodo $i$ compensado + $(\text{shift}_x, \text{shift}_y)$ $\rightarrow$ Autofoco in-situ (Autofoco 2) en zona limpia contigua.
+  - **Etapa 4/4**: Conmutación estricta a alta potencia (`down_flipper()`) $\rightarrow$ Apertura de obturador y adquisición de la traza fototérmica.
+- **`Tracking Multimodal`**:
+  - **`Track Drift XY?`**: Registra la deriva lateral en cada nodo, genera `drift_tracking_xy.txt` y abre la ventana 2D interactiva `DriftTrackingDialog` (guardando `drift_map.png`).
+  - **`Track Drift Z?`**: Registra la deriva axial tras cada autofoco y genera `drift_tracking_z.txt`.
+  - **`Track Time-Volt?`**: Al concluir la grilla, ajusta la función salto en todas las trazas fototérmicas ($V_{\text{low}}, V_{\text{high}}, \Delta V, t_{\text{step}}, t_{\text{raw}}, \Delta t$), calculando estadísticas globales y generando el informe **`reporte_parametros_<nombre_red>.txt`** con recomendaciones de optimización.
 
 #### 3.7.2 Pestaña `Dimers` (Ensamblado Guiado de Nanodímeros Plasmónicos)
 - Permite la fabricación guiada de nanodímeros con separación interpartícula (*gap*) sub-100 nm.
@@ -372,18 +377,19 @@ El menú desplegable **`Criterio Parada`** permite seleccionar dinámicamente el
 | Modo Seleccionable | Nombre en Interfaz | Parámetros que Habilita en la UI | Archivos e Información Generados |
 |---|---|---|---|
 | **Modo 0** | `Legacy (Relativo)` | `Umbral` (salto relativo, ej. 1.20) | Trazas de intensidad `.txt` en la carpeta del lote (`NP_001.txt`). |
-| **Modo 1** | `Relativo + Absoluto + AntiPaso` | `Umbral`, `Umbral Absoluto (V)`, `N_hold` (pasos anti-paso) | Traza temporal con indicador de estado `hold_counter` en el log. |
+| **Modo 1** | `Relativo + Absoluto + AntiPaso` | `Umbral`, `Umbral Absoluto (V)`, `N_hold` (pasos anti-paso) | Traza temporal con confirmación de $N_{\text{hold}}$ pasos sostenidos. |
 | **Modo 2** | `Derivada dI/dt (Aplanamiento)` | `Slope Min (V/s)`, `Slope Flat (V/s)`, `V_abs` | Registro de derivada instantánea $dI/dt$ y meseta detectada. |
 | **Modo 3** | `Confocal Raw & Rescaled` | `Ratio K (P_print/P_scan)`, `Umbral P%` (ej. 50%) | Mapas confocales reescalados `NPscan_rescaled_00i.txt` y `NPscan_rescaled_00i.tiff`. |
 | **Modo 4** | `Híbrido Tri-Factor (All-In-One)` | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `Ratio_K`, `P%` | Log integral de triple verificación y resumen de parada. |
 
 #### 3.7.4 Flujo de Datos y Salida en Disco
 Al iniciar la rutina con el botón **`Play ►`**:
-1. Se crea la carpeta del lote experimental con sello de tiempo: `YYYYMMDD-HHMMSS_Printing_<GridName>` o `YYYYMMDD-HHMMSS_Dimers_<GridName>`.
+1. Se crea la subcarpeta del lote: `YYYYMMDD-HHMMSS_Printing_<CustomName>` o `YYYYMMDD-HHMMSS_Dimers_<CustomName>`.
 2. Para cada nodo se guarda la traza temporal de intensidad `NP_00i.txt` conteniendo columnas: `Tiempo (s)`, `Signal (V)` y `BS Power (V)`.
 3. Si el escaneo está activo, se almacenan las imágenes confocales `.tiff` (Go, Back, Image).
-4. Se genera el archivo sintético de error de posicionamiento `printing_error_timestamp.txt` conteniendo los residuos en nanómetros ($\Delta x_{\text{nm}}, \Delta y_{\text{nm}}$) entre la posición teórica de la grilla y el centro de masa real.
-5. El botón **`Save Grid Info`** exporta el archivo `grid_info.txt` con la metainformación completa (Láser, Criterio de Parada, Umbrales, Potencia BFP, Tipo de NP, Sustrato y Comentarios).
+4. Se generan las tablas de seguimiento: `drift_tracking_xy.txt`, `drift_tracking_z.txt` y la imagen `drift_map.png`.
+5. Si `Track Time-Volt?` está activo, se exporta el informe estadístico y diagnóstico **`reporte_parametros_<nombre_red>.txt`**.
+6. El botón **`Save Grid Info`** exporta el archivo `grid_info.txt` con la metainformación completa (Láser, Criterio de Parada, Umbrales, Potencia BFP, Tipo de NP, Sustrato, Nombre Custom y Derivas).
 
 #### 3.8 Tablero de Conexiones & Seguridad de Hardware (`HardwareDashboardWindow`, `HardwareDashboardWidget` & `HardwareManager`)
 El **Tablero de Conexiones y Seguridad de Hardware** constituye el centro neurálgico de telemetría y aislamiento del sistema. Se encuentra configurado como una **ventana independiente flotante** (`HardwareDashboardWindow`) accesible desde:
