@@ -370,6 +370,11 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
   - **`Drift Tol (nm)`**: Tolerancia espacial máxima deseada antes de forzar una corrección (por defecto $25.0\ \text{nm}$).
   - **Telemetría Cinética (`v_drift_label`)**: Muestra en vivo la velocidad instantánea estimada y el $N_{\text{eff}}$ activo (`v_xy:..|v_z:.. nm/s | N_eff:..`).
   - **`Track Time-Volt?`**: Al concluir la grilla, ajusta la función salto en todas las trazas fototérmicas ($V_{\text{low}}, V_{\text{high}}, \Delta V, t_{\text{step}}, t_{\text{raw}}, \Delta t$), despliega la ventana interactiva de 3 paneles con histogramas (`TimeVoltTrackingDialog`), auto-exporta `time_volt_distributions.png` y genera el informe **`reporte_parametros_<nombre_red>.txt`** conteniendo la **Sección 4 de Cinética de Deriva y Recomendaciones de $N_{\text{sugerido}}$**.
+  - **`Time Remaining ⏱️ (ETA Dinámico)`**:
+    - Indicador en tiempo real que estima el tiempo restante para concluir el lote.
+    - **Valor Inicial ($i=0$)**: Asume $\tau_0 = 15.0\ \text{s}$ por partícula ($\text{ETA}_0 = N_{\text{totales}} \times 15.0\ \text{s}$).
+    - **Actualización Dinámica**: Con cada partícula procesada, calcula el promedio acumulado real $\langle t_{\text{raw}} \rangle$ y actualiza $\text{ETA} = N_{\text{restantes}} \times \langle t_{\text{raw}} \rangle$.
+    - **Finalización**: Muestra `Completado 🎉` al finalizar la última partícula.
   - **Llenado Dinámico de `NP events` y `NP success`**: Actualización en tiempo real y post-procesamiento del porcentaje de partículas impresas con éxito ($N_{\text{éxito}} / N_{\text{totales}}\ [\%]$) y exportación directa en `grid_info.txt`.
 
 #### 3.7.2 Pestaña `Dimers` (Ensamblado Guiado de Nanodímeros Plasmónicos)

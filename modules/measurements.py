@@ -722,6 +722,10 @@ class Frontend(QFrame):
         self.NameDirValue      = QLabel("")
         self.NameDirValue.setStyleSheet("background-color: red;")
         self.particulasEdit    = QLabel("0")
+        self.particulasEdit.setStyleSheet("font-family: monospace; font-weight: bold; color: #cdd6f4;")
+        self.time_remaining_label = QLabel("—")
+        self.time_remaining_label.setStyleSheet("color: #89dceb; font-family: monospace; font-weight: bold;")
+        self.time_remaining_label.setToolTip("Tiempo estimado restante para finalizar el lote (calculado con el promedio de t_raw y N restante; 15s inicial).")
         self.indice_impresionEdit = QLineEdit("0")
         self.indice_impresionEdit.setToolTip("Índice del nodo actual en proceso de impresión.")
         self.indice_impresionEdit.textChanged.connect(self._new_index_target)
@@ -860,11 +864,11 @@ class Frontend(QFrame):
         plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
         plo.addWidget(self.next_button,        9, 2, 1, 1 if self.mode == "dimers" else 2)
 
-        # Fila 10: Total targets | Target Index
-        plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,      10, 1)
-        plo.addWidget(QLabel("Target Index:"),  10, 2); plo.addWidget(self.indice_impresionEdit, 10, 3)
+        # Fila 10: Total targets | Time Remaining (ETA)
+        plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,        10, 1)
+        plo.addWidget(QLabel("Time Rem ⏱️:"),   10, 2); plo.addWidget(self.time_remaining_label, 10, 3)
 
-        # Fila 11: Barra de progreso de avance
+        # Fila 11: Target Index | Barra de progreso de avance
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -873,8 +877,8 @@ class Frontend(QFrame):
             "QProgressBar { text-align: center; border: 1px solid #45475a; border-radius: 4px; background-color: #1e1e2e; color: #cdd6f4; font-size: 8pt; }"
             "QProgressBar::chunk { background-color: #a6e3a1; }"
         )
-        plo.addWidget(QLabel("Progreso Lote:"), 11, 0)
-        plo.addWidget(self.progress_bar,        11, 1, 1, 3)
+        plo.addWidget(QLabel("Target Index:"),  11, 0); plo.addWidget(self.indice_impresionEdit, 11, 1)
+        plo.addWidget(QLabel("Progreso Lote:"), 11, 2); plo.addWidget(self.progress_bar,        11, 3)
 
         # Focus shift & Drift correction widget
         fsW = QWidget(); flo = QGridLayout(fsW)
@@ -1163,6 +1167,7 @@ class Frontend(QFrame):
                 ["Track Drift XY:", "ON" if self.track_drift_xy_check.isChecked() else "OFF"],
                 ["Track Drift Z:", "ON" if self.track_drift_z_check.isChecked() else "OFF"],
                 ["Track Time-Volt:", "ON" if self.track_time_volt_check.isChecked() else "OFF"],
+                ["Time Remaining (ETA):", self.time_remaining_label.text()],
                 ["Comments:", self.extra_info.text()]]
         self.gridinfoSignal.emit(info)
 
@@ -1174,7 +1179,17 @@ class Frontend(QFrame):
         self.set_ref_button.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; }")
 
     @pyqtSlot(int)
-    def particulas_edit(self, n: int): self.particulasEdit.setText(str(n))
+    def particulas_edit(self, n: int):
+        self.particulasEdit.setText(str(n))
+        if n > 0:
+            init_eta_s = n * 15.0
+            mins = int(init_eta_s // 60)
+            secs = int(init_eta_s % 60)
+            eta_str = f"{mins:02d}m {secs:02d}s" if mins > 0 else f"{secs:02d}s"
+            self.time_remaining_label.setText(f"~{eta_str}")
+        else:
+            self.time_remaining_label.setText("—")
+
     @pyqtSlot(str)
     def name_folder(self, folder: str): self.NameDirValue.setText(folder); self.NameDirValue.setStyleSheet("background-color: green;")
     @pyqtSlot(int)
@@ -1231,6 +1246,7 @@ class Frontend(QFrame):
         self.drift_z_edit.setText("+0.0 nm")
         self.v_drift_label.setText("v: — | N_eff: 5")
         self.drift_tol_edit.setText("25.0")
+        self.time_remaining_label.setText("—")
         self.progress_bar.setValue(0)
         self.interactive_grid.reset_view()
         if hasattr(self, 'interactive_grid') and self.interactive_grid.grid_coords is not None:
@@ -1244,11 +1260,8 @@ class Frontend(QFrame):
         if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
             return
         msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Patrón finalizado")
+        msg_box.setWindowTitle("🎉 Patrón de Impresión Finalizado")
         msg_box.setIcon(QMessageBox.Icon.Information)
-        msg_box.setText("🎉 <b>¡Patrón de impresión finalizado con éxito!</b>")
-        msg_box.setInformativeText(f"Se ha completado la secuencia en todas las partículas.\nCarpeta del lote: {folder_path}")
-
         btn_accept = msg_box.addButton("Aceptar", QMessageBox.ButtonRole.AcceptRole)
         btn_save   = msg_box.addButton("Save extra info", QMessageBox.ButtonRole.ActionRole)
         msg_box.setDefaultButton(btn_accept)
@@ -1295,6 +1308,8 @@ class Frontend(QFrame):
             backend.driftZDisplacementSignal.connect(self.drift_z_edit.setText)
         if hasattr(backend, "driftVelocitySignal"):
             backend.driftVelocitySignal.connect(self.v_drift_label.setText)
+        if hasattr(backend, "timeRemainingSignal"):
+            backend.timeRemainingSignal.connect(self.time_remaining_label.setText)
         if hasattr(backend, "driftTrackingFinishedSignal"):
             backend.driftTrackingFinishedSignal.connect(self._show_drift_tracking_dialog)
         if hasattr(backend, "timeVoltTrackingFinishedSignal"):
@@ -1318,6 +1333,7 @@ class Backend(QObject):
     driftDisplacementSignal = pyqtSignal(str)
     driftZDisplacementSignal = pyqtSignal(str)
     driftVelocitySignal   = pyqtSignal(str)
+    timeRemainingSignal   = pyqtSignal(str)
     driftTrackingFinishedSignal = pyqtSignal(dict)
     timeVoltTrackingFinishedSignal = pyqtSignal(dict)
     resetFrontendSignal   = pyqtSignal()
@@ -1348,6 +1364,7 @@ class Backend(QObject):
         self.custom_name: str     = ""
         self.drift_history_xy: list = []
         self.drift_history_z: list  = []
+        self.t_raw_history: list    = []
         self.grid_start_time: float = 0.0
 
         # Control Adaptativo de Frecuencia de Foco y Deriva
@@ -1409,6 +1426,16 @@ class Backend(QObject):
         self.new_folder     = str(DEFAULT_DATA_PATH)
         self.pree_folder    = str(DEFAULT_DATA_PATH)
         self.post_folder    = str(DEFAULT_DATA_PATH)
+
+    def _format_eta(self, eta_s: float) -> str:
+        if eta_s <= 0:
+            return "00m 00s"
+        mins = int(eta_s // 60)
+        secs = int(eta_s % 60)
+        if mins > 0:
+            return f"{mins:02d}m {secs:02d}s"
+        else:
+            return f"{secs:02d}s"
 
     def make_connection(self, frontend: QObject):
         if hasattr(frontend, "make_connection"):
@@ -1488,11 +1515,14 @@ class Backend(QObject):
         self.current_n_effective = getattr(self, "autofoc", 5)
         self.last_af_time       = 0.0
         self.last_af_index      = 0
+        self.t_raw_history      = []
         self.referenceSignal.emit(["NaN", "NaN", "NaN"])
         self.driftDisplacementSignal.emit("(+0.0, +0.0) nm | r=0.0 nm")
         self.driftZDisplacementSignal.emit("+0.0 nm")
         if hasattr(self, 'driftVelocitySignal'):
             self.driftVelocitySignal.emit("v: — | N_eff: 5")
+        if hasattr(self, 'timeRemainingSignal'):
+            self.timeRemainingSignal.emit("—")
         self.resetFrontendSignal.emit()
         print("[Measurements] 🔄 Todas las variables, referencias y acumuladores de Printing han sido reiniciados.")
 
@@ -1694,6 +1724,12 @@ class Backend(QObject):
             self.i_global = 1
         else:
             self.i_global = 0
+
+        self.t_raw_history = []
+        init_eta_s = getattr(self, "particulas", 1) * 15.0
+        init_str = f"~{self._format_eta(init_eta_s)}" if getattr(self, "particulas", 0) > 0 else "—"
+        if hasattr(self, "timeRemainingSignal"):
+            self.timeRemainingSignal.emit(init_str)
 
         if self.mode_arg == "dimers":
             if self.scanbool:
@@ -1961,6 +1997,20 @@ class Backend(QObject):
             close_shutter(self.laser)
             self.timer_real = round(elapsed, 2)
             self._save_trace()
+
+            # Actualizar promedio de t_raw y calcular ETA restante
+            self.t_raw_history.append(float(self.timer_real))
+            mean_t = float(np.mean(self.t_raw_history))
+            rem_nodes = max(0, getattr(self, "particulas", 1) - (self.i_global + 1))
+            if rem_nodes > 0:
+                eta_val = rem_nodes * mean_t
+                eta_text = self._format_eta(eta_val)
+            else:
+                eta_text = "00m 00s"
+            if hasattr(self, "timeRemainingSignal"):
+                self.timeRemainingSignal.emit(eta_text)
+            print(f"[ETA] ⏱️ <t_raw>={mean_t:.2f}s | N_restantes={rem_nodes} -> ETA: {eta_text}")
+
             if should_stop:
                 self.nodeStatusSignal.emit(self.i_global, "success")
             else:
@@ -2331,6 +2381,8 @@ class Backend(QObject):
 
             self.namefolderSignal.emit(self.old_folder)
             self.indexSignal.emit(self.i_global + 1)
+            if hasattr(self, "timeRemainingSignal"):
+                self.timeRemainingSignal.emit("Completado 🎉")
             self.patternFinishedSignal.emit(finished_folder)
 
             if getattr(self, "track_drift_xy", True) or getattr(self, "track_drift_z", True):
