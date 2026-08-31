@@ -187,6 +187,29 @@ class Frontend(QMainWindow):
         backend.printingWorker.make_connection(self.printingWidget)
         backend.dimersWorker.make_connection(self.dimersWidget)
 
+        # Conectar barra de estado global en tiempo real (Frontend es el QMainWindow con statusBar)
+        backend.printingWorker.indexSignal.connect(
+            lambda i: self.statusBar().showMessage(f"📍 Posicionando e imprimiendo partícula {i}..."))
+        backend.printingWorker.grid_autofocusSignal.connect(
+            lambda m: self.statusBar().showMessage("🔍 Ejecutando autofoco Z por correlación axial..."))
+        backend.printingWorker.grid_traceSignal.connect(
+            lambda l, m: self.statusBar().showMessage(f"⚡ Adquiriendo traza fototérmica ({l}) a ALTA potencia..."))
+        backend.printingWorker.grid_scanSignal.connect(
+            lambda l, m, n: self.statusBar().showMessage(f"🔬 Escaneo confocal 2D en curso ({n})..."))
+        backend.printingWorker.patternFinishedSignal.connect(
+            lambda path: self.statusBar().showMessage(f"🎉 Patrón completado en: {path}"))
+
+        backend.dimersWorker.indexSignal.connect(
+            lambda i: self.statusBar().showMessage(f"📍 Posicionando y ensamblando dímero {i}..."))
+        backend.dimersWorker.grid_autofocusSignal.connect(
+            lambda m: self.statusBar().showMessage("🔍 Ejecutando autofoco Z por correlación axial..."))
+        backend.dimersWorker.grid_traceSignal.connect(
+            lambda l, m: self.statusBar().showMessage(f"⚡ Adquiriendo traza dímero ({l})..."))
+        backend.dimersWorker.grid_scanSignal.connect(
+            lambda l, m, n: self.statusBar().showMessage(f"🔬 Escaneo confocal 2D dímero ({n})..."))
+        backend.dimersWorker.patternFinishedSignal.connect(
+            lambda path: self.statusBar().showMessage(f"🎉 Lote de dímeros completado en: {path}"))
+
         # Referencia cámara ↔ platina: cuando el usuario hace Set ref. en la
         # CameraWindow, se lee la posición actual de la platina y se envía al Backend.
         def _on_set_reference(fx: float, fy: float):
@@ -276,18 +299,6 @@ class Backend(QObject):
 
         self.printingWorker.stepsParametersSignal.connect(
             self.traceWorker.parameters)
-
-        # Actualización de Barra de Estado Global en tiempo real
-        self.printingWorker.indexSignal.connect(
-            lambda i: self.statusBar().showMessage(f"📍 Posicionando e imprimiendo partícula {i}..."))
-        self.printingWorker.grid_autofocusSignal.connect(
-            lambda m: self.statusBar().showMessage("🔍 Ejecutando autofoco Z por correlación axial..."))
-        self.printingWorker.grid_traceSignal.connect(
-            lambda l, m: self.statusBar().showMessage(f"⚡ Adquiriendo traza fototérmica ({l}) a ALTA potencia..."))
-        self.printingWorker.grid_scanSignal.connect(
-            lambda l, m, n: self.statusBar().showMessage(f"🔬 Escaneo confocal 2D en curso ({n})..."))
-        self.printingWorker.patternFinishedSignal.connect(
-            lambda path: self.statusBar().showMessage(f"🎉 Patrón completado en: {path}"))
 
         # Dimers cycle
         self.dimersWorker.grid_move_finishSignal.connect(

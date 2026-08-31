@@ -152,6 +152,18 @@ def run_tests():
     hw_win = HardwareDashboardWindow()
     assert_test("Tablero de Hardware (hardware_dashboard.py)", hw_win is not None)
 
+    import app as app_module
+    app_fe = app_module.Frontend()
+    app_be = app_module.Backend()
+    app_fe.make_connection(app_be)
+    assert_test("PyPrinting Principal (app.py)", app_fe is not None and app_be is not None)
+
+    import contrapropagante as cp_module
+    cp_fe = cp_module.ContrapropaganteMainWindow()
+    cp_be = cp_module.Backend()
+    cp_fe.make_connection(cp_be)
+    assert_test("Contrapropagante (contrapropagante.py)", cp_fe is not None and cp_be is not None)
+
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     print(f"RESULTADOS FINALES: {passed_count} / {total_count} pruebas superadas ({passed_count/total_count*100:.1f}%)")
