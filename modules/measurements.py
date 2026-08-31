@@ -1331,8 +1331,8 @@ class Backend(QObject):
                 self.startY = float(center_mass[1])
 
                 # Calcular y actualizar casilla de Desplazamiento Acumulado (convertido a nanómetros)
-                disp_x_nm = (self.startX - self.xref - getattr(self, 'start_x_offset', 0.0)) * 1000.0
-                disp_y_nm = (self.startY - self.yref - getattr(self, 'start_y_offset', 0.0)) * 1000.0
+                disp_x_nm = (self.startX - self.xref) * 1000.0
+                disp_y_nm = (self.startY - self.yref) * 1000.0
                 mag_nm = float(np.sqrt(disp_x_nm**2 + disp_y_nm**2))
                 disp_str = f"({disp_x_nm:+.1f}, {disp_y_nm:+.1f}) nm | r={mag_nm:.1f} nm"
                 self.driftDisplacementSignal.emit(disp_str)
