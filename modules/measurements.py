@@ -864,7 +864,7 @@ class Frontend(QFrame):
         plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,      10, 1)
         plo.addWidget(QLabel("Target Index:"),  10, 2); plo.addWidget(self.indice_impresionEdit, 10, 3)
 
-        # Progress bar
+        # Fila 11: Barra de progreso de avance
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -873,8 +873,8 @@ class Frontend(QFrame):
             "QProgressBar { text-align: center; border: 1px solid #45475a; border-radius: 4px; background-color: #1e1e2e; color: #cdd6f4; font-size: 8pt; }"
             "QProgressBar::chunk { background-color: #a6e3a1; }"
         )
-        plo.addWidget(QLabel("Progreso Lote:"), 10, 0)
-        plo.addWidget(self.progress_bar,        10, 1, 1, 3)
+        plo.addWidget(QLabel("Progreso Lote:"), 11, 0)
+        plo.addWidget(self.progress_bar,        11, 1, 1, 3)
 
         # Focus shift & Drift correction widget
         fsW = QWidget(); flo = QGridLayout(fsW)
