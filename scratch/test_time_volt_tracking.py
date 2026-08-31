@@ -100,7 +100,21 @@ def test_time_volt_report_generation():
     assert "Voltaje Low Promedio" in content
     assert "Voltaje High Promedio" in content
 
-    print("✅ Generación y contenido de reporte_parametros_*.txt verificado al 100%.")
+    # Verificar que el diálogo de histogramas genera time_volt_distributions.png
+    from modules.measurements import TimeVoltTrackingDialog
+    # Parse rows from content or pass dict
+    test_rows = [
+        {"node": 1, "t_raw": 2.0, "t_step": 1.5, "latency": 0.5, "v_low": 1.0, "v_high": 3.2, "delta_v": 2.2, "ratio": 3.2, "status": "SUCCESS"},
+        {"node": 2, "t_raw": 1.2, "t_step": 0.8, "latency": 0.4, "v_low": 1.05, "v_high": 3.4, "delta_v": 2.35, "ratio": 3.24, "status": "SUCCESS"},
+        {"node": 3, "t_raw": 2.6, "t_step": 2.2, "latency": 0.4, "v_low": 0.98, "v_high": 3.0, "delta_v": 2.02, "ratio": 3.06, "status": "SUCCESS"},
+        {"node": 4, "t_raw": 10.0, "t_step": 10.0, "latency": 0.0, "v_low": 1.0, "v_high": 1.0, "delta_v": 0.0, "ratio": 1.0, "status": "TIMEOUT / NO STEP"},
+    ]
+    dlg = TimeVoltTrackingDialog({"rows": test_rows, "folder": test_dir}, parent=None)
+    expected_png = os.path.join(test_dir, "time_volt_distributions.png")
+    assert os.path.exists(expected_png), f"No se encontró la imagen esperada en {expected_png}"
+    print(f"✅ Imagen de histogramas generada exitosamente: {os.path.basename(expected_png)}")
+
+    print("✅ Generación y contenido de reporte_parametros_*.txt e imagen .png verificado al 100%.")
 
     # Limpieza
     shutil.rmtree(test_dir, ignore_errors=True)

@@ -386,6 +386,162 @@ class DriftTrackingDialog(QDialog):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  TIME-VOLT TRACKING DIALOG (Histogramas de Tiempos, Voltajes y Dispersión)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TimeVoltTrackingDialog(QDialog):
+    """
+    Ventana interactiva de visualización y distribución estadística Time-Volt post-impresión.
+    Muestra:
+      1. Histogramas de Tiempos: t_raw (tiempo total de exposición) vs t_step (tiempo real de adhesión).
+      2. Histogramas de Voltajes: V_low (línea base) vs V_high (post-adhesión) y salto ΔV.
+      3. Correlación 2D: Diagrama de dispersión t_step vs ΔV para cada partícula del lote.
+    """
+    def __init__(self, data: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Time-Volt Analytics & Histograms 📊 — PyPrinting 3.0")
+        self.resize(1080, 520)
+        self.data = data
+        self.folder = data.get("folder", "")
+        self.rows = data.get("rows", [])
+        self._setup_ui()
+
+    def _setup_ui(self):
+        vlo = QVBoxLayout(self)
+        vlo.setContentsMargins(10, 10, 10, 10)
+
+        folder_name = os.path.basename(self.folder) if self.folder else "Lote"
+        lbl_info = QLabel(f"<b>📊 Distribución Estadística Time-Volt & Histogramas de Impresión</b> | Lote: <code>{folder_name}</code>")
+        lbl_info.setStyleSheet("color: #f9e2af; font-size: 10pt;")
+        vlo.addWidget(lbl_info)
+
+        self.plot_widget = pg.GraphicsLayoutWidget()
+        vlo.addWidget(self.plot_widget, stretch=1)
+
+        # Plot 1: Histogramas de Tiempos (t_raw vs t_step)
+        self.p_time = self.plot_widget.addPlot(row=0, col=0, title="Tiempos: t_raw vs t_step (s)")
+        self.p_time.showGrid(x=True, y=True, alpha=0.4)
+        self.p_time.setLabel("bottom", "Tiempo (s)")
+        self.p_time.setLabel("left", "Conteo / Frecuencia")
+        self.p_time.addLegend()
+
+        # Plot 2: Histogramas de Voltajes (V_low, V_high, ΔV)
+        self.p_volt = self.plot_widget.addPlot(row=0, col=1, title="Voltajes: V_low, V_high y ΔV (V)")
+        self.p_volt.showGrid(x=True, y=True, alpha=0.4)
+        self.p_volt.setLabel("bottom", "Voltaje (V)")
+        self.p_volt.setLabel("left", "Conteo / Frecuencia")
+        self.p_volt.addLegend()
+
+        # Plot 3: Scatter Plot t_step vs ΔV
+        self.p_scatter = self.plot_widget.addPlot(row=0, col=2, title="Correlación: t_step vs ΔV")
+        self.p_scatter.showGrid(x=True, y=True, alpha=0.4)
+        self.p_scatter.setLabel("bottom", "t_step (s)")
+        self.p_scatter.setLabel("left", "Salto ΔV (V)")
+        self.p_scatter.addLegend()
+
+        self._plot_data()
+
+        # Botones inferiores
+        btn_hlo = QHBoxLayout()
+        self.btn_export_png = QPushButton("Exportar PNG 📸")
+        self.btn_export_png.setToolTip("Guarda una imagen PNG de los histogramas y distribuciones en la carpeta del lote.")
+        self.btn_export_png.clicked.connect(self._export_png)
+        self.btn_close = QPushButton("Cerrar")
+        self.btn_close.clicked.connect(self.accept)
+        btn_hlo.addStretch()
+        btn_hlo.addWidget(self.btn_export_png)
+        btn_hlo.addWidget(self.btn_close)
+        vlo.addLayout(btn_hlo)
+
+        # Auto-guardado
+        self._auto_save_png()
+
+    def _plot_data(self):
+        if not self.rows:
+            return
+
+        t_raw_vals   = [r["t_raw"] for r in self.rows]
+        t_step_vals  = [r["t_step"] for r in self.rows]
+        v_low_vals   = [r["v_low"] for r in self.rows]
+        v_high_vals  = [r["v_high"] for r in self.rows]
+        delta_v_vals = [r["delta_v"] for r in self.rows]
+
+        # ── 1. Histograma de Tiempos ──────────────────────────────────────────
+        all_times = t_raw_vals + t_step_vals
+        min_t, max_t = min(all_times), max(all_times)
+        n_bins = max(4, min(12, len(self.rows)))
+        bins_t = np.linspace(min_t, max_t if max_t > min_t else min_t + 1.0, n_bins + 1)
+        w_t = (bins_t[1] - bins_t[0]) * 0.42
+
+        counts_raw, _  = np.histogram(t_raw_vals, bins=bins_t)
+        counts_step, _ = np.histogram(t_step_vals, bins=bins_t)
+        centers_t = 0.5 * (bins_t[:-1] + bins_t[1:])
+
+        bg_raw  = pg.BarGraphItem(x=centers_t - w_t/2, height=counts_raw, width=w_t, brush=pg.mkBrush("#89b4fa"), pen=pg.mkPen("#b4befe", width=1), name="t_raw (s)")
+        bg_step = pg.BarGraphItem(x=centers_t + w_t/2, height=counts_step, width=w_t, brush=pg.mkBrush("#a6e3a1"), pen=pg.mkPen("#94e2d5", width=1), name="t_step (s)")
+        self.p_time.addItem(bg_raw)
+        self.p_time.addItem(bg_step)
+
+        # Líneas de media
+        m_t_raw, m_t_step = float(np.mean(t_raw_vals)), float(np.mean(t_step_vals))
+        line_t_raw  = pg.InfiniteLine(pos=m_t_raw, angle=90, pen=pg.mkPen("#89b4fa", width=2, style=Qt.PenStyle.DashLine), label=f"<t_raw>={m_t_raw:.2f}s", labelOpts={'position': 0.9, 'color': '#89b4fa'})
+        line_t_step = pg.InfiniteLine(pos=m_t_step, angle=90, pen=pg.mkPen("#a6e3a1", width=2, style=Qt.PenStyle.DashLine), label=f"<t_step>={m_t_step:.2f}s", labelOpts={'position': 0.75, 'color': '#a6e3a1'})
+        self.p_time.addItem(line_t_raw)
+        self.p_time.addItem(line_t_step)
+
+        # ── 2. Histograma de Voltajes ─────────────────────────────────────────
+        all_v = v_low_vals + v_high_vals
+        min_v, max_v = min(all_v), max(all_v)
+        bins_v = np.linspace(min_v, max_v if max_v > min_v else min_v + 1.0, n_bins + 1)
+        w_v = (bins_v[1] - bins_v[0]) * 0.42
+        counts_low, _  = np.histogram(v_low_vals, bins=bins_v)
+        counts_high, _ = np.histogram(v_high_vals, bins=bins_v)
+        centers_v = 0.5 * (bins_v[:-1] + bins_v[1:])
+
+        bg_low  = pg.BarGraphItem(x=centers_v - w_v/2, height=counts_low, width=w_v, brush=pg.mkBrush("#f9e2af"), pen=pg.mkPen("#fab387", width=1), name="V_low (V)")
+        bg_high = pg.BarGraphItem(x=centers_v + w_v/2, height=counts_high, width=w_v, brush=pg.mkBrush("#f38ba8"), pen=pg.mkPen("#eba0ac", width=1), name="V_high (V)")
+        self.p_volt.addItem(bg_low)
+        self.p_volt.addItem(bg_high)
+
+        m_v_low, m_v_high = float(np.mean(v_low_vals)), float(np.mean(v_high_vals))
+        line_v_low  = pg.InfiniteLine(pos=m_v_low, angle=90, pen=pg.mkPen("#f9e2af", width=2, style=Qt.PenStyle.DashLine), label=f"<V_low>={m_v_low:.2f}V", labelOpts={'position': 0.9, 'color': '#f9e2af'})
+        line_v_high = pg.InfiniteLine(pos=m_v_high, angle=90, pen=pg.mkPen("#f38ba8", width=2, style=Qt.PenStyle.DashLine), label=f"<V_high>={m_v_high:.2f}V", labelOpts={'position': 0.75, 'color': '#f38ba8'})
+        self.p_volt.addItem(line_v_low)
+        self.p_volt.addItem(line_v_high)
+
+        # ── 3. Diagrama de Dispersión t_step vs ΔV ───────────────────────────
+        success_t  = [r["t_step"] for r in self.rows if r["status"] == "SUCCESS"]
+        success_dv = [r["delta_v"] for r in self.rows if r["status"] == "SUCCESS"]
+        timeout_t  = [r["t_step"] for r in self.rows if r["status"] != "SUCCESS"]
+        timeout_dv = [r["delta_v"] for r in self.rows if r["status"] != "SUCCESS"]
+
+        if success_t:
+            self.p_scatter.plot(success_t, success_dv, pen=None, symbol='o', symbolSize=10,
+                                symbolBrush='#a6e3a1', symbolPen='w', name="Éxito")
+        if timeout_t:
+            self.p_scatter.plot(timeout_t, timeout_dv, pen=None, symbol='x', symbolSize=12,
+                                symbolBrush='#f38ba8', symbolPen='#f38ba8', name="Timeout / Sin Salto")
+
+    def _auto_save_png(self):
+        if self.folder and os.path.exists(self.folder):
+            png_path = os.path.join(self.folder, "time_volt_distributions.png")
+            try:
+                pixmap = self.plot_widget.grab()
+                pixmap.save(png_path, "PNG")
+                print(f"[Time-Volt Tracking] 📊 Histogramas y distribuciones guardados automáticamente en: {png_path}")
+            except Exception as e:
+                print(f"[Time-Volt Tracking Error] Auto-guardado PNG: {e}")
+
+    def _export_png(self):
+        default_path = os.path.join(self.folder, "time_volt_distributions.png") if self.folder and os.path.exists(self.folder) else "time_volt_distributions.png"
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar Gráfico de Histogramas Time-Volt", default_path, "PNG Image (*.png)")
+        if path:
+            pixmap = self.plot_widget.grab()
+            pixmap.save(path, "PNG")
+            QMessageBox.information(self, "Exportación Exitosa", f"Gráfico Time-Volt guardado en:\n{path}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  FRONTEND  (compartido por Printing y Dimers — se instancia con mode=)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1056,6 +1212,18 @@ class Frontend(QFrame):
             self._get_grid_info()
             QMessageBox.information(self, "Info Guardada", "📄 Archivo grid_info.txt guardado correctamente en la carpeta del lote.")
 
+    @pyqtSlot(dict)
+    def _show_time_volt_tracking_dialog(self, data: dict):
+        if not data.get("rows"):
+            return
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            # Auto-save headless
+            dlg = TimeVoltTrackingDialog(data, parent=None)
+            dlg._auto_save_png()
+            return
+        self._tv_dialog = TimeVoltTrackingDialog(data, parent=self)
+        self._tv_dialog.show()
+
     def make_connection(self, backend: Backend):
         backend.referenceSignal.connect(self.reference_label)
         backend.particulasSignal.connect(self.particulas_edit)
@@ -1072,6 +1240,8 @@ class Frontend(QFrame):
             backend.driftZDisplacementSignal.connect(self.drift_z_edit.setText)
         if hasattr(backend, "driftTrackingFinishedSignal"):
             backend.driftTrackingFinishedSignal.connect(self._show_drift_tracking_dialog)
+        if hasattr(backend, "timeVoltTrackingFinishedSignal"):
+            backend.timeVoltTrackingFinishedSignal.connect(self._show_time_volt_tracking_dialog)
         if hasattr(backend, "resetFrontendSignal"):
             backend.resetFrontendSignal.connect(self.on_reset_frontend)
 
@@ -1091,6 +1261,7 @@ class Backend(QObject):
     driftDisplacementSignal = pyqtSignal(str)
     driftZDisplacementSignal = pyqtSignal(str)
     driftTrackingFinishedSignal = pyqtSignal(dict)
+    timeVoltTrackingFinishedSignal = pyqtSignal(dict)
     resetFrontendSignal   = pyqtSignal()
 
     grid_move_finishSignal = pyqtSignal()
@@ -1925,6 +2096,12 @@ class Backend(QObject):
             print(f"[Time-Volt Tracking] 📊 Reporte de parámetros guardado en: {report_path}")
         except Exception as e:
             print(f"[Time-Volt Tracking Error] Al guardar {report_path}: {e}")
+
+        # Emitir señal con los datos para mostrar los histogramas y auto-guardar PNG
+        self.timeVoltTrackingFinishedSignal.emit({
+            "rows": rows,
+            "folder": folder_path
+        })
 
     def _grid_detect(self):
         Nmax = self.particulas - 1
