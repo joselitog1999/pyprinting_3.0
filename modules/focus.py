@@ -280,9 +280,13 @@ class Backend(QObject):
     @pyqtSlot(str)
     def focus_autocorr_lin_x2(self, mode_printing: str):
         if not self.locked_focus:
-            print("[Focus] No hay foco lockeado.")
-            self.autofinishSignal.emit(mode_printing)
-            return
+            print("[Focus] ⚠️ No había perfil axial bloqueado previo (Lock focus) — Ejecutando auto-lock en Z actual...")
+            laser_idx = SHUTTERS.index(self.laser) if hasattr(self, 'laser') and self.laser in SHUTTERS else 0
+            self.focus_lock_lin(True, laser_idx)
+            if not self.locked_focus:
+                print("[Focus] ⚠️ No se pudo realizar auto-lock.")
+                self.autofinishSignal.emit(mode_printing)
+                return
 
         open_shutter(self.laser)
         for _ in range(2):

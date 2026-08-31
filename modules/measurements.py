@@ -873,6 +873,8 @@ class Frontend(QFrame):
             backend.nodeStatusSignal.connect(self.node_status_update)
         if hasattr(backend, "patternFinishedSignal"):
             backend.patternFinishedSignal.connect(self._show_pattern_finished_dialog)
+        if hasattr(backend, "driftDisplacementSignal"):
+            backend.driftDisplacementSignal.connect(self.disp_acumuladoEdit.setText)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -887,6 +889,7 @@ class Backend(QObject):
     indexSignal           = pyqtSignal(int)
     nodeStatusSignal      = pyqtSignal(int, str)
     patternFinishedSignal = pyqtSignal(str)
+    driftDisplacementSignal = pyqtSignal(str)
 
     grid_move_finishSignal = pyqtSignal()
     grid_autofocusSignal   = pyqtSignal(str)
@@ -1167,13 +1170,19 @@ class Backend(QObject):
 
     @pyqtSlot()
     def grid_autofoco(self):
-        multifoco = np.arange(0, self.particulas, self.autofoc)
-        if self.i_global in multifoco:
+        if self.autofoc > 0:
+            start_idx = 1 if (getattr(self, "driftbool", False) and self.particulas > 1) else 0
+            should_autofocus = ((self.i_global - start_idx) % self.autofoc == 0) and (self.i_global >= start_idx)
+        else:
+            should_autofocus = False
+
+        if should_autofocus:
             if self.shiftx != 0 or self.shifty != 0:
                 pi.MOV([1, 2], [self.shiftx + self.grid_x[self.i_global] + self.startX,
                                 self.shifty + self.grid_y[self.i_global] + self.startY])
                 time.sleep(0.1)
             up_flipper(); time.sleep(1)
+            print(f"[Measurements] 🔍 Disparando Autofoco Z en nodo {self.i_global} (frecuencia cada {self.autofoc} partículas)...")
             self.grid_autofocusSignal.emit(self.mode_printing)
         else:
             if self.mode_arg == "dimers": self._grid_center_scan()
@@ -1317,8 +1326,8 @@ class Backend(QObject):
                 disp_y_nm = (self.startY - self.yref - getattr(self, 'start_y_offset', 0.0)) * 1000.0
                 mag_nm = float(np.sqrt(disp_x_nm**2 + disp_y_nm**2))
                 disp_str = f"({disp_x_nm:+.1f}, {disp_y_nm:+.1f}) nm | r={mag_nm:.1f} nm"
-                if hasattr(self, 'disp_acumuladoEdit'):
-                    self.disp_acumuladoEdit.setText(disp_str)
+                self.driftDisplacementSignal.emit(disp_str)
+                print(f"[Drift Correction] 📍 Partícula 0 (Ancla) re-centrada: Δx={disp_x_nm:+.1f} nm, Δy={disp_y_nm:+.1f} nm (|r|={mag_nm:.1f} nm)")
 
             down_flipper(); time.sleep(0.5)  # Conmutar a alta potencia para continuar la impresión
             pi.MOV([1, 2], [self.grid_x[self.i_global] + self.startX,
