@@ -18,8 +18,17 @@ Incorpora 5 Modos de Criterio de Parada Seleccionables en Tiempo Real:
 """
 from __future__ import annotations
 import os
+import sys
 import time
 import numpy as np
+
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 from PIL import Image
 import tkinter as tk
 from tkinter import filedialog
@@ -29,7 +38,7 @@ from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QWidget, QFrame, QGridLayout,
                                QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QComboBox,
                                QPushButton, QCheckBox, QGroupBox, QProgressBar,
-                               QFileDialog, QInputDialog, QMessageBox)
+                               QFileDialog, QInputDialog, QMessageBox, QDialog)
 from PyQt6.QtGui     import QIntValidator
 from pyqtgraph.dockarea import DockArea, Dock
 
@@ -272,12 +281,118 @@ class InteractiveGridWidget(QFrame):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  DRIFT TRACKING DIALOG (Mapa 2D de Trayectoria XY y Evolución Z)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DriftTrackingDialog(QDialog):
+    """
+    Ventana interactiva de visualización de Deriva Termomecánica post-impresión.
+    Muestra:
+      1. Mapa 2D de trayectoria de desplazamientos (ΔX, ΔY) en nm desde (0, 0).
+      2. Evolución temporal de derivas laterales (ΔX, ΔY) y axial (ΔZ) en nm.
+    """
+    def __init__(self, data: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Drift Tracking Map 🧭 — PyPrinting 3.0")
+        self.resize(920, 520)
+        self.data = data
+        self.folder = data.get("folder", "")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        vlo = QVBoxLayout(self)
+        vlo.setContentsMargins(10, 10, 10, 10)
+
+        lbl_info = QLabel(f"<b>🗺️ Mapa y Registro de Deriva Termomecánica</b> | Lote: <code>{self.folder}</code>")
+        lbl_info.setStyleSheet("color: #cdd6f4; font-size: 10pt;")
+        vlo.addWidget(lbl_info)
+
+        self.plot_widget = pg.GraphicsLayoutWidget()
+        vlo.addWidget(self.plot_widget, stretch=1)
+
+        # Plot 1: Trayectoria 2D XY (nm)
+        self.p_xy = self.plot_widget.addPlot(row=0, col=0, title="Mapa 2D de Desplazamientos XY (nm)")
+        self.p_xy.showGrid(x=True, y=True, alpha=0.5)
+        self.p_xy.setLabel("bottom", "ΔX (nm)")
+        self.p_xy.setLabel("left", "ΔY (nm)")
+
+        # Plot 2: Serie temporal ΔX, ΔY, ΔZ (nm)
+        self.p_t = self.plot_widget.addPlot(row=0, col=1, title="Evolución Temporal de Deriva (nm)")
+        self.p_t.showGrid(x=True, y=True, alpha=0.5)
+        self.p_t.setLabel("bottom", "Tiempo (s)")
+        self.p_t.setLabel("left", "Deriva (nm)")
+        self.p_t.addLegend()
+
+        self._plot_data()
+
+        # Botones inferiores
+        btn_hlo = QHBoxLayout()
+        self.btn_export_png = QPushButton("Exportar PNG 📸")
+        self.btn_export_png.setToolTip("Guarda una imagen PNG del mapa de deriva en la carpeta del lote.")
+        self.btn_export_png.clicked.connect(self._export_png)
+        self.btn_close = QPushButton("Cerrar")
+        self.btn_close.clicked.connect(self.accept)
+        btn_hlo.addStretch()
+        btn_hlo.addWidget(self.btn_export_png)
+        btn_hlo.addWidget(self.btn_close)
+        vlo.addLayout(btn_hlo)
+
+        # Auto-exportar PNG a la carpeta del lote
+        self._auto_save_png()
+
+    def _plot_data(self):
+        xy_list = self.data.get("xy", [])
+        z_list  = self.data.get("z", [])
+
+        if xy_list:
+            dxs = [pt["dx_nm"] for pt in xy_list]
+            dys = [pt["dy_nm"] for pt in xy_list]
+            times_xy = [pt["time"] for pt in xy_list]
+
+            # Curva de trayectoria XY
+            self.p_xy.plot(dxs, dys, pen=pg.mkPen("#89b4fa", width=2, style=Qt.PenStyle.DashLine),
+                           symbol='o', symbolSize=8, symbolBrush='#f38ba8', symbolPen='w')
+            # Punto inicial (0,0)
+            self.p_xy.plot([0.0], [0.0], symbol='star', symbolSize=14, symbolBrush='#a6e3a1', symbolPen='w')
+
+            self.p_t.plot(times_xy, dxs, pen=pg.mkPen("#89b4fa", width=2), name="ΔX (nm)")
+            self.p_t.plot(times_xy, dys, pen=pg.mkPen("#f38ba8", width=2), name="ΔY (nm)")
+
+        if z_list:
+            dzs = [pt["dz_nm"] for pt in z_list]
+            times_z = [pt["time"] for pt in z_list]
+            self.p_t.plot(times_z, dzs, pen=pg.mkPen("#a6e3a1", width=2), name="ΔZ (nm)")
+
+    def _auto_save_png(self):
+        if self.folder and os.path.exists(self.folder):
+            png_path = os.path.join(self.folder, "drift_map.png")
+            try:
+                pixmap = self.plot_widget.grab()
+                pixmap.save(png_path, "PNG")
+                print(f"[Drift Tracking] 📸 Mapa de deriva guardado automáticamente en: {png_path}")
+            except Exception as e:
+                print(f"[Drift Tracking Error] Auto-guardado PNG: {e}")
+
+    def _export_png(self):
+        if self.folder and os.path.exists(self.folder):
+            default_path = os.path.join(self.folder, "drift_map.png")
+        else:
+            default_path = "drift_map.png"
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar Mapa de Deriva", default_path, "PNG Image (*.png)")
+        if path:
+            pixmap = self.plot_widget.grab()
+            pixmap.save(path, "PNG")
+            QMessageBox.information(self, "Exportación Exitosa", f"Mapa de deriva guardado en:\n{path}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  FRONTEND  (compartido por Printing y Dimers — se instancia con mode=)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class Frontend(QFrame):
     setreferenceSignal  = pyqtSignal()
     goreferenceSignal   = pyqtSignal()
+    resetAllSignal      = pyqtSignal()
     readgridSignal      = pyqtSignal()
     gridcreateSignal    = pyqtSignal(list)
     gridSignal          = pyqtSignal()
@@ -366,12 +481,22 @@ class Frontend(QFrame):
         self.shiftyEdit      = QLineEdit(str(int(DEFAULT_PRINTING_SHIFT_Y) if DEFAULT_PRINTING_SHIFT_Y.is_integer() else DEFAULT_PRINTING_SHIFT_Y));  self.shiftyEdit.setFixedWidth(44)
         self.shiftyEdit.setToolTip("Desplazamiento Y en µm para realizar el autofoco Z en una zona limpia contigua sin perturbar el nodo actual.")
 
-        # ── Scan check ────────────────────────────────────────────────────────
+        # ── Scan & Drift Tracking Checks ──────────────────────────────────────
         self.scan_check = QCheckBox("Scan pre-print?")
         self.scan_check.setToolTip("Ejecuta un escaneo confocal de verificación previo a la impresión del nodo.")
         self.scan_check.clicked.connect(self._scan_change)
         self.scan_check.setStyleSheet("color: green;")
         self._scan_change()
+
+        self.track_drift_xy_check = QCheckBox("Track Drift XY?")
+        self.track_drift_xy_check.setToolTip("Registra la deriva lateral XY en cada corrección y genera el mapa 2D final.")
+        self.track_drift_xy_check.setChecked(True)
+        self.track_drift_xy_check.setStyleSheet("color: #89b4fa; font-weight: bold;")
+
+        self.track_drift_z_check = QCheckBox("Track Drift Z?")
+        self.track_drift_z_check.setToolTip("Registra la deriva axial Z en cada evento de autofoco y genera la curva temporal final.")
+        self.track_drift_z_check.setChecked(True)
+        self.track_drift_z_check.setStyleSheet("color: #a6e3a1; font-weight: bold;")
 
         # ── Post-scan (solo dimers) ────────────────────────────────────────────
         self.postscan_check = QCheckBox("Post scan?")
@@ -413,6 +538,15 @@ class Frontend(QFrame):
         self.set_ref_button.setStyleSheet(
             "QPushButton { background-color: orange; }"
             "QPushButton:pressed { background-color: blue; }")
+
+        self.btn_reset_all = QPushButton("Reset all 🔄")
+        self.btn_reset_all.setToolTip("Restablece todas las variables de Printing, referencias, acumuladores de deriva y estados a cero.")
+        self.btn_reset_all.clicked.connect(lambda: self.resetAllSignal.emit())
+        self.btn_reset_all.setStyleSheet(
+            "QPushButton { background-color: #3b4252; color: #eceff4; font-weight: bold; border: 1px solid #4c566a; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #bf616a; color: white; }"
+            "QPushButton:pressed { background-color: #882d38; }"
+        )
 
         # ── Contadores ────────────────────────────────────────────────────────
         self.NameDirValue      = QLabel("")
@@ -484,6 +618,7 @@ class Frontend(QFrame):
         rlo.addWidget(QLabel("Z ref:"),    2, 0); rlo.addWidget(self.zrefLabel, 2, 1)
         rlo.addWidget(self.set_ref_button, 3, 0, 1, 2)
         rlo.addWidget(self.go_ref_button,  4, 0)
+        rlo.addWidget(self.btn_reset_all,  4, 1)
 
         # Grid create widget
         gcW = QWidget(); glo = QGridLayout(gcW)
@@ -540,10 +675,12 @@ class Frontend(QFrame):
         self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 7, 0); plo.addWidget(self.steps_beforeEdit, 7, 1)
         self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  7, 2); plo.addWidget(self.steps_afterEdit,  7, 3)
 
-        # Fila 8: Scan pre-print | Post scan
-        plo.addWidget(self.scan_check,         8, 0, 1, 2)
+        # Fila 8: Scan pre-print | Track Drift XY | Track Drift Z | Post scan
+        plo.addWidget(self.scan_check,           8, 0)
+        plo.addWidget(self.track_drift_xy_check, 8, 1)
+        plo.addWidget(self.track_drift_z_check,  8, 2)
         if self.mode == "dimers":
-            plo.addWidget(self.postscan_check, 8, 2, 1, 2)
+            plo.addWidget(self.postscan_check,   8, 3)
 
         # Fila 9: Controles de reproducción Play / Pause / Next Index
         plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
@@ -808,7 +945,9 @@ class Frontend(QFrame):
             float(self.percent_threshEdit.text() if hasattr(self, 'percent_threshEdit') else 50.0),
             float(self.startxEdit.text() or 2.0),
             float(self.startyEdit.text() or 2.0),
-            self.drift_check.isChecked()
+            self.drift_check.isChecked(),
+            self.track_drift_xy_check.isChecked(),
+            self.track_drift_z_check.isChecked()
         ]
         scanbool     = self.scan_check.isChecked()
         postscanbool = self.postscan_check.isChecked() if self.mode == "dimers" else False
@@ -824,6 +963,8 @@ class Frontend(QFrame):
                 ["Substrate:", self.substrate.text()],
                 ["Drift XY:", self.drift_xy_edit.text()],
                 ["Drift Z:", self.drift_z_edit.text()],
+                ["Track Drift XY:", "ON" if self.track_drift_xy_check.isChecked() else "OFF"],
+                ["Track Drift Z:", "ON" if self.track_drift_z_check.isChecked() else "OFF"],
                 ["Comments:", self.extra_info.text()]]
         self.gridinfoSignal.emit(info)
 
@@ -855,8 +996,34 @@ class Frontend(QFrame):
     def grid_plot(self, datos: np.ndarray):
         self.interactive_grid.set_grid(datos)
 
+    @pyqtSlot(dict)
+    def _show_drift_tracking_dialog(self, data: dict):
+        if not data.get("xy") and not data.get("z"):
+            return
+        self._drift_dialog = DriftTrackingDialog(data, parent=self)
+        self._drift_dialog.show()
+
+    @pyqtSlot()
+    def on_reset_frontend(self):
+        self.xrefLabel.setText("NaN")
+        self.yrefLabel.setText("NaN")
+        self.zrefLabel.setText("NaN")
+        self.set_ref_button.setStyleSheet("QPushButton { background-color: orange; } QPushButton:pressed { background-color: blue; }")
+        self.indice_impresionEdit.setText("0")
+        self.drift_xy_edit.setText("(+0.0, +0.0) nm | r=0.0 nm")
+        self.drift_z_edit.setText("+0.0 nm")
+        self.progress_bar.setValue(0)
+        self.interactive_grid.reset_view()
+        if hasattr(self, 'interactive_grid') and self.interactive_grid.grid_coords is not None:
+            total = self.interactive_grid.grid_coords.shape[1]
+            for i in range(total):
+                self.interactive_grid.set_node_status(i, "pending")
+        print("[Measurements] 🔄 Frontend reseteado a valores iniciales.")
+
     @pyqtSlot(str)
     def _show_pattern_finished_dialog(self, folder_path: str):
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Patrón finalizado")
         msg_box.setIcon(QMessageBox.Icon.Information)
@@ -887,6 +1054,10 @@ class Frontend(QFrame):
             backend.driftDisplacementSignal.connect(self.drift_xy_edit.setText)
         if hasattr(backend, "driftZDisplacementSignal"):
             backend.driftZDisplacementSignal.connect(self.drift_z_edit.setText)
+        if hasattr(backend, "driftTrackingFinishedSignal"):
+            backend.driftTrackingFinishedSignal.connect(self._show_drift_tracking_dialog)
+        if hasattr(backend, "resetFrontendSignal"):
+            backend.resetFrontendSignal.connect(self.on_reset_frontend)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -903,6 +1074,8 @@ class Backend(QObject):
     patternFinishedSignal = pyqtSignal(str)
     driftDisplacementSignal = pyqtSignal(str)
     driftZDisplacementSignal = pyqtSignal(str)
+    driftTrackingFinishedSignal = pyqtSignal(dict)
+    resetFrontendSignal   = pyqtSignal()
 
     grid_move_finishSignal = pyqtSignal()
     grid_autofocusSignal   = pyqtSignal(str)
@@ -924,6 +1097,11 @@ class Backend(QObject):
         self.preescanbool  = False
         self.postscanbool  = False
         self.scanbool      = False
+        self.track_drift_xy: bool = True
+        self.track_drift_z: bool  = True
+        self.drift_history_xy: list = []
+        self.drift_history_z: list  = []
+        self.grid_start_time: float = 0.0
 
         self.grid_name     = "unnamed"
         self.grid_x        = np.array([0.0])
@@ -985,6 +1163,8 @@ class Backend(QObject):
             frontend.setreferenceSignal.connect(self.set_reference)
         if hasattr(frontend, "goreferenceSignal"):
             frontend.goreferenceSignal.connect(self.go_reference)
+        if hasattr(frontend, "resetAllSignal"):
+            frontend.resetAllSignal.connect(self.reset_all)
         if hasattr(frontend, "gridcreateSignal"):
             frontend.gridcreateSignal.connect(self.grid_create)
         if hasattr(frontend, "readgridSignal"):
@@ -1017,7 +1197,32 @@ class Backend(QObject):
     @pyqtSlot()
     def set_reference(self):
         self.xref, self.yref, self.zref = self._read_pos()
+        self.startX = self.xref
+        self.startY = self.yref
+        self.drift_history_xy = []
+        self.drift_history_z  = []
         self.referenceSignal.emit([self.xref, self.yref, self.zref])
+        self.driftDisplacementSignal.emit("(+0.0, +0.0) nm | r=0.0 nm")
+        self.driftZDisplacementSignal.emit("+0.0 nm")
+        print(f"[Measurements] 🎯 Origen de referencia fijado en: X={self.xref:.3f} µm, Y={self.yref:.3f} µm, Z={self.zref:.3f} µm")
+
+    @pyqtSlot()
+    def reset_all(self):
+        try: close_shutter(self.laser)
+        except Exception: pass
+        self.xref = self.yref = self.zref = 0.0
+        self.startX = self.startY = 0.0
+        self.i_global = 0
+        self.mode_printing = "none"
+        self.is_paused = False
+        self.autofocus_stage = "idle"
+        self.drift_history_xy = []
+        self.drift_history_z  = []
+        self.referenceSignal.emit(["NaN", "NaN", "NaN"])
+        self.driftDisplacementSignal.emit("(+0.0, +0.0) nm | r=0.0 nm")
+        self.driftZDisplacementSignal.emit("+0.0 nm")
+        self.resetFrontendSignal.emit()
+        print("[Measurements] 🔄 Todas las variables, referencias y acumuladores de Printing han sido reiniciados.")
 
     @pyqtSlot()
     def go_reference(self):
@@ -1128,6 +1333,14 @@ class Backend(QObject):
             self.start_x_offset = params[16]
             self.start_y_offset = params[17]
             self.driftbool      = bool(params[18])
+        if len(params) > 19:
+            self.track_drift_xy = bool(params[19])
+        else:
+            self.track_drift_xy = True
+        if len(params) > 20:
+            self.track_drift_z  = bool(params[20])
+        else:
+            self.track_drift_z  = True
         self.scanbool       = scanbool
         self.postscanbool   = postscanbool
         self.hold_counter   = 0
@@ -1153,15 +1366,29 @@ class Backend(QObject):
         self.mode_printing   = self.mode_arg
         self.is_paused       = False
         self.autofocus_stage = "idle"
+        self.grid_start_time = time.time()
         self.startX          = self.xref
         self.startY          = self.yref
         self.printing_error_x = []; self.printing_error_y = []
+        self.drift_history_xy = []
+        self.drift_history_z  = []
 
         if getattr(self, "zref", 0.0) == 0.0:
             try:
                 self.zref = float(pi.qPOS().get("3", 10.0))
             except Exception:
                 pass
+
+        # Registrar punto de partida (nodo 0, t=0s, desplazamiento=0nm)
+        if getattr(self, "track_drift_xy", True):
+            self.drift_history_xy.append({
+                "node": 0, "time": 0.0, "dx_nm": 0.0, "dy_nm": 0.0,
+                "mag_nm": 0.0, "stage_x": float(self.startX), "stage_y": float(self.startY)
+            })
+        if getattr(self, "track_drift_z", True):
+            self.drift_history_z.append({
+                "node": 0, "time": 0.0, "dz_nm": 0.0, "stage_z": float(self.zref)
+            })
 
         if getattr(self, "driftbool", False) and self.particulas > 1:
             self.i_global = 1
@@ -1242,6 +1469,15 @@ class Backend(QObject):
             drift_z_str = f"{disp_z_nm:+.1f} nm"
             self.driftZDisplacementSignal.emit(drift_z_str)
             print(f"[Focus] 📏 Drift Z acumulado: {drift_z_str} (Z={current_z:.3f} µm, Zref={z_ref_val:.3f} µm)")
+
+            if getattr(self, "track_drift_z", True):
+                elapsed_t = round(time.time() - getattr(self, "grid_start_time", time.time()), 2)
+                self.drift_history_z.append({
+                    "node": int(self.i_global),
+                    "time": elapsed_t,
+                    "dz_nm": float(disp_z_nm),
+                    "stage_z": float(current_z)
+                })
         except Exception as e:
             print(f"[Focus Error] Cálculo Drift Z: {e}")
 
@@ -1390,6 +1626,18 @@ class Backend(QObject):
                 self.driftDisplacementSignal.emit(disp_str)
                 print(f"[Drift Correction] 📍 [Etapa 3/4] Partícula 0 (Ancla) re-centrada: Δx={disp_x_nm:+.1f} nm, Δy={disp_y_nm:+.1f} nm (|r|={mag_nm:.1f} nm)")
 
+                if getattr(self, "track_drift_xy", True):
+                    elapsed_t = round(time.time() - getattr(self, "grid_start_time", time.time()), 2)
+                    self.drift_history_xy.append({
+                        "node": int(self.i_global),
+                        "time": elapsed_t,
+                        "dx_nm": float(disp_x_nm),
+                        "dy_nm": float(disp_y_nm),
+                        "mag_nm": float(mag_nm),
+                        "stage_x": float(self.startX),
+                        "stage_y": float(self.startY)
+                    })
+
             # ── ETAPA 3/4: Mover al sitio de impresión de la partícula i y disparar Autofoco 2 in situ ──
             self.autofocus_stage = "insitu_autofocus"
             target_insitu_x = self.grid_x[self.i_global] + self.startX + getattr(self, 'shiftx', 0.0)
@@ -1455,6 +1703,36 @@ class Backend(QObject):
         else:
             self._grid_detect()
 
+    def _save_drift_tracking_files(self, folder_path: str):
+        if not folder_path or not os.path.exists(folder_path):
+            return
+
+        # Guardar tracking XY
+        if getattr(self, "track_drift_xy", True) and getattr(self, "drift_history_xy", None):
+            xy_path = os.path.join(folder_path, "drift_tracking_xy.txt")
+            try:
+                with open(xy_path, "w", encoding="utf-8") as f:
+                    f.write("# PyPrinting 3.0 - Drift Tracking XY\n")
+                    f.write("# Node\tTime_s\tDelta_X_nm\tDelta_Y_nm\tMag_nm\tStage_X_um\tStage_Y_um\n")
+                    for pt in self.drift_history_xy:
+                        f.write(f"{pt['node']}\t{pt['time']:.2f}\t{pt['dx_nm']:+.2f}\t{pt['dy_nm']:+.2f}\t{pt['mag_nm']:.2f}\t{pt['stage_x']:.3f}\t{pt['stage_y']:.3f}\n")
+                print(f"[Drift Tracking] 📄 Archivo drift_tracking_xy.txt guardado en: {xy_path}")
+            except Exception as e:
+                print(f"[Drift Tracking Error] Al guardar drift_tracking_xy.txt: {e}")
+
+        # Guardar tracking Z
+        if getattr(self, "track_drift_z", True) and getattr(self, "drift_history_z", None):
+            z_path = os.path.join(folder_path, "drift_tracking_z.txt")
+            try:
+                with open(z_path, "w", encoding="utf-8") as f:
+                    f.write("# PyPrinting 3.0 - Drift Tracking Z\n")
+                    f.write("# Node\tTime_s\tDelta_Z_nm\tStage_Z_um\n")
+                    for pt in self.drift_history_z:
+                        f.write(f"{pt['node']}\t{pt['time']:.2f}\t{pt['dz_nm']:+.2f}\t{pt['stage_z']:.3f}\n")
+                print(f"[Drift Tracking] 📄 Archivo drift_tracking_z.txt guardado en: {z_path}")
+            except Exception as e:
+                print(f"[Drift Tracking Error] Al guardar drift_tracking_z.txt: {e}")
+
     def _grid_detect(self):
         Nmax = self.particulas - 1
         if self.i_global >= Nmax:
@@ -1462,9 +1740,20 @@ class Backend(QObject):
             self.file_path = self.old_folder
             self.mode_printing = "none"
             self.is_paused = False
+
+            # Guardar archivos .txt de tracking de deriva si corresponde
+            self._save_drift_tracking_files(finished_folder)
+
             self.namefolderSignal.emit(self.old_folder)
             self.indexSignal.emit(self.i_global + 1)
             self.patternFinishedSignal.emit(finished_folder)
+
+            if getattr(self, "track_drift_xy", True) or getattr(self, "track_drift_z", True):
+                self.driftTrackingFinishedSignal.emit({
+                    "xy": self.drift_history_xy,
+                    "z": self.drift_history_z,
+                    "folder": finished_folder
+                })
         else:
             self.i_global += 1
             self.indexSignal.emit(self.i_global)
