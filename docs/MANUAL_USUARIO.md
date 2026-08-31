@@ -361,10 +361,16 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
   - **Etapa 2/4**: Microescaneo confocal 2D de $P_0$ a baja potencia $\rightarrow$ Cálculo del centro de masa y deriva lateral $(\Delta x, \Delta y)$.
   - **Etapa 3/4**: Retorno al sitio del nodo $i$ compensado + $(\text{shift}_x, \text{shift}_y)$ $\rightarrow$ Autofoco in-situ (Autofoco 2) en zona limpia contigua.
   - **Etapa 4/4**: Conmutación estricta a alta potencia (`down_flipper()`) $\rightarrow$ Apertura de obturador y adquisición de la traza fototérmica.
-- **`Tracking Multimodal`**:
-  - **`Track Drift XY?`**: Registra la deriva lateral en cada nodo, genera `drift_tracking_xy.txt` y abre la ventana 2D interactiva `DriftTrackingDialog` (guardando `drift_map.png`).
-  - **`Track Drift Z?`**: Registra la deriva axial tras cada autofoco y genera `drift_tracking_z.txt`.
-  - **`Track Time-Volt?`**: Al concluir la grilla, ajusta la función salto en todas las trazas fototérmicas ($V_{\text{low}}, V_{\text{high}}, \Delta V, t_{\text{step}}, t_{\text{raw}}, \Delta t$), calculando estadísticas globales y generando el informe **`reporte_parametros_<nombre_red>.txt`** con recomendaciones de optimización.
+- **`Tracking Multimodal y Control Adaptativo`**:
+  - **`Track Drift XY?`**: Registra la deriva lateral en cada nodo, genera `drift_tracking_xy.txt` (con columna de velocidad $V_{xy}\ \text{nm/s}$) y abre la ventana 2D interactiva `DriftTrackingDialog` (guardando `drift_map.png` con promedios $\langle v_{xy} \rangle, \langle v_z \rangle$).
+  - **`Track Drift Z?`**: Registra la deriva axial tras cada autofoco y genera `drift_tracking_z.txt` (con columna de velocidad $V_z\ \text{nm/s}$).
+  - **`Adaptive AF? 🧠` (Control Adaptativo en Lazo Cerrado)**:
+    - Sintoniza dinámicamente el intervalo efectivo de partículas entre autofocos $N_{\text{eff}} = \text{clamp}(\lfloor \tau_{\text{safe}} / \langle t_{\text{node}} \rangle \rfloor, 1, 15)$ según la velocidad instantánea de deriva $v_{\text{eff}} = \max(v_{xy}, v_z)$.
+    - Implementa **disparo dual (híbrido)**: activa el ciclo de foco/deriva si se supera el conteo $N_{\text{eff}}$ O si el tiempo transcurrido excede $\tau_{\text{safe}} = \delta_{\text{tol}} / v_{\text{eff}}$.
+  - **`Drift Tol (nm)`**: Tolerancia espacial máxima deseada antes de forzar una corrección (por defecto $25.0\ \text{nm}$).
+  - **Telemetría Cinética (`v_drift_label`)**: Muestra en vivo la velocidad instantánea estimada y el $N_{\text{eff}}$ activo (`v_xy:..|v_z:.. nm/s | N_eff:..`).
+  - **`Track Time-Volt?`**: Al concluir la grilla, ajusta la función salto en todas las trazas fototérmicas ($V_{\text{low}}, V_{\text{high}}, \Delta V, t_{\text{step}}, t_{\text{raw}}, \Delta t$), despliega la ventana interactiva de 3 paneles con histogramas (`TimeVoltTrackingDialog`), auto-exporta `time_volt_distributions.png` y genera el informe **`reporte_parametros_<nombre_red>.txt`** conteniendo la **Sección 4 de Cinética de Deriva y Recomendaciones de $N_{\text{sugerido}}$**.
+  - **Llenado Dinámico de `NP events` y `NP success`**: Actualización en tiempo real y post-procesamiento del porcentaje de partículas impresas con éxito ($N_{\text{éxito}} / N_{\text{totales}}\ [\%]$) y exportación directa en `grid_info.txt`.
 
 #### 3.7.2 Pestaña `Dimers` (Ensamblado Guiado de Nanodímeros Plasmónicos)
 - Permite la fabricación guiada de nanodímeros con separación interpartícula (*gap*) sub-100 nm.

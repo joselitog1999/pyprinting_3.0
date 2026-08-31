@@ -303,7 +303,11 @@ class DriftTrackingDialog(QDialog):
         vlo = QVBoxLayout(self)
         vlo.setContentsMargins(10, 10, 10, 10)
 
-        lbl_info = QLabel(f"<b>🗺️ Mapa y Registro de Deriva Termomecánica</b> | Lote: <code>{self.folder}</code>")
+        v_xy_val = self.data.get("mean_v_xy", 0.0)
+        v_z_val  = self.data.get("mean_v_z", 0.0)
+        v_info_str = f" | ⚡ &lang;v_xy&rang;: <b>{v_xy_val:.2f} nm/s</b> | &lang;v_z&rang;: <b>{v_z_val:.2f} nm/s</b>" if (v_xy_val > 0 or v_z_val > 0) else ""
+
+        lbl_info = QLabel(f"<b>🗺️ Mapa y Registro de Deriva Termomecánica</b> | Lote: <code>{self.folder}</code>{v_info_str}")
         lbl_info.setStyleSheet("color: #cdd6f4; font-size: 10pt;")
         vlo.addWidget(lbl_info)
 
@@ -889,10 +893,23 @@ class Frontend(QFrame):
         self.startyEdit = QLineEdit("2.0"); self.startyEdit.setFixedWidth(44)
         self.startyEdit.setToolTip("Offset Y de inicio del arreglo de impresión respecto a la Partícula 0 (µm).")
 
+        self.adaptive_af_check = QCheckBox("Adaptive AF? 🧠")
+        self.adaptive_af_check.setChecked(True)
+        self.adaptive_af_check.setStyleSheet("color: #cba6f7; font-weight: bold;")
+        self.adaptive_af_check.setToolTip("Sintoniza dinámicamente el intervalo de autofoco y corrección de deriva según la velocidad de deriva medida (nm/s).")
+        self.drift_tol_edit = QLineEdit("25.0"); self.drift_tol_edit.setFixedWidth(44)
+        self.drift_tol_edit.setToolTip("Tolerancia espacial máxima de deriva permitida (nm) antes de forzar un ciclo de foco/deriva.")
+        self.v_drift_label = QLabel("v: — | N_eff: 5")
+        self.v_drift_label.setStyleSheet("color: #89dceb; font-family: monospace; font-size: 8pt;")
+        self.v_drift_label.setToolTip("Velocidad instantánea de deriva estimada y número efectivo actual de partículas entre autofocos.")
+
         r_offset = 5 if self.mode == "dimers" else 3
         flo.addWidget(self.drift_check,        r_offset,   0, 1, 2)
         flo.addWidget(QLabel("Start X (µm)"),  r_offset+1, 0); flo.addWidget(self.startxEdit, r_offset+1, 1)
         flo.addWidget(QLabel("Start Y (µm)"),  r_offset+2, 0); flo.addWidget(self.startyEdit, r_offset+2, 1)
+        flo.addWidget(self.adaptive_af_check,  r_offset+3, 0, 1, 2)
+        flo.addWidget(QLabel("Drift Tol (nm)"),r_offset+4, 0); flo.addWidget(self.drift_tol_edit, r_offset+4, 1)
+        flo.addWidget(self.v_drift_label,      r_offset+5, 0, 1, 2)
 
         # Extra info widget
         eiW = QWidget(); elo = QGridLayout(eiW)
@@ -1119,7 +1136,9 @@ class Frontend(QFrame):
             self.track_drift_xy_check.isChecked(),
             self.track_drift_z_check.isChecked(),
             self.track_time_volt_check.isChecked(),
-            self.custom_name_edit.text().strip()
+            self.custom_name_edit.text().strip(),
+            self.adaptive_af_check.isChecked(),
+            float(self.drift_tol_edit.text() or 25.0)
         ]
         scanbool     = self.scan_check.isChecked()
         postscanbool = self.postscan_check.isChecked() if self.mode == "dimers" else False
@@ -1138,6 +1157,9 @@ class Frontend(QFrame):
                 ["Custom Name:", self.custom_name_edit.text().strip() or "Auto"],
                 ["Drift XY:", self.drift_xy_edit.text()],
                 ["Drift Z:", self.drift_z_edit.text()],
+                ["Drift Velocity (v):", self.v_drift_label.text()],
+                ["Adaptive AF:", "ON" if self.adaptive_af_check.isChecked() else "OFF"],
+                ["Drift Tolerance (nm):", self.drift_tol_edit.text()],
                 ["Track Drift XY:", "ON" if self.track_drift_xy_check.isChecked() else "OFF"],
                 ["Track Drift Z:", "ON" if self.track_drift_z_check.isChecked() else "OFF"],
                 ["Track Time-Volt:", "ON" if self.track_time_volt_check.isChecked() else "OFF"],
@@ -1207,6 +1229,8 @@ class Frontend(QFrame):
         self.indice_impresionEdit.setText("0")
         self.drift_xy_edit.setText("(+0.0, +0.0) nm | r=0.0 nm")
         self.drift_z_edit.setText("+0.0 nm")
+        self.v_drift_label.setText("v: — | N_eff: 5")
+        self.drift_tol_edit.setText("25.0")
         self.progress_bar.setValue(0)
         self.interactive_grid.reset_view()
         if hasattr(self, 'interactive_grid') and self.interactive_grid.grid_coords is not None:
@@ -1269,6 +1293,8 @@ class Frontend(QFrame):
             backend.driftDisplacementSignal.connect(self.drift_xy_edit.setText)
         if hasattr(backend, "driftZDisplacementSignal"):
             backend.driftZDisplacementSignal.connect(self.drift_z_edit.setText)
+        if hasattr(backend, "driftVelocitySignal"):
+            backend.driftVelocitySignal.connect(self.v_drift_label.setText)
         if hasattr(backend, "driftTrackingFinishedSignal"):
             backend.driftTrackingFinishedSignal.connect(self._show_drift_tracking_dialog)
         if hasattr(backend, "timeVoltTrackingFinishedSignal"):
@@ -1291,6 +1317,7 @@ class Backend(QObject):
     patternFinishedSignal = pyqtSignal(str)
     driftDisplacementSignal = pyqtSignal(str)
     driftZDisplacementSignal = pyqtSignal(str)
+    driftVelocitySignal   = pyqtSignal(str)
     driftTrackingFinishedSignal = pyqtSignal(dict)
     timeVoltTrackingFinishedSignal = pyqtSignal(dict)
     resetFrontendSignal   = pyqtSignal()
@@ -1322,6 +1349,19 @@ class Backend(QObject):
         self.drift_history_xy: list = []
         self.drift_history_z: list  = []
         self.grid_start_time: float = 0.0
+
+        # Control Adaptativo de Frecuencia de Foco y Deriva
+        self.adaptive_af: bool = True
+        self.drift_tolerance_nm: float = 25.0
+        self.last_af_time: float = 0.0
+        self.last_af_index: int = 0
+        self.current_n_effective: int = 5
+        self.tau_safe_current: float = 300.0
+        self.v_xy_current: float = 0.0
+        self.v_z_current: float = 0.0
+        self.v_eff_current: float = 0.0
+        self.v_drift_xy_history: list = []
+        self.v_drift_z_history: list = []
 
         self.grid_name     = "unnamed"
         self.grid_x        = np.array([0.0])
@@ -1439,9 +1479,20 @@ class Backend(QObject):
         self.autofocus_stage = "idle"
         self.drift_history_xy = []
         self.drift_history_z  = []
+        self.v_drift_xy_history = []
+        self.v_drift_z_history  = []
+        self.v_xy_current       = 0.0
+        self.v_z_current        = 0.0
+        self.v_eff_current      = 0.0
+        self.tau_safe_current   = 300.0
+        self.current_n_effective = getattr(self, "autofoc", 5)
+        self.last_af_time       = 0.0
+        self.last_af_index      = 0
         self.referenceSignal.emit(["NaN", "NaN", "NaN"])
         self.driftDisplacementSignal.emit("(+0.0, +0.0) nm | r=0.0 nm")
         self.driftZDisplacementSignal.emit("+0.0 nm")
+        if hasattr(self, 'driftVelocitySignal'):
+            self.driftVelocitySignal.emit("v: — | N_eff: 5")
         self.resetFrontendSignal.emit()
         print("[Measurements] 🔄 Todas las variables, referencias y acumuladores de Printing han sido reiniciados.")
 
@@ -1573,6 +1624,14 @@ class Backend(QObject):
             self.track_time_volt = True
         if len(params) > 22 and str(params[22]).strip():
             self.custom_name = str(params[22]).strip()
+        if len(params) > 23:
+            self.adaptive_af = bool(params[23])
+        else:
+            self.adaptive_af = True
+        if len(params) > 24:
+            self.drift_tolerance_nm = float(params[24])
+        else:
+            self.drift_tolerance_nm = 25.0
         self.scanbool       = scanbool
         self.postscanbool   = postscanbool
         self.hold_counter   = 0
@@ -1604,6 +1663,15 @@ class Backend(QObject):
         self.printing_error_x = []; self.printing_error_y = []
         self.drift_history_xy = []
         self.drift_history_z  = []
+        self.v_drift_xy_history = []
+        self.v_drift_z_history  = []
+        self.v_xy_current       = 0.0
+        self.v_z_current        = 0.0
+        self.v_eff_current      = 0.0
+        self.tau_safe_current   = 300.0
+        self.current_n_effective = getattr(self, "autofoc", 5)
+        self.last_af_time       = time.time()
+        self.last_af_index      = 0
 
         if getattr(self, "zref", 0.0) == 0.0:
             try:
@@ -1615,11 +1683,11 @@ class Backend(QObject):
         if getattr(self, "track_drift_xy", True):
             self.drift_history_xy.append({
                 "node": 0, "time": 0.0, "dx_nm": 0.0, "dy_nm": 0.0,
-                "mag_nm": 0.0, "stage_x": float(self.startX), "stage_y": float(self.startY)
+                "mag_nm": 0.0, "v_xy": 0.0, "stage_x": float(self.startX), "stage_y": float(self.startY)
             })
         if getattr(self, "track_drift_z", True):
             self.drift_history_z.append({
-                "node": 0, "time": 0.0, "dz_nm": 0.0, "stage_z": float(self.zref)
+                "node": 0, "time": 0.0, "dz_nm": 0.0, "v_z": 0.0, "stage_z": float(self.zref)
             })
 
         if getattr(self, "driftbool", False) and self.particulas > 1:
@@ -1657,15 +1725,89 @@ class Backend(QObject):
             time.sleep(0.05)
         self.grid_move_finishSignal.emit()
 
+    def _update_drift_velocity(self):
+        """
+        Calcula las velocidades instantáneas de deriva (v_xy, v_z, v_eff) en nm/s
+        y actualiza el intervalo dinámico N_adaptive según la tolerancia espacial configurada.
+        """
+        v_xy = 0.0
+        v_z = 0.0
+
+        # Velocidad XY
+        if len(self.drift_history_xy) >= 2:
+            p_curr = self.drift_history_xy[-1]
+            p_prev = self.drift_history_xy[-2]
+            dt = max(0.1, p_curr["time"] - p_prev["time"])
+            dr = float(np.sqrt((p_curr["dx_nm"] - p_prev["dx_nm"])**2 + (p_curr["dy_nm"] - p_prev["dy_nm"])**2))
+            v_xy = float(dr / dt)
+            p_curr["v_xy"] = v_xy
+            self.v_drift_xy_history.append(v_xy)
+        elif len(self.drift_history_xy) == 1:
+            self.drift_history_xy[0]["v_xy"] = 0.0
+
+        # Velocidad Z
+        if len(self.drift_history_z) >= 2:
+            z_curr = self.drift_history_z[-1]
+            z_prev = self.drift_history_z[-2]
+            dt = max(0.1, z_curr["time"] - z_prev["time"])
+            dz = abs(z_curr["dz_nm"] - z_prev["dz_nm"])
+            v_z = float(dz / dt)
+            z_curr["v_z"] = v_z
+            self.v_drift_z_history.append(v_z)
+        elif len(self.drift_history_z) == 1:
+            self.drift_history_z[0]["v_z"] = 0.0
+
+        v_eff = max(v_xy, v_z)
+        tol_nm = getattr(self, "drift_tolerance_nm", 25.0)
+
+        # Tiempo seguro de fabricación (s)
+        if v_eff > 0.001:
+            tau_safe = tol_nm / v_eff
+        else:
+            tau_safe = 300.0  # Muy estable: 5 minutos seguros
+
+        t_per_node = 4.0
+        n_calc = int(np.floor(tau_safe / t_per_node))
+        n_adaptive = max(1, min(15, n_calc))
+
+        if getattr(self, "adaptive_af", True):
+            self.current_n_effective = n_adaptive
+        else:
+            self.current_n_effective = getattr(self, "autofoc", 5)
+
+        self.tau_safe_current = tau_safe
+        self.v_xy_current = v_xy
+        self.v_z_current = v_z
+        self.v_eff_current = v_eff
+
+        disp_text = f"v_xy:{v_xy:.2f}|v_z:{v_z:.2f} nm/s | N_eff:{self.current_n_effective}"
+        if hasattr(self, 'driftVelocitySignal'):
+            self.driftVelocitySignal.emit(disp_text)
+        print(f"[Adaptive Drift] 🧠 v_xy={v_xy:.2f} nm/s, v_z={v_z:.2f} nm/s (v_eff={v_eff:.2f} nm/s) -> τ_safe={tau_safe:.1f}s, N_eff={self.current_n_effective}")
+
     @pyqtSlot()
     def grid_autofoco(self):
-        if self.autofoc > 0:
-            start_idx = 1 if (getattr(self, "driftbool", False) and self.particulas > 1) else 0
-            should_autofocus = ((self.i_global - start_idx) % self.autofoc == 0) and (self.i_global >= start_idx)
-        else:
-            should_autofocus = False
+        start_idx = 1 if (getattr(self, "driftbool", False) and self.particulas > 1) else 0
+        n_every = getattr(self, "current_n_effective", getattr(self, "autofoc", 5))
+
+        elapsed_since_last_af = time.time() - getattr(self, "last_af_time", time.time())
+        tau_safe = getattr(self, "tau_safe_current", 300.0)
+
+        # Condición 1: Por conteo de nodos
+        nodes_since_last = self.i_global - getattr(self, "last_af_index", 0)
+        count_trigger = (n_every > 0) and (nodes_since_last >= n_every) and (self.i_global >= start_idx)
+
+        # Condición 2: Por tiempo transcurrido seguro
+        time_trigger = getattr(self, "adaptive_af", True) and (elapsed_since_last_af >= tau_safe) and (self.i_global >= start_idx)
+
+        # Forzar en nodo inicial start_idx
+        initial_trigger = (self.i_global == start_idx)
+
+        should_autofocus = initial_trigger or count_trigger or time_trigger
 
         if should_autofocus:
+            self.last_af_time = time.time()
+            self.last_af_index = self.i_global
             if getattr(self, "driftbool", False):
                 # ── ETAPA 1/4: Desplazarse a zona limpia del ancla (-1 µm en X, -1 µm en Y) y disparar Autofoco 1 ──
                 self.autofocus_stage = "anchor_autofocus"
@@ -1674,7 +1816,8 @@ class Backend(QObject):
                 pi.MOV([1, 2], [clean_anchor_x, clean_anchor_y])
                 time.sleep(0.1)
                 up_flipper(); time.sleep(1.0)
-                print(f"[Measurements] 🔍 [Etapa 1/4] Autofoco Z en zona limpia del ancla ({clean_anchor_x:.3f}, {clean_anchor_y:.3f}) µm...")
+                reason_str = "tiempo τ_safe" if time_trigger else f"conteo (N_eff={n_every})"
+                print(f"[Measurements] 🔍 [Etapa 1/4] Autofoco Z en zona limpia del ancla ({clean_anchor_x:.3f}, {clean_anchor_y:.3f}) µm [Disparo por {reason_str}]...")
                 self.grid_autofocusSignal.emit(self.mode_printing)
             else:
                 # ── MODO ESTÁNDAR: Autofoco in-situ con shift si aplica ──
@@ -1684,7 +1827,7 @@ class Backend(QObject):
                                     self.shifty + self.grid_y[self.i_global] + self.startY])
                     time.sleep(0.1)
                 up_flipper(); time.sleep(1.0)
-                print(f"[Measurements] 🔍 Autofoco Z in-situ en nodo {self.i_global} (frecuencia cada {self.autofoc} partículas)...")
+                print(f"[Measurements] 🔍 Autofoco Z in-situ en nodo {self.i_global} (frecuencia cada {n_every} partículas)...")
                 self.grid_autofocusSignal.emit(self.mode_printing)
         else:
             if self.mode_arg == "dimers": self._grid_center_scan()
@@ -1710,6 +1853,7 @@ class Backend(QObject):
                     "dz_nm": float(disp_z_nm),
                     "stage_z": float(current_z)
                 })
+            self._update_drift_velocity()
         except Exception as e:
             print(f"[Focus Error] Cálculo Drift Z: {e}")
 
@@ -1869,6 +2013,7 @@ class Backend(QObject):
                         "stage_x": float(self.startX),
                         "stage_y": float(self.startY)
                     })
+                self._update_drift_velocity()
 
             # ── ETAPA 3/4: Mover al sitio de impresión de la partícula i y disparar Autofoco 2 in situ ──
             self.autofocus_stage = "insitu_autofocus"
@@ -1945,9 +2090,10 @@ class Backend(QObject):
             try:
                 with open(xy_path, "w", encoding="utf-8") as f:
                     f.write("# PyPrinting 3.0 - Drift Tracking XY\n")
-                    f.write("# Node\tTime_s\tDelta_X_nm\tDelta_Y_nm\tMag_nm\tStage_X_um\tStage_Y_um\n")
+                    f.write("# Node\tTime_s\tDelta_X_nm\tDelta_Y_nm\tMag_nm\tV_xy_nm_s\tStage_X_um\tStage_Y_um\n")
                     for pt in self.drift_history_xy:
-                        f.write(f"{pt['node']}\t{pt['time']:.2f}\t{pt['dx_nm']:+.2f}\t{pt['dy_nm']:+.2f}\t{pt['mag_nm']:.2f}\t{pt['stage_x']:.3f}\t{pt['stage_y']:.3f}\n")
+                        v_val = pt.get("v_xy", 0.0)
+                        f.write(f"{pt['node']}\t{pt['time']:.2f}\t{pt['dx_nm']:+.2f}\t{pt['dy_nm']:+.2f}\t{pt['mag_nm']:.2f}\t{v_val:.3f}\t{pt['stage_x']:.3f}\t{pt['stage_y']:.3f}\n")
                 print(f"[Drift Tracking] 📄 Archivo drift_tracking_xy.txt guardado en: {xy_path}")
             except Exception as e:
                 print(f"[Drift Tracking Error] Al guardar drift_tracking_xy.txt: {e}")
@@ -1958,9 +2104,10 @@ class Backend(QObject):
             try:
                 with open(z_path, "w", encoding="utf-8") as f:
                     f.write("# PyPrinting 3.0 - Drift Tracking Z\n")
-                    f.write("# Node\tTime_s\tDelta_Z_nm\tStage_Z_um\n")
+                    f.write("# Node\tTime_s\tDelta_Z_nm\tV_z_nm_s\tStage_Z_um\n")
                     for pt in self.drift_history_z:
-                        f.write(f"{pt['node']}\t{pt['time']:.2f}\t{pt['dz_nm']:+.2f}\t{pt['stage_z']:.3f}\n")
+                        v_val = pt.get("v_z", 0.0)
+                        f.write(f"{pt['node']}\t{pt['time']:.2f}\t{pt['dz_nm']:+.2f}\t{v_val:.3f}\t{pt['stage_z']:.3f}\n")
                 print(f"[Drift Tracking] 📄 Archivo drift_tracking_z.txt guardado en: {z_path}")
             except Exception as e:
                 print(f"[Drift Tracking Error] Al guardar drift_tracking_z.txt: {e}")
@@ -1968,7 +2115,8 @@ class Backend(QObject):
     def _generate_time_volt_report(self, folder_path: str):
         """
         Analiza todas las trazas NP_*.txt del lote, ajusta la función salto (V_low, V_high, t_step),
-        calcula la estadística global de tiempos y voltajes, y genera reporte_parametros_<nombre_red>.txt.
+        calcula la estadística global de tiempos y voltajes, cinética de deriva termomecánica
+        y genera reporte_parametros_<nombre_red>.txt.
         """
         if not folder_path or not os.path.exists(folder_path):
             return
@@ -2122,7 +2270,39 @@ class Backend(QObject):
                     f.write("  -> Considere reducir el umbral o verificar la alineación óptica del láser y fotodiodos.\n")
 
                 mean_lat = float(np.mean(latency_vals))
-                f.write(f"* Latencia de Obturación Promedio: {mean_lat:.3f} s.\n")
+                f.write(f"* Latencia de Obturación Promedio: {mean_lat:.3f} s.\n\n")
+
+                f.write("=" * 95 + "\n")
+                f.write("4. CINÉTICA DE DERIVA TERMOMECÁNICA Y CONTROL ADAPTATIVO\n")
+                f.write("=" * 95 + "\n")
+                v_xy_list = getattr(self, "v_drift_xy_history", [])
+                v_z_list  = getattr(self, "v_drift_z_history", [])
+                mean_v_xy = float(np.mean(v_xy_list)) if v_xy_list else 0.0
+                max_v_xy  = float(np.max(v_xy_list)) if v_xy_list else 0.0
+                mean_v_z  = float(np.mean(v_z_list)) if v_z_list else 0.0
+                max_v_z   = float(np.max(v_z_list)) if v_z_list else 0.0
+                v_eff_max = max(max_v_xy, max_v_z)
+                tol_nm    = getattr(self, "drift_tolerance_nm", 25.0)
+                mean_t_raw = float(np.mean(t_raw_vals)) if t_raw_vals else 4.0
+
+                f.write(f"- Velocidad Deriva Lateral <v_xy>: {mean_v_xy:.3f} nm/s  (Máx: {max_v_xy:.3f} nm/s | {max_v_xy*60:.1f} nm/min)\n")
+                f.write(f"- Velocidad Deriva Axial   <v_z>:  {mean_v_z:.3f} nm/s  (Máx: {max_v_z:.3f} nm/s | {max_v_z*60:.1f} nm/min)\n")
+                f.write(f"- Tolerancia Espacial Configurada:  {tol_nm:.1f} nm\n")
+                f.write(f"- Modo Control Adaptativo:         {'ACTIVADO (Sintonía dinámica)' if getattr(self, 'adaptive_af', True) else 'DESACTIVADO (Registro pasivo)'}\n\n")
+
+                if v_eff_max > 0.001:
+                    safe_tau = tol_nm / v_eff_max
+                    n_opt = max(1, min(15, int(np.floor(safe_tau / (mean_t_raw + 1.0)))))
+                    f.write(f"* Tiempo Seguro Estimado (tau_safe): {safe_tau:.1f} s sin corrección antes de exceder {tol_nm:.1f} nm.\n")
+                    f.write(f"* Intervalo de Autofoco Recomendado (N_sugerido): Cada {n_opt} partículas (para operación manual/estática).\n")
+                    if mean_v_xy > 1.0 or mean_v_z > 1.0:
+                        f.write("  -> ALERTA DE DERIVA ALTA: Se recomienda encarecidamente utilizar 'Adaptive AF' o N <= 2 para evitar defocus.\n")
+                    elif mean_v_xy < 0.2 and mean_v_z < 0.2:
+                        f.write("  -> ESTABILIDAD TÉRMICA EXCELENTE: El microscopio está estabilizado. Se puede usar N >= 8 para acelerar throughput.\n")
+                    else:
+                        f.write("  -> DERIVA MODERADA: El régimen nominal (N = 3 a 5) es adecuado.\n")
+                else:
+                    f.write("* Deriva residual despreciable durante el lote. Intervalo recomendado: N = 8 - 10.\n")
                 f.write("=" * 95 + "\n")
             print(f"[Time-Volt Tracking] 📊 Reporte de parámetros guardado en: {report_path}")
         except Exception as e:
@@ -2154,10 +2334,16 @@ class Backend(QObject):
             self.patternFinishedSignal.emit(finished_folder)
 
             if getattr(self, "track_drift_xy", True) or getattr(self, "track_drift_z", True):
+                v_xy_list = getattr(self, "v_drift_xy_history", [])
+                v_z_list  = getattr(self, "v_drift_z_history", [])
+                mean_v_xy = float(np.mean(v_xy_list)) if v_xy_list else 0.0
+                mean_v_z  = float(np.mean(v_z_list)) if v_z_list else 0.0
                 self.driftTrackingFinishedSignal.emit({
                     "xy": self.drift_history_xy,
                     "z": self.drift_history_z,
-                    "folder": finished_folder
+                    "folder": finished_folder,
+                    "mean_v_xy": mean_v_xy,
+                    "mean_v_z": mean_v_z
                 })
         else:
             self.i_global += 1

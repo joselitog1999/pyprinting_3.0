@@ -206,10 +206,30 @@ Se generan automáticamente dos salidas complementarias:
   - Tabla partícula a partícula con métricas individuales y estado (`SUCCESS` / `TIMEOUT`).
   - Estadísticas globales ($\langle t_{\text{raw}} \rangle$, $\langle t_{\text{step}} \rangle$, $\langle V_{\text{low}} \rangle$, $\langle V_{\text{high}} \rangle$, $\langle \Delta V \rangle$, $\langle \text{Ratio} \rangle$, tasa de éxito).
   - Diagnóstico de relación señal/fondo (SBR) y recomendación del umbral óptimo de trabajo.
+  - **Sección 4 de Cinética de Deriva**: Velocidades $\langle v_{xy} \rangle, \langle v_z \rangle$, tiempo seguro $\tau_{\text{safe}}$ e intervalo recomendado $N_{\text{sugerido}}$.
 
 ---
 
-## 9. 📤 Archivos de Salida Generados por Lote
+## 9. 🧠 Control Adaptativo de Frecuencia de Autofoco y Deriva
+
+PyPrinting 3.0 implementa un lazo cerrado en tiempo real que modula la frecuencia con la que se ejecutan los ciclos de foco y recentrado:
+
+### 9.1 Formulación y Sintonía en Lazo Cerrado
+1. **Cálculo de Velocidades de Deriva**:
+   $$v_{xy}(k) = \frac{\sqrt{(\Delta x_k - \Delta x_{k-1})^2 + (\Delta y_k - \Delta y_{k-1})^2}}{t_k - t_{k-1}}, \quad v_z(k) = \frac{|\Delta z_k - \Delta z_{k-1}|}{t_k - t_{k-1}}$$
+2. **Tiempo Seguro de Operación**:
+   $$\tau_{\text{safe}} = \frac{\delta_{\text{tol}}}{\max(v_{xy}, v_z) + \epsilon}$$
+3. **Intervalo Efectivo Dinámico**:
+   $$N_{\text{adaptive}} = \text{clamp}\left(\left\lfloor \frac{\tau_{\text{safe}}}{\langle t_{\text{node}} \rangle} \right\rfloor, 1, 15\right)$$
+4. **Disparo Dual (Híbrido)**:
+   Se activa un nuevo ciclo si se cumple $(i - i_{\text{last\_af}}) \ge N_{\text{eff}}$ **O** $(t - t_{\text{last\_af}}) \ge \tau_{\text{safe}}$.
+
+### 9.2 Registro Pasivo Universal
+Aún cuando la casilla `Adaptive AF?` esté desmarcada (modo estático/manual), el sistema calcula continuamente las velocidades reales y coloca en el reporte y en `grid_info.txt` el diagnóstico de estabilidad térmica y el $N_{\text{sugerido}}$ para contraste experimental.
+
+---
+
+## 10. 📤 Archivos de Salida Generados por Lote
 
 En la carpeta `YYYYMMDD-HHMMSS_Printing_<CustomName>/`:
 1. **Trazas de Impresión (`NP_001.txt`, `NP_002.txt`, ...)**:
@@ -218,24 +238,25 @@ En la carpeta `YYYYMMDD-HHMMSS_Printing_<CustomName>/`:
    - Guarda el mapa confocal 2D de confirmación óptica si `Scan pre-print?` está activo.
 3. **Escaneo Confocal Reescalado (`NPscan_rescaled_00i.txt` / `.tiff`)** *(Modo 3)*:
    - Guarda la matriz reescalada por $K_{\text{scale}}$ con el umbral absoluto en la cabecera.
-4. **Tablas de Tracking de Deriva**:
-   - `drift_tracking_xy.txt`: Historial numérico de deriva lateral $(\Delta x, \Delta y, r)$ en nanómetros.
-   - `drift_tracking_z.txt`: Historial numérico de deriva axial $(\Delta z)$ en nanómetros.
-   - `drift_map.png`: Gráfico 2D de trayectoria y evolución temporal de deriva.
+4. **Tablas de Tracking de Deriva con Columnas Cinéticas**:
+   - `drift_tracking_xy.txt`: Historial numérico de deriva lateral $(\Delta x, \Delta y, r)$ y velocidad instantánea $V_{xy}\ (\text{nm/s})$.
+   - `drift_tracking_z.txt`: Historial numérico de deriva axial $(\Delta z)$ y velocidad instantánea $V_z\ (\text{nm/s})$.
+   - `drift_map.png`: Gráfico 2D de trayectoria y evolución temporal de deriva con reporte de velocidades medias en cabecera.
 5. **Reportes y Gráficos Time-Volt**:
-   - `reporte_parametros_<nombre_red>.txt`: Informe estadístico y diagnóstico de optimización Time-Volt.
+   - `reporte_parametros_<nombre_red>.txt`: Informe estadístico, diagnóstico SBR y Sección 4 con cinética de deriva termomecánica y recomendaciones de $N_{\text{sugerido}}$.
    - `time_volt_distributions.png`: Figura PNG con los 3 paneles de histogramas de tiempos, voltajes y diagrama de dispersión.
 6. **Metadatos y Parámetros Experimentales (`grid_info.txt`)**:
-   - Registra fecha, tipo de nanopartícula, sustrato, potencia BFP, criterio de parada, nombre custom y derivas.
+   - Registra fecha, tipo de nanopartícula, sustrato, potencia BFP, criterio de parada, nombre custom, `Drift Velocity (v)`, `Adaptive AF` y `Drift Tolerance (nm)`.
 7. **Subcarpetas en Modo Dímeros**:
    - `Pree_Scan/`: Escaneos de la primera partícula del par coloidal.
    - `Dimer_Scan/`: Escaneos del dímero ensamblado final.
 
 ---
 
-## 10. 🔗 Referencias Cruzadas
+## 11. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 3.7: Ventana de Mediciones](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
 - [📘 Manual de Usuario — Sección 2.9: Criterios de Parada](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#29-formulación-matemática-y-análisis-de-los-5-criterios-de-parada-modos-0-a-4)
+- [📑 Reporte Científico: Control Adaptativo de Frecuencia de Autofoco y Deriva](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Control_Adaptativo_de_Frecuencia_de_Autofoco_y_Deriva_PyPrinting3.md)
 - [📑 Reporte Científico: Análisis Time-Volt y Tracking Avanzado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Analisis_Time_Volt_y_Tracking_Avanzado_PyPrinting3.md)
 - [📑 Reporte Algorítmico (`reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
 - [📑 Reporte Metrológico de Deriva (`reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
