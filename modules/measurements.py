@@ -396,7 +396,7 @@ class Frontend(QFrame):
     readgridSignal      = pyqtSignal()
     gridcreateSignal    = pyqtSignal(list)
     gridSignal          = pyqtSignal()
-    foldergridSignal    = pyqtSignal()
+    foldergridSignal    = pyqtSignal(str)
     # (color_laser, stopping_mode, params, scanbool, postscanbool)
     parametersSignal    = pyqtSignal(int, int, list, bool, bool)
     pauseSignal         = pyqtSignal()
@@ -498,6 +498,11 @@ class Frontend(QFrame):
         self.track_drift_z_check.setChecked(True)
         self.track_drift_z_check.setStyleSheet("color: #a6e3a1; font-weight: bold;")
 
+        self.track_time_volt_check = QCheckBox("Track Time-Volt?")
+        self.track_time_volt_check.setToolTip("Al finalizar la impresión, ajusta la función salto (V_low, V_high, t_step) en todas las trazas y genera reporte_parametros_*.txt.")
+        self.track_time_volt_check.setChecked(True)
+        self.track_time_volt_check.setStyleSheet("color: #f9e2af; font-weight: bold;")
+
         # ── Post-scan (solo dimers) ────────────────────────────────────────────
         self.postscan_check = QCheckBox("Post scan?")
         self.postscan_check.setToolTip("Ejecuta un escaneo confocal posterior para confirmar la formación del dímero.")
@@ -509,7 +514,11 @@ class Frontend(QFrame):
         self.dyEdit = QLineEdit(str(int(DEFAULT_DIMERS_DY) if DEFAULT_DIMERS_DY.is_integer() else DEFAULT_DIMERS_DY)); self.dyEdit.setFixedWidth(44)
         self.dyEdit.setToolTip("Desplazamiento Y (µm) para la colocación de la segunda nanopartícula en el dímero.")
 
-        # ── Botones de control ────────────────────────────────────────────────
+        # ── Nombre de Lote Personalizado y Botones de control ──────────────────
+        self.custom_name_edit = QLineEdit("")
+        self.custom_name_edit.setPlaceholderText("Nombre lote (ej: AuNP_60nm)")
+        self.custom_name_edit.setToolTip("Nombre personalizado para la subcarpeta del lote y reportes. Si está vacío, se usará el nombre por defecto de la grilla.")
+
         self.imprimir_button = QPushButton(f"{label} folder")
         self.imprimir_button.setToolTip("Crea la subcarpeta del lote experimental fechada YYYYMMDD-HHMMSS_Printing_<GridName> en la carpeta diaria.")
         self.imprimir_button.clicked.connect(self._get_create_folder)
@@ -635,8 +644,9 @@ class Frontend(QFrame):
         plo.setHorizontalSpacing(10)
         plo.setVerticalSpacing(4)
 
-        # Fila 0: Botón de directorio + Nombre de ruta
-        plo.addWidget(self.imprimir_button,    0, 0, 1, 2)
+        # Fila 0: Botón de directorio + Nombre de lote personalizado + Nombre de ruta
+        plo.addWidget(self.imprimir_button,    0, 0)
+        plo.addWidget(self.custom_name_edit,   0, 1)
         plo.addWidget(self.NameDirValue,       0, 2, 1, 2)
 
         # Fila 1: Presets (.txt) y Botones de Wizard / Cargar / Guardar
@@ -675,16 +685,17 @@ class Frontend(QFrame):
         self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 7, 0); plo.addWidget(self.steps_beforeEdit, 7, 1)
         self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  7, 2); plo.addWidget(self.steps_afterEdit,  7, 3)
 
-        # Fila 8: Scan pre-print | Track Drift XY | Track Drift Z | Post scan
-        plo.addWidget(self.scan_check,           8, 0)
-        plo.addWidget(self.track_drift_xy_check, 8, 1)
-        plo.addWidget(self.track_drift_z_check,  8, 2)
+        # Fila 8: Scan pre-print | Track Drift XY | Track Drift Z | Track Time-Volt
+        plo.addWidget(self.scan_check,            8, 0)
+        plo.addWidget(self.track_drift_xy_check,  8, 1)
+        plo.addWidget(self.track_drift_z_check,   8, 2)
+        plo.addWidget(self.track_time_volt_check, 8, 3)
         if self.mode == "dimers":
-            plo.addWidget(self.postscan_check,   8, 3)
+            plo.addWidget(self.postscan_check,    9, 3)
 
         # Fila 9: Controles de reproducción Play / Pause / Next Index
         plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
-        plo.addWidget(self.next_button,        9, 2, 1, 2)
+        plo.addWidget(self.next_button,        9, 2, 1, 1 if self.mode == "dimers" else 2)
 
         # Fila 10: Total targets | Target Index
         plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,      10, 1)
@@ -902,7 +913,7 @@ class Frontend(QFrame):
         except ValueError: pass
 
     def _get_create_folder(self):
-        self.foldergridSignal.emit()
+        self.foldergridSignal.emit(self.custom_name_edit.text().strip())
 
     def _get_grid_create(self):
         try:
@@ -947,7 +958,9 @@ class Frontend(QFrame):
             float(self.startyEdit.text() or 2.0),
             self.drift_check.isChecked(),
             self.track_drift_xy_check.isChecked(),
-            self.track_drift_z_check.isChecked()
+            self.track_drift_z_check.isChecked(),
+            self.track_time_volt_check.isChecked(),
+            self.custom_name_edit.text().strip()
         ]
         scanbool     = self.scan_check.isChecked()
         postscanbool = self.postscan_check.isChecked() if self.mode == "dimers" else False
@@ -961,10 +974,12 @@ class Frontend(QFrame):
                 ["Power BFP:", self.powerlaser.text()],
                 ["NP type:", self.typeNP.text()],
                 ["Substrate:", self.substrate.text()],
+                ["Custom Name:", self.custom_name_edit.text().strip() or "Auto"],
                 ["Drift XY:", self.drift_xy_edit.text()],
                 ["Drift Z:", self.drift_z_edit.text()],
                 ["Track Drift XY:", "ON" if self.track_drift_xy_check.isChecked() else "OFF"],
                 ["Track Drift Z:", "ON" if self.track_drift_z_check.isChecked() else "OFF"],
+                ["Track Time-Volt:", "ON" if self.track_time_volt_check.isChecked() else "OFF"],
                 ["Comments:", self.extra_info.text()]]
         self.gridinfoSignal.emit(info)
 
@@ -1005,6 +1020,7 @@ class Frontend(QFrame):
 
     @pyqtSlot()
     def on_reset_frontend(self):
+        self.custom_name_edit.setText("")
         self.xrefLabel.setText("NaN")
         self.yrefLabel.setText("NaN")
         self.zrefLabel.setText("NaN")
@@ -1099,6 +1115,8 @@ class Backend(QObject):
         self.scanbool      = False
         self.track_drift_xy: bool = True
         self.track_drift_z: bool  = True
+        self.track_time_volt: bool = True
+        self.custom_name: str     = ""
         self.drift_history_xy: list = []
         self.drift_history_z: list  = []
         self.grid_start_time: float = 0.0
@@ -1212,6 +1230,7 @@ class Backend(QObject):
         except Exception: pass
         self.xref = self.yref = self.zref = 0.0
         self.startX = self.startY = 0.0
+        self.custom_name = ""
         self.i_global = 0
         self.mode_printing = "none"
         self.is_paused = False
@@ -1295,12 +1314,17 @@ class Backend(QObject):
         self.file_path = path
         self.namefolderSignal.emit(path)
 
+    @pyqtSlot(str)
     @pyqtSlot()
-    def grid_create_folder(self):
+    def grid_create_folder(self, custom_name: str = ""):
         ts         = time.strftime("%Y%m%d-%H%M%S")
         label      = "Printing" if self.mode_arg == "printing" else "Dimers"
         self.old_folder = self.file_path
-        self.new_folder = os.path.join(self.old_folder, f"{ts}_{label}_{self.grid_name}")
+        name_tag = custom_name.strip() if custom_name and custom_name.strip() else getattr(self, "custom_name", "").strip()
+        if not name_tag:
+            name_tag = self.grid_name
+        self.custom_name = name_tag
+        self.new_folder = os.path.join(self.old_folder, f"{ts}_{label}_{name_tag}")
         os.makedirs(self.new_folder, exist_ok=True)
         self.i_global      = 1
         self.mode_printing = "none"
@@ -1341,6 +1365,12 @@ class Backend(QObject):
             self.track_drift_z  = bool(params[20])
         else:
             self.track_drift_z  = True
+        if len(params) > 21:
+            self.track_time_volt = bool(params[21])
+        else:
+            self.track_time_volt = True
+        if len(params) > 22 and str(params[22]).strip():
+            self.custom_name = str(params[22]).strip()
         self.scanbool       = scanbool
         self.postscanbool   = postscanbool
         self.hold_counter   = 0
@@ -1733,6 +1763,169 @@ class Backend(QObject):
             except Exception as e:
                 print(f"[Drift Tracking Error] Al guardar drift_tracking_z.txt: {e}")
 
+    def _generate_time_volt_report(self, folder_path: str):
+        """
+        Analiza todas las trazas NP_*.txt del lote, ajusta la función salto (V_low, V_high, t_step),
+        calcula la estadística global de tiempos y voltajes, y genera reporte_parametros_<nombre_red>.txt.
+        """
+        if not folder_path or not os.path.exists(folder_path):
+            return
+
+        import glob
+        pattern = os.path.join(folder_path, "NP_*.txt")
+        files = glob.glob(pattern)
+        if not files:
+            print(f"[Time-Volt Tracking] ⚠️ No se encontraron archivos NP_*.txt en {folder_path}")
+            return
+
+        def _sort_key(p):
+            base = os.path.basename(p)
+            num_str = "".join(filter(str.isdigit, base))
+            return int(num_str) if num_str else 0
+
+        files = sorted(files, key=_sort_key)
+        rows = []
+        for file_p in files:
+            try:
+                base = os.path.basename(file_p)
+                node_str = "".join(filter(str.isdigit, base))
+                node_idx = int(node_str) if node_str else len(rows) + 1
+                data = np.loadtxt(file_p, unpack=True)
+                if data.ndim < 2 or data.shape[1] == 0:
+                    continue
+                t_arr  = data[0]
+                v1_arr = data[1]
+                t_raw  = float(t_arr[-1])
+                n_pts  = len(v1_arr)
+                if n_pts == 0:
+                    continue
+
+                k_win = min(10, n_pts)
+                v_low  = float(np.mean(v1_arr[:k_win]))
+                v_high = float(np.mean(v1_arr[-k_win:]))
+                delta_v = v_high - v_low
+                ratio = v_high / max(1e-6, v_low)
+
+                # Detección del punto medio del salto (t_step)
+                v_mid = v_low + 0.5 * delta_v
+                step_idx = None
+                if delta_v > 0.05:
+                    for idx, val in enumerate(v1_arr):
+                        if val >= v_mid:
+                            step_idx = idx
+                            break
+
+                if step_idx is not None:
+                    t_step = float(t_arr[step_idx])
+                    latency = max(0.0, t_raw - t_step)
+                    status = "SUCCESS"
+                else:
+                    t_step = t_raw
+                    latency = 0.0
+                    status = "TIMEOUT / NO STEP" if (t_raw >= getattr(self, "timemax", 20.0) - 0.15 or delta_v <= 0.05) else "LOW JUMP"
+
+                rows.append({
+                    "node": node_idx,
+                    "t_raw": t_raw,
+                    "t_step": t_step,
+                    "latency": latency,
+                    "v_low": v_low,
+                    "v_high": v_high,
+                    "delta_v": delta_v,
+                    "ratio": ratio,
+                    "status": status
+                })
+            except Exception as e:
+                print(f"[Time-Volt Tracking Error] Leyendo {file_p}: {e}")
+
+        if not rows:
+            return
+
+        # Estadísticas Globales
+        t_raw_vals   = [r["t_raw"] for r in rows]
+        t_step_vals  = [r["t_step"] for r in rows]
+        v_low_vals   = [r["v_low"] for r in rows]
+        v_high_vals  = [r["v_high"] for r in rows]
+        delta_v_vals = [r["delta_v"] for r in rows]
+        ratio_vals   = [r["ratio"] for r in rows]
+        latency_vals = [r["latency"] for r in rows]
+        success_cnt  = sum(1 for r in rows if r["status"] == "SUCCESS")
+        total_cnt    = len(rows)
+        success_rate = (success_cnt / total_cnt) * 100.0 if total_cnt > 0 else 0.0
+
+        name_tag = getattr(self, "custom_name", "").strip() or getattr(self, "grid_name", "grid")
+        report_name = f"reporte_parametros_{name_tag}.txt"
+        report_path = os.path.join(folder_path, report_name)
+
+        stop_mode_names = [
+            "Modo 0: Salto Relativo Estándar",
+            "Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso",
+            "Modo 2: Derivada Temporal Adaptativa & Aplanamiento",
+            "Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado",
+            "Modo 4: Criterio Híbrido Tri-Factor (All-In-One)"
+        ]
+        stop_name = stop_mode_names[self.stopping_mode] if hasattr(self, 'stopping_mode') and self.stopping_mode < len(stop_mode_names) else f"Modo {getattr(self, 'stopping_mode', 0)}"
+
+        try:
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write("=" * 95 + "\n")
+                f.write("REPORTE DE PARÁMETROS Y ANÁLISIS TIME-VOLT — PyPrinting 3.0\n")
+                f.write("=" * 95 + "\n")
+                f.write(f"Fecha y Hora:             {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Lote Experimental:        {os.path.basename(folder_path)}\n")
+                f.write(f"Nombre de Red / Lote:     {name_tag}\n")
+                f.write(f"Láser Utilizado:          {getattr(self, 'laser', 'Laser')}\n")
+                f.write(f"Criterio de Parada:       {stop_name}\n")
+                f.write(f"Umbral Relativo Config:   {getattr(self, 'umbral', 1.2):.2f}\n")
+                f.write(f"Umbral Absoluto Config:   {getattr(self, 'umbral_abs_v', 2.5):.2f} V\n")
+                f.write(f"Tiempo Máximo (T max):    {getattr(self, 'timemax', 20.0):.2f} s\n")
+                f.write(f"Steps Before / After:     {getattr(self, 'steps_before', 10)} / {getattr(self, 'steps_after', 10)}\n\n")
+
+                f.write("=" * 95 + "\n")
+                f.write("1. TABLA PARTÍCULA A PARTÍCULA (AJUSTE DE FUNCIÓN SALTO EN TRAZAS)\n")
+                f.write("=" * 95 + "\n")
+                f.write(f"{'Node':<6}{'t_raw (s)':<12}{'t_step (s)':<13}{'Latencia(s)':<13}{'V_low (V)':<12}{'V_high (V)':<12}{'Delta_V(V)':<12}{'Ratio':<10}{'Estado':<15}\n")
+                f.write("-" * 95 + "\n")
+                for r in rows:
+                    f.write(f"{r['node']:03d}   {r['t_raw']:<12.3f}{r['t_step']:<13.3f}{r['latency']:<13.3f}{r['v_low']:<12.3f}{r['v_high']:<12.3f}{r['delta_v']:<+12.3f}{r['ratio']:<10.2f}{r['status']:<15}\n")
+
+                f.write("\n" + "=" * 95 + "\n")
+                f.write("2. ESTADÍSTICAS GLOBALES DEL LOTE\n")
+                f.write("=" * 95 + "\n")
+                f.write(f"- Partículas Totales Analizadas:  {total_cnt}\n")
+                f.write(f"- Eventos Exitosos (Impresión):  {success_cnt} ({success_rate:.1f}%)\n")
+                f.write(f"- Timeouts / Sin Salto:          {total_cnt - success_cnt} ({100.0 - success_rate:.1f}%)\n\n")
+
+                f.write(f"- Tiempo Raw Promedio <t_raw>:   {np.mean(t_raw_vals):.3f} ± {np.std(t_raw_vals):.3f} s  (Min: {np.min(t_raw_vals):.3f} s, Max: {np.max(t_raw_vals):.3f} s)\n")
+                f.write(f"- Tiempo Step Promedio <t_step>: {np.mean(t_step_vals):.3f} ± {np.std(t_step_vals):.3f} s  (Min: {np.min(t_step_vals):.3f} s, Max: {np.max(t_step_vals):.3f} s)\n")
+                f.write(f"- Latencia Promedio Parada:      {np.mean(latency_vals):.3f} ± {np.std(latency_vals):.3f} s\n\n")
+
+                f.write(f"- Voltaje Low Promedio <V_low>:  {np.mean(v_low_vals):.3f} ± {np.std(v_low_vals):.3f} V\n")
+                f.write(f"- Voltaje High Promedio <V_high>:{np.mean(v_high_vals):.3f} ± {np.std(v_high_vals):.3f} V\n")
+                f.write(f"- Salto Promedio <Delta_V>:      {np.mean(delta_v_vals):+.3f} ± {np.std(delta_v_vals):.3f} V\n")
+                f.write(f"- Ratio de Salto Promedio:       {np.mean(ratio_vals):.2f} ± {np.std(ratio_vals):.2f}\n\n")
+
+                f.write("=" * 95 + "\n")
+                f.write("3. DIAGNÓSTICO Y RECOMENDACIONES DE OPTIMIZACIÓN\n")
+                f.write("=" * 95 + "\n")
+                mean_ratio = float(np.mean(ratio_vals))
+                cur_umbral = getattr(self, 'umbral', 1.2)
+                if mean_ratio > cur_umbral * 1.3:
+                    f.write(f"* Relación Señal/Fondo (SBR): EXCELENTE. El salto promedio (x{mean_ratio:.2f}) supera ampliamente el umbral ({cur_umbral:.2f}).\n")
+                    f.write(f"  -> Margen de seguridad alto. Se puede aumentar el umbral a {min(mean_ratio * 0.7, cur_umbral * 1.25):.2f} si se desea mayor selectividad.\n")
+                elif mean_ratio >= cur_umbral:
+                    f.write(f"* Relación Señal/Fondo (SBR): ADECUADA. El salto promedio (x{mean_ratio:.2f}) está en rango del umbral ({cur_umbral:.2f}).\n")
+                else:
+                    f.write(f"* Relación Señal/Fondo (SBR): BAJA. El salto promedio (x{mean_ratio:.2f}) está por debajo del umbral ({cur_umbral:.2f}).\n")
+                    f.write("  -> Considere reducir el umbral o verificar la alineación óptica del láser y fotodiodos.\n")
+
+                mean_lat = float(np.mean(latency_vals))
+                f.write(f"* Latencia de Obturación Promedio: {mean_lat:.3f} s.\n")
+                f.write("=" * 95 + "\n")
+            print(f"[Time-Volt Tracking] 📊 Reporte de parámetros guardado en: {report_path}")
+        except Exception as e:
+            print(f"[Time-Volt Tracking Error] Al guardar {report_path}: {e}")
+
     def _grid_detect(self):
         Nmax = self.particulas - 1
         if self.i_global >= Nmax:
@@ -1743,6 +1936,10 @@ class Backend(QObject):
 
             # Guardar archivos .txt de tracking de deriva si corresponde
             self._save_drift_tracking_files(finished_folder)
+
+            # Generar reporte de parámetros Time-Volt si corresponde
+            if getattr(self, "track_time_volt", True):
+                self._generate_time_volt_report(finished_folder)
 
             self.namefolderSignal.emit(self.old_folder)
             self.indexSignal.emit(self.i_global + 1)
