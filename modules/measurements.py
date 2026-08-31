@@ -457,10 +457,17 @@ class Frontend(QFrame):
         self.substrate   = QLineEdit("—"); self.substrate.setToolTip("Sustrato y funcionalización (ej. vidrio + PDDA + PSS).")
         self.NPevents    = QLineEdit("—"); self.NPevents.setToolTip("Porcentaje de eventos de impresión detectados (%).")
         self.NPsuccess   = QLineEdit("—"); self.NPsuccess.setToolTip("Porcentaje de éxito en la formación de la grilla (%).")
-        self.disp_acumuladoEdit = QLineEdit("(+0.0, +0.0) nm | r=0.0 nm")
-        self.disp_acumuladoEdit.setReadOnly(True)
-        self.disp_acumuladoEdit.setStyleSheet("font-family: monospace; font-weight: bold; color: #4a9eff;")
-        self.disp_acumuladoEdit.setToolTip("Desplazamiento vectorial acumulado (Δx, Δy) nm corregido por Drift Correction.")
+        self.drift_xy_edit = QLineEdit("(+0.0, +0.0) nm | r=0.0 nm")
+        self.drift_xy_edit.setReadOnly(True)
+        self.drift_xy_edit.setStyleSheet("font-family: monospace; font-weight: bold; color: #4a9eff;")
+        self.drift_xy_edit.setToolTip("Desplazamiento lateral acumulado (Δx, Δy) nm corregido por Drift Correction.")
+        self.disp_acumuladoEdit = self.drift_xy_edit  # Alias por compatibilidad
+
+        self.drift_z_edit = QLineEdit("+0.0 nm")
+        self.drift_z_edit.setReadOnly(True)
+        self.drift_z_edit.setStyleSheet("font-family: monospace; font-weight: bold; color: #a6e3a1;")
+        self.drift_z_edit.setToolTip("Desplazamiento axial acumulado Δz nm corregido por Autofoco Z respecto al origen (Z0).")
+
         self.extra_info  = QLineEdit("—"); self.extra_info.setToolTip("Comentarios experimentales adicionales.")
         self.grid_save_info_button = QPushButton("Save info")
         self.grid_save_info_button.setToolTip("Guarda el archivo grid_info.txt en la carpeta del lote experimental.")
@@ -587,7 +594,8 @@ class Frontend(QFrame):
                    ("Substrate",      self.substrate),
                    ("NP events",      self.NPevents),
                    ("NP success",     self.NPsuccess),
-                   ("Desplazamiento acumulado", self.disp_acumuladoEdit),
+                   ("Drift XY",       self.drift_xy_edit),
+                   ("Drift Z",        self.drift_z_edit),
                    ("Comments",       self.extra_info)]
         for r, (lbl, w) in enumerate(ei_rows):
             elo.addWidget(QLabel(lbl), r, 0); elo.addWidget(w, r, 1)
@@ -814,6 +822,8 @@ class Frontend(QFrame):
                 ["Power BFP:", self.powerlaser.text()],
                 ["NP type:", self.typeNP.text()],
                 ["Substrate:", self.substrate.text()],
+                ["Drift XY:", self.drift_xy_edit.text()],
+                ["Drift Z:", self.drift_z_edit.text()],
                 ["Comments:", self.extra_info.text()]]
         self.gridinfoSignal.emit(info)
 
@@ -874,7 +884,9 @@ class Frontend(QFrame):
         if hasattr(backend, "patternFinishedSignal"):
             backend.patternFinishedSignal.connect(self._show_pattern_finished_dialog)
         if hasattr(backend, "driftDisplacementSignal"):
-            backend.driftDisplacementSignal.connect(self.disp_acumuladoEdit.setText)
+            backend.driftDisplacementSignal.connect(self.drift_xy_edit.setText)
+        if hasattr(backend, "driftZDisplacementSignal"):
+            backend.driftZDisplacementSignal.connect(self.drift_z_edit.setText)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -890,6 +902,7 @@ class Backend(QObject):
     nodeStatusSignal      = pyqtSignal(int, str)
     patternFinishedSignal = pyqtSignal(str)
     driftDisplacementSignal = pyqtSignal(str)
+    driftZDisplacementSignal = pyqtSignal(str)
 
     grid_move_finishSignal = pyqtSignal()
     grid_autofocusSignal   = pyqtSignal(str)
@@ -919,6 +932,7 @@ class Backend(QObject):
         self.i_global      = 0
         self.xref = self.yref = self.zref = 0.0
         self.startX = self.startY = 0.0
+        self.autofocus_stage = "idle"
 
         self.laser          = SHUTTERS[0]
         self.stopping_mode  = 0
@@ -1136,11 +1150,18 @@ class Backend(QObject):
             self._grid_move()
 
     def _grid_start(self):
-        self.mode_printing = self.mode_arg
-        self.is_paused     = False
-        self.startX        = self.xref
-        self.startY        = self.yref
+        self.mode_printing   = self.mode_arg
+        self.is_paused       = False
+        self.autofocus_stage = "idle"
+        self.startX          = self.xref
+        self.startY          = self.yref
         self.printing_error_x = []; self.printing_error_y = []
+
+        if getattr(self, "zref", 0.0) == 0.0:
+            try:
+                self.zref = float(pi.qPOS().get("3", 10.0))
+            except Exception:
+                pass
 
         if getattr(self, "driftbool", False) and self.particulas > 1:
             self.i_global = 1
@@ -1186,13 +1207,26 @@ class Backend(QObject):
             should_autofocus = False
 
         if should_autofocus:
-            if self.shiftx != 0 or self.shifty != 0:
-                pi.MOV([1, 2], [self.shiftx + self.grid_x[self.i_global] + self.startX,
-                                self.shifty + self.grid_y[self.i_global] + self.startY])
+            if getattr(self, "driftbool", False):
+                # ── ETAPA 1/4: Desplazarse a zona limpia del ancla (-1 µm en X, -1 µm en Y) y disparar Autofoco 1 ──
+                self.autofocus_stage = "anchor_autofocus"
+                clean_anchor_x = self.startX - 1.0
+                clean_anchor_y = self.startY - 1.0
+                pi.MOV([1, 2], [clean_anchor_x, clean_anchor_y])
                 time.sleep(0.1)
-            up_flipper(); time.sleep(1)
-            print(f"[Measurements] 🔍 Disparando Autofoco Z en nodo {self.i_global} (frecuencia cada {self.autofoc} partículas)...")
-            self.grid_autofocusSignal.emit(self.mode_printing)
+                up_flipper(); time.sleep(1.0)
+                print(f"[Measurements] 🔍 [Etapa 1/4] Autofoco Z en zona limpia del ancla ({clean_anchor_x:.3f}, {clean_anchor_y:.3f}) µm...")
+                self.grid_autofocusSignal.emit(self.mode_printing)
+            else:
+                # ── MODO ESTÁNDAR: Autofoco in-situ con shift si aplica ──
+                self.autofocus_stage = "standard_autofocus"
+                if self.shiftx != 0 or self.shifty != 0:
+                    pi.MOV([1, 2], [self.shiftx + self.grid_x[self.i_global] + self.startX,
+                                    self.shifty + self.grid_y[self.i_global] + self.startY])
+                    time.sleep(0.1)
+                up_flipper(); time.sleep(1.0)
+                print(f"[Measurements] 🔍 Autofoco Z in-situ en nodo {self.i_global} (frecuencia cada {self.autofoc} partículas)...")
+                self.grid_autofocusSignal.emit(self.mode_printing)
         else:
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
@@ -1200,19 +1234,37 @@ class Backend(QObject):
     @pyqtSlot()
     def grid_finish_autofoco(self):
         time.sleep(0.1)
-        if self.shiftx != 0 or self.shifty != 0:
-            pi.MOV([1, 2], [self.grid_x[self.i_global] + self.startX,
-                            self.grid_y[self.i_global] + self.startY])
-            time.sleep(0.1)
-        if getattr(self, "driftbool", False):
-            # Mover a la Partícula 0 (Origen de referencia + deriva acumulada)
+        # Actualizar Drift Z tras cualquier autofoco
+        try:
+            current_z = float(pi.qPOS().get("3", getattr(self, 'zref', 10.0)))
+            z_ref_val = getattr(self, 'zref', current_z)
+            disp_z_nm = (current_z - z_ref_val) * 1000.0
+            drift_z_str = f"{disp_z_nm:+.1f} nm"
+            self.driftZDisplacementSignal.emit(drift_z_str)
+            print(f"[Focus] 📏 Drift Z acumulado: {drift_z_str} (Z={current_z:.3f} µm, Zref={z_ref_val:.3f} µm)")
+        except Exception as e:
+            print(f"[Focus Error] Cálculo Drift Z: {e}")
+
+        stage = getattr(self, "autofocus_stage", "idle")
+
+        if stage == "anchor_autofocus":
+            # ── ETAPA 2/4: Mover al ancla P0 y disparar confocal drift_scan ──
             pi.MOV([1, 2], [self.startX, self.startY])
             time.sleep(0.1)
-            # Mantener flipper arriba (baja potencia) para el escaneo confocal de drift
-            up_flipper(); time.sleep(0.5)
+            up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia
             self.number_scan = "drift_scan"
+            print(f"[Measurements] 📸 [Etapa 2/4] Disparando escaneo confocal 2D de Partícula 0 (Ancla) en ({self.startX:.3f}, {self.startY:.3f}) µm...")
             self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
-        else:
+
+        elif stage in ("insitu_autofocus", "standard_autofocus", "idle"):
+            # ── ETAPA 4/4: Posicionar en nodo objetivo y conmutar a ALTA potencia para imprimir ──
+            target_x = self.grid_x[self.i_global] + self.startX
+            target_y = self.grid_y[self.i_global] + self.startY
+            pi.MOV([1, 2], [target_x, target_y])
+            time.sleep(0.1)
+            down_flipper(); time.sleep(0.5)  # Conmutar estrictamente a ALTA potencia para la traza de impresión
+            print(f"[Measurements] 🎯 [Etapa 4/4] Posicionado en nodo {self.i_global} ({target_x:.3f}, {target_y:.3f}) µm. Iniciando traza a ALTA potencia...")
+            self.autofocus_stage = "idle"
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
 
@@ -1330,20 +1382,23 @@ class Backend(QObject):
                 self.startX = float(center_mass[0])
                 self.startY = float(center_mass[1])
 
-                # Calcular y actualizar casilla de Desplazamiento Acumulado (convertido a nanómetros)
+                # Calcular y actualizar casilla de Drift XY (convertido a nanómetros)
                 disp_x_nm = (self.startX - self.xref) * 1000.0
                 disp_y_nm = (self.startY - self.yref) * 1000.0
                 mag_nm = float(np.sqrt(disp_x_nm**2 + disp_y_nm**2))
                 disp_str = f"({disp_x_nm:+.1f}, {disp_y_nm:+.1f}) nm | r={mag_nm:.1f} nm"
                 self.driftDisplacementSignal.emit(disp_str)
-                print(f"[Drift Correction] 📍 Partícula 0 (Ancla) re-centrada: Δx={disp_x_nm:+.1f} nm, Δy={disp_y_nm:+.1f} nm (|r|={mag_nm:.1f} nm)")
+                print(f"[Drift Correction] 📍 [Etapa 3/4] Partícula 0 (Ancla) re-centrada: Δx={disp_x_nm:+.1f} nm, Δy={disp_y_nm:+.1f} nm (|r|={mag_nm:.1f} nm)")
 
-            down_flipper(); time.sleep(0.5)  # Conmutar a alta potencia para continuar la impresión
-            pi.MOV([1, 2], [self.grid_x[self.i_global] + self.startX,
-                            self.grid_y[self.i_global] + self.startY])
+            # ── ETAPA 3/4: Mover al sitio de impresión de la partícula i y disparar Autofoco 2 in situ ──
+            self.autofocus_stage = "insitu_autofocus"
+            target_insitu_x = self.grid_x[self.i_global] + self.startX + getattr(self, 'shiftx', 0.0)
+            target_insitu_y = self.grid_y[self.i_global] + self.startY + getattr(self, 'shifty', 0.0)
+            pi.MOV([1, 2], [target_insitu_x, target_insitu_y])
             time.sleep(0.1)
-            if self.mode_arg == "dimers": self._grid_center_scan()
-            else:                         self._grid_trace()
+            up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia para el autofoco in-situ
+            print(f"[Measurements] 🔍 [Etapa 3/4] Disparando Autofoco Z in-situ en nodo {self.i_global} ({target_insitu_x:.3f}, {target_insitu_y:.3f}) µm...")
+            self.grid_autofocusSignal.emit(self.mode_printing)
             return
 
         # Si estamos en Modo 3, procesar reescalado de confocal raw
