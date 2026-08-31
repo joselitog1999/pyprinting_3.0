@@ -1122,7 +1122,14 @@ class Backend(QObject):
 
     @pyqtSlot()
     def grid_measurment(self):
-        if self.mode_printing == "none":
+        if getattr(self, "is_paused", False):
+            self.is_paused = False
+            self.mode_printing = self.mode_arg
+            print(f"[Measurements] ▶️ Reanudando impresión en nodo {self.i_global}...")
+            self.indexSignal.emit(self.i_global)
+            self._grid_move()
+        elif self.mode_printing == "none":
+            self.is_paused = False
             self._grid_start()
         else:
             self.indexSignal.emit(self.i_global)
@@ -1130,6 +1137,7 @@ class Backend(QObject):
 
     def _grid_start(self):
         self.mode_printing = self.mode_arg
+        self.is_paused     = False
         self.startX        = self.xref
         self.startY        = self.yref
         self.printing_error_x = []; self.printing_error_y = []
@@ -1147,6 +1155,7 @@ class Backend(QObject):
                 self.post_folder = os.path.join(self.new_folder, "Dimer_Scan")
                 os.makedirs(self.post_folder, exist_ok=True)
 
+        self.indexSignal.emit(self.i_global)
         self._grid_move()
 
     stepsParametersSignal = pyqtSignal(list)
@@ -1396,6 +1405,8 @@ class Backend(QObject):
         if self.i_global >= Nmax:
             finished_folder = getattr(self, 'new_folder', self.old_folder)
             self.file_path = self.old_folder
+            self.mode_printing = "none"
+            self.is_paused = False
             self.namefolderSignal.emit(self.old_folder)
             self.indexSignal.emit(self.i_global + 1)
             self.patternFinishedSignal.emit(finished_folder)
@@ -1410,7 +1421,9 @@ class Backend(QObject):
         except Exception: pass
         try: self.grid_scan_stopSignal.emit()
         except Exception: pass
+        self.is_paused = True
         self.mode_printing = "none"
+        print(f"[Measurements] ⏸️ Impresión pausada en nodo {self.i_global}. Presione 'Play ►' para reanudar.")
 
     @pyqtSlot()
     def grid_next_index(self):
