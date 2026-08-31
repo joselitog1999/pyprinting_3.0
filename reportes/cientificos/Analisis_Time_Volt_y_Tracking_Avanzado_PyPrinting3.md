@@ -132,7 +132,19 @@ Al completarse el lote, si `Track Time-Volt?` está activo, el sistema ajusta la
 * **Instante real de adhesión ($t_{\text{step}}$)**: Primer punto donde $V(t) \ge V_{\text{low}} + 0.5 \Delta V$.
 * **Latencia de obturación**: $\Delta t_{\text{latencia}} = t_{\text{raw}} - t_{\text{step}}$.
 
-### B. Diagnóstico Automático en `reporte_parametros_<nombre_red>.txt`
+### B. Histogramas Gráficos y Ventana Interactiva (`TimeVoltTrackingDialog`)
+Al finalizar el lote experimental, se despliega automáticamente la ventana interactiva `TimeVoltTrackingDialog` y se auto-guarda la imagen **`time_volt_distributions.png`** con 3 paneles de análisis:
+1. **Panel 1 (Histogramas de Tiempos)**:
+   - Distribución de $t_{\text{raw}}$ (tiempo total de exposición con obturador abierto) en color azul/cian (`#89b4fa`).
+   - Distribución de $t_{\text{step}}$ (instante real del salto de adhesión coloidal) en color verde esmeralda (`#a6e3a1`).
+   - Líneas punteadas verticales marcando los promedios $\langle t_{\text{raw}} \rangle$ y $\langle t_{\text{step}} \rangle$.
+2. **Panel 2 (Histogramas de Voltajes)**:
+   - Distribución de la línea base $V_{\text{low}}$ (amarillo `#f9e2af`) vs nivel post-adhesión $V_{\text{high}}$ (coral `#f38ba8`).
+   - Líneas de media $\langle V_{\text{low}} \rangle$ y $\langle V_{\text{high}} \rangle$.
+3. **Panel 3 (Diagrama de Dispersión / Correlación $t_{\text{step}}$ vs $\Delta V$)**:
+   - Puntos verdes (`o`) para impresiones exitosas y cruces rojas (`x`) para eventos de timeout, permitiendo correlacionar la cinética de captura con el tamaño/intensidad plasmónica de cada nanopartícula.
+
+### C. Diagnóstico Automático en `reporte_parametros_<nombre_red>.txt`
 El reporte incluye recomendaciones automatizadas para la calibración del sistema:
 * **Relación Señal/Fondo (SBR)**: Evalúa si $\langle \text{Ratio} \rangle$ supera con holgura el `Umbral Relativo` configurado.
 * **Margen de Seguridad**: Si $\langle \text{Ratio} \rangle \gg \text{Umbral}$, sugiere un umbral superior para maximizar la selectividad.
