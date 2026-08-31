@@ -794,7 +794,7 @@ class Frontend(QFrame):
             int(self.steps_afterEdit.text() or DEFAULT_PRINTING_STEPS_AFTER),
             float(self.umbral_absEdit.text() or 2.5),
             int(self.n_holdEdit.text() or 5),
-            float(self.slope_minEdit.text() or 15.0),
+            float(self.slope_minEdit.text() or 0.0),
             float(self.slope_flatEdit.text() or 2.0),
             float(self.ratio_kEdit.text() if hasattr(self, 'ratio_kEdit') else 10.0),
             float(self.percent_threshEdit.text() if hasattr(self, 'percent_threshEdit') else 50.0),
