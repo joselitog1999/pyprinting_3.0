@@ -188,7 +188,7 @@ graph TD
 
 ---
 
-## 8. 📊 Análisis `Track Time-Volt` y Reporte de Optimización
+## 8. 📊 Análisis `Track Time-Volt`, Histogramas y Reporte de Optimización
 
 Al finalizar el lote, si `Track Time-Volt?` está activo, se analizan todas las trazas `NP_*.txt`:
 1. **$V_{\text{low}}$**: Promedio de los primeros 10 puntos de la traza (línea base).
@@ -197,10 +197,15 @@ Al finalizar el lote, si `Track Time-Volt?` está activo, se analizan todas las 
 4. **$t_{\text{step}}$**: Tiempo en el que $V(t) \ge V_{\text{low}} + 0.5 \Delta V$ (momento real de adhesión).
 5. **Latencia de Obturación**: $\Delta t = t_{\text{raw}} - t_{\text{step}}$.
 
-Se genera el archivo **`reporte_parametros_<nombre_red>.txt`** conteniendo:
-* Tabla partícula a partícula con métricas individuales y estado (`SUCCESS` / `TIMEOUT`).
-* Estadísticas globales ($\langle t_{\text{raw}} \rangle$, $\langle t_{\text{step}} \rangle$, $\langle V_{\text{low}} \rangle$, $\langle V_{\text{high}} \rangle$, $\langle \Delta V \rangle$, $\langle \text{Ratio} \rangle$, tasa de éxito).
-* Diagnóstico de relación señal/fondo (SBR) y recomendación del umbral óptimo de trabajo.
+Se generan automáticamente dos salidas complementarias:
+* **Ventana Interactiva y Gráfico (`TimeVoltTrackingDialog` / `time_volt_distributions.png`)**:
+  - **Panel 1 (Izquierda)**: Histogramas superpuestos de distribución temporal $t_{\text{raw}}$ (tiempo total) vs $t_{\text{step}}$ (tiempo de salto), con líneas guía de promedios $\langle t_{\text{raw}} \rangle$ y $\langle t_{\text{step}} \rangle$.
+  - **Panel 2 (Centro)**: Histogramas de voltajes $V_{\text{low}}$ (línea base) vs $V_{\text{high}}$ (post-adhesión) y salto $\Delta V$.
+  - **Panel 3 (Derecha)**: Diagrama de dispersión $t_{\text{step}}$ vs $\Delta V$ para analizar la correlación entre cinética de adhesión e intensidad óptica.
+* **Informe Tabular (`reporte_parametros_<nombre_red>.txt`)**:
+  - Tabla partícula a partícula con métricas individuales y estado (`SUCCESS` / `TIMEOUT`).
+  - Estadísticas globales ($\langle t_{\text{raw}} \rangle$, $\langle t_{\text{step}} \rangle$, $\langle V_{\text{low}} \rangle$, $\langle V_{\text{high}} \rangle$, $\langle \Delta V \rangle$, $\langle \text{Ratio} \rangle$, tasa de éxito).
+  - Diagnóstico de relación señal/fondo (SBR) y recomendación del umbral óptimo de trabajo.
 
 ---
 
@@ -217,8 +222,9 @@ En la carpeta `YYYYMMDD-HHMMSS_Printing_<CustomName>/`:
    - `drift_tracking_xy.txt`: Historial numérico de deriva lateral $(\Delta x, \Delta y, r)$ en nanómetros.
    - `drift_tracking_z.txt`: Historial numérico de deriva axial $(\Delta z)$ en nanómetros.
    - `drift_map.png`: Gráfico 2D de trayectoria y evolución temporal de deriva.
-5. **Reporte de Optimización de Parámetros (`reporte_parametros_<nombre_red>.txt`)**:
-   - Informe estadístico y diagnóstico de ajuste de función salto Time-Volt.
+5. **Reportes y Gráficos Time-Volt**:
+   - `reporte_parametros_<nombre_red>.txt`: Informe estadístico y diagnóstico de optimización Time-Volt.
+   - `time_volt_distributions.png`: Figura PNG con los 3 paneles de histogramas de tiempos, voltajes y diagrama de dispersión.
 6. **Metadatos y Parámetros Experimentales (`grid_info.txt`)**:
    - Registra fecha, tipo de nanopartícula, sustrato, potencia BFP, criterio de parada, nombre custom y derivas.
 7. **Subcarpetas en Modo Dímeros**:
