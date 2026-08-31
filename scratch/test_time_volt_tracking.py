@@ -124,6 +124,36 @@ def test_frontend_gui_elements():
     assert hasattr(fe, "custom_name_edit"), "Falta custom_name_edit en Frontend"
     assert hasattr(fe, "track_time_volt_check"), "Falta track_time_volt_check en Frontend"
     assert fe.track_time_volt_check.isChecked() == True, "Track Time-Volt debería estar marcado por defecto"
+    assert hasattr(fe, "NPevents"), "Falta NPevents en Frontend"
+    assert hasattr(fe, "NPsuccess"), "Falta NPsuccess en Frontend"
+    assert fe.NPevents.text() == "—", "NPevents debería inicializar en —"
+    assert fe.NPsuccess.text() == "—", "NPsuccess debería inicializar en —"
+
+    # Simular grilla de 4 partículas y actualización en tiempo real de nodos
+    fe.particulasEdit.setText("4")
+    fe.node_status_update(0, "success")
+    assert fe.NPevents.text() == "1/4 (25.0%)", f"Esperado 1/4 (25.0%), obtenido {fe.NPevents.text()}"
+    assert fe.NPsuccess.text() == "1/4 (25.0%)"
+
+    fe.node_status_update(1, "success")
+    fe.node_status_update(2, "success")
+    fe.node_status_update(3, "timeout")
+    assert fe.NPevents.text() == "3/4 (75.0%)", f"Esperado 3/4 (75.0%), obtenido {fe.NPevents.text()}"
+    assert fe.NPsuccess.text() == "3/4 (75.0%)"
+
+    # Simular entrega de datos Time-Volt
+    test_data = {
+        "rows": [
+            {"node": 1, "status": "SUCCESS"},
+            {"node": 2, "status": "SUCCESS"},
+            {"node": 3, "status": "SUCCESS"},
+            {"node": 4, "status": "TIMEOUT"}
+        ],
+        "folder": ""
+    }
+    fe._show_time_volt_tracking_dialog(test_data)
+    assert fe.NPevents.text() == "3/4 (75.0%)"
+    assert fe.NPsuccess.text() == "3/4 (75.0%)"
 
     fe.custom_name_edit.setText("Muestra_Test")
     fe._emit_parameters()
@@ -131,10 +161,12 @@ def test_frontend_gui_elements():
     # Probar reset
     fe.on_reset_frontend()
     assert fe.custom_name_edit.text() == "", "custom_name_edit no se reseteó a vacío"
-    print("✅ Widgets de Frontend verificados correctamente.")
+    assert fe.NPevents.text() == "—", "NPevents no se reseteó a —"
+    assert fe.NPsuccess.text() == "—", "NPsuccess no se reseteó a —"
+    print("✅ Widgets de Frontend y cálculo de NP events / NP success verificados correctamente.")
 
 if __name__ == "__main__":
     test_custom_name_folder()
     test_time_volt_report_generation()
     test_frontend_gui_elements()
-    print("\n🎉 TODOS LOS TESTS DE TIME-VOLT Y CUSTOM NAME PASARON EXITOSAMENTE.")
+    print("\n🎉 TODOS LOS TESTS DE TIME-VOLT, CUSTOM NAME Y NP EVENTS/SUCCESS PASARON EXITOSAMENTE.")

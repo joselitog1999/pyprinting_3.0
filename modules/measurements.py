@@ -460,11 +460,11 @@ class TimeVoltTrackingDialog(QDialog):
         if not self.rows:
             return
 
-        t_raw_vals   = [r["t_raw"] for r in self.rows]
-        t_step_vals  = [r["t_step"] for r in self.rows]
-        v_low_vals   = [r["v_low"] for r in self.rows]
-        v_high_vals  = [r["v_high"] for r in self.rows]
-        delta_v_vals = [r["delta_v"] for r in self.rows]
+        t_raw_vals   = [float(r.get("t_raw", 0.0)) for r in self.rows]
+        t_step_vals  = [float(r.get("t_step", 0.0)) for r in self.rows]
+        v_low_vals   = [float(r.get("v_low", 0.0)) for r in self.rows]
+        v_high_vals  = [float(r.get("v_high", 0.0)) for r in self.rows]
+        delta_v_vals = [float(r.get("delta_v", 0.0)) for r in self.rows]
 
         # ── 1. Histograma de Tiempos ──────────────────────────────────────────
         all_times = t_raw_vals + t_step_vals
@@ -510,10 +510,10 @@ class TimeVoltTrackingDialog(QDialog):
         self.p_volt.addItem(line_v_high)
 
         # ── 3. Diagrama de Dispersión t_step vs ΔV ───────────────────────────
-        success_t  = [r["t_step"] for r in self.rows if r["status"] == "SUCCESS"]
-        success_dv = [r["delta_v"] for r in self.rows if r["status"] == "SUCCESS"]
-        timeout_t  = [r["t_step"] for r in self.rows if r["status"] != "SUCCESS"]
-        timeout_dv = [r["delta_v"] for r in self.rows if r["status"] != "SUCCESS"]
+        success_t  = [float(r.get("t_step", 0.0)) for r in self.rows if r.get("status") == "SUCCESS"]
+        success_dv = [float(r.get("delta_v", 0.0)) for r in self.rows if r.get("status") == "SUCCESS"]
+        timeout_t  = [float(r.get("t_step", 0.0)) for r in self.rows if r.get("status") != "SUCCESS"]
+        timeout_dv = [float(r.get("delta_v", 0.0)) for r in self.rows if r.get("status") != "SUCCESS"]
 
         if success_t:
             self.p_scatter.plot(success_t, success_dv, pen=None, symbol='o', symbolSize=10,
@@ -563,6 +563,7 @@ class Frontend(QFrame):
     def __init__(self, mode: str = "printing", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mode = mode
+        self._node_results: dict[int, str] = {}
         self._setup_gui()
 
     def _setup_gui(self):
@@ -754,8 +755,10 @@ class Frontend(QFrame):
         self.powerlaser  = QLineEdit("—"); self.powerlaser.setToolTip("Potencia medida en la pupila trasera del objetivo (BFP en mW).")
         self.typeNP      = QLineEdit("—"); self.typeNP.setToolTip("Tipo y tamaño de la solución coloidal de nanopartículas (ej. AuNP 60 nm).")
         self.substrate   = QLineEdit("—"); self.substrate.setToolTip("Sustrato y funcionalización (ej. vidrio + PDDA + PSS).")
-        self.NPevents    = QLineEdit("—"); self.NPevents.setToolTip("Porcentaje de eventos de impresión detectados (%).")
-        self.NPsuccess   = QLineEdit("—"); self.NPsuccess.setToolTip("Porcentaje de éxito en la formación de la grilla (%).")
+        self.NPevents    = QLineEdit("—"); self.NPevents.setToolTip("Eventos de impresión detectados / total (%).")
+        self.NPevents.setStyleSheet("font-family: monospace; font-weight: bold; color: #89b4fa;")
+        self.NPsuccess   = QLineEdit("—"); self.NPsuccess.setToolTip("Porcentaje de éxito confirmado en la formación de la grilla (%).")
+        self.NPsuccess.setStyleSheet("font-family: monospace; font-weight: bold; color: #a6e3a1;")
         self.drift_xy_edit = QLineEdit("(+0.0, +0.0) nm | r=0.0 nm")
         self.drift_xy_edit.setReadOnly(True)
         self.drift_xy_edit.setStyleSheet("font-family: monospace; font-weight: bold; color: #4a9eff;")
@@ -1130,6 +1133,8 @@ class Frontend(QFrame):
                 ["Power BFP:", self.powerlaser.text()],
                 ["NP type:", self.typeNP.text()],
                 ["Substrate:", self.substrate.text()],
+                ["NP events:", self.NPevents.text()],
+                ["NP success:", self.NPsuccess.text()],
                 ["Custom Name:", self.custom_name_edit.text().strip() or "Auto"],
                 ["Drift XY:", self.drift_xy_edit.text()],
                 ["Drift Z:", self.drift_z_edit.text()],
@@ -1162,6 +1167,21 @@ class Frontend(QFrame):
     @pyqtSlot(int, str)
     def node_status_update(self, i: int, status: str):
         self.interactive_grid.set_node_status(i, status)
+        self._node_results[i] = status
+
+        total_targets = 0
+        if self.interactive_grid.grid_coords is not None:
+            total_targets = self.interactive_grid.grid_coords.shape[1]
+        elif self.particulasEdit.text().isdigit():
+            total_targets = int(self.particulasEdit.text())
+        else:
+            total_targets = len(self._node_results)
+
+        events_count = sum(1 for s in self._node_results.values() if s in ("success", "printed"))
+        if total_targets > 0:
+            events_pct = (events_count / total_targets) * 100.0
+            self.NPevents.setText(f"{events_count}/{total_targets} ({events_pct:.1f}%)")
+            self.NPsuccess.setText(f"{events_count}/{total_targets} ({events_pct:.1f}%)")
 
     @pyqtSlot(np.ndarray)
     def grid_plot(self, datos: np.ndarray):
@@ -1176,6 +1196,9 @@ class Frontend(QFrame):
 
     @pyqtSlot()
     def on_reset_frontend(self):
+        self._node_results.clear()
+        self.NPevents.setText("—")
+        self.NPsuccess.setText("—")
         self.custom_name_edit.setText("")
         self.xrefLabel.setText("NaN")
         self.yrefLabel.setText("NaN")
@@ -1214,7 +1237,15 @@ class Frontend(QFrame):
 
     @pyqtSlot(dict)
     def _show_time_volt_tracking_dialog(self, data: dict):
-        if not data.get("rows"):
+        rows = data.get("rows", [])
+        if rows:
+            total_cnt = len(rows)
+            success_cnt = sum(1 for r in rows if r.get("status") == "SUCCESS")
+            success_pct = (success_cnt / total_cnt) * 100.0 if total_cnt > 0 else 0.0
+            self.NPevents.setText(f"{success_cnt}/{total_cnt} ({success_pct:.1f}%)")
+            self.NPsuccess.setText(f"{success_cnt}/{total_cnt} ({success_pct:.1f}%)")
+
+        if not rows:
             return
         if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
             # Auto-save headless
