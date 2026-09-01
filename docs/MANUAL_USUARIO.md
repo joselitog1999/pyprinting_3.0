@@ -373,6 +373,7 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
     - **Click en Nodo**: Al presionar cualquier partícula en la gráfica 2D, el casillero `Target Index` se actualiza inmediatamente a ese nodo.
 - **`Barra de Progreso`**: Indicador gráfico (`QProgressBar`) del avance porcentual del lote ($i / N_{\text{total}}$).
 - **`T max (s)`**: Tiempo máximo de residencia por nodo (segundos) antes de abortar por tiempo agotado (*timeout*) si no se gatilla la condición de parada.
+  - *Fundamento Físico (Tesis Gargiulo 2017, Cap. 3)*: A concentraciones coloidales nominales ($C \sim 5 \times 10^9\ \text{NP/mL}$), el tiempo medio de arribo por difusión browniana de Smoluchowski es $\langle \tau_{\text{wait}} \rangle = (4\pi D C R_{\text{cap}})^{-1} \approx 8.9\ \text{s}$. Un valor de $T_{\text{max}} = 20.0\ \text{s}$ cubre el $89\%$ de la distribución acumulada de Poisson, evitando tiempos muertos prolongados y derivando los nodos rezagados al *Healing Pass*.
 - **`N hold steps` (Filtro Anti-Partículas de Paso)**:
   - Exige que la señal de fotodiodo se mantenga por encima de la condición de detección durante $N$ lecturas consecutivas ($\sim 30 - 50\ \text{ms}$ para $N=5$).
   - Si una nanopartícula en suspensión browniana solo cruza el haz de forma transitoria (duración $\sim 10\ \text{ms}$), el contador `hold_counter` se reinicia inmediatamente a 0, evitando el cierre erróneo del obturador en falsos positivos.
@@ -404,6 +405,9 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
 - Permite la fabricación guiada de nanodímeros con separación interpartícula (*gap*) sub-100 nm.
 - Incorpora opciones para activar **Pre-Scan Confocal** (escaneo 2D de la nanopartícula 1 antes de imprimir la nanopartícula 2) y **Post-Scan Confocal** (escaneo de verificación final del dímero formado).
 - **`dx / dy (µm)`**: Vector de desplazamiento offset deseado para la colocación de la segunda nanopartícula respecto al centro ajustado de la primera.
+- **Regla de Polarización Óptica (Tesis Gargiulo Cap. 6 & Martínez Cap. 4)**:
+  - Para gaps ultra-estrechos ($s < 15\ \text{nm}$), alinear el vector de polarización del láser ($\mathbf{E}$) en forma paralela al eje del dímero $(\mathbf{E} \parallel \hat{\mathbf{r}}_{AB})$. La interacción dipolo-dipolo resultante genera una **fuerza óptica atractiva mutua** que facilita el confinamiento nanométrico de la segunda partícula.
+  - La polarización perpendicular $(\mathbf{E} \perp \hat{\mathbf{r}}_{AB})$ genera fuerzas repulsivas que dispersan lateralmente a la segunda partícula.
 
 #### 3.7.3 Configuración de los 5 Criterios de Parada Seleccionables
 El menú desplegable **`Criterio Parada`** permite seleccionar dinámicamente el algoritmo de interrupción en tiempo real:
@@ -893,6 +897,12 @@ El laboratorio cuenta con un repositorio documental completo organizado en las c
 6. 🐞 [Reporte de Bugs y Errores de Rutinas (reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md): Auditoría histórica de correcciones y plan de acción de desarrollo.
 7. 📷 [Módulo Cámara Canon EOS 500D (reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md): Integración EDSDK, Live View a 25 FPS y Trackpy.
 8. 🌳 [Respuestas de Arquitectura y Evaluación de Graphify (reportes/sistema/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md): Análisis del grafo de conocimiento Graphify.
+
+#### 📚 C. Bibliografía Científica Fundacional (`docs/bibliografia/`)
+1. 🎓 **Dr. Julián Gargiulo (2017)**: *Impresión óptica de nanopartículas metálicas*. Tesis Doctoral, FCEN, Universidad de Buenos Aires / CIBION-CONICET. [Archivo local: `docs/bibliografia/Julian_Gargiulo_2017.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Julian_Gargiulo_2017.pdf).
+   - Fundamento: Electrodinámica de fuerzas ópticas (Mie/Rayleigh), balance DLVO, física de captura por Smoluchowski y correlación espectral con precisión nanométrica.
+2. 🎓 **Dra. Luciana Martínez**: *Impresión óptica de nanopartículas y nanoestructuras: ensamblado guiado, nanotermometría y plasmónica*. Tesis Doctoral, INS-UNSAM / CONICET. [Archivo local: `docs/bibliografia/Tesis%20Luciana%20Martinez.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Tesis%20Luciana%20Martinez.pdf).
+   - Fundamento: Nanotermometría por Raman de agua ($\sim 3300\ \text{cm}^{-1}$), disipación térmica asimétrica en interfase agua-vidrio, fabricación de dímeros y control de deriva.
 
 ---
 

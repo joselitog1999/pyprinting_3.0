@@ -12,19 +12,24 @@
    - 1.1 Régimen de Rayleigh vs. Régimen de Mie
    - 1.2 Polarizabilidad Compleja y Resonancia Plasmónica Localizada (LSPR)
    - 1.3 Separación Vectorial: Fuerza de Gradiente vs. Fuerza de Dispersión / Absorción
+   - 1.4 Dependencia Espectral de Fuerzas Ópticas y Precisión de Impresión (Tesis Gargiulo, Cap. 5)
 2. [Termoplasmónica y Fenómenos Térmicos en la Nanoescala](#2-termoplasmónica-y-fenómenos-térmicos-en-la-nanoescala)
    - 2.1 Disipación de Calor y Ecuación de Difusión Estacionaria
    - 2.2 Termoforesis Coloidal y Convección de Marangoni
    - 2.3 Umbral Crítico de Cavitación por Microburbujas
+   - 2.4 Disipación Térmica Asimétrica en la Interfase Vidrio-Agua ($\kappa_{\text{eff}}$) y Nanotermometría (Tesis Martínez, Cap. 2)
 3. [Química de Superficies, Potencial Electrocinético y Teoría DLVO](#3-química-de-superficies-potencial-electrocinético-y-teoría-dlvo)
    - 3.1 Doble Capa Eléctrica y Longitud de Apantallamiento de Debye
    - 3.2 Funcionalización del Sustrato (Limpieza Piranha, Silanización con APTES, Polilisina)
    - 3.3 Coloides Plasmónicos: Nanopartículas de Oro (AuNPs), Plata (AgNPs) y Ligandos (CTAB, Citrato)
+   - 3.4 Cinética de Transporte Difusivo y Estadística de Arribo de Poisson (Tesis Gargiulo, Cap. 3)
 4. [Mecanismos de Impresión Óptica (*Optical Printing*) vs. Trampa 3D Estacionaria](#4-mecanismos-de-impresión-óptica-optical-printing-vs-trampa-3d-estacionaria)
    - 4.1 Eyección Fototérmica Dirigida hacia el Sustrato
    - 4.2 Atrapamiento Irreversible en el Pozo de Van der Waals
    - 4.3 Nanodímeros Plasmónicos, Hibridación de Modos y *Hot Spots* de Campo Cercano
+   - 4.4 Fuerzas Ópticas de Campo Cercano Inducidas y Control de Polarización (Tesis Gargiulo, Cap. 6 & Martínez, Cap. 4)
 5. [Tabla Maestra de Propiedades Físicas de Nanomateriales y Parámetros del Setup](#5-tabla-maestra-de-propiedades-físicas-de-nanomateriales-y-parámetros-del-setup)
+6. [Referencias Bibliográficas Fundacionales](#6-referencias-bibliográficas-fundacionales)
 
 ---
 
@@ -104,8 +109,36 @@ $$\mathbf{F}_{\text{scat+abs}} = \frac{n_m}{c} \sigma_{\text{ext}}(\omega) \lang
 donde $\langle \mathbf{S} \rangle$ es el vector de Poynting y las secciones eficaces son:
 $$\sigma_{\text{abs}}(\omega) = k_m \text{Im}\{\alpha(\omega)\}, \quad \sigma_{\text{scat}}(\omega) = \frac{k_m^4}{6\pi} |\alpha(\omega)|^2$$
 
+---
+
+### 1.4 Dependencia Espectral de Fuerzas Ópticas y Precisión de Impresión (Tesis Gargiulo, Cap. 5)
+
+El balance vectorial entre empuje axial ($F_z$) y confinamiento radial ($F_r$) cambia drásticamente según la relación entre la longitud de onda del láser ($\lambda_0$) y la resonancia plasmónica ($\lambda_{\text{LSPR}}$) de la nanopartícula:
+
+```
+        En Resonancia (LSPR)                     Fuera de Resonancia (Off-Resonance)
+        (Ej: Au 60nm a 532 nm)                   (Ej: Ag 60nm a 532 nm o Au a 808 nm)
+              │                                                │
+         Fr ◄─┼─► Fr (Débil)                              Fr ◄─┼─► Fr (Moderada)
+              │                                                │
+              ▼▼▼▼▼ Fz (Dominante, Fz ~ 10 Fr)                 ▼ Fz (Fz ~ Fr)
+```
+
+1. **Régimen Resonante (Au $60\ \text{nm}$ con Láser $532\ \text{nm}$ | $\lambda_0 \approx \lambda_{\text{LSPR}}$)**:
+   - La fuerza axial de presión de radiación se magnifica fuertemente: $F_z \approx 10 \times F_r$.
+   - La partícula es propulsada axialmente a gran velocidad ($v_z \sim 100\ \mu\text{m/s}$), reduciendo el tiempo de residencia en el cono focal a solo unos pocos milisegundos.
+   - **Precisión Lateral ($\sigma_{\text{print}}$)**: Al acortarse el tiempo de tránsito, se minimiza la excursión browniana lateral en el plano $X-Y$, alcanzando una **precisión de posicionamiento sub-difracción $\sigma_{\text{print}} \approx 30 - 35\ \text{nm}$**.
+
+2. **Régimen No Resonante (Ag $60\ \text{nm}$ con Láser $532\ \text{nm}$ | $\lambda_0 \gg \lambda_{\text{LSPR}} = 405\ \text{nm}$)**:
+   - La absorción cae y las magnitudes de fuerza axial y radial se igualan ($F_z \sim F_r \approx 2 - 5\ \text{pN}$).
+   - La partícula experimenta un atrapamiento tridimensional transitorio antes de ser empujada contra el vidrio.
+   - **Precisión Lateral ($\sigma_{\text{print}}$)**: La mayor permanencia en difusión térmica incrementa la dispersión espacial a **$\sigma_{\text{print}} \approx 50 - 65\ \text{nm}$**.
+
+3. **Régimen Infrarrojo (Láser $808\ \text{nm}$ / $1064\ \text{nm}$)**:
+   - La absorción es prácticamente nula ($\epsilon_p'' \approx 0$). Domina la fuerza de gradiente conservativa ($F_{\text{grad}} \gg F_{\text{scat}}$) con calentamiento despreciable, constituyendo una pinza óptica tradicional conservativa.
+
 > [!IMPORTANT]
-> **El Secreto del Optical Printing**: En un microscopio convencional de pinzas ópticas 3D, se requiere que $F_{\text{grad}, z} > F_{\text{scat}, z}$ para atrapar en 3D en el foco. En **Optical Printing**, se utiliza un haz enfocado hacia abajo (o con alta absorción $\sigma_{\text{abs}}$ resonante), de modo que la fuerza de presión de radiación $\mathbf{F}_{\text{scat+abs}}$ domina axialmente y **empuja activamente la nanopartícula hacia el sustrato de vidrio inferior**, logrando la deposición y fijación en milisegundos.
+> **El Secreto del Optical Printing**: En un microscopio convencional de pinzas ópticas 3D, se requiere que $F_{\text{grad}, z} > F_{\text{scat}, z}$ para atrapar en 3D en el foco. En **Optical Printing**, se opera deliberadamente en el régimen resonante hacia abajo, donde $\mathbf{F}_{\text{scat+abs}}$ domina axialmente y **empuja activamente la nanopartícula hacia el sustrato de vidrio inferior**, logrando la deposición y fijación en milisegundos.
 
 ---
 
@@ -161,6 +194,28 @@ Si la potencia láser supera el límite de sobrecalentamiento spinodal del agua 
 > [!CAUTION]
 > **Riesgo Experimental de Cavitación**:
 > Si en el software **PyPrinting 3.0** se observa una caída abrupta a cero en la señal de fotodiodo o un salto gigantesco no reversible en la traza temporal con deformación visual en la cámara réflex, se ha sobrepasado el umbral de cavitación. La burbuja puede arrancar el recubrimiento de silano y degradar la calidad del objetivo. Reducir de inmediato la potencia del láser 532 nm (ajustar spinner de voltaje AO2 a $< 1.5\ \text{V}$).
+
+---
+
+### 2.4 Disipación Térmica Asimétrica en la Interfase Vidrio-Agua ($\kappa_{\text{eff}}$) y Nanotermometría (Tesis Martínez, Cap. 2)
+
+Durante la deposición, la nanopartícula no disipa calor en un medio homogéneo infinito, sino en la **interfase asimétrica entre dos medios con propiedades térmicas disímiles**: agua ($\kappa_w = 0.60\ \text{W/(m}\cdot\text{K)}$) y vidrio de borosilicato ($\kappa_g = 1.10\ \text{W/(m}\cdot\text{K)}$).
+
+1. **Conductividad Térmica Efectiva ($\kappa_{\text{eff}}$)**:
+   La temperatura superficial en la interfase sigue el promedio armónico espacial:
+   $$\kappa_{\text{eff}} = \frac{\kappa_w + \kappa_g}{2} \approx \frac{0.60 + 1.10}{2} = 0.85\ \text{W}/(\text{m}\cdot\text{K})$$
+   $$\Delta T_{\text{NP, interfase}} = \frac{\sigma_{\text{abs}} I_0}{4\pi \kappa_{\text{eff}} R}$$
+   - El sustrato de vidrio actúa como un **disipador térmico preferencial**, canalizando aproximadamente el **$60\%$ del flujo de calor conductivo** hacia el portaobjetos.
+
+2. **Cinética de Enfriamiento Ultrarrápido post-Obturación**:
+   La constante de tiempo de relajación térmica de una esfera de $60\ \text{nm}$ en contacto con el sustrato es:
+   $$\tau_{\text{relax}} \approx \frac{\rho_{\text{Au}} c_{\text{Au}} R^2}{3 \kappa_{\text{eff}}} \approx 0.5 - 2.0\ \text{ns}$$
+   Al activarse el criterio de parada y conmutar el obturador láser (`close_shutter()`), la nanopartícula y el fluido circundante regresan a temperatura ambiente ($T_\infty = 293\ \text{K}$) en **menos de $1\ \mu\text{s}$**, congelando la estructura atómica sin distorsión térmica residual.
+
+3. **Nanotermometría por Banda OH del Agua y Desplazamiento LSPR**:
+   En el módulo **PySpectrum 3.0**, la temperatura local en tiempo real se calibra mediante:
+   - **Raman del Agua ($\sim 3300\ \text{cm}^{-1}$)**: La deconvolución de la banda de estiramiento $\text{O-H}$ (componentes ligada vs libre) reporta la temperatura del solvente con precisión de $\pm 2\ \text{K}$.
+   - **Termometría Plasmónica**: La dilatación térmica y la dispersión electrón-fonón inducen un corrimiento espectral del pico plasmónico ($\frac{d\lambda_{\text{LSPR}}}{dT} \approx 0.05 - 0.15\ \text{nm/K}$).
 
 ---
 
@@ -227,6 +282,43 @@ El vidrio portaobjetos desnudo posee grupos silanol superficiales ($\text{Si-OH}
 
 ---
 
+### 3.4 Cinética de Transporte Difusivo y Estadística de Arribo de Poisson (Tesis Gargiulo, Cap. 3)
+
+El proceso de impresión óptica no requiere atrapar previamente nanopartículas en 3D: se basa en la **captura probabilística estocástica en flujo browniano libre**:
+
+```
+       Suspensión Coloidal Diluida (C ~ 10^9 - 10^10 NP/mL)
+       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+            ○ (Difusión Browniana D = k_B T / 6πηa)
+               \
+                \     ┌───────────────┐  Volumen de Captura Óptica
+                 └──► │ V_cap ~ 1 µm³ │  (F_scat > F_browniana)
+                      └───────┬───────┘
+                              ▼  Fijación instantánea en APTES (-NH3+)
+```
+
+1. **Condición de Partícula Única (Ocupación Monomolecular)**:
+   La concentración coloidal $C$ se ajusta experimentalmente entre $10^9$ y $10^{10}\ \text{partículas/mL}$ ($1.6 - 16\ \text{pM}$). A esta densidad, el número medio de nanopartículas dentro del volumen focal difractivo ($V_{\text{focal}} \approx 1\ \mu\text{m}^3 = 10^{-12}\ \text{mL}$) es:
+   $$\langle N \rangle = C \cdot V_{\text{focal}} \approx 10^{-3} \ll 1$$
+   La probabilidad de encontrar dos nanopartículas simultáneamente en el cono de captura sigue una distribución de Poisson:
+   $$P(N \ge 2) = 1 - e^{-\langle N \rangle} - \langle N \rangle e^{-\langle N \rangle} \approx \frac{\langle N \rangle^2}{2} \sim 10^{-6}$$
+   garantizando que **cada evento de impresión corresponde con certeza del $99.99\%$ a una única nanopartícula aislada**.
+
+2. **Tiempo Medio de Espera ($\langle \tau_{\text{wait}} \rangle$) — Ecuación de Smoluchowski**:
+   El tiempo medio que tarda una nanopartícula en arribar al radio de captura óptica $R_{\text{cap}} \approx w_0 \approx 250\ \text{nm}$ por difusión browniana pura está gobernado por:
+   $$\langle \tau_{\text{wait}} \rangle = \frac{1}{4\pi D C R_{\text{cap}}}$$
+   donde el coeficiente de difusión para una AuNP de $60\ \text{nm}$ en agua a $20\ ^\circ\text{C}$ es:
+   $$D = \frac{k_B T}{6\pi \eta a} \approx \frac{(1.38 \times 10^{-23}\ \text{J/K})(293\ \text{K})}{6\pi (1.0 \times 10^{-3}\ \text{Pa}\cdot\text{s})(30 \times 10^{-9}\ \text{m})} \approx 7.15 \times 10^{-12}\ \text{m}^2/\text{s}$$
+   Para $C = 5 \times 10^9\ \text{NP/mL} = 5 \times 10^{15}\ \text{NP/m}^3$:
+   $$\langle \tau_{\text{wait}} \rangle = \frac{1}{4\pi (7.15 \times 10^{-12}) (5 \times 10^{15}) (250 \times 10^{-9})} \approx 8.9\ \text{segundos}$$
+
+3. **Justificación del Parámetro $T_{\text{max}}$ en la GUI de PyPrinting**:
+   El valor predeterminado **$T_{\text{max}} = 20.0\ \text{s}$** configurado en el panel de mediciones corresponde a $T_{\text{max}} \approx 2.2 \times \langle \tau_{\text{wait}} \rangle$. La probabilidad acumulada de captura dentro de este intervalo es:
+   $$P(\text{captura} \le T_{\text{max}}) = 1 - \exp\left(-\frac{T_{\text{max}}}{\langle \tau_{\text{wait}} \rangle}\right) \approx 1 - e^{-2.2} \approx 89\%$$
+   Si una partícula no se imprime en $20\ \text{s}$, el sistema aborta por *timeout* y el pase de autocompletitud (*Healing Pass*) la recupera posteriormente.
+
+---
+
 ## 4. Mecanismos de Impresión Óptica (*Optical Printing*) vs. Trampa 3D
 
 ```
@@ -285,6 +377,31 @@ Cuando se imprime una segunda nanopartícula (Partícula B) a una distancia cont
 
 ---
 
+### 4.4 Fuerzas Ópticas de Campo Cercano Inducidas y Control de Polarización (Tesis Gargiulo, Cap. 6 & Martínez, Cap. 4)
+
+Durante la fabricación asistida de nanodímeros, la Partícula A (ya fija en el vidrio) modifica sustancialmente el paisaje electromagnético local que experimenta la Partícula B (móvil en suspensión):
+
+```
+       Polarización Paralela (E || r_AB)          Polarización Perpendicular (E _|_ r_AB)
+       ─────────────────────────────────          ───────────────────────────────────────
+           (+ -)  ◄───►  (+ -)                                (+ -)
+        Partícula A     Partícula B                             ▲
+        (Fija)          (Móvil)                                 │ F_repulsiva
+        ► FUERZA ATRACTIVA INTENSA                              ▼
+        ► Favorece ensamble de gaps < 10 nm                   (+ -)
+```
+
+1. **Fuerza Óptica Interparticular Dipolo-Dipolo**:
+   El dipolo inducido $\mathbf{p}_A$ en la nanopartícula fija re-emite un campo dispersado de corto alcance $\mathbf{E}_{\text{scat}, A}(\mathbf{r}_B) \propto \frac{\mathbf{p}_A}{s^3}$. La Partícula B experimenta una fuerza óptica adicional:
+   $$\mathbf{F}_{\text{inter}}(s) = \frac{1}{2} \text{Re}\left\{ (\mathbf{p}_B \cdot \nabla) \mathbf{E}_{\text{scat}, A}^* \right\} \propto \frac{\text{Re}\{\alpha_A \alpha_B^*\}}{s^4} \left[ 3(\hat{\mathbf{p}}_A \cdot \hat{\mathbf{r}}_{AB})\hat{\mathbf{p}}_B + 3(\hat{\mathbf{p}}_B \cdot \hat{\mathbf{r}}_{AB})\hat{\mathbf{p}}_A - 2(\hat{\mathbf{p}}_A \cdot \hat{\mathbf{p}}_B)\hat{\mathbf{r}}_{AB} \right]$$
+
+2. **Regla de Polarización en PyPrinting 3.0**:
+   - **Polarización Paralela ($\mathbf{E} \parallel \hat{\mathbf{r}}_{AB}$)**: Los dipolos oscilan colinealmente. La fuerza interparticular es **atractiva**, atrayendo a la Partícula B hacia el borde de la Partícula A con resolución sub-10 nm.
+   - **Polarización Perpendicular ($\mathbf{E} \perp \hat{\mathbf{r}}_{AB}$)**: Los dipolos oscilan en paralelo lado a lado. La fuerza de interacción es **repulsiva**, empujando lateralmente a la Partícula B y dificultando la formación de gaps estrechos.
+   - **Recomendación Operativa**: Para imprimir dímeros con gap mínimo ($s < 15\ \text{nm}$), orientar el plano de polarización del láser 532 nm (mediante la placa $\lambda/2$) alineado con el vector interparticular deseado $(\Delta x, \Delta y)$.
+
+---
+
 ## 5. Tabla Maestra de Propiedades Físicas de Nanomateriales y Parámetros del Setup
 
 | Parámetro Físico | Símbolo | Valor Típico en Setup PyPrinting | Unidades | Significado e Impacto Experimental |
@@ -301,3 +418,13 @@ Cuando se imprime una segunda nanopartícula (Partícula B) a una distancia cont
 | **Fuerza Óptica Axial Típica** | $F_z$ | $5 - 80$ | $\text{pN}$ | Empuje vertical hacia el sustrato de vidrio |
 | **Tiempo de Tránsito y Fijación** | $\tau_{\text{print}}$ | $2 - 50$ | $\text{ms}$ | Tiempo transcurrido desde captura hasta soldadura |
 | **Rigidez de Trampa Lateral** | $\kappa_{\text{trap}}$ | $0.05 - 0.50$ | $\text{pN}/(\text{nm}\cdot\text{mW})$ | Determina la precisión de posicionamiento lateral $(\sigma_{xy} < 10\ \text{nm})$ |
+
+---
+
+## 6. Referencias Bibliográficas Fundacionales
+
+1. **Gargiulo, Julián** (2017). *Impresión óptica de nanopartículas metálicas*. Tesis Doctoral, Facultad de Ciencias Exactas y Naturales, Universidad de Buenos Aires (FCEN-UBA / CIBION-CONICET). [Archivo local: `docs/bibliografia/Julian_Gargiulo_2017.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Julian_Gargiulo_2017.pdf).
+2. **Martínez, Luciana**. *Impresión óptica de nanopartículas y nanoestructuras: ensamblado guiado, nanotermometría y plasmónica*. Tesis Doctoral, Instituto de Nanosistemas, Universidad Nacional de San Martín (INS-UNSAM / CONICET). [Archivo local: `docs/bibliografia/Tesis%20Luciana%20Martinez.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Tesis%20Luciana%20Martinez.pdf).
+3. **Urban, A. S., Lutich, A. A., Sannomiya, T., et al.** (2010). *Laser printing of single gold nanoparticles*. Nano Letters, 10(12), 4794–4798.
+4. **Gargiulo, J., Brick, T., Violi, I. L., Herrera, P. C., Shibanuma, T., Albella, P., Maier, S. A., & Stefani, F. D.** (2017). *Understanding and optimizing the printing accuracy of isolated gold and silver nanoparticles*. Nano Letters, 17(9), 5747–5755.
+5. **Martínez, L. D., Gargiulo, J., Violi, I. L., & Stefani, F. D.** (2019). *Real-time temperature mapping and sub-diffraction assembly of metallic nanodimers by optical printing*. ACS Photonics.
