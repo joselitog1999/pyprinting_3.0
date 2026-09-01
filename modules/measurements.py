@@ -1311,6 +1311,7 @@ class Frontend(QFrame):
         msg_box.setIcon(QMessageBox.Icon.Information)
         btn_accept = msg_box.addButton("Aceptar", QMessageBox.ButtonRole.AcceptRole)
         btn_save   = msg_box.addButton("Save extra info", QMessageBox.ButtonRole.ActionRole)
+        btn_unpack = msg_box.addButton("📦 Desempaquetar HDF5", QMessageBox.ButtonRole.ActionRole)
         msg_box.setDefaultButton(btn_accept)
 
         msg_box.exec()
@@ -1318,6 +1319,21 @@ class Frontend(QFrame):
         if msg_box.clickedButton() == btn_save:
             self._get_grid_info()
             QMessageBox.information(self, "Info Guardada", "📄 Archivo grid_info.txt guardado correctamente en la carpeta del lote.")
+        elif msg_box.clickedButton() == btn_unpack:
+            try:
+                from core.hdf5_container import BatchHDF5Container, H5PY_AVAILABLE
+                if not H5PY_AVAILABLE:
+                    QMessageBox.warning(self, "Aviso", "h5py no está instalado en el entorno.")
+                    return
+                h5_files = [f for f in os.listdir(folder_path) if f.endswith(".h5")]
+                if h5_files:
+                    h5_full = os.path.join(folder_path, h5_files[0])
+                    out_dir = BatchHDF5Container.unpack_to_legacy(h5_full)
+                    QMessageBox.information(self, "HDF5 Desempaquetado", f"📦 Lote desempaquetado exitosamente en:\n{out_dir}")
+                else:
+                    QMessageBox.warning(self, "Aviso", "No se encontró archivo .h5 en la carpeta del lote.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al desempaquetar HDF5: {e}")
 
     @pyqtSlot(dict)
     def _show_time_volt_tracking_dialog(self, data: dict):
@@ -1596,6 +1612,11 @@ class Backend(QObject):
         self.last_af_index      = 0
         self.t_raw_history      = []
 
+        if getattr(self, "h5_container", None):
+            try: self.h5_container.close()
+            except Exception: pass
+            self.h5_container = None
+
         # 4. Emitir señales de reseteo al Frontend
         self.referenceSignal.emit(["NaN", "NaN", "NaN"])
         self.driftDisplacementSignal.emit("(+0.0, +0.0) nm | r=0.0 nm")
@@ -1695,6 +1716,44 @@ class Backend(QObject):
         self.number_scan   = "none"
         self.namefolderSignal.emit(self.new_folder)
         self.indexSignal.emit(self.i_global)
+
+        # Inicializar Contenedor Científico HDF5 (.h5) para el lote estructurado
+        try:
+            from core.hdf5_container import BatchHDF5Container, H5PY_AVAILABLE
+            if H5PY_AVAILABLE:
+                h5_filename = f"{ts}_{label}_{name_tag}.h5"
+                self.h5_path = os.path.join(self.new_folder, h5_filename)
+                metadata = {
+                    "batch_name": name_tag,
+                    "mode": self.mode_arg,
+                    "laser": getattr(self, "laser", "532 nm (green)"),
+                    "stopping_mode": getattr(self, "stopping_mode", 0),
+                    "umbral": getattr(self, "umbral", 1.2),
+                    "umbral_abs_v": getattr(self, "umbral_abs_v", 2.5),
+                    "timemax_s": getattr(self, "timemax", 20.0),
+                    "autofocus_every": getattr(self, "autofoc", 5),
+                    "shift_x_um": getattr(self, "shiftx", -1.0),
+                    "shift_y_um": getattr(self, "shifty", 1.0),
+                    "start_x_um": getattr(self, "startX", 0.0),
+                    "start_y_um": getattr(self, "startY", 0.0),
+                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                coords = None
+                if hasattr(self, 'grid_x') and hasattr(self, 'grid_y') and self.grid_x is not None and self.grid_y is not None:
+                    coords = np.vstack([self.grid_x, self.grid_y])
+                recipe = {
+                    "grid_name": getattr(self, "grid_name", name_tag),
+                    "n_particles": getattr(self, "particulas", 0),
+                    "coordinates": coords,
+                    "anchor_p0": [getattr(self, "startX", 0.0), getattr(self, "startY", 0.0)]
+                }
+                self.h5_container = BatchHDF5Container(self.h5_path, metadata=metadata, recipe=recipe)
+                print(f"[Measurements] 📦 Contenedor Científico HDF5 inicializado: {self.h5_path}")
+            else:
+                self.h5_container = None
+        except Exception as e:
+            print(f"[HDF5 Warning] No se pudo inicializar BatchHDF5Container: {e}")
+            self.h5_container = None
 
     @pyqtSlot(int, int, list, bool, bool)
     def grid_parameters(self, color_laser: int, stopping_mode: int, params: list,
@@ -2483,6 +2542,7 @@ class Backend(QObject):
             print(f"[Time-Volt Tracking Error] Al guardar {report_path}: {e}")
 
         # Emitir señal con los datos para mostrar los histogramas y auto-guardar PNG
+        self._last_time_volt_rows = rows
         self.timeVoltTrackingFinishedSignal.emit({
             "rows": rows,
             "folder": folder_path
@@ -2572,6 +2632,22 @@ class Backend(QObject):
         if getattr(self, "track_time_volt", True):
             self._generate_time_volt_report(finished_folder)
 
+        # Finalizar y cerrar Contenedor Científico HDF5 (.h5)
+        if getattr(self, "h5_container", None):
+            try:
+                time_volt_rows = getattr(self, "_last_time_volt_rows", None)
+                self.h5_container.set_telemetry(
+                    drift_xy=getattr(self, "drift_history_xy", []),
+                    drift_z=getattr(self, "drift_history_z", []),
+                    time_volt_rows=time_volt_rows
+                )
+                self.h5_container.close()
+                print(f"[Measurements] 📦 Contenedor Científico HDF5 finalizado y cerrado: {getattr(self, 'h5_path', '')}")
+            except Exception as e:
+                print(f"[HDF5 Warning] Error al finalizar contenedor HDF5: {e}")
+            finally:
+                self.h5_container = None
+
         self.namefolderSignal.emit(self.old_folder)
         self.indexSignal.emit(getattr(self, "particulas", 1))
         if hasattr(self, "timeRemainingSignal"):
@@ -2627,9 +2703,34 @@ class Backend(QObject):
         hdr = f"Status: {hdr_status}\nTime_s\tPhotodiode_V\tPhotodiode_BS_V"
         np.savetxt(name, np.transpose([t, self.data1, self.data_BS]), fmt="%.3e", header=hdr)
 
+        # Registro en Contenedor Científico HDF5 (.h5)
+        if getattr(self, "h5_container", None):
+            try:
+                trace_matrix = np.column_stack([t, self.data1, self.data_BS])
+                self.h5_container.add_node_data(
+                    node_idx=self.i_global,
+                    trace=trace_matrix,
+                    status=status_val,
+                    t_print=self.timer_real
+                )
+            except Exception as e:
+                print(f"[HDF5 Warning] Error al registrar traza del nodo {self.i_global}: {e}")
+
     def _save_scan(self, image, gone, back, folder=None):
         folder = folder or self.new_folder
         ts     = f"NPscan_{int(self.i_global):03d}"
+
+        # Registro de imagen confocal en Contenedor Científico HDF5 (.h5)
+        if getattr(self, "h5_container", None) and image is not None and image.size > 0:
+            try:
+                self.h5_container.add_node_data(
+                    node_idx=self.i_global,
+                    scan=np.transpose(image),
+                    status=self.node_results.get(self.i_global, "UNKNOWN")
+                )
+            except Exception as e:
+                print(f"[HDF5 Warning] Error al registrar confocal del nodo {self.i_global}: {e}")
+
         for suffix, arr in [(ts, image), (f"gone_{ts}", gone), (f"back_{ts}", back)]:
             if arr is None or arr.size == 0:
                 continue

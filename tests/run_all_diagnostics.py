@@ -221,6 +221,18 @@ def run_tests():
     first_node_ok = res_start["nodes"][0]["x"] == 2.0 and res_start["nodes"][0]["y"] == 2.0
     assert_test("Referencia P0 (0,0) y Primera Partícula (startX, startY)", p0_ok and first_node_ok)
 
+    # 8. Contenedor Científico HDF5 (Batch & Unpack)
+    from core.hdf5_container import BatchHDF5Container
+    tmp_h5_dir = tempfile.mkdtemp()
+    tmp_h5_file = os.path.join(tmp_h5_dir, "diag_batch.h5")
+    diag_h5 = BatchHDF5Container(tmp_h5_file, metadata={"test": "ok"}, recipe={"grid_name": "DiagGrid"})
+    diag_h5.add_node_data(0, trace=np.zeros((10, 3)), scan=np.zeros((8, 8)), status="SUCCESS")
+    diag_h5.set_telemetry(drift_xy=[{"node": 0, "time": 0.0, "dx_nm": 0.0, "dy_nm": 0.0, "mag_nm": 0.0, "v_xy": 0.0}])
+    diag_h5.close()
+    unpacked_diag = BatchHDF5Container.unpack_to_legacy(tmp_h5_file)
+    h5_valid = os.path.exists(tmp_h5_file) and os.path.exists(os.path.join(unpacked_diag, "NP_000.txt"))
+    assert_test("Contenedor Científico HDF5 (.h5 & Desempaquetado 1-Click)", h5_valid)
+
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     print(f"RESULTADOS FINALES: {passed_count} / {total_count} pruebas superadas ({passed_count/total_count*100:.1f}%)")

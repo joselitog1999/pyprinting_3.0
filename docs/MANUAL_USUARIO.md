@@ -416,14 +416,34 @@ El menú desplegable **`Criterio Parada`** permite seleccionar dinámicamente el
 | **Modo 3** | `Confocal Raw & Rescaled` | `Ratio K (P_print/P_scan)`, `Umbral P%` (ej. 50%) | Mapas confocales reescalados `NPscan_rescaled_00i.txt` y `NPscan_rescaled_00i.tiff`. |
 | **Modo 4** | `Híbrido Tri-Factor (All-In-One)` | `Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `Ratio_K`, `P%` | Log integral de triple verificación y resumen de parada. |
 
-#### 3.7.4 Flujo de Datos y Salida en Disco
-Al iniciar la rutina con el botón **`Play ►`**:
+#### 3.7.4 Flujo de Datos, Salida en Disco y Contenedor Científico HDF5 (`.h5`)
+
+PyPrinting 3.0 implementa una **arquitectura híbrida inteligente** de almacenamiento que optimiza el espacio y la trazabilidad metrológica sin perjudicar la inmediatez de la inspección experimental:
+
+##### 1. Eventos Stand-Alone / Exploratorios (Fuera del Contenedor):
+Las acciones libres y de calibración rápida se almacenan **directamente como archivos tradicionales sueltos**:
+- **Escaneo Confocal Manual (Dock Confocal)**: Genera `confocal_scan_YYYYMMDD_HHMMSS.tiff` (abrible con doble click en ImageJ / Fiji).
+- **Osciloscopio / Traza Libre (Dock Trace)**: Genera `trace_free_YYYYMMDD_HHMMSS.txt` (importable en Origin / Excel).
+- **Fotografía de Cámara Réflex (Live View)**: Genera `Canon_IMG_YYYYMMDD_HHMMSS.jpg` / `.cr2`.
+- **Espectro Manual (PySpectrum)**: Genera `spectrum_raw_YYYYMMDD_HHMMSS.csv`.
+
+##### 2. Lotes Estructurados (Dentro del Contenedor HDF5):
+Al iniciar una rutina automatizada con el botón **`Play ►`** (`Printing` o `Dimers`):
 1. Se crea la subcarpeta del lote: `YYYYMMDD-HHMMSS_Printing_<CustomName>` o `YYYYMMDD-HHMMSS_Dimers_<CustomName>`.
-2. Para cada nodo se guarda la traza temporal de intensidad `NP_00i.txt` conteniendo columnas: `Tiempo (s)`, `Signal (V)` y `BS Power (V)`.
-3. Si el escaneo está activo, se almacenan las imágenes confocales `.tiff` (Go, Back, Image).
-4. Se generan las tablas de seguimiento: `drift_tracking_xy.txt`, `drift_tracking_z.txt` y la imagen `drift_map.png`.
-5. Si `Track Time-Volt?` está activo, se exporta el informe estadístico y diagnóstico **`reporte_parametros_<nombre_red>.txt`**.
-6. El botón **`Save Grid Info`** exporta el archivo `grid_info.txt` con la metainformación completa (Láser, Criterio de Parada, Umbrales, Potencia BFP, Tipo de NP, Sustrato, Nombre Custom y Derivas).
+2. Se genera el **Contenedor Científico Unificado `YYYYMMDD-HHMMSS_Printing_<CustomName>.h5`** conteniendo:
+   - `/metadata`: Metadatos globales inalterables (láser, umbrales, sustrato, coloide, operario).
+   - `/recipe`: Coordenadas teóricas y Partícula Ancla $P_0$.
+   - `/telemetry`: Tablas de deriva lateral $X-Y$ (`drift_xy`), axial $Z$ (`drift_z`) y estadísticas `time_volt_stats`.
+   - `/nodes/node_00i`: Datasets individuales de traza fototérmica $10\ \text{kHz}$ (`photothermal_trace`), mapas confocales (`confocal_scan`) y parámetros de ajuste.
+3. Se conservan como respaldo local los archivos `NP_00i.txt`, `NPscan_00i.tiff`, `drift_tracking_xy.txt`, `drift_tracking_z.txt`, `drift_map.png` y el informe estadístico `reporte_parametros_<nombre_red>.txt`.
+4. El botón **`Save Grid Info`** exporta `grid_info.txt` con la metainformación del lote.
+
+##### 3. Desempaquetador 1-Click (`unpack_to_legacy`):
+Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquetar HDF5`**, que en $< 1\ \text{s}$ extrae todos los datasets del archivo `.h5` a carpetas estándar para su procesamiento por colaboradores externos que no dispongan de herramientas HDF5.
+
+> [!NOTE]
+> Para consultar el informe técnico completo sobre compresión *lossless* `shuffle+gzip` y benchmarks de velocidad, consulte:  
+> [Contenedor Científico HDF5 (reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md)
 
 #### 3.8 Tablero de Conexiones & Seguridad de Hardware (`HardwareDashboardWindow`, `HardwareDashboardWidget` & `HardwareManager`)
 El **Tablero de Conexiones y Seguridad de Hardware** constituye el centro neurálgico de telemetría y aislamiento del sistema. Se encuentra configurado como una **ventana independiente flotante** (`HardwareDashboardWindow`) accesible desde:
@@ -838,6 +858,7 @@ En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 
 | **`modules/`** | [modules/focus.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/focus.py) | **Estabilización de Foco Z**: Barrido axial (`Go to max`), registro de perfil (`Lock focus`) y autocorrelación dinámica ($\times 2$). |
 | **`modules/`** | [modules/trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/trace.py) | **Traza Analógica 10 kHz & Power BS**: Adquisición síncrona continuo de 2 láseres y fotodiodo divisor BS. |
 | **`modules/`** | [modules/camera.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/camera.py) | **Visión por Computadora & Canon EOS 500D**: Live View 25 FPS, foto 15 MP, overlay con reglas en $\mu\text{m}$ y `trackpy`. |
+| **`core/`** | [core/hdf5_container.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/hdf5_container.py) | **Contenedor Científico HDF5 (`.h5`)**: Serialización jerárquica de lotes, compresión lossless `shuffle+gzip` y desempaquetado 1-click. |
 | **`core/`** | [core/lattice_generator.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/lattice_generator.py) | **Motor Cristalográfico 2D**: 15 redes canónicas, bases atómicas fraccionales $(u, v)$, exclusión $d_{\text{min}}$ y particionado multi-paso. |
 | **`core/`** | [core/nanopositioning.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nanopositioning.py) | **Platina Piezoeléctrica PI E-517**: Lectura/escritura capacitiva cerrada ($X, Y, Z$) con límites de seguridad $0-100\ \mu\text{m}$. |
 | **`core/`** | [core/shutters.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py) | **Control de Obturadores & Láser 532 nm**: Conmutación TTL de obturadores (532, 637, 592 nm), flippers y voltaje AO2. |
@@ -851,7 +872,7 @@ En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 
 
 ---
 
-### 19.2 Índice Completo de Informes Metrológicos, Diagnósticos y Evaluación Arquitectónica
+### 21.2 Índice Completo de Informes Metrológicos, Diagnósticos y Evaluación Arquitectónica
 
 El laboratorio cuenta con un repositorio documental completo organizado en las carpetas [`reportes/sistema/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/) y [`reportes/cientificos/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/) (ver índice general en [`reportes/README.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/README.md)):
 
@@ -861,6 +882,7 @@ El laboratorio cuenta con un repositorio documental completo organizado en las c
 3. 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md): Formulación matemática de los 5 criterios de parada (Modos 0 a 4) y ensamblado de nanodímeros.
 4. 📍 [Corrección de Deriva Termomecánica (reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md): Método de partícula ancla P0 para compensación X-Y sub-nanométrica post-autofoco Z.
 5. 🖼️ [Deconvolución Richardson-Lucy, Trackpy y Picasso (reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md): Modelo bayesiano MLE, calibración de PSF y seguimiento centroidal.
+6. 📦 [Contenedor Científico Unificado HDF5 (reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md): Serialización jerárquica, compresión lossless `shuffle+gzip` y compatibilidad FAIR.
 
 #### ⚙️ B. Reportes de Estado del Sistema y Mantenimiento Técnico (`reportes/sistema/`)
 1. 📝 [Informe de Estado, Evaluación Multidimensional y Estándares (reportes/sistema/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md): Resumen técnico, matriz de módulos y 5 Estándares de Diseño.
