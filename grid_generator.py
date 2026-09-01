@@ -579,7 +579,7 @@ class GridGeneratorWindow(QMainWindow):
     def _setup_anchor_tab(self):
         tab = QWidget(); lo = QVBoxLayout(tab)
 
-        p0_gb = QGroupBox("Partícula Ancla (P0) — Eje de Cuadratura Multi-Paso")
+        p0_gb = QGroupBox("Partícula Ancla (P0) — Eje de Cuadratura y Referencia de Impresión")
         plo = QGridLayout(p0_gb)
 
         self.p0_enable_check = QCheckBox("Habilitar Partícula Ancla (P0) ⭐")
@@ -591,33 +591,38 @@ class GridGeneratorWindow(QMainWindow):
         plo.addWidget(QLabel("Ubicación P0:"), 1, 0)
         self.p0_mode_combo = QComboBox()
         self.p0_mode_combo.addItems([
-            "Offset Exterior de Seguridad",
+            "Estándar PyPrinting (P0 en (0,0), Red en (startX, startY))",
+            "Offset Exterior de Seguridad (P0 a -Δx, -Δy)",
             "Centro Geométrico (0, 0)",
-            "Primer Nodo de la Red",
+            "Primer Nodo de la Red como P0",
             "Coordenadas Personalizadas"
         ])
-        self.p0_mode_combo.currentIndexChanged.connect(self._on_params_changed)
+        self.p0_mode_combo.currentIndexChanged.connect(self._on_p0_mode_changed)
         plo.addWidget(self.p0_mode_combo, 1, 1)
 
-        plo.addWidget(QLabel("Offset X (µm):"), 2, 0)
+        self.lbl_p0_off_x = QLabel("startX Red (µm):")
         self.spin_p0_off_x = QDoubleSpinBox()
-        self.spin_p0_off_x.setRange(-50.0, 50.0); self.spin_p0_off_x.setValue(-2.0); self.spin_p0_off_x.setSingleStep(0.5)
+        self.spin_p0_off_x.setRange(-50.0, 50.0); self.spin_p0_off_x.setValue(2.0); self.spin_p0_off_x.setSingleStep(0.5)
+        self.spin_p0_off_x.setToolTip("Posición X de inicio de la primera partícula de la red respecto a P0 (0,0).")
         self.spin_p0_off_x.valueChanged.connect(self._on_params_changed)
-        plo.addWidget(self.spin_p0_off_x, 2, 1)
+        plo.addWidget(self.lbl_p0_off_x, 2, 0); plo.addWidget(self.spin_p0_off_x, 2, 1)
 
-        plo.addWidget(QLabel("Offset Y (µm):"), 3, 0)
+        self.lbl_p0_off_y = QLabel("startY Red (µm):")
         self.spin_p0_off_y = QDoubleSpinBox()
-        self.spin_p0_off_y.setRange(-50.0, 50.0); self.spin_p0_off_y.setValue(-2.0); self.spin_p0_off_y.setSingleStep(0.5)
+        self.spin_p0_off_y.setRange(-50.0, 50.0); self.spin_p0_off_y.setValue(2.0); self.spin_p0_off_y.setSingleStep(0.5)
+        self.spin_p0_off_y.setToolTip("Posición Y de inicio de la primera partícula de la red respecto a P0 (0,0).")
         self.spin_p0_off_y.valueChanged.connect(self._on_params_changed)
-        plo.addWidget(self.spin_p0_off_y, 3, 1)
+        plo.addWidget(self.lbl_p0_off_y, 3, 0); plo.addWidget(self.spin_p0_off_y, 3, 1)
 
         lo.addWidget(p0_gb)
 
         info_p0 = QLabel(
-            "⭐ <b>Protocolo de Nanofabricación Multi-Paso:</b><br>"
-            "• <b>Paso 1 (Material 1)</b>: Se imprime primero la Partícula Ancla P0 en el nodo 0 y luego la Capa 1.<br>"
-            "• <b>Paso 2 (Material 2)</b>: Tras lavar y cambiar el coloide, el microscopio ejecuta escaneo confocal "
-            "2D sobre P0 (Drift check P0), recentra el origen (0,0) y cuadra la Capa 2 con precisión sub-nanométrica."
+            "⭐ <b>Protocolo de Nanofabricación PyPrinting (Referencia de Impresión):</b><br>"
+            "• <b>Modo Estándar (Recomendado)</b>: La Partícula Ancla P0 se fija en <code>(0.0, 0.0) µm</code> "
+            "y la primera partícula de la red inicia exactamente en <code>(startX, startY)</code> (ej. <code>2.0, 2.0 µm</code>), "
+            "coincidiendo 1:1 con la convención del módulo de impresión <i>Measurements</i>.<br>"
+            "• <b>Paso 2 (Multi-Material)</b>: Al cambiar de coloide, el microscopio ejecuta escaneo confocal 2D sobre "
+            "P0 (Drift check P0), recentra el origen (0,0) y cuadra la siguiente capa con precisión sub-nanométrica."
         )
         info_p0.setWordWrap(True)
         info_p0.setStyleSheet("color: #f9e2af; font-size: 8pt; background-color: #1e1e2e; border: 1px solid #45475a; border-radius: 4px; padding: 6px;")
@@ -806,6 +811,29 @@ class GridGeneratorWindow(QMainWindow):
 
         self._on_params_changed()
 
+    def _on_p0_mode_changed(self, idx: int):
+        if idx == 0:  # Estándar PyPrinting (P0 en (0,0), red en (startX, startY))
+            self.lbl_p0_off_x.setText("startX Red (µm):")
+            self.lbl_p0_off_y.setText("startY Red (µm):")
+            self.lbl_p0_off_x.setVisible(True); self.spin_p0_off_x.setVisible(True)
+            self.lbl_p0_off_y.setVisible(True); self.spin_p0_off_y.setVisible(True)
+            self.spin_p0_off_x.setToolTip("Posición X de inicio de la primera partícula de la red respecto a P0 (0,0).")
+            self.spin_p0_off_y.setToolTip("Posición Y de inicio de la primera partícula de la red respecto a P0 (0,0).")
+        elif idx == 1:  # Offset exterior
+            self.lbl_p0_off_x.setText("Offset Δx (µm):")
+            self.lbl_p0_off_y.setText("Offset Δy (µm):")
+            self.lbl_p0_off_x.setVisible(True); self.spin_p0_off_x.setVisible(True)
+            self.lbl_p0_off_y.setVisible(True); self.spin_p0_off_y.setVisible(True)
+        elif idx in (2, 3):  # Centro geométrico o Primer nodo
+            self.lbl_p0_off_x.setVisible(False); self.spin_p0_off_x.setVisible(False)
+            self.lbl_p0_off_y.setVisible(False); self.spin_p0_off_y.setVisible(False)
+        elif idx == 4:  # Coordenadas personalizadas
+            self.lbl_p0_off_x.setText("P0 X (µm):")
+            self.lbl_p0_off_y.setText("P0 Y (µm):")
+            self.lbl_p0_off_x.setVisible(True); self.spin_p0_off_x.setVisible(True)
+            self.lbl_p0_off_y.setVisible(True); self.spin_p0_off_y.setVisible(True)
+        self._on_params_changed()
+
     def _on_geom_type_changed(self, idx: int):
         if idx == 0:  # Hexágono por apotema
             self.lbl_dim1.setText("Apotema ap (µm):")
@@ -940,10 +968,18 @@ class GridGeneratorWindow(QMainWindow):
 
         # 3. Actualizar configuración de Partícula Ancla (P0)
         self.composer.anchor_config.enabled = self.p0_enable_check.isChecked()
-        p0_mode_map = ["offset", "center", "first_node", "custom"]
-        self.composer.anchor_config.mode = p0_mode_map[self.p0_mode_combo.currentIndex()]
-        self.composer.anchor_config.offset_x_um = float(self.spin_p0_off_x.value())
-        self.composer.anchor_config.offset_y_um = float(self.spin_p0_off_y.value())
+        p0_mode_map = ["printing_reference", "offset", "center", "first_node", "custom"]
+        mode_str = p0_mode_map[self.p0_mode_combo.currentIndex()]
+        self.composer.anchor_config.mode = mode_str
+        if mode_str == "printing_reference":
+            self.composer.anchor_config.start_x_um = float(self.spin_p0_off_x.value())
+            self.composer.anchor_config.start_y_um = float(self.spin_p0_off_y.value())
+        elif mode_str == "offset":
+            self.composer.anchor_config.offset_x_um = float(self.spin_p0_off_x.value())
+            self.composer.anchor_config.offset_y_um = float(self.spin_p0_off_y.value())
+        elif mode_str == "custom":
+            self.composer.anchor_config.custom_x_um = float(self.spin_p0_off_x.value())
+            self.composer.anchor_config.custom_y_um = float(self.spin_p0_off_y.value())
 
         # 4. Actualizar optimizador de ruta y restricción de distancia mínima
         path_map = ["snake", "spiral", "tsp", "none"]
@@ -1149,31 +1185,35 @@ class GridGeneratorWindow(QMainWindow):
         p = self.composer.bounding_params
         pen = pg.mkPen(color='#f9e2af', width=1.5, style=Qt.PenStyle.DotLine)
 
+        shift_x, shift_y = 0.0, 0.0
+        if self._current_result and "shift" in self._current_result:
+            shift_x, shift_y = self._current_result["shift"]
+
         if shape == "circle":
             r = float(p.get("radius", 5.0))
             theta = np.linspace(0, 2*np.pi, 100)
-            self.plot_widget.plot(r * np.cos(theta), r * np.sin(theta), pen=pen)
+            self.plot_widget.plot(shift_x + r * np.cos(theta), shift_y + r * np.sin(theta), pen=pen)
 
         elif shape == "annulus":
             r_in = float(p.get("r_in", 2.0))
             r_out = float(p.get("r_out", 6.0))
             theta = np.linspace(0, 2*np.pi, 100)
-            self.plot_widget.plot(r_in * np.cos(theta), r_in * np.sin(theta), pen=pen)
-            self.plot_widget.plot(r_out * np.cos(theta), r_out * np.sin(theta), pen=pen)
+            self.plot_widget.plot(shift_x + r_in * np.cos(theta), shift_y + r_in * np.sin(theta), pen=pen)
+            self.plot_widget.plot(shift_x + r_out * np.cos(theta), shift_y + r_out * np.sin(theta), pen=pen)
 
         elif shape in ("rectangle", "square"):
             lx = float(p.get("lx", p.get("size", 10.0))) / 2.0
             ly = float(p.get("ly", p.get("size", 10.0))) / 2.0
-            bx = [-lx, lx, lx, -lx, -lx]
-            by = [-ly, -ly, ly, ly, -ly]
+            bx = [shift_x - lx, shift_x + lx, shift_x + lx, shift_x - lx, shift_x - lx]
+            by = [shift_y - ly, shift_y - ly, shift_y + ly, shift_y + ly, shift_y - ly]
             self.plot_widget.plot(bx, by, pen=pen)
 
         elif shape == "hexagon":
             ap = float(p.get("ap", 5.0)) if "ap" in p else float(p.get("radius", 5.0)) * math.cos(math.radians(30))
             r_vert = ap / math.cos(math.radians(30.0))
             angles = [math.radians(30 + 60*i) for i in range(7)]
-            hx = [r_vert * math.cos(a) for a in angles]
-            hy = [r_vert * math.sin(a) for a in angles]
+            hx = [shift_x + r_vert * math.cos(a) for a in angles]
+            hy = [shift_y + r_vert * math.sin(a) for a in angles]
             self.plot_widget.plot(hx, hy, pen=pen)
 
         elif shape == "triangle":
@@ -1181,8 +1221,8 @@ class GridGeneratorWindow(QMainWindow):
             h = side * math.sqrt(3.0) / 2.0
             r_in = h / 3.0
             r_out = 2.0 * h / 3.0
-            tx = [0.0, side/2.0, -side/2.0, 0.0]
-            ty = [r_out, -r_in, -r_in, r_out]
+            tx = [shift_x + 0.0, shift_x + side/2.0, shift_x - side/2.0, shift_x + 0.0]
+            ty = [shift_y + r_out, shift_y - r_in, shift_y - r_in, shift_y + r_out]
             self.plot_widget.plot(tx, ty, pen=pen)
 
     # ── Exportadores ──────────────────────────────────────────────────────────

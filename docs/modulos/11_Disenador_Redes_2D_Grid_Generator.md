@@ -124,15 +124,19 @@ Define los límites físicos exteriores del cristal periódico:
 
 ---
 
-### 3.3 Pestaña 3: Partícula Ancla ($P_0$) & Cuadratura Multi-Paso
+### 3.3 Pestaña 3: Partícula Ancla ($P_0$) & Referencia de Impresión
 
-La **Partícula Ancla ($P_0$)** es el elemento más crítico para la nanofabricación en multi-paso (impresión secuencial con diferentes coloides o en días distintos):
+La **Partícula Ancla ($P_0$)** es el elemento fundamental para la nanofabricación y cuadratura metrológica en PyPrinting:
 
-- **`Habilitar Partícula Ancla (P0)`**: Inserta una partícula de referencia óptica que se imprime en la posición número 0.
+- **`Habilitar Partícula Ancla (P0)`**: Inserta una partícula de referencia óptica que se imprime en la posición número 0 ($P_0$).
 - **Modos de Ubicación de $P_0$**:
-  - **`Offset Exterior (Seguridad)`**: Ubica $P_0$ fuera del cristal periódico a una distancia segura $(\Delta X_0, \Delta Y_0)$ de la esquina inferior izquierda. *Recomendado para no alterar la simetría del cristal.*
-  - **`Centro Geométrico (0,0)`**: Ubica $P_0$ en el origen exacto del cristal.
-  - **`Primer Nodo de la Red`**: Utiliza el primer átomo del cristal como ancla de referencia.
+  - **`Estándar PyPrinting (P0 en (0,0), Red en (startX, startY))`** *(Recomendado por defecto)*:
+    - Fija la Partícula Ancla $P_0$ exactamente en el origen capacitivo $(0.0, 0.0)\ \mu\text{m}$.
+    - Traslada la red periódica completa para que la primera partícula de la red inicie exactamente en $(\text{startX}, \text{startY})$ (por defecto $2.0, 2.0\ \mu\text{m}$).
+    - Garantiza compatibilidad metrológica 1:1 con la convención del módulo de impresión `Measurements`.
+  - **`Offset Exterior (Seguridad)`**: Ubica $P_0$ fuera del cristal periódico a una distancia de seguridad $(\Delta X_0, \Delta Y_0)$ respecto a la esquina inferior izquierda.
+  - **`Centro Geométrico (0,0)`**: Ubica $P_0$ en el centroide del cristal.
+  - **`Primer Nodo de la Red`**: Utiliza el primer nodo generado como ancla de referencia.
   - **`Coordenada Personalizada`**: Permite ingresar $(X_0, Y_0)$ manuales.
 
 ---

@@ -207,6 +207,20 @@ def run_tests():
     healing_active = m_be.is_healing_pass and (m_be.healing_failed_queue == [1])
     assert_test("Autocompletitud de Redes (Healing Pass)", igw.node_states[1] == "retrying" and healing_active)
 
+    from core.lattice_generator import CrystalGridComposer as Comp, LatticeLayer as Lay
+    test_comp = Comp()
+    test_comp.layers = [Lay(name="Square", lattice_type="square", a=3.0)]
+    test_comp.bounding_shape = "cells"
+    test_comp.bounding_params = {"nx": 2, "ny": 2}
+    test_comp.anchor_config.enabled = True
+    test_comp.anchor_config.mode = "printing_reference"
+    test_comp.anchor_config.start_x_um = 2.0
+    test_comp.anchor_config.start_y_um = 2.0
+    res_start = test_comp.generate()
+    p0_ok = res_start["anchor"]["x"] == 0.0 and res_start["anchor"]["y"] == 0.0
+    first_node_ok = res_start["nodes"][0]["x"] == 2.0 and res_start["nodes"][0]["y"] == 2.0
+    assert_test("Referencia P0 (0,0) y Primera Partícula (startX, startY)", p0_ok and first_node_ok)
+
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     print(f"RESULTADOS FINALES: {passed_count} / {total_count} pruebas superadas ({passed_count/total_count*100:.1f}%)")

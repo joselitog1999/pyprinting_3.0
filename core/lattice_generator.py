@@ -269,9 +269,11 @@ class PathOptimizer:
 class AnchorConfig:
     """Configuración de la Partícula Ancla para cuadratura y multi-paso."""
     enabled: bool = True
-    mode: str = "offset"  # offset, center, first_node, custom
-    offset_x_um: float = -2.0  # Offset de seguridad exterior X respecto al borde (µm)
-    offset_y_um: float = -2.0  # Offset de seguridad exterior Y respecto al borde (µm)
+    mode: str = "printing_reference"  # printing_reference (P0 en (0,0), red en (startX, startY)), offset, center, first_node, custom
+    start_x_um: float = 2.0           # Posición de inicio X de la red respecto a P0 en (0,0) (µm)
+    start_y_um: float = 2.0           # Posición de inicio Y de la red respecto a P0 en (0,0) (µm)
+    offset_x_um: float = -2.0         # Offset de seguridad exterior X respecto al borde (µm)
+    offset_y_um: float = -2.0         # Offset de seguridad exterior Y respecto al borde (µm)
     custom_x_um: float = 0.0
     custom_y_um: float = 0.0
 
@@ -287,7 +289,7 @@ class CrystalGridComposer:
         self.layers: List[LatticeLayer] = [LatticeLayer(name="Layer 1", lattice_type="hexagonal", a=3.0)]
         self.bounding_shape: str = "cells"  # cells, hexagon, rectangle, square, circle, annulus, triangle
         self.bounding_params: dict = {"nx": 5, "ny": 5, "ap": 5.0, "radius": 6.0, "lx": 12.0, "ly": 12.0}
-        self.anchor_config = AnchorConfig(enabled=True)
+        self.anchor_config = AnchorConfig(enabled=True, mode="printing_reference", start_x_um=2.0, start_y_um=2.0)
         self.path_mode: str = "snake"
         self.collision_tolerance_um: float = 0.08  # 80 nm para detectar colisiones accidentales
         self.min_distance_um: float = 0.0  # Límite de distancia mínima de impresión física entre partículas
@@ -298,9 +300,10 @@ class CrystalGridComposer:
         1. Expande celdas unidad para cada capa habilitada.
         2. Aplica rotación afín theta y traslación delta_r.
         3. Aplica máscara de geometría contenedora.
-        4. Fusión de capas y detección de colisiones.
-        5. Optimización de ruta de la platina PI.
-        6. Inserción de la Partícula Ancla P0.
+        4. Fusión de capas, deduplicación y restricción de distancia mínima.
+        5. Alineación y traslación de referencia del printing (P0 en (0,0), Red en (startX, startY)).
+        6. Optimización de ruta de la platina PI.
+        7. Inserción de la Partícula Ancla P0.
         """
         raw_nodes: List[Dict] = []
 
@@ -369,7 +372,7 @@ class CrystalGridComposer:
 
         if not raw_nodes:
             return {
-                "nodes": [], "anchor": None, "layers": self.layers,
+                "nodes": [], "anchor": None, "layers": self.layers, "passes_nodes": {}, "shift": (0.0, 0.0),
                 "stats": {"total": 0, "mat1": 0, "mat2": 0, "mat3": 0, "width_um": 0.0, "height_um": 0.0, "path_length_um": 0.0, "suppressed_by_min_dist": 0}
             }
 
@@ -389,7 +392,24 @@ class CrystalGridComposer:
             else:
                 suppressed_count += 1
 
-        # 5. Optimización de trayectoria global y por cada material independiente
+        if not dedup_nodes:
+            return {
+                "nodes": [], "anchor": None, "layers": self.layers, "passes_nodes": {}, "shift": (0.0, 0.0),
+                "stats": {"total": 0, "mat1": 0, "mat2": 0, "mat3": 0, "width_um": 0.0, "height_um": 0.0, "path_length_um": 0.0, "suppressed_by_min_dist": 0}
+            }
+
+        # 5. Traslación de Referencia del Printing (P0 en (0,0), Red iniciando en (startX, startY))
+        shift_x, shift_y = 0.0, 0.0
+        if self.anchor_config.enabled and self.anchor_config.mode == "printing_reference":
+            min_x_raw = min(n["x"] for n in dedup_nodes)
+            min_y_raw = min(n["y"] for n in dedup_nodes)
+            shift_x = round(float(self.anchor_config.start_x_um) - min_x_raw, 4)
+            shift_y = round(float(self.anchor_config.start_y_um) - min_y_raw, 4)
+            for n in dedup_nodes:
+                n["x"] = round(n["x"] + shift_x, 4)
+                n["y"] = round(n["y"] + shift_y, 4)
+
+        # 6. Optimización de trayectoria global y por cada material independiente
         sorted_nodes = PathOptimizer.sort_nodes(dedup_nodes, mode=self.path_mode)
 
         materials_present = sorted(list(set(n["material_id"] for n in dedup_nodes)))
@@ -398,7 +418,7 @@ class CrystalGridComposer:
             mat_raw = [n for n in dedup_nodes if n["material_id"] == mat_id]
             passes_nodes[mat_id] = PathOptimizer.sort_nodes(mat_raw, mode=self.path_mode)
 
-        # 6. Cálculo e inserción de la Partícula Ancla P0
+        # 7. Cálculo e inserción de la Partícula Ancla P0
         anchor_node = None
         if self.anchor_config.enabled:
             all_x = [n["x"] for n in sorted_nodes]
@@ -406,8 +426,11 @@ class CrystalGridComposer:
             min_x, max_x = min(all_x), max(all_x)
             min_y, max_y = min(all_y), max(all_y)
 
-            if self.anchor_config.mode == "offset":
-                # Fuera de la red con holgura de seguridad
+            if self.anchor_config.mode == "printing_reference":
+                # Estándar de PyPrinting Measurements: Ancla capacitiva en el origen exacto (0, 0)
+                p0_x = 0.0
+                p0_y = 0.0
+            elif self.anchor_config.mode == "offset":
                 p0_x = round(min_x + self.anchor_config.offset_x_um, 4)
                 p0_y = round(min_y + self.anchor_config.offset_y_um, 4)
             elif self.anchor_config.mode == "center":
@@ -475,6 +498,7 @@ class CrystalGridComposer:
             "passes_nodes": passes_nodes,
             "anchor": anchor_node,
             "layers": self.layers,
+            "shift": (shift_x, shift_y),
             "stats": stats
         }
 
