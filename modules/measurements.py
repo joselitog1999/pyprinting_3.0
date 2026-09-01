@@ -112,20 +112,20 @@ class InteractiveGridWidget(QFrame):
 
         vlo.addWidget(tb)
 
-        # ── Visualizador PyQtGraph (Orientación Física 90° a la derecha) ────
-        # Sistema cartesiano físico del microscopio:
-        #   Eje Vertical   = X (Positivo +X para abajo -> invertY)
-        #   Eje Horizontal = Y (Negativo -Y a la derecha -> invertX)
+        # ── Visualizador PyQtGraph (Sistema Cartesiano Estándar) ────────────
+        # Sistema cartesiano:
+        #   Eje Horizontal = X (Positivo +X a la derecha)
+        #   Eje Vertical   = Y (Positivo +Y hacia arriba)
         self.graphics = pg.GraphicsLayoutWidget()
         self.plot = self.graphics.addPlot()
         self.plot.setAspectLocked(True)
         self.plot.showGrid(x=True, y=True)
-        self.plot.invertY(True)   # +X hacia abajo
-        self.plot.invertX(False)  # +Y hacia la derecha (dirección estándar)
+        self.plot.invertY(False)  # +Y hacia arriba (estándar cartesiano)
+        self.plot.invertX(False)  # +X hacia la derecha (estándar cartesiano)
 
         label_style = {"color": "#cdd6f4", "font-size": "9pt"}
-        self.plot.setLabel("left", "X (µm)", **label_style)    # Eje vertical = X
-        self.plot.setLabel("bottom", "Y (µm)", **label_style)  # Eje horizontal = Y
+        self.plot.setLabel("left", "Y (µm)", **label_style)    # Eje vertical = Y
+        self.plot.setLabel("bottom", "X (µm)", **label_style)  # Eje horizontal = X
 
         # Elementos del gráfico:
         # 1. Camino (Línea punteada de trayectoria)
@@ -169,18 +169,18 @@ class InteractiveGridWidget(QFrame):
         vlo.addWidget(leg)
 
     def set_grid(self, datos: np.ndarray):
-        """Carga las coordenadas de la grilla datos[2, N] y reconstruye la visualización (mapeando Y a horizontal, X a vertical)."""
+        """Carga las coordenadas de la grilla datos[2, N] y reconstruye la visualización en coordenadas cartesianas (X horizontal, Y vertical)."""
         if datos is None or datos.shape[0] < 2 or datos.shape[1] == 0:
             return
 
         self.grid_coords = datos
-        xs_stage = datos[0, :]  # Coordenada X platina
-        ys_stage = datos[1, :]  # Coordenada Y platina
+        xs_stage = datos[0, :]  # Coordenada X platina (horizontal)
+        ys_stage = datos[1, :]  # Coordenada Y platina (vertical)
         N = len(xs_stage)
 
-        # Mapeo a pantalla: X_display = Y_stage (horiz), Y_display = X_stage (vert)
-        x_disp = ys_stage
-        y_disp = xs_stage
+        # Mapeo a pantalla: X_display = X_stage (horiz), Y_display = Y_stage (vert)
+        x_disp = xs_stage
+        y_disp = ys_stage
 
         self.node_states = ["pending"] * N
 
@@ -221,8 +221,8 @@ class InteractiveGridWidget(QFrame):
 
         self.node_states[idx] = status
 
-        x_disp = self.grid_coords[1, :]  # Y_stage (pantalla horiz)
-        y_disp = self.grid_coords[0, :]  # X_stage (pantalla vert)
+        x_disp = self.grid_coords[0, :]  # X_stage (pantalla horiz)
+        y_disp = self.grid_coords[1, :]  # Y_stage (pantalla vert)
 
         if status in ("active", "retrying"):
             self.active_ring.setData([x_disp[idx]], [y_disp[idx]])
@@ -237,8 +237,8 @@ class InteractiveGridWidget(QFrame):
         if self.grid_coords is None:
             return
 
-        x_disp = self.grid_coords[1, :]  # Y_stage (pantalla horiz)
-        y_disp = self.grid_coords[0, :]  # X_stage (pantalla vert)
+        x_disp = self.grid_coords[0, :]  # X_stage (pantalla horiz)
+        y_disp = self.grid_coords[1, :]  # Y_stage (pantalla vert)
         N = len(x_disp)
 
         color_map = {
