@@ -107,6 +107,16 @@ $$f * g = \mathcal{F}^{-1}\left\{ \mathcal{F}\{f\} \cdot \mathcal{F}\{g\} \right
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Procesamiento / Algoritmo) | Firma Experimental (Imagen Deconvolucionada / Localización) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Artefactos de Anillo (*Ringing*) por Sobredesconvolución** ($N_{\text{iter}} > 50$). | Halos oscuros concéntricos artificiales y amplificación de ruido granular de alta frecuencia alrededor de partículas brillantes. | Reducir el número de iteraciones de Richardson-Lucy a $15 - 25$ y aplicar filtrado gaussiano previo de baja frecuencia ($\sigma = 1.0\ \text{px}$). |
+| **Falsos Duplicados en Localización Trackpy/Picasso** (`min_mass` o `separation` muy bajos). | Una única nanopartícula física es etiquetada erróneamente como dos o tres centroides a distancias irreales sub-50 nm. | Incrementar el parámetro de separación mínima en la ventana de detección y ajustar el umbral de masa mínima (`min_mass`) por encima del ruido de fondo. |
+| **Desajuste de la PSF Experimental Empleada en Deconvolución**. | Deformación o elongación artificial de las partículas en la imagen restaurada (apariencia astigmática falsa). | Adquirir un mapa confocal 2D fresco de una nanopartícula aislada de Au 60 nm para extraer la PSF experimental real del día antes de deconvolucionar. |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 6: Analizador de Imágenes y Deconvolución](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#6-analizador-de-imágenes-y-deconvolución-richardson-lucy)
 - [📑 Reporte Científico de Deconvolución y SMLM (`reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md)

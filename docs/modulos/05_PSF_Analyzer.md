@@ -125,6 +125,16 @@ $$\text{FWHM}_x = 2\sqrt{2\ln 2}\,\sigma_x \approx 2.35482\,\sigma_x, \qquad \te
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo Óptico / Ajuste) | Firma Experimental (Mapa 2D / Residuales / Fit) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Aberración Esférica por Espesor Incorrecto de Cubreobjetos** ($t \ne 170\ \mu\text{m}$). | PSF 2D asimétrica con anillos difractivos pronunciados; ensanchamiento de $\text{FWHM} > 380\ \text{nm}$ en $532\ \text{nm}$ (límite difractivo $\approx 280\ \text{nm}$). | Ajustar el collar de corrección de espesor en el objetivo de inmersión en aceite ($100\times / 1.4\ \text{NA}$) a la marca `#1.5` ($170\ \mu\text{m}$) y limpiar el aceite viejo con papel de óptica. |
+| **No Convergencia del Ajuste Gaussiano por Baja SNR** ($SNR < 3$). | El algoritmo Levenberg-Marquardt devuelve parámetros `NaN` o valores irreales de ancho ($\sigma_x > 2\ \mu\text{m}$); matriz de covarianza singular. | Incrementar el tiempo de integración del fotodiodo o aumentar ligeramente la potencia del láser de barrido confocal ($P_{\text{scan}} \sim 0.2 - 0.5\ \text{mW}$) sin exceder el umbral térmico. |
+| **Astigmatismo por Desalineación del Expansor de Haz**. | Elipticidad de la PSF $> 15\%$ con ejes principales rotados a $45^\circ$; desdoblamiento de focos en $X$ e $Y$. | Realinear el telescopio colimador / expansor de haz monomodo a la entrada del microscopio para asegurar frente de onda plano TEM00 sin inclinación. |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 7: Ajuste de PSF y Metrología Óptica](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#7-ajuste-de-psf-y-metrología-óptica)
 - [📑 Reporte Científico de PSF (`reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md)

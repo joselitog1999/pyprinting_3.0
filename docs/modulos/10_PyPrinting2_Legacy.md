@@ -86,6 +86,16 @@ Se mantiene dentro del lanzador [`main.py`](file:///c:/Users/josel/Documents/Obs
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Entorno Legacy / Rutas) | Firma Experimental (Consola / Congelamiento) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Incompatibilidad de Rutas en Windows con Separadores Invertidos (`\`)**. | Excepción `FileNotFoundError` al guardar trazas o abrir grillas generadas en sistemas POSIX/Linux. | Utilizar las herramientas de PyPrinting 3.0 o ejecutar el script de compatibilidad `core/hdf5_container.py -> unpack_to_legacy()` que normaliza las rutas de acceso. |
+| **Falta de Protección Anti-Paso en Criterio de Parada**. | Cierre prematuro del obturador ante cualquier fluctuación espuria o cruce browniano transitorio (nodo vacío). | Migrar la ejecución a **PyPrinting 3.0 (`app.py`)**, activando el Modo 1 o Modo 4 con $N_{\text{hold}} \ge 5$ pasos sostenidos. |
+| **Bloqueo de la GUI durante Adquisiciones Largas por Monohilo**. | La ventana de PyPrinting 2 no responde (`No responde` en Windows) mientras adquiere a alta frecuencia. | No forzar el cierre del proceso en Windows; esperar a que finalice la rampa analógica o utilizar PyPrinting 3.0 que corre en hilos `QThread` no bloqueantes. |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario Principal](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
 - [📑 Reporte de Migración Arquitectónica (`reportes/sistema/PyPrinting_3_0_PyQt6_Migracion.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/PyPrinting_3_0_PyQt6_Migracion.md)

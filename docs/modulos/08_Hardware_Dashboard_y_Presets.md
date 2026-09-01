@@ -135,7 +135,17 @@ flowchart LR
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Hardware / Preset) | Firma Experimental (Dashboard / Logs / Errores) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Conflicto de Recursos NI-DAQmx** (`DAQError -200088: Resource already reserved`). | El botón de adquisición o escaneo arroja error en consola; el hardware NI-DAQmx no responde porque una tarea previa quedó abierta en un hilo huérfano. | Presionar `Reset DAQ Tasks` en el Tablero de Hardware para forzar la liberación de canales (`task.stop()` y `task.close()`); desconectar y reconectar el cable USB de la tarjeta si el driver persiste bloqueado. |
+| **Carga de Preset Corrupto con Parámetros Fuera de Rango**. | Excepción `KeyError` o `ValueError` al cargar un preset; valores de desplazamiento o coordenadas de grilla que superan el límite piezo de $100\ \mu\text{m}$. | El gestor `preset_manager.py` rechaza automáticamente valores fuera de cota y restaura la plantilla base `factory_defaults.json`. Editar manualmente el archivo `.txt` con valores válidos. |
+| **Falsa Detección en Caliente (*Hot Re-scan*) por Cable USB Dañado**. | El indicador del dispositivo parpadea entre `ONLINE` y `ERROR`; caídas aleatorias durante mediciones prolongadas. | Reemplazar el cable USB 2.0/3.0 de grado industrial blindado, evitar el uso de concentradores (*USB Hubs*) pasivos y conectar directamente a los puertos traseros del motherboard de la PC. |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 8: Diagnóstico y Seguridad de Hardware](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#8-diagnóstico-y-seguridad-de-hardware-hardware-dashboard)
 - [📘 Manual de Usuario — Sección 5.4: Gestor de Presets](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#54-gestor-de-presets-y-asistente-de-configuración)
 - [📑 Reporte de Robustez de Hardware (`reportes/sistema/Matriz_de_Riesgos_y_Robustez_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Matriz_de_Riesgos_y_Robustez_PyPrinting3.md)

@@ -136,7 +136,18 @@ flowchart TD
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Algoritmo / Instrumento) | Firma Experimental (Traza / Confocal / Telemetría) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Saturación del Fotodiodo / Preamplificador PDA** ($V_{\text{in}} \ge +10.00\ \text{V}$). | Traza fototérmica o mapa confocal 2D recortados en una línea horizontal plana a $+10.00\ \text{V}$ (pérdida total de contraste y PSF truncada). | Conmutar el selector de ganancia del preamplificador Thorlabs PDA a un escalón inferior (ej. de $40\ \text{dB}$ a $20\ \text{dB}$ o $0\ \text{dB}$) o intercalar un filtro de densidad neutra (ND) en el puerto de detección. |
+| **Desalineación Mecánica del Pinhole Confocal** ($r_{\text{pinhole}} > 50\ \mu\text{m}$). | Fondo de dispersión elevado con relación señal/ruido degradada ($SNR < 3$), PSF 2D asimétrica o comática y pérdida del $70\%$ de la intensidad máxima esperada. | Ajustar micrométricamente los tornillos $X-Y$ de la montura del pinhole bajo iluminación continua de una nanopartícula patrón de Au 60 nm fija, hasta maximizar la tensión leída en el fotodiodo. |
+| **Pérdida de Comunicación USB/RS232 con Platina PI** (Timeout de controladora E-517/E-736). | Diálogo modal de error `PI Timeout / Controller not responding`, los ejes no responden a los botones de movimiento en la GUI. | Apagar la fuente de alimentación de la controladora PI durante 5 segundos, encenderla nuevamente, verificar la conexión del cable USB y pulsar `Reset All / Conectar PI` en el Tablero de Hardware. |
+| **Deriva Térmica Axial Severa durante Autofoco Z** ($v_z > 50\ \text{nm/s}$). | Curva de autofoco $I(z)$ deformada o no convergente; el ajuste cuadrático ubica el foco en los bordes del rango ($z = 0\ \mu\text{m}$ o $z = 2\ \mu\text{m}$). | Comprobar que no haya corrientes de aire directo sobre la platina; encender el sistema de aire acondicionado del laboratorio a $21\ ^\circ\text{C}$ con $30\ \text{min}$ de anticipación y ampliar el rango axial de búsqueda a $3.0\ \mu\text{m}$. |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 3: Microscopio Derecho (`app.py`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#3-módulo-1-microscopio-derecho-apppy--pyprinting-30-suite-completa)
 - [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
 - [📐 Diseñador Universal de Redes 2D (Módulo 11)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/11_Disenador_Redes_2D_Grid_Generator.md)

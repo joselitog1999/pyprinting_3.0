@@ -107,10 +107,18 @@ sequenceDiagram
     GUI->>GUI: Demultiplexar TOP/BOT + Cálculo CM 2D + Vector Delta r
 ```
 
-- **Demultiplexado Multicanal en Memoria**: La rutina lee el búfer de entrada de `Dev1`, detecta los flancos de subida y bajada del canal de trigger en el eje X, y asigna los píxeles a las matrices `image_top` e `image_bot` en una sola pasada vectorial NumPy sin retardos de bucles `for`.
+---
+
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo Óptico / Hardware) | Firma Experimental (Confocal Dual / Telemetría) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Desalineación Colineal entre Haces Superior e Inferior** ($\|\Delta \mathbf{r}\| > 100\ \text{nm}$). | Los centros de masa $CM_{\text{top}}$ y $CM_{\text{bot}}$ no coinciden; la partícula oscila erráticamente o es eyectada lateralmente fuera del eje óptico sin atrapar en 3D. | Ajustar los espejos de acoplamiento cinemáticos de la rama superior hasta que el vector residual $\|\Delta \mathbf{r}\| = \sqrt{\Delta x^2 + \Delta y^2} \le 20\ \text{nm}$ en la GUI. |
+| **Desbalance de Potencia Óptica Axial** ($P_{\text{top}} \gg P_{\text{bot}}$ o viceversa). | La partícula colapsa contra el cubreobjetos superior o inferior en lugar de levitar de forma estable en la cintura focal intermedia. | Equilibrar las placas retardadoras $\lambda/2$ o los atenuadores polarizantes de ambas ramas hasta igualar las lecturas en los medidores de potencia antes de ingresar a los objetivos. |
+| **Desincronización de Trigger Digital CTO en Platina PI**. | Mapas confocales distorsionados con corrimiento en peine (*shearing*) entre líneas de ida y vuelta en la rampa continua. | Verificar el cable BNC de disparo digital conectado entre la salida `CTO` de la controladora PI y la entrada `PFI0/TRIG` de la tarjeta NI-DAQmx. |
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 4.7: Microscopio Contrapropagante](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#47-microscopio-contrapropagante-excitación-dual)
 - [📑 Reporte de Metrología y Presupuesto de Incertidumbre GUM (`reportes/sistema/Calibracion_Metrologica_y_Exactitud_Posicionamiento.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Calibracion_Metrologica_y_Exactitud_Posicionamiento.md)

@@ -91,6 +91,16 @@ $$V(P_{\text{target}}) = \frac{-c_1 + \sqrt{c_1^2 - 4c_2(c_0 - P_{\text{target}}
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Controlador / Láser) | Firma Experimental (Potenciómetro / Telemetría) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Sobrevoltaje Analógico AO2 en Tarjeta NI-DAQmx** ($V_{\text{AO2}} > 5.00\ \text{V}$). | El controlador del láser entra en modo de protección contra sobrevoltaje o satura la emisión óptica a niveles peligrosos. | La GUI satura por software el comando a un límite rígido de $5.00\ \text{V}$ (o $4.50\ \text{V}$); verificar con voltímetro en bornes del BNC `ao2`. |
+| **Inestabilidad Térmica del Láser DPSS Ventus 532 nm** (Tiempo de calentamiento $< 20\ \text{min}$). | Fluctuaciones de potencia óptica a alta frecuencia ($RMS > 5\%$) y saltos de modo longitudinal en las trazas fototérmicas basales. | Esperar al menos $20\ \text{minutos}$ tras encender la fuente láser para permitir el equilibrio térmico del diodo de bombeo y cristal no lineal (LBO). |
+| **Descalibración de la Curva Potencia-Voltaje** por envejecimiento óptico o desalineación. | La potencia física real medida en el objetivo difiere en más de un $15\%$ del valor nominal mostrado en pantalla en mW. | Colocar el cabezal del medidor de potencia óptico (Thorlabs PM100D) en la platina y ejecutar la rutina de calibración multipunto ($0$ a $5\ \text{V}$). |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 4.4: Modulación Láser 532 nm](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#44-control-de-obturadores-láser-y-flipper)
 - [📘 Manual de Usuario — Sección 9: Mapeo de Hardware NI-DAQmx](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#9-mapeo-de-hardware-y-puertos-ni-daqmx)

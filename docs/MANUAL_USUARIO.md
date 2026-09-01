@@ -845,6 +845,30 @@ En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 
 
 ---
 
+### 20.4 Matriz Maestra de Límites de Validez y Modos de Falla del Sistema ⚠️
+
+Cada módulo individual del sistema cuenta con su sección detallada de modos de falla. A continuación se presenta la **Matriz Maestra de Contingencias y Acciones Físicas Directas de Laboratorio**:
+
+| Subsistema / Módulo | Condición de Borde (Ruptura) | Firma Experimental | Acción Correctiva Física (No sólo reiniciar software) |
+| :--- | :--- | :--- | :--- |
+| **00. Física y Coloide** | Cavitación térmica ($T > 280\ ^\circ\text{C}$). | Salto a $10\ \text{V}$ y caída a $0\ \text{V}$; microburbuja. | Bajar voltaje AO2 a $< 1.5\ \text{V}$ ($P < 8\ \text{mW}$) y cambiar cubreobjetos. |
+| **00. Sustrato** | Degradación de silano APTES. | Salto en fotodiodo sin fijación (rebote). | Limpieza Piranha fresca ($3:1\ \text{H}_2\text{SO}_4:\text{H}_2\text{O}_2$) y re-silanizar con APTES al $1\%$. |
+| **01. Detección Confocal** | Saturación de fotodiodo PDA. | Trazas/mapas recortados planos a $+10.0\ \text{V}$. | Conmutar ganancia PDA a un paso inferior ($20\ \text{dB}$ / $0\ \text{dB}$) o insertar filtro ND. |
+| **01. Pinhole Óptico** | Desalineación de pinhole ($> 50\ \mu\text{m}$). | Fondo elevado, SNR $< 3$, PSF distorsionada. | Ajustar tornillos micrométricos $X-Y$ del pinhole sobre partícula fija hasta maximizar señal. |
+| **02. Impresión Grillas** | Falsos positivos por partículas de paso. | Salto transitorio $< 20\ \text{ms}$, nodo vacío. | Aumentar filtro $N_{\text{hold}}$ a $5 - 8$ muestras y fijar Modo 1 o Modo 4 en la GUI. |
+| **02. Impresión Grillas** | Timeout difusivo ($t > 20\ \text{s}$). | Traza plana en ruido basal sin salto. | Comprobar apertura física del obturador, subir ligeramente potencia o aplicar *Healing Pass*. |
+| **03. Contrapropagante** | Desalineación colineal ($\|\Delta \mathbf{r}\| > 100\ \text{nm}$). | Partícula expulsada lateralmente sin atrape 3D. | Ajustar espejos de acoplamiento superior hasta que residual $\|\Delta \mathbf{r}\| \le 20\ \text{nm}$. |
+| **04. Cámara CMOS** | Bloqueo USB EDSDK / Sleep Mode. | Visor Live View congelado, 0 FPS. | Apagar *Auto Power Off* en el menú físico de la Canon réflex y conectar fuente continua. |
+| **05. Ajuste de PSF** | Aberración esférica por cubreobjetos. | PSF asimétrica, $\text{FWHM} > 380\ \text{nm}$. | Ajustar collar de inmersión del objetivo a marca `#1.5` ($170\ \mu\text{m}$) y limpiar aceite. |
+| **06. Imagen & Deconv.** | Artefactos de anillo (*Ringing* RL). | Halos oscuros concéntricos artificiales. | Limitar iteraciones Richardson-Lucy a $15 - 25$ y aplicar filtrado gaussiano previo. |
+| **07. Láser 532 nm** | Inestabilidad térmica en DPSS Ventus. | Ruido $RMS > 5\%$ y saltos de modo en traza. | Esperar al menos $20\ \text{min}$ de calentamiento térmico tras encender la fuente láser. |
+| **08. Tablero DAQmx** | Conflicto de tareas NI-DAQmx (-200088). | Error de recurso ocupado en consola. | Pulsar `Reset DAQ Tasks` en el Dashboard para invocar `task.stop()` / `task.close()` forzado. |
+| **09. Espectroscopía** | Saturación CCD Andor ($> 65535\ \text{ADU}$). | Picos espectrales truncados y *blooming*. | Reducir tiempo de exposición a $0.1\ \text{s}$ o estrechar ranuras de entrada a $\le 50\ \mu\text{m}$. |
+| **11. Diseñador 2D** | Violación de proximidad ($d < d_{\text{min}}$). | Superposición de partículas en canvas 2D. | Incrementar constantes de red $(a, b)$ o ajustar coordenadas fraccionales $(u, v)$ en base atómica. |
+| **12. Operación Lab** | Rotura de cubreobjetos por sobre-carrera. | Derrame de aceite/líquido sobre objetivo. | Bajar macrométrico manual, limpiar con isopropanol y colocar nuevo cubreobjetos `#1.5`. |
+
+---
+
 ## 21. Guía de Referencia de Estructura de Archivos y Reportes Metrológicos
 
 ### 21.1 Función y Propósito de Cada Archivo del Sistema

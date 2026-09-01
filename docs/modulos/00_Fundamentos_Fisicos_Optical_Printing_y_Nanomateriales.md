@@ -29,7 +29,8 @@
    - 4.3 Nanodímeros Plasmónicos, Hibridación de Modos y *Hot Spots* de Campo Cercano
    - 4.4 Fuerzas Ópticas de Campo Cercano Inducidas y Control de Polarización (Tesis Gargiulo, Cap. 6 & Martínez, Cap. 4)
 5. [Tabla Maestra de Propiedades Físicas de Nanomateriales y Parámetros del Setup](#5-tabla-maestra-de-propiedades-físicas-de-nanomateriales-y-parámetros-del-setup)
-6. [Referencias Bibliográficas Fundacionales](#6-referencias-bibliográficas-fundacionales)
+6. [Límites de Validez y Modos de Falla Físico-Química](#6-límites-de-validez-y-modos-de-falla-físico-química)
+7. [Referencias Bibliográficas Fundacionales](#7-referencias-bibliográficas-fundacionales)
 
 ---
 
@@ -421,7 +422,18 @@ Durante la fabricación asistida de nanodímeros, la Partícula A (ya fija en el
 
 ---
 
-## 6. Referencias Bibliográficas Fundacionales
+## 6. ⚠️ Límites de Validez y Modos de Falla Físico-Química
+
+| Condición de Borde (Fallo Físico / Químico) | Firma Experimental (Traza / Confocal / Imagen) | Acción Correctiva Física (Protocolo en Laboratorio) |
+| :--- | :--- | :--- |
+| **Cavitación Térmica por Sobrecalentamiento** ($T > 280\ ^\circ\text{C}$ por $I_0 > 15\ \text{mW}/\mu\text{m}^2$). | Salto violento a saturación de fotodiodo ($10\ \text{V}$), caída abrupta no reversible a $0\ \text{V}$; deformación visible de microburbuja en cámara réflex. | Reducir inmediatamente la potencia del láser 532 nm (bajar voltaje AO2 a $< 1.5\ \text{V}$ en la GUI), purgar la celda y reemplazar el cubreobjetos dañado. |
+| **Desorción o Degradación de Silano APTES** (Sustrato envejecido $> 24\ \text{h}$ o $\text{pH} < 5.5$). | La nanopartícula colisiona en el foco (salto en traza de fotodiodo), pero no se fija al sustrato (rebote y retorno a línea base al cerrar el obturador). | Descartar el portaobjetos. Realizar limpieza Piranha fresca ($3:1\ \text{H}_2\text{SO}_4:\text{H}_2\text{O}_2$ a $80\ ^\circ\text{C}$) y funcionalizar con APTES al $1\%$ en etanol anhidro por 30 min. |
+| **Concentración Coloidal Excesiva** ($C > 10^{11}\ \text{NP/mL} \implies \langle N \rangle \ge 1$). | Múltiples escalones sucesivos en $< 500\ \text{ms}$ en la traza; formación de agregados multilímero en confocal ($FWHM > 600\ \text{nm}$, intensidad $> 3\times$ monómero). | Diluir la suspensión coloidal con agua ultra-pura Milli-Q (factor $1:100$ o $1:1000$) hasta alcanzar $C \sim 5 \times 10^9\ \text{NP/mL}$ ($\langle \tau_{\text{wait}} \rangle \approx 8 - 15\ \text{s}$). |
+| **Fuerza Iónica Excesiva del Buffer** ($I_s > 100\ \text{mM} \implies \kappa_D^{-1} < 1\ \text{nm}$). | Adsorción espontánea inespecífica masiva de nanopartículas sobre todo el sustrato sin irradiación láser previa (fondo saturado en cámara). | Disminuir la concentración salina de la suspensión; utilizar agua Milli-Q desionizada ($18.2\ \text{M}\Omega\cdot\text{cm}$) como medio de dilución. |
+
+---
+
+## 7. Referencias Bibliográficas Fundacionales
 
 1. **Gargiulo, Julián** (2017). *Impresión óptica de nanopartículas metálicas*. Tesis Doctoral, Facultad de Ciencias Exactas y Naturales, Universidad de Buenos Aires (FCEN-UBA / CIBION-CONICET). [Archivo local: `docs/bibliografia/Julian_Gargiulo_2017.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Julian_Gargiulo_2017.pdf).
 2. **Martínez, Luciana**. *Impresión óptica de nanopartículas y nanoestructuras: ensamblado guiado, nanotermometría y plasmónica*. Tesis Doctoral, Instituto de Nanosistemas, Universidad Nacional de San Martín (INS-UNSAM / CONICET). [Archivo local: `docs/bibliografia/Tesis%20Luciana%20Martinez.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Tesis%20Luciana%20Martinez.pdf).

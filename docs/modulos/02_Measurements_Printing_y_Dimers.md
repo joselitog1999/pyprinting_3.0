@@ -260,7 +260,18 @@ En la carpeta `YYYYMMDD-HHMMSS_Printing_<CustomName>/`:
 
 ---
 
-## 11. 🔗 Referencias Cruzadas
+## 11. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Algoritmo / Parámetro) | Firma Experimental (Traza / Confocal / Telemetría) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Falsos Positivos por Partícula "De Paso"** ($N_{\text{hold}}$ insuficiente o umbral muy bajo). | Salto de fotodiodo transitorio de duración $< 20\ \text{ms}$; el obturador se cierra pero el mapa confocal post-impresión no muestra ninguna partícula en el nodo. | Incrementar el parámetro `N hold steps` a $5 - 8$ muestras consecutivas ($\sim 40\ \text{ms}$) y subir el umbral relativo a $\ge 1.25$ o utilizar el **Modo 4 (Híbrido Tri-Factor)**. |
+| **Timeout por Agotamiento Difusivo** ($t > T_{\text{max}} = 20.0\ \text{s}$). | La traza temporal registra únicamente ruido basal sin escalón hasta alcanzar $T_{\text{max}}$; la GUI aborta el nodo y avanza al siguiente marcándolo como fallo. | Comprobar que el obturador láser abra físicamente (comprobar LED del shutter y destello verde en cámara), aumentar ligeramente la potencia ($+0.5\ \text{mW}$) o ejecutar el **Healing Pass** al concluir la red. |
+| **Deriva Térmica Desbordada en Lote Largo** ($\vec{v}_{\text{drift}} > 15\ \text{nm/s}$). | La partícula ancla $P_0$ se desplaza fuera de la ventana de microescaneo ($2 \times 2\ \mu\text{m}$); los nodos finales de la grilla aparecen desalineados en el mapa confocal general. | Habilitar `Adaptive AF?` fijando la tolerancia `Drift Tol` en $\le 20.0\ \text{nm}$, activar `Confocal Tilt` Z en 4 esquinas y esperar la estabilización térmica del recinto de medición. |
+| **Repulsión Óptica en Ensamblado de Dímeros** (Polarización perpendicular $\mathbf{E} \perp \hat{\mathbf{r}}_{AB}$). | La segunda partícula no logra ingresar al gap sub-20 nm y se deposita desplazada lateralmente ($> 100\ \text{nm}$) respecto a la posición objetivo. | Rotar la placa de media onda ($\lambda/2$) del haz de 532 nm para orientar el campo eléctrico colinealmente con el eje del dímero ($\mathbf{E} \parallel \hat{\mathbf{r}}_{AB}$), induciendo fuerza óptica atractiva. |
+
+---
+
+## 12. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 3.7: Ventana de Mediciones](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
 - [📘 Manual de Usuario — Sección 2.9: Criterios de Parada](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#29-formulación-matemática-y-análisis-de-los-5-criterios-de-parada-modos-0-a-4)
 - [📑 Reporte Científico: Control Adaptativo de Frecuencia de Autofoco y Deriva](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Control_Adaptativo_de_Frecuencia_de_Autofoco_y_Deriva_PyPrinting3.md)

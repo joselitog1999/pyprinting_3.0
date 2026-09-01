@@ -110,7 +110,17 @@ flowchart TD
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Cámara / SDK) | Firma Experimental (Live View / Captura) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Bloqueo de Búfer USB o Auto-Apagado de Cámara Canon** (`EDSDK_ERR_DEVICE_BUSY 0x82`). | El visor Live View se congela por completo (`Freeze Frame`), el contador de FPS cae a 0; error en consola al intentar disparar foto. | Desactivar la función *Auto Power Off* (ajustar a `OFF`) en el menú físico de la cámara réflex, comprobar el acoplamiento del eliminador de batería a $220\ \text{V}$ y reiniciar el flujo con `Reiniciar Cámara`. |
+| **Saturación de Píxeles por Iluminación de Campo Oscuro** (Píxeles blancos $= 255$). | Fondo blanco brillante saturado que impide localizar centroides en Trackpy/Picasso; pérdida de contraste de las nanopartículas. | Reducir la intensidad de la lámpara halógena de campo oscuro, cerrar ligeramente el diafragma iris del condensador o ajustar el tiempo de exposición / ISO en la interfaz. |
+| **Pérdida de Calibración de Escala Espacial ($\mu\text{m/px}$)** tras cambio de objetivo. | Las dimensiones de las partículas o grillas medidas en la imagen no coinciden con las distancias de la platina piezoeléctrica PI. | Cargar el patrón de rejilla micrométrica calibrada ($10\ \mu\text{m/div}$) y recalibrar el factor de escala $\mu\text{m/px}$ para el objetivo activo ($60\times$ o $100\times$) en el menú de configuración. |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 4.3: Cámara Live View](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#43-cámara-live-view-réflex-canon-eos-500d-edsdk)
 - [📘 Manual de Usuario — Sección 6: Analizador de Imágenes y Detección](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#6-analizador-de-imágenes-y-deconvolución-richardson-lucy)
 - [📑 Reporte de Cámara y Visión (`reportes/sistema/PyPrinting_3_0_PyQt6_Migracion.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/PyPrinting_3_0_PyQt6_Migracion.md)

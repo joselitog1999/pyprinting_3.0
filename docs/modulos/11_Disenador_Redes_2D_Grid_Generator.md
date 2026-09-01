@@ -316,3 +316,20 @@ La primera fila contiene estrictamente las coordenadas de la **Partícula Ancla 
 6. **Cargar en Measurements para Impresión**:
    - Abrir `Measurements` en PyPrinting 3.0 (`Ctrl+M`).
    - Cargar el archivo `.txt` con el botón `Load grid` y comenzar la nanofabricación.
+
+---
+
+## 8. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo Geométrico / Restricción) | Firma Experimental (Previsualización 2D / Ejecución) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Violación de Proximidad Física** ($d < d_{\text{min}} = 2R$). | Partículas superpuestas en el canvas 2D; advertencia visual en rojo y descarte masivo de nodos en el log. | Incrementar las constantes de red $(a, b)$ o ajustar la base fraccional $(u, v)$ para asegurar distancias interparticulares $d \ge 0.5\ \mu\text{m}$. |
+| **Desborde del Rango Físico de la Platina PI** ($\text{Span} > 100\ \mu\text{m}$). | La trayectoria calculada excede el marco físico $[0, 100]\ \mu\text{m}$; el controlador PI arroja error de límite de carrera al imprimir. | Reducir el tamaño de la máscara delimitadora ($L_x, L_y \le 80\ \mu\text{m}$) o centrar las coordenadas en la posición de reposo $(\text{center}_x = 50, \text{center}_y = 50\ \mu\text{m})$. |
+| **Colisión de Partícula Ancla $P_0$ con la Red Activa**. | La ancla $P_0$ se ubica a menos de $2\ \mu\text{m}$ de un nodo regular, distorsionando el microescaneo de corrección de deriva. | Configurar el modo `Offset Exterior Automático` con separación mínima de $3.0\ \mu\text{m}$ respecto a la envolvente exterior de la grilla. |
+
+---
+
+## 9. 🔗 Referencias Cruzadas
+- [📘 Manual de Usuario — Sección 5: Diseñador de Redes 2D](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#5-diseñador-de-redes-2d-y-cristalografía-nanofotónica)
+- [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
+- [📑 Reporte de Generador de Redes (`reportes/sistema/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md)

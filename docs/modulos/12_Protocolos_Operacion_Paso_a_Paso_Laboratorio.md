@@ -223,3 +223,21 @@ Una vez finalizada la nanofabricación, caracterizar espectralmente cada nanopar
       ├── Verificar que la Partícula Ancla P0 esté activa con control adaptativo.
       └── Asegurar que la celda de fluido esté perfectamente sellada con grasa sin fugas.
 ```
+
+---
+
+## 9. ⚠️ Límites de Validez y Modos de Falla de Operación en Laboratorio
+
+| Condición de Borde (Fallo Operativo / Muestra) | Firma Experimental (Cámara / Fotodiodo / Platina) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Rotura o Fractura del Cubreobjetos por Sobre-Carrera Z**. | Caída abrupta del campo de visión en cámara, pérdida de señal en fotodiodo y derrame de aceite/agua sobre el objetivo. | Bajar inmediatamente el tornillo micrométrico de enfoque manual, limpiar el objetivo con isopropanol y papel de óptica, y colocar un nuevo cubreobjetos `#1.5` ($170\ \mu\text{m}$). |
+| **Burbujas de Aire Atrapadas en el Aceite de Inmersión**. | Aberración óptica comática severa, PSF 2D toroidal o desdoblada y pérdida del $80\%$ de la intensidad focal. | Desmontar la celda, limpiar minuciosamente la lente frontal del objetivo con papel especial de lentes y aplicar una única gota limpia de aceite de inmersión tipo F sin turbulencias. |
+| **Fuga de Líquido Coloidal por Sellado Defectuoso**. | Deriva hidrodinámica acelerada ($> 100\ \text{nm/s}$); formación de menisco y secado progresivo de la gota durante el lote. | Retirar el cubreobjetos, secar la superficie y realizar un sellado perimetral hermético con grasa de vacío de silicona o masilla plástica en la celda de teflón. |
+| **Fotoblanqueamiento / Degradación de Ligando por Luz Ambiental**. | Aumento del fondo de autofluorescencia y pérdida de reproducibilidad en la dispersión coloidal. | Cubrir el recinto del microscopio con la cortina negra opaca de blindaje y apagar las luces fluorescentes cenitales del laboratorio antes de iniciar la corrida. |
+
+---
+
+## 10. 🔗 Referencias Cruzadas
+- [📘 Manual de Usuario — Sección 2: Protocolo Experimental Integral](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#2-protocolo-experimental-integral-guía-paso-a-paso-de-laboratorio)
+- [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
+- [📑 Reporte de Protocolo "DO PRINTING" (`reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)

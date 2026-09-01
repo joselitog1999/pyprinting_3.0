@@ -16,7 +16,8 @@ Cada documento incluye de forma estandarizada:
 3. **📥 Archivos de entrada que solicita** (formatos, extensiones y estructuras internas).
 4. **📤 Archivos de salida que genera** (especificación de columnas, unidades físicas y fragmentos de ejemplo).
 5. **⚙️ Funcionalidades, formulación matemática y arquitectura de hilos**.
-6. **🔗 Referencias cruzadas directas** al [Manual de Usuario Principal (`docs/MANUAL_USUARIO.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md) y a los reportes técnicos en `reportes/`.
+6. **⚠️ Límites de Validez y Modos de Falla** (tabla con condiciones de borde de ruptura, firma experimental y acciones correctivas físicas de laboratorio).
+7. **🔗 Referencias cruzadas directas** al [Manual de Usuario Principal (`docs/MANUAL_USUARIO.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md) y a los reportes técnicos en `reportes/`.
 
 ---
 

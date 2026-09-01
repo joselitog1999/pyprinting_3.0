@@ -99,7 +99,18 @@ Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
 
 ---
 
-## 6. 🔗 Referencias Cruzadas
+## 6. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo Espectroscópico / Hardware) | Firma Experimental (Espectro 1D / Imagen CCD) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Saturación del Convertidor ADC de la Cámara CCD Andor** ($I \ge 65535\ \text{ADU}$). | Picos truncados planos en $65535\ \text{cuentas}$ y desbordamiento de carga (*blooming*) horizontal en el sensor CCD. | Reducir el tiempo de exposición (ej. de $1.0\ \text{s}$ a $0.1\ \text{s}$) o cerrar el ancho de las ranuras micrométricas de entrada del espectrógrafo a $\le 50\ \mu\text{m}$. |
+| **Descalibración por Holgura Mecánica en Torreta de Redes (*Grating Backlash*)**. | El pico elástico del láser de 532 nm aparece desplazado en la escala de longitudes de onda calculada ($\Delta \lambda > 2\ \text{nm}$). | Ejecutar la rutina de calibración espectral con lámpara atómica de Mercurio-Argón (Hg-Ar) o corregir el offset con el pico de scattering elástico de 532.0 nm. |
+| **Condensación en la Ventana Óptica por Falla de Refrigeración Peltier**. | Pérdida abrupta de intensidad luminosa y aumento drástico del nivel de ruido térmico basal de la CCD. | Comprobar el flujo de agua en el recirculador térmico / ventilador de la CCD y asegurar que el vacío interno esté estable con temperatura nominal de $-10\ ^\circ\text{C}$ a $-60\ ^\circ\text{C}$. |
+| **Discontinuidades en el Cosido Espectral (*Step & Glue*)**. | Saltos de intensidad escalonados en las zonas de unión/solapamiento entre ventanas espectrales contiguas. | Adquirir un nuevo espectro de calibración con la lámpara halógena de referencia para normalizar la respuesta cromática de la rejilla de difracción y del sensor. |
+
+---
+
+## 7. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario Principal — Sección 4: PySpectrum 3.0](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
 - [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
 - [📋 Protocolos y SOP de Laboratorio (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md)
