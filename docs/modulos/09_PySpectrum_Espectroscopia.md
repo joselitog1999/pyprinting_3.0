@@ -96,3 +96,11 @@ Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
 
 - Si los instrumentos físicos (Shamrock o cámara Andor) no están conectados o `SAFE_MODE = True`, el sistema activa de forma transparente **`_MockShamrock`** y **`_MockAndorCCD`**.
 - La cámara virtual genera un cuadro sintético realista con ruido Gaussiano, perfil de ranura y resonancia plasmónica centrada, permitiendo ensayar algoritmos de cosido, ajustes y escaneos hiperespectrales en cualquier computadora.
+
+---
+
+## 6. 🔗 Referencias Cruzadas
+- [📘 Manual de Usuario Principal — Sección 4: PySpectrum 3.0](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
+- [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
+- [📋 Protocolos y SOP de Laboratorio (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md)
+

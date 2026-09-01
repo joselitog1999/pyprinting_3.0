@@ -152,6 +152,18 @@ def run_tests():
     hw_win = HardwareDashboardWindow()
     assert_test("Tablero de Hardware (hardware_dashboard.py)", hw_win is not None)
 
+    from core.lattice_generator import CrystalGridComposer, LatticeLayer
+    composer = CrystalGridComposer()
+    composer.layers = [LatticeLayer(name="Test", lattice_type="hexagonal", a=3.0)]
+    composer.bounding_shape = "hexagon"
+    composer.bounding_params = {"ap": 5.0}
+    res_test = composer.generate()
+    assert_test("Motor Cristalográfico (core/lattice_generator.py)", res_test["stats"]["total"] > 0)
+
+    from grid_generator import GridGeneratorWindow
+    grid_win = GridGeneratorWindow()
+    assert_test("Diseñador de Redes 2D (grid_generator.py)", grid_win is not None)
+
     import app as app_module
     app_fe = app_module.Frontend()
     app_be = app_module.Backend()
@@ -163,6 +175,37 @@ def run_tests():
     cp_be = cp_module.Backend()
     cp_fe.make_connection(cp_be)
     assert_test("Contrapropagante (contrapropagante.py)", cp_fe is not None and cp_be is not None)
+
+    # 7. Nuevas Funcionalidades: Confocal Tilt y Autocompletitud Healing Pass
+    print("\n7. Nuevas Funcionalidades (Confocal Tilt & Healing Pass)")
+    from modules.confocal import Frontend as ConfocalFE, Backend as ConfocalBE
+    from modules.focus import Backend as FocusBE
+    c_fe = ConfocalFE()
+    c_be = ConfocalBE()
+    f_be = FocusBE()
+    c_be.focus_backend = f_be
+    c_be.make_connection(c_fe)
+    c_fe.make_connection(c_be)
+    f_be.locked_focus = True
+    f_be.z_profile_lock_filter = np.ones(50)
+    tilt_ok = c_be._measure_4_corners_tilt(50.0, 50.0, 10.0, 10.0)
+    z_eval = c_be._evaluate_tilt_z(45.0, 55.0)
+    assert_test("Confocal Inclinación Dinámica Z (4 esquinas)", tilt_ok and z_eval > 0.0)
+
+    from modules.measurements import InteractiveGridWidget, Backend as MeasBE
+    igw = InteractiveGridWidget()
+    igw.set_grid(np.array([[0.0, 2.0], [0.0, 2.0], [0.0, 0.0]]))
+    igw.set_node_status(1, "retrying")
+    m_be = MeasBE(mode="printing")
+    m_be.grid_create([2, 1, 2.0, 2.0, 2.0, 2.0, False])
+    m_be.auto_complete_enabled = True
+    m_be.node_results[0] = "success"
+    m_be.node_results[1] = "timeout"
+    m_be.particulas = 2
+    m_be.i_global = 1
+    m_be._grid_detect()
+    healing_active = m_be.is_healing_pass and (m_be.healing_failed_queue == [1])
+    assert_test("Autocompletitud de Redes (Healing Pass)", igw.node_states[1] == "retrying" and healing_active)
 
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)

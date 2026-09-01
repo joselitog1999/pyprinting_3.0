@@ -118,14 +118,20 @@ La impresión óptica se basa en la transferencia dirigida de nanopartículas co
 - **Opción B: Cargar Grilla Personalizada (`Load grid (.txt)`)**:
   1. Presionar **`Load grid (.txt)`** y seleccionar un archivo `.txt` conteniendo 2 columnas $(X, Y)$ en micrómetros.
 
+- **Opción C: Diseñar Red Cristalográfica Avanzada con el Diseñador 2D (`📐 Diseñador 2D`)**:
+  1. En el dock de Grilla, hacer clic en **`📐 Diseñador 2D`** (o presionar `Ctrl+G`) para abrir [`grid_generator.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/grid_generator.py).
+  2. Seleccionar entre las 15 familias de redes 2D (Grafeno, Kagome, Lieb, Moiré, Hexagonal, TMD $\text{MoS}_2$, etc.).
+  3. Ajustar los vectores $\mathbf{a}_1, \mathbf{a}_2$, el deslizador de ángulo $\gamma \in [5^\circ, 175^\circ]$, las posiciones fraccionales $(u_j, v_j)$, y la restricción física $d_{\text{min}}$.
+  4. Exportar el archivo `.txt` unificado o el paquete multi-paso con Partícula Ancla $P_0$ y cargarlo directamente con `Load grid (.txt)`.
+
 ---
 
 ### Paso 8: Creación de la Carpeta del Lote Experimental (`PRINTING folder`)
-1. Presionar el botón **`PRINTING folder`**.
-2. El sistema creará automáticamente una subcarpeta fechada con el nombre de la grilla en el directorio del día:
+1. Presionar el botón **`PRINTING folder`** o ingresar un nombre en **`Custom Name`**.
+2. El sistema creará automáticamente una subcarpeta fechada con el nombre del lote en el directorio del día:
    `C:/Data/2026-08-06/20260806-120000_Printing_4x4_3umx3um/`
 3. El indicador se tornará **verde** mostrando la ruta del lote activo.
-4. Llenar `Extra info` con la metainformación de la muestra.
+4. Llenar `Extra info` con la metainformación de la muestra (tipo de nanopartícula, ligando, sustrato funcionalizado).
 
 ---
 
@@ -142,12 +148,25 @@ El algoritmo de interrupción en tiempo real se cargará automáticamente desde 
 
 ---
 
-### Paso 10: Ejecución de la Impresión Automatizada (`Play ►`)
+### Paso 10: Ejecución de la Impresión Automatizada (`Play ►`), Healing Pass y Monitoreo de ETA
 1. Presionar el botón **`Play ►`**.
 2. El sistema ejecutará automáticamente la secuencia ciclo a ciclo:
    $$\text{Mover a Nodo } i \longrightarrow \text{Autofoco Z (si corresponde)} \longrightarrow \text{Abrir Shutter \& Grabar Traza} \longrightarrow \text{Detección Parada} \longrightarrow \text{Cerrar Shutter \& Guardar } \texttt{NP\_iii.txt} \longrightarrow \text{Pre-Scan (Opción)} \longrightarrow \text{Mover a } i+1$$
-3. La **Barra de Estado Global** informará en vivo el progreso, y el visor **Grid Pattern & Path Viewer 🗺️** cambiará el color de los nodos impresos a 🟢 **Impresa** o 🔴 **Timeout**.
-4. Para pausar en cualquier instante, presionar **`Pause`**. Para forzar el salto al siguiente nodo, presionar **`Next index ►`**.
+3. **Telemetría y Estimador de Tiempo Restante (ETA)**:
+   - En la parte superior de la ventana, frente al casillero `Total targets`, el sistema actualiza en tiempo real el tiempo estimado restante:
+     $$\text{ETA}(k) = \langle t_{\text{raw}} \rangle \cdot (N_{\text{total}} - k) + N_{\text{AF\_rem}} \cdot t_{\text{AF}}$$
+     donde $\langle t_{\text{raw}} \rangle$ se calcula como el promedio acumulativo de las impresiones anteriores (tomando 15 s por defecto para el nodo 0).
+4. **Autocompletitud Inteligente de Redes (`Healing Pass`)**:
+   - Si la opción `🔄 Autocompletitud (Healing Pass)` está activada: al concluir el barrido primario de la grilla, el sistema no finaliza el lote si detecta nodos con estado `TIMEOUT` (no impresos).
+   - El algoritmo entra automáticamente en el **Healing Pass**:
+     1. Reúne la cola de nodos fallidos: $\mathcal{Q}_{\text{healing}} = \{k_1, k_2, \dots, k_M\}$.
+     2. Cambia el estado visual en el visor interactivo a **`retrying`** (anillo naranja `#fab387`).
+     3. Desplaza la platina al sitio de cada nodo fallido y ejecuta un **Autofoco axial *in-situ*** directo sobre el sustrato.
+     4. Concede una ventana temporal de exposición extendida: $T_{\text{max\_effective}} = T_{\text{max}} + 10.0\ \text{s}$.
+     5. Preserva la cadencia periódica de corrección de deriva XY en la Partícula 0 cada $N$ intentos totales.
+     6. Al recuperarse la partícula, estampa el metadato `# Status: SUCCESS (Healing Pass - Retry, t_print=XX.Xs)` y actualiza el nodo a 🟢 **`success`**.
+5. La **Barra de Estado Global** informará en vivo el progreso, la velocidad de deriva instantánea $\vec{v}_{\text{drift}}$ y el visor **Grid Pattern & Path Viewer 🗺️** cambiará el color de los nodos impresos a 🟢 **Impresa**, 🟠 **Reintento** o 🔴 **Timeout**.
+6. Para pausar en cualquier instante, presionar **`Pause`**. Para forzar el salto al siguiente nodo, presionar **`Next index ►`**.
 
 ---
 
@@ -168,6 +187,8 @@ El algoritmo de interrupción en tiempo real se cargará automáticamente desde 
 | **`Steps after`** | `QLineEdit` | $5 - 50$ muestras | Muestras adicionales post-cierre para registrar la meseta $I_{\text{final}}$. |
 | **`Autofocus every`** | `QLineEdit` | $1 - 100$ nodos | Frecuencia de nodos entre correcciones axiales Z por autocorrelación. |
 | **`Shift x / y (µm)`**| `QLineEdit` | $0.0 - 20.0\ \mu\text{m}$ | Vector offset lateral para ejecutar el autofoco Z en zona sin partículas. |
+| **`Autocompletitud (Healing)`** | `QCheckBox` | `ON` / `OFF` | Reintenta automáticamente nodos no impresos con autofoco in-situ y $+10\ \text{s}$. |
+| **`Inclinación Z Confocal`** | `QCheckBox` | `ON` / `OFF` | Mide el plano en las 4 esquinas del área confocal y corrige $Z(x,y)$ en vivo. |
 | **`Scan pre-print?`** | `QCheckBox` | `ON` / `OFF` | Habilita escaneo confocal de verificación previa en cada nodo. |
 | **`Set reference`** | `QPushButton` | Exec | Congela las coordenadas capacitivas actuales de la PI como $(X_0, Y_0, Z_0)$. |
 | **`PRINTING folder`** | `QPushButton` | Exec | Crea la carpeta fechada `YYYYMMDD-HHMMSS_Printing_<GridName>` en disco. |
@@ -179,19 +200,23 @@ El algoritmo de interrupción en tiempo real se cargará automáticamente desde 
 
 Al finalizar la impresión, la carpeta del lote experimental contendrá:
 
-1. **`NP_00i.txt`**: Trazas temporales de intensidad por nodo a $10\ \text{kHz}$ conteniendo 3 columnas: `Tiempo (s)`, `Señal Fotodiodo (V)`, `Potencia BS (V)`.
+1. **`NP_00i.txt`**: Trazas temporales de intensidad por nodo a $10\ \text{kHz}$ conteniendo 3 columnas: `Tiempo (s)`, `Señal Fotodiodo (V)`, `Potencia BS (V)`. Incluye encabezado con estado metrológico (`SUCCESS (Primary Pass)` o `SUCCESS (Healing Pass - Retry)`).
 2. **`NPscan_00i.tiff`**: Escaneos confocales 2D de las partículas impresas (si `Scan pre-print?` estaba activo).
 3. **`printing_error_timestamp.txt`**: Matriz de residuos de posicionamiento en nanómetros $(\Delta x_{\text{nm}}, \Delta y_{\text{nm}})$ entre el centroide real y la coordenada teórica.
-4. **`grid_info.txt`**: Resumen completo de metadatos (Láser, Criterio, Umbrales, Potencia BFP, Sustrato y Comentarios).
+4. **`grid_info.txt`**: Resumen completo de metadatos (Láser, Criterio, Umbrales, Potencia BFP, Sustrato, Estado de Healing Pass y Comentarios).
+5. **`drift_tracking_xy.txt` / `drift_tracking_z.txt`**: Historial numérico de deriva con velocidades instantáneas.
+6. **`reporte_parametros_<nombre_red>.txt`**: Informe estadístico Time-Volt con cinética de adhesión, desglose de pases primario y Healing Pass, y tasa de éxito global consolidada.
 
 ---
 
 ## 6. Documentación Relacionada y Red de Reportes
 
 - **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
-- **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
+- **Compendio Teórico**: [Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
 - **Reportes Técnicos Vinculados**:
-  - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
-  - 🧮 [Algoritmo de Parada e Impresión de Grillas y Dímeros (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
-  - 🔌 [Diagnóstico de Señales y Conexiones (reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)
-  - 📊 [Incertidumbre Metrológica ISO/GUM (reportes/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Incertidumbre_Metrologica_PyPrinting3.md)
+  - 📐 [Diseño y Generación de Redes Cristalinas 2D](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Diseno_y_Generacion_de_Redes_Cristalinas_2D_PyPrinting3.md)
+  - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
+  - 🧠 [Control Adaptativo de Frecuencia de Autofoco y Deriva](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Control_Adaptativo_de_Frecuencia_de_Autofoco_y_Deriva_PyPrinting3.md)
+  - 📊 [Análisis Time-Volt y Tracking Avanzado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Analisis_Time_Volt_y_Tracking_Avanzado_PyPrinting3.md)
+  - 🧮 [Algoritmo de Parada e Impresión de Grillas y Dímeros](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
+  - 📊 [Incertidumbre Metrológica ISO/GUM](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)

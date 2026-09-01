@@ -438,7 +438,18 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("image_analyzer.py", "Analizador de Imágenes")
         )
 
-        # 8. Tablero de Conexiones & Hardware (modules/hardware_dashboard.py)
+        # 8. Diseñador de Redes Cristalinas 2D (grid_generator.py)
+        card_lattice = ApplicationCard(
+            icon_str="📐",
+            title="Diseñador de Redes 2D",
+            subtitle="Cristalografía, Superredes & P0",
+            description="Generador universal de redes de Bravais 2D, Grafeno, Kagome, Lieb, superredes Moiré rotadas, figuras contenedoras (hexágonos, círculos) y cuadratura P0.",
+            button_text="📐 Iniciar Diseñador de Redes",
+            button_color="#CBA6F7",
+            launch_callback=lambda: self._launch_script("grid_generator.py", "Diseñador de Redes 2D")
+        )
+
+        # 9. Tablero de Conexiones & Hardware (modules/hardware_dashboard.py)
         card_hardware = ApplicationCard(
             icon_str="🛡️",
             title="Tablero de Conexiones",
@@ -449,14 +460,14 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=self._launch_hardware_dashboard
         )
 
-        # 9. Documentación y Créditos
+        # 10. Documentación y Créditos
         card_docs = DocAndCreditsCard(
             open_doc_callback=self._open_document,
             show_credits_callback=self._show_credits
         )
 
-        # Ubicación en grilla 3x3:
-        # Fila 1: Microscopio Derecho, PySpectrum (Futuro), Contrapropagante
+        # Ubicación en grilla:
+        # Fila 1: Microscopio Derecho, PySpectrum, Contrapropagante
         grid.addWidget(card_app, 0, 0)
         grid.addWidget(card_pyspectrum, 0, 1)
         grid.addWidget(card_contra, 0, 2)
@@ -466,10 +477,13 @@ class MainWindowLauncher(QMainWindow):
         grid.addWidget(card_laser, 1, 1)
         grid.addWidget(card_psf, 1, 2)
 
-        # Fila 3: Analizador de Imágenes, Tablero de Conexiones, Créditos y Guías
+        # Fila 3: Analizador de Imágenes, Diseñador de Redes 2D, Tablero de Conexiones
         grid.addWidget(card_img, 2, 0)
-        grid.addWidget(card_hardware, 2, 1)
-        grid.addWidget(card_docs, 2, 2)
+        grid.addWidget(card_lattice, 2, 1)
+        grid.addWidget(card_hardware, 2, 2)
+
+        # Fila 4: Documentación, Guías de Usuario y Créditos (ancho completo)
+        grid.addWidget(card_docs, 3, 0, 1, 3)
 
         main_vlo.addLayout(grid)
 

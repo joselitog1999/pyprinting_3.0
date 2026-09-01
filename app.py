@@ -82,6 +82,7 @@ class Frontend(QMainWindow):
         self._add_action(tm, "Cámara",                self.tools_camera)
         self._add_action(tm, "Analizador de Imágenes", self.tools_image_analyzer)
         self._add_action(tm, "PSF Analyzer",          self.tools_psf_analyzer)
+        self._add_action(tm, "Diseñador de Redes 2D", self.tools_grid_generator,   "Ctrl+G")
         self._add_action(tm, "Láser 532",             self.tools_laser532)
         self._add_action(tm, "Load Grid",             self.load_grid)
         mm = mb.addMenu("&Measurements")
@@ -153,6 +154,13 @@ class Frontend(QMainWindow):
     def tools_camera(self):         self.cameraWindow.show(); self.cameraWindow.raise_()
     def tools_image_analyzer(self): self.imageAnalyzerWindow.show(); self.imageAnalyzerWindow.raise_()
     def tools_psf_analyzer(self):   self.psfAnalyzerWindow.show(); self.psfAnalyzerWindow.raise_()
+    def tools_grid_generator(self):
+        if not hasattr(self, "_gridGenWindow") or self._gridGenWindow is None:
+            from grid_generator import GridGeneratorWindow
+            self._gridGenWindow = GridGeneratorWindow(self)
+        self._gridGenWindow.show()
+        self._gridGenWindow.raise_()
+        self._gridGenWindow.activateWindow()
     def tools_laser532(self):       self.laser532Window.show()
     def tools_hardware_dashboard(self):
         self.hardwareWindow.show()
@@ -257,6 +265,9 @@ class Backend(QObject):
         self._connect_backends()
 
     def _connect_backends(self):
+        # Vincular focus worker a confocal worker para escaneo con corrección dinámica de inclinación Z
+        self.confocalWorker.focus_backend = self.focusWorker
+
         # Focus done → leer posición
         for sig in (self.focusWorker.gotomaxdoneSignal,
                     self.focusWorker.lockdoneSignal,

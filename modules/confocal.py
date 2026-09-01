@@ -70,6 +70,7 @@ class Frontend(QFrame):
     threshold_filterSignal = pyqtSignal(float)
     saveSignal           = pyqtSignal()
     closeSignal          = pyqtSignal()
+    tiltCorrectionSignal = pyqtSignal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -125,6 +126,21 @@ class Frontend(QFrame):
     def _get_save(self):
         self.saveSignal.emit()
 
+    def _on_tilt_correction_toggled(self, checked: bool):
+        self.tiltCorrectionSignal.emit(checked)
+
+    @pyqtSlot(str, str)
+    def etaUpdate(self, eta_str: str, tot_str: str):
+        self.lbl_confocal_eta.setText(eta_str)
+        self.lbl_confocal_total.setText(tot_str)
+
+    @pyqtSlot(str)
+    def showTiltWarning(self, msg: str):
+        if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            QMessageBox.warning(self, "Inclinación Z / Lock Focus", msg)
+        else:
+            print(f"[Confocal Warning] {msg}")
+
     def _get_drift(self):
         total   = float(self.drift_totaltime.text()) * 60
         refresh = float(self.drift_refreshtime.text())
@@ -166,13 +182,21 @@ class Frontend(QFrame):
         self.scanrangeEdit_y = QLineEdit(str(DEFAULT_CONFOCAL_RANGE_Y));  self.scanrangeEdit_y.textChanged.connect(self._set_parameters)
         self.NxEdit          = QLineEdit(str(DEFAULT_CONFOCAL_PIXELS_X)); self.NxEdit.textChanged.connect(self._set_parameters)
         self.NyEdit          = QLineEdit(str(DEFAULT_CONFOCAL_PIXELS_Y)); self.NyEdit.textChanged.connect(self._set_parameters)
-        self.NxEdit.setToolTip("Múltiplos de 16 por µm")
-
         self.scanButton     = QPushButton("Start Scan")
         self.scanButtonstop = QPushButton("Stop")
         self.saveimageButton = QPushButton("Save Frame")
-        self.saveimageButton.setStyleSheet("QPushButton { background-color: rgb(200,200,10); }")
-        self.saveimageButton.setFixedWidth(110)
+        self.saveimageButton.setStyleSheet("QPushButton { background-color: rgb(200,200,10); font-weight: bold; }")
+        self.saveimageButton.setFixedWidth(95)
+
+        self.tilt_correction_check = QCheckBox("📐 Inclinación Z (4 esquinas)")
+        self.tilt_correction_check.setToolTip("Mide el foco en las 4 esquinas del área de escaneo (requiere Lock Focus F9 previo) y ajusta dinámicamente el eje Z para mantener el foco en cubreobjetos inclinados.")
+        self.tilt_correction_check.setStyleSheet("color: #89b4fa; font-weight: bold;")
+        self.tilt_correction_check.toggled.connect(self._on_tilt_correction_toggled)
+
+        self.lbl_confocal_eta = QLabel("ETA: —")
+        self.lbl_confocal_eta.setStyleSheet("color: #89dceb; font-family: monospace; font-size: 8pt;")
+        self.lbl_confocal_total = QLabel("Total: —")
+        self.lbl_confocal_total.setStyleSheet("color: #a6e3a1; font-family: monospace; font-size: 8pt;")
 
         self.scanButton.clicked.connect(self._get_scan)
         self.scanButtonstop.clicked.connect(self._get_scan_stop)
@@ -187,9 +211,17 @@ class Frontend(QFrame):
         sg.addWidget(QLabel("Range y (µm)"),  4, 1); sg.addWidget(self.scanrangeEdit_y, 4, 2)
         sg.addWidget(QLabel("Pixels x"),      5, 1); sg.addWidget(self.NxEdit,          5, 2)
         sg.addWidget(QLabel("Pixels y"),      6, 1); sg.addWidget(self.NyEdit,          6, 2)
-        sg.addWidget(self.scanButton,      7, 1)
-        sg.addWidget(self.scanButtonstop,  7, 2)
-        sg.addWidget(self.saveimageButton, 8, 2)
+        sg.addWidget(self.scanButton,         7, 1)
+        sg.addWidget(self.scanButtonstop,     7, 2)
+        sg.addWidget(self.saveimageButton,    7, 3)
+        sg.addWidget(self.tilt_correction_check, 8, 1, 1, 3)
+
+        etaBox = QWidget()
+        eta_lo = QHBoxLayout(etaBox)
+        eta_lo.setContentsMargins(0, 0, 0, 0)
+        eta_lo.addWidget(self.lbl_confocal_eta)
+        eta_lo.addWidget(self.lbl_confocal_total)
+        sg.addWidget(etaBox, 9, 1, 1, 3)
 
         # ── CM widget ─────────────────────────────────────────────────────────
         self.CMcheck     = QPushButton("Go to NP1")
@@ -341,6 +373,10 @@ class Frontend(QFrame):
         backend.CMValuesSignal.connect(self.get_CMValues)
         backend.CMValuesSignal_NP2.connect(self.get_CMValues_NP2)
         backend.plotdriftSignal.connect(self.plot_drift)
+        if hasattr(backend, "etaSignal"):
+            backend.etaSignal.connect(self.etaUpdate)
+        if hasattr(backend, "tiltWarningSignal"):
+            backend.tiltWarningSignal.connect(self.showTiltWarning)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -352,6 +388,8 @@ class Backend(QObject):
     CMValuesSignal_NP2  = pyqtSignal(list)
     scandoneSignal      = pyqtSignal()
     plotdriftSignal     = pyqtSignal(list)
+    etaSignal           = pyqtSignal(str, str)
+    tiltWarningSignal   = pyqtSignal(str)
 
     # Señal unificada: (image, center_mass, image_gone, image_back, mode, number_scan)
     # center_mass = [] para scans sin CM (pree, post)
@@ -369,6 +407,11 @@ class Backend(QObject):
         self.mode_printing     = "none"
         self.number_scan       = "none"
         self.signal_scan_stop  = False
+        self.focus_backend     = None
+
+        # Corrección dinámica de altura (plano de inclinación Z)
+        self.tilt_correction_enabled: bool = False
+        self.tilt_plane = None  # (z0, alpha, beta, x_TL, y_TL)
 
         self.PDtimer_stepxy = None
         self.PDtimer_rampxy = None
@@ -385,6 +428,86 @@ class Backend(QObject):
         except Exception:
             self.x_pos = self.y_pos = 50.0
             self.z_pos = 10.0
+
+    @pyqtSlot(bool)
+    def set_tilt_correction(self, enabled: bool):
+        self.tilt_correction_enabled = enabled
+        print(f"[Confocal] [Tilt] Correccion de inclinacion Z: {'ACTIVADA' if enabled else 'DESACTIVADA'}")
+
+    def _evaluate_tilt_z(self, x: float, y: float) -> float:
+        if self.tilt_plane is None:
+            return getattr(self, "z_pos", 10.0)
+        z0, alpha, beta, x_TL, y_TL = self.tilt_plane
+        z_target = z0 + alpha * (x - x_TL) + beta * (y - y_TL)
+        return max(1.0, min(99.0, z_target))
+
+    def _measure_4_corners_tilt(self, x_center: float, y_center: float, range_x: float, range_y: float) -> bool:
+        """
+        Mide el Z óptimo en las 4 esquinas del área confocal mediante autocorrelación axial (Lock Focus).
+        Calcula el plano 2D: z(x, y) = z0 + alpha*(x - x_TL) + beta*(y - y_TL)
+        """
+        if self.focus_backend is not None and hasattr(self.focus_backend, "locked_focus"):
+            if not self.focus_backend.locked_focus:
+                print("[Confocal Tilt] [WARN] Lock Focus no realizado previo al escaneo con correccion de inclinacion.")
+                self.tiltWarningSignal.emit("Debe realizar Lock Focus (F9) sobre vidrio limpio antes de escanear con corrección de inclinación Z.")
+                return False
+
+        half_x = range_x / 2.0
+        half_y = range_y / 2.0
+        corners = [
+            ("TL", x_center - half_x, y_center + half_y),
+            ("TR", x_center + half_x, y_center + half_y),
+            ("BR", x_center + half_x, y_center - half_y),
+            ("BL", x_center - half_x, y_center - half_y),
+        ]
+
+        measured_z = []
+        x_TL, y_TL = corners[0][1], corners[0][2]
+
+        for name, cx, cy in corners:
+            cx_c = max(0.0, min(100.0, cx))
+            cy_c = max(0.0, min(100.0, cy))
+            pi.MOV([1, 2], [cx_c, cy_c])
+            time.sleep(0.05)
+
+            if self.focus_backend is not None and hasattr(self.focus_backend, "_focus_autocorr_lin"):
+                try:
+                    self.focus_backend._focus_autocorr_lin()
+                    pos = pi.qPOS()
+                    z_meas = float(pos.get("3", 10.0))
+                except Exception as e:
+                    print(f"[Confocal Tilt] Error midiendo esquina {name}: {e}")
+                    pos = pi.qPOS()
+                    z_meas = float(pos.get("3", 10.0))
+            else:
+                pos = pi.qPOS()
+                z_meas = float(pos.get("3", 10.0))
+
+            measured_z.append((cx, cy, z_meas))
+            print(f"[Confocal Tilt] Esquina {name} ({cx:.2f}, {cy:.2f}) um -> Z = {z_meas:.3f} um")
+
+        z0 = measured_z[0][2]
+
+        A = []
+        b = []
+        for cx, cy, cz in measured_z:
+            A.append([cx - x_TL, cy - y_TL])
+            b.append(cz - z0)
+        A = np.array(A)
+        b = np.array(b)
+
+        try:
+            sol, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
+            alpha, beta = float(sol[0]), float(sol[1])
+        except Exception as e:
+            print(f"[Confocal Tilt] Error en ajuste de plano: {e}")
+            alpha, beta = 0.0, 0.0
+
+        self.tilt_plane = (z0, alpha, beta, x_TL, y_TL)
+        print(f"[Confocal Tilt] [OK] Plano calculado: z(x,y) = {z0:.3f} + {alpha:.5f}*(x - {x_TL:.2f}) + {beta:.5f}*(y - {y_TL:.2f})")
+
+        pi.MOV([1, 2, 3], [max(0.0, min(100.0, x_TL)), max(0.0, min(100.0, y_TL)), max(0.0, min(100.0, z0))])
+        return True
 
     def _ensure_timers(self):
         if self.PDtimer_rampxy is None:
@@ -476,6 +599,16 @@ class Backend(QObject):
         self.image      = np.zeros((self.Ny, self.Nx))
         self.image_gone = np.zeros((self.Ny, self.Nx))
         self.image_back = np.zeros((self.Ny, self.Nx))
+
+        # Muestreo previo de 4 esquinas si la corrección de inclinación Z está activa
+        if getattr(self, "tilt_correction_enabled", False):
+            x_c, y_c, z_c = self._read_pos()
+            ok = self._measure_4_corners_tilt(x_c, y_c, self.range_x, self.range_y)
+            if not ok:
+                print("[Confocal] ⚠️ Cancelando inicio de escaneo (Lock focus no preparado).")
+                self.scandoneSignal.emit()
+                return
+
         if self.scan_mode_option == SCAN_MODES[0]:
             dispatch = {PSF_MODES[0]: self._start_ramp_xy,
                         PSF_MODES[1]: self._start_ramp_xz,
@@ -523,20 +656,38 @@ class Backend(QObject):
     def _scan_step_xy(self):
         if self.j < self.Ny:
             if self.i < self.Nx:
-                pi.MOV([1, 2], [self.matrix_scan_step[0][self.i],
-                                self.matrix_scan_step[1][self.j]])
+                target_x = self.matrix_scan_step[0][self.i]
+                target_y = self.matrix_scan_step[1][self.j]
+                if getattr(self, "tilt_correction_enabled", False):
+                    target_z = self._evaluate_tilt_z(target_x, target_y)
+                    pi.MOV([1, 2, 3], [target_x, target_y, target_z])
+                else:
+                    pi.MOV([1, 2], [target_x, target_y])
                 task = channels_photodiodos(self.rate, self.Nph)
                 raw  = task.read(self.Nph); task.wait_until_done(); task.close()
                 self.image[self.j, self.i] = np.mean(raw[PD_CHANS_LIST.index(PD_CHANNELS[self.laser])])
                 self.dataSignal.emit(self.image); self.i += 1
             else:
                 self.i = 0; self.j += 1
+                # Actualización de ETA y Tiempo Total cada 5 filas
+                if self.j % 5 == 0 or self.j == self.Ny:
+                    elapsed = time.time() - self.tic
+                    t_per_row = elapsed / max(1, self.j)
+                    rem_rows = max(0, self.Ny - self.j)
+                    eta_sec = t_per_row * rem_rows
+                    tot_sec = t_per_row * self.Ny
+                    eta_m, eta_s = divmod(int(eta_sec), 60)
+                    tot_m, tot_s = divmod(int(tot_sec), 60)
+                    eta_str = f"ETA: {eta_m:02d}m {eta_s:02d}s"
+                    tot_str = f"Total: ~{tot_m:02d}m {tot_s:02d}s"
+                    self.etaSignal.emit(eta_str, tot_str)
         else:
             self.PDtimer_stepxy.stop()
             self.signal_scan_stop = True
             close_shutter(self.laser)
             time.sleep(0.1)
             x_o, y_o = self._CMmeasure()
+            self.etaSignal.emit("ETA: 00m 00s", f"Total: {int(time.time()-self.tic)}s")
             print(f"[Confocal] Step scan done {round(time.time()-self.tic,2)}s")
             self._post_scan_dispatch(x_o, y_o)
 
@@ -655,7 +806,12 @@ class Backend(QObject):
     def _scan_ramp_xy(self):
         dy = self.range_y / self.Ny
         if self.i < self.Ny:
-            pi.MOV(2, self.y_pos - self.range_y/2 + dy/2 + self.i*dy)
+            target_y = self.y_pos - self.range_y/2 + dy/2 + self.i*dy
+            if getattr(self, "tilt_correction_enabled", False):
+                target_z = self._evaluate_tilt_z(self.x_pos, target_y)
+                pi.MOV([2, 3], [target_y, target_z])
+            else:
+                pi.MOV(2, target_y)
             gone, back = self._ramp_x_line()
             self.image_gone[self.i, :] = _average(gone, self.Nx)
             self.image_back[self.i, :] = _average(back, self.Nx)
@@ -914,6 +1070,8 @@ class Backend(QObject):
         frontend.threshold_filterSignal.connect(self.set_threshold_filter)
         frontend.saveSignal.connect(self.saveFrame)
         frontend.closeSignal.connect(self.close)
+        if hasattr(frontend, "tiltCorrectionSignal"):
+            frontend.tiltCorrectionSignal.connect(self.set_tilt_correction)
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────

@@ -84,6 +84,7 @@ El módulo **Measurements** es el motor principal de **nanofabricación óptica 
 | `Set reference` | `QPushButton` | — | Fija la posición actual de la platina PI como origen $(X_0, Y_0, Z_0)$ (botón verde). |
 | `Go reference` | `QPushButton` | — | Desplaza la platina PI inmediatamente al punto de referencia $(X_0, Y_0, Z_0)$. |
 | `Reset all 🔄` | `QPushButton` | — | Restaura a cero todas las referencias, acumuladores de deriva, estados y casillas. |
+| `📐 Diseñador 2D` | `QPushButton` | — | Abre el Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`) para Bravais, Moiré y recetas multi-paso con P0. |
 | `Play ►` / `Pause`| `QPushButton` | — | Inicia, pausa o reanuda la secuencia automatizada de nanoposicionamiento e impresión. |
 | `Next index ►` | `QPushButton` | — | Salta inmediatamente el nodo actual y avanza a la siguiente partícula de la grilla. |
 
@@ -226,6 +227,12 @@ PyPrinting 3.0 implementa un lazo cerrado en tiempo real que modula la frecuenci
 
 ### 9.2 Registro Pasivo Universal
 Aún cuando la casilla `Adaptive AF?` esté desmarcada (modo estático/manual), el sistema calcula continuamente las velocidades reales y coloca en el reporte y en `grid_info.txt` el diagnóstico de estabilidad térmica y el $N_{\text{sugerido}}$ para contraste experimental.
+
+### 9.3 Estimación Predictiva de Tiempo Restante (ETA)
+En la parte superior de la ventana de `Measurements`, junto a la indicación de *Total Targets*, la aplicación muestra en tiempo real el tiempo estimado para finalizar la impresión completa del lote:
+$$\text{ETA}(k) = \langle t_{\text{raw}} \rangle \cdot (N_{\text{total}} - k) + N_{\text{AF\_rem}} \cdot t_{\text{AF}}$$
+- Para el primer nodo ($k=0$), se utiliza un valor semilla estándar de $\langle t_{\text{raw}} \rangle = 15.0\ \text{s}$.
+- A partir de la primera partícula impresa con éxito, $\langle t_{\text{raw}} \rangle$ se actualiza dinámicamente con el promedio acumulado real de las impresiones anteriores, adaptándose a la concentración coloidal y cinética del día.
 
 ---
 

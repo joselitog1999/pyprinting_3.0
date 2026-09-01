@@ -209,22 +209,27 @@ class InteractiveGridWidget(QFrame):
         self.plot.autoRange()
 
     def set_node_status(self, idx: int, status: str):
-        """Actualiza el estado del nodo idx ('active', 'success', 'timeout', 'pending')."""
+        """Actualiza el estado del nodo idx ('active', 'retrying', 'success', 'timeout', 'pending')."""
         if self.grid_coords is None or idx < 0 or idx >= len(self.node_states):
             return
 
         # Si el anterior estaba en 'active', revertir a 'success' si no era timeout
         for i, st in enumerate(self.node_states):
-            if st == "active" and i != idx:
-                self.node_states[i] = "success"
+            if st in ("active", "retrying") and i != idx:
+                if st == "active" and self.node_states[i] not in ("timeout", "pending"):
+                    self.node_states[i] = "success"
 
         self.node_states[idx] = status
 
         x_disp = self.grid_coords[1, :]  # Y_stage (pantalla horiz)
         y_disp = self.grid_coords[0, :]  # X_stage (pantalla vert)
 
-        if status == "active":
+        if status in ("active", "retrying"):
             self.active_ring.setData([x_disp[idx]], [y_disp[idx]])
+            pen_color = "#fab387" if status == "retrying" else "#f9e2af"
+            self.active_ring.setPen(pg.mkPen(pen_color, width=2))
+        elif all(s not in ("active", "retrying") for s in self.node_states):
+            self.active_ring.clear()
 
         self._update_scatter()
 
@@ -237,10 +242,11 @@ class InteractiveGridWidget(QFrame):
         N = len(x_disp)
 
         color_map = {
-            "pending": "#45475a",
-            "active":  "#f9e2af",
-            "success": "#a6e3a1",
-            "timeout": "#f38ba8",
+            "pending":  "#45475a",
+            "active":   "#f9e2af",
+            "retrying": "#fab387",  # Naranja cálido para nodos en Healing Pass
+            "success":  "#a6e3a1",
+            "timeout":  "#f38ba8",
         }
 
         spots = []
@@ -253,7 +259,7 @@ class InteractiveGridWidget(QFrame):
                 'brush': pg.mkBrush(col),
                 'pen': pg.mkPen('#11111b', width=1),
                 'symbol': 'o',
-                'size': 16 if st == 'active' else 14
+                'size': 16 if st in ('active', 'retrying') else 14
             })
 
         self.scatter_item.setData(spots)
@@ -759,6 +765,15 @@ class Frontend(QFrame):
             "QPushButton { background-color: orange; }"
             "QPushButton:pressed { background-color: blue; }")
 
+        self.btn_open_grid_generator = QPushButton("📐 Diseñador 2D")
+        self.btn_open_grid_generator.setToolTip("Abre el Diseñador Universal de Redes Cristalinas 2D (Bravais, Moiré, figuras y recetas multi-paso con P0).")
+        self.btn_open_grid_generator.clicked.connect(self._open_grid_generator)
+        self.btn_open_grid_generator.setStyleSheet(
+            "QPushButton { background-color: #313244; color: #cba6f7; font-weight: bold; border: 1px solid #45475a; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #45475a; color: white; }"
+            "QPushButton:pressed { background-color: #585b70; }"
+        )
+
         # ── Info extra ────────────────────────────────────────────────────────
         self.powerlaser  = QLineEdit("—"); self.powerlaser.setToolTip("Potencia medida en la pupila trasera del objetivo (BFP en mW).")
         self.typeNP      = QLineEdit("—"); self.typeNP.setToolTip("Tipo y tamaño de la solución coloidal de nanopartículas (ej. AuNP 60 nm).")
@@ -803,7 +818,8 @@ class Frontend(QFrame):
         glo.addWidget(QLabel("Dist NP (µm)"),   2, 0); glo.addWidget(self.distance_files,  2, 1)
         glo.addWidget(QLabel("Dist col (µm)"),  3, 0); glo.addWidget(self.distance_columns,3, 1)
         glo.addWidget(self.grid_create_button,  4, 0, 1, 2)
-        glo.addWidget(self.cargar_archivo_button,5,0,1,2)
+        glo.addWidget(self.cargar_archivo_button,5,0, 1, 2)
+        glo.addWidget(self.btn_open_grid_generator, 6, 0, 1, 2)
 
         # Print control widget (Multi-column layout expandido)
         pcW = QWidget(); plo = QGridLayout(pcW)
@@ -864,11 +880,18 @@ class Frontend(QFrame):
         plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
         plo.addWidget(self.next_button,        9, 2, 1, 1 if self.mode == "dimers" else 2)
 
-        # Fila 10: Total targets | Time Remaining (ETA)
-        plo.addWidget(QLabel("Total targets:"), 10, 0); plo.addWidget(self.particulasEdit,        10, 1)
-        plo.addWidget(QLabel("Time Rem ⏱️:"),   10, 2); plo.addWidget(self.time_remaining_label, 10, 3)
+        # Fila 10: Checkbox de Autocompletitud Inteligente (Healing Pass)
+        self.auto_complete_check = QCheckBox("🔄 Autocompletitud de redes (Healing Pass)")
+        self.auto_complete_check.setChecked(False)
+        self.auto_complete_check.setStyleSheet("color: #fab387; font-weight: bold;")
+        self.auto_complete_check.setToolTip("Al finalizar la grilla, reintenta automáticamente los nodos con TIMEOUT ejecutando autofoco in-situ y tiempo extendido (+10s).")
+        plo.addWidget(self.auto_complete_check, 10, 0, 1, 4)
 
-        # Fila 11: Target Index | Barra de progreso de avance
+        # Fila 11: Total targets | Time Remaining (ETA)
+        plo.addWidget(QLabel("Total targets:"), 11, 0); plo.addWidget(self.particulasEdit,        11, 1)
+        plo.addWidget(QLabel("Time Rem ⏱️:"),   11, 2); plo.addWidget(self.time_remaining_label, 11, 3)
+
+        # Fila 12: Target Index | Barra de progreso de avance
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -877,8 +900,8 @@ class Frontend(QFrame):
             "QProgressBar { text-align: center; border: 1px solid #45475a; border-radius: 4px; background-color: #1e1e2e; color: #cdd6f4; font-size: 8pt; }"
             "QProgressBar::chunk { background-color: #a6e3a1; }"
         )
-        plo.addWidget(QLabel("Target Index:"),  11, 0); plo.addWidget(self.indice_impresionEdit, 11, 1)
-        plo.addWidget(QLabel("Progreso Lote:"), 11, 2); plo.addWidget(self.progress_bar,        11, 3)
+        plo.addWidget(QLabel("Target Index:"),  12, 0); plo.addWidget(self.indice_impresionEdit, 12, 1)
+        plo.addWidget(QLabel("Progreso Lote:"), 12, 2); plo.addWidget(self.progress_bar,        12, 3)
 
         # Focus shift & Drift correction widget
         fsW = QWidget(); flo = QGridLayout(fsW)
@@ -965,6 +988,14 @@ class Frontend(QFrame):
 
         # Inicializar visibilidad dinámica de casilleros según Modo 0 por defecto
         self._on_stopping_mode_changed(0)
+
+    def _open_grid_generator(self):
+        if not hasattr(self, "_gridGenWindow") or self._gridGenWindow is None:
+            from grid_generator import GridGeneratorWindow
+            self._gridGenWindow = GridGeneratorWindow(self)
+        self._gridGenWindow.show()
+        self._gridGenWindow.raise_()
+        self._gridGenWindow.activateWindow()
 
     def _on_grid_node_clicked(self, idx: int):
         self.indice_impresionEdit.setText(str(idx))
@@ -1142,7 +1173,8 @@ class Frontend(QFrame):
             self.track_time_volt_check.isChecked(),
             self.custom_name_edit.text().strip(),
             self.adaptive_af_check.isChecked(),
-            float(self.drift_tol_edit.text() or 25.0)
+            float(self.drift_tol_edit.text() or 25.0),
+            self.auto_complete_check.isChecked()
         ]
         scanbool     = self.scan_check.isChecked()
         postscanbool = self.postscan_check.isChecked() if self.mode == "dimers" else False
@@ -1167,6 +1199,7 @@ class Frontend(QFrame):
                 ["Track Drift XY:", "ON" if self.track_drift_xy_check.isChecked() else "OFF"],
                 ["Track Drift Z:", "ON" if self.track_drift_z_check.isChecked() else "OFF"],
                 ["Track Time-Volt:", "ON" if self.track_time_volt_check.isChecked() else "OFF"],
+                ["Auto-Complete (Healing):", "ON" if self.auto_complete_check.isChecked() else "OFF"],
                 ["Time Remaining (ETA):", self.time_remaining_label.text()],
                 ["Comments:", self.extra_info.text()]]
         self.gridinfoSignal.emit(info)
@@ -1379,6 +1412,15 @@ class Backend(QObject):
         self.v_eff_current: float = 0.0
         self.v_drift_xy_history: list = []
         self.v_drift_z_history: list = []
+
+        # Autocompletitud inteligente de redes (Healing Pass)
+        self.auto_complete_enabled: bool = False
+        self.is_healing_pass: bool       = False
+        self.healing_failed_queue: list  = []
+        self.healing_index_in_queue: int = 0
+        self.total_print_attempts: int   = 0
+        self.effective_timemax: float    = 20.0
+        self.node_results: dict          = {}
 
         self.grid_name     = "unnamed"
         self.grid_x        = np.array([0.0])
@@ -1662,8 +1704,13 @@ class Backend(QObject):
             self.drift_tolerance_nm = float(params[24])
         else:
             self.drift_tolerance_nm = 25.0
+        if len(params) > 25:
+            self.auto_complete_enabled = bool(params[25])
+        else:
+            self.auto_complete_enabled = False
         self.scanbool       = scanbool
-        self.postscanbool   = postscanbool
+        postscanbool_val    = postscanbool if self.mode_arg == "dimers" else False
+        self.postscanbool   = postscanbool_val
         self.hold_counter   = 0
         if hasattr(self, 'stepsParametersSignal'):
             self.stepsParametersSignal.emit([self.steps_after, self.steps_before])
@@ -1684,12 +1731,18 @@ class Backend(QObject):
             self._grid_move()
 
     def _grid_start(self):
-        self.mode_printing   = self.mode_arg
-        self.is_paused       = False
-        self.autofocus_stage = "idle"
-        self.grid_start_time = time.time()
-        self.startX          = self.xref
-        self.startY          = self.yref
+        self.mode_printing        = self.mode_arg
+        self.is_paused            = False
+        self.is_healing_pass      = False
+        self.healing_failed_queue = []
+        self.healing_index_in_queue = 0
+        self.total_print_attempts = 0
+        self.node_results.clear()
+        self.effective_timemax    = getattr(self, "timemax", 20.0)
+        self.autofocus_stage      = "idle"
+        self.grid_start_time      = time.time()
+        self.startX               = self.xref
+        self.startY               = self.yref
         self.printing_error_x = []; self.printing_error_y = []
         self.drift_history_xy = []
         self.drift_history_z  = []
@@ -1992,16 +2045,30 @@ class Backend(QObject):
             should_stop = False
 
         # 4. Decisión Final de Parada del Obturador
-        if should_stop or (I_new < I_old * self.umbral_down) or (elapsed > self.timemax):
+        effective_tmax = getattr(self, "effective_timemax", self.timemax) if getattr(self, "is_healing_pass", False) else self.timemax
+
+        if should_stop or (I_new < I_old * self.umbral_down) or (elapsed > effective_tmax):
             self.grid_trace_stopSignal.emit()
             close_shutter(self.laser)
             self.timer_real = round(elapsed, 2)
+
+            if should_stop:
+                self.node_results[self.i_global] = "success"
+                self.nodeStatusSignal.emit(self.i_global, "success")
+            else:
+                self.node_results[self.i_global] = "timeout"
+                self.nodeStatusSignal.emit(self.i_global, "timeout")
+
             self._save_trace()
 
             # Actualizar promedio de t_raw y calcular ETA restante
             self.t_raw_history.append(float(self.timer_real))
             mean_t = float(np.mean(self.t_raw_history))
-            rem_nodes = max(0, getattr(self, "particulas", 1) - (self.i_global + 1))
+            if not getattr(self, "is_healing_pass", False):
+                rem_nodes = max(0, getattr(self, "particulas", 1) - (self.i_global + 1))
+            else:
+                rem_nodes = max(0, len(self.healing_failed_queue) - (self.healing_index_in_queue + 1))
+
             if rem_nodes > 0:
                 eta_val = rem_nodes * mean_t
                 eta_text = self._format_eta(eta_val)
@@ -2011,10 +2078,6 @@ class Backend(QObject):
                 self.timeRemainingSignal.emit(eta_text)
             print(f"[ETA] ⏱️ <t_raw>={mean_t:.2f}s | N_restantes={rem_nodes} -> ETA: {eta_text}")
 
-            if should_stop:
-                self.nodeStatusSignal.emit(self.i_global, "success")
-            else:
-                self.nodeStatusSignal.emit(self.i_global, "timeout")
             self.grid_detectSignal.emit()
 
     @pyqtSlot()
@@ -2166,7 +2229,7 @@ class Backend(QObject):
         """
         Analiza todas las trazas NP_*.txt del lote, ajusta la función salto (V_low, V_high, t_step),
         calcula la estadística global de tiempos y voltajes, cinética de deriva termomecánica
-        y genera reporte_parametros_<nombre_red>.txt.
+        y genera reporte_parametros_<nombre_red>.txt con desglose de pases primario y Healing Pass.
         """
         if not folder_path or not os.path.exists(folder_path):
             return
@@ -2190,6 +2253,17 @@ class Backend(QObject):
                 base = os.path.basename(file_p)
                 node_str = "".join(filter(str.isdigit, base))
                 node_idx = int(node_str) if node_str else len(rows) + 1
+
+                # Leer tag de encabezado si fue Healing Pass
+                tag = "Primary Pass"
+                try:
+                    with open(file_p, "r", encoding="utf-8") as hf:
+                        first_line = hf.readline()
+                        if "Healing Pass" in first_line:
+                            tag = "Healing Pass (Retry)"
+                except Exception:
+                    pass
+
                 data = np.loadtxt(file_p, unpack=True)
                 if data.ndim < 2 or data.shape[1] == 0:
                     continue
@@ -2233,7 +2307,8 @@ class Backend(QObject):
                     "v_high": v_high,
                     "delta_v": delta_v,
                     "ratio": ratio,
-                    "status": status
+                    "status": status,
+                    "tag": tag
                 })
             except Exception as e:
                 print(f"[Time-Volt Tracking Error] Leyendo {file_p}: {e}")
@@ -2268,9 +2343,9 @@ class Backend(QObject):
 
         try:
             with open(report_path, "w", encoding="utf-8") as f:
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
                 f.write("REPORTE DE PARÁMETROS Y ANÁLISIS TIME-VOLT — PyPrinting 3.0\n")
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
                 f.write(f"Fecha y Hora:             {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Lote Experimental:        {os.path.basename(folder_path)}\n")
                 f.write(f"Nombre de Red / Lote:     {name_tag}\n")
@@ -2279,22 +2354,32 @@ class Backend(QObject):
                 f.write(f"Umbral Relativo Config:   {getattr(self, 'umbral', 1.2):.2f}\n")
                 f.write(f"Umbral Absoluto Config:   {getattr(self, 'umbral_abs_v', 2.5):.2f} V\n")
                 f.write(f"Tiempo Máximo (T max):    {getattr(self, 'timemax', 20.0):.2f} s\n")
+                f.write(f"Autocompletitud (Healing):{'ACTIVADA' if getattr(self, 'auto_complete_enabled', False) else 'DESACTIVADA'}\n")
                 f.write(f"Steps Before / After:     {getattr(self, 'steps_before', 10)} / {getattr(self, 'steps_after', 10)}\n\n")
 
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
                 f.write("1. TABLA PARTÍCULA A PARTÍCULA (AJUSTE DE FUNCIÓN SALTO EN TRAZAS)\n")
-                f.write("=" * 95 + "\n")
-                f.write(f"{'Node':<6}{'t_raw (s)':<12}{'t_step (s)':<13}{'Latencia(s)':<13}{'V_low (V)':<12}{'V_high (V)':<12}{'Delta_V(V)':<12}{'Ratio':<10}{'Estado':<15}\n")
-                f.write("-" * 95 + "\n")
+                f.write("=" * 110 + "\n")
+                f.write(f"{'Node':<6}{'t_raw (s)':<12}{'t_step (s)':<13}{'Latencia(s)':<13}{'V_low (V)':<12}{'V_high (V)':<12}{'Delta_V(V)':<12}{'Ratio':<10}{'Estado':<15}{'Pase':<20}\n")
+                f.write("-" * 110 + "\n")
                 for r in rows:
-                    f.write(f"{r['node']:03d}   {r['t_raw']:<12.3f}{r['t_step']:<13.3f}{r['latency']:<13.3f}{r['v_low']:<12.3f}{r['v_high']:<12.3f}{r['delta_v']:<+12.3f}{r['ratio']:<10.2f}{r['status']:<15}\n")
+                    f.write(f"{r['node']:03d}   {r['t_raw']:<12.3f}{r['t_step']:<13.3f}{r['latency']:<13.3f}{r['v_low']:<12.3f}{r['v_high']:<12.3f}{r['delta_v']:<+12.3f}{r['ratio']:<10.2f}{r['status']:<15}{r.get('tag', 'Primary Pass'):<20}\n")
 
-                f.write("\n" + "=" * 95 + "\n")
+                f.write("\n" + "=" * 110 + "\n")
                 f.write("2. ESTADÍSTICAS GLOBALES DEL LOTE\n")
-                f.write("=" * 95 + "\n")
-                f.write(f"- Partículas Totales Analizadas:  {total_cnt}\n")
-                f.write(f"- Eventos Exitosos (Impresión):  {success_cnt} ({success_rate:.1f}%)\n")
-                f.write(f"- Timeouts / Sin Salto:          {total_cnt - success_cnt} ({100.0 - success_rate:.1f}%)\n\n")
+                f.write("=" * 110 + "\n")
+                healing_rows = [r for r in rows if "Healing Pass" in r.get("tag", "")]
+                primary_rows = [r for r in rows if "Healing Pass" not in r.get("tag", "")]
+                healing_success = sum(1 for r in healing_rows if r["status"] == "SUCCESS")
+                primary_success = sum(1 for r in primary_rows if r["status"] == "SUCCESS")
+
+                f.write(f"- Partículas Totales Analizadas:     {total_cnt}\n")
+                f.write(f"- Eventos Exitosos Finales:          {success_cnt} ({success_rate:.1f}%)\n")
+                if healing_rows:
+                    f.write(f"  * Éxito en Pase Primario:          {primary_success}/{len(primary_rows)} ({primary_success/max(1,len(primary_rows))*100:.1f}%)\n")
+                    f.write(f"  * Nodos Reintentados (Healing):    {len(healing_rows)}\n")
+                    f.write(f"  * Recuperados en Healing Pass:     {healing_success}/{len(healing_rows)} ({healing_success/max(1,len(healing_rows))*100:.1f}%)\n")
+                f.write(f"- Timeouts / Sin Salto Finales:      {total_cnt - success_cnt} ({100.0 - success_rate:.1f}%)\n\n")
 
                 f.write(f"- Tiempo Raw Promedio <t_raw>:   {np.mean(t_raw_vals):.3f} ± {np.std(t_raw_vals):.3f} s  (Min: {np.min(t_raw_vals):.3f} s, Max: {np.max(t_raw_vals):.3f} s)\n")
                 f.write(f"- Tiempo Step Promedio <t_step>: {np.mean(t_step_vals):.3f} ± {np.std(t_step_vals):.3f} s  (Min: {np.min(t_step_vals):.3f} s, Max: {np.max(t_step_vals):.3f} s)\n")
@@ -2305,9 +2390,9 @@ class Backend(QObject):
                 f.write(f"- Salto Promedio <Delta_V>:      {np.mean(delta_v_vals):+.3f} ± {np.std(delta_v_vals):.3f} V\n")
                 f.write(f"- Ratio de Salto Promedio:       {np.mean(ratio_vals):.2f} ± {np.std(ratio_vals):.2f}\n\n")
 
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
                 f.write("3. DIAGNÓSTICO Y RECOMENDACIONES DE OPTIMIZACIÓN\n")
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
                 mean_ratio = float(np.mean(ratio_vals))
                 cur_umbral = getattr(self, 'umbral', 1.2)
                 if mean_ratio > cur_umbral * 1.3:
@@ -2322,9 +2407,9 @@ class Backend(QObject):
                 mean_lat = float(np.mean(latency_vals))
                 f.write(f"* Latencia de Obturación Promedio: {mean_lat:.3f} s.\n\n")
 
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
                 f.write("4. CINÉTICA DE DERIVA TERMOMECÁNICA Y CONTROL ADAPTATIVO\n")
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
                 v_xy_list = getattr(self, "v_drift_xy_history", [])
                 v_z_list  = getattr(self, "v_drift_z_history", [])
                 mean_v_xy = float(np.mean(v_xy_list)) if v_xy_list else 0.0
@@ -2353,7 +2438,7 @@ class Backend(QObject):
                         f.write("  -> DERIVA MODERADA: El régimen nominal (N = 3 a 5) es adecuado.\n")
                 else:
                     f.write("* Deriva residual despreciable durante el lote. Intervalo recomendado: N = 8 - 10.\n")
-                f.write("=" * 95 + "\n")
+                f.write("=" * 110 + "\n")
             print(f"[Time-Volt Tracking] 📊 Reporte de parámetros guardado en: {report_path}")
         except Exception as e:
             print(f"[Time-Volt Tracking Error] Al guardar {report_path}: {e}")
@@ -2365,42 +2450,107 @@ class Backend(QObject):
         })
 
     def _grid_detect(self):
+        # Si estamos ejecutando el pase de autocompletitud (Healing Pass)
+        if getattr(self, "is_healing_pass", False):
+            self.healing_index_in_queue += 1
+            self._advance_healing_pass()
+            return
+
         Nmax = self.particulas - 1
         if self.i_global >= Nmax:
-            finished_folder = getattr(self, 'new_folder', self.old_folder)
-            self.file_path = self.old_folder
-            self.mode_printing = "none"
-            self.is_paused = False
+            # Fin del pase principal: verificar si se activa Healing Pass para nodos no impresos
+            if getattr(self, "auto_complete_enabled", False):
+                failed_nodes = [idx for idx, status in self.node_results.items() if status == "timeout"]
+                if failed_nodes:
+                    print(f"[Healing Pass] 🔄 Iniciando reintento de {len(failed_nodes)} nodos no impresos: {failed_nodes}")
+                    self.is_healing_pass = True
+                    self.healing_failed_queue = list(failed_nodes)
+                    self.healing_index_in_queue = 0
+                    self._advance_healing_pass()
+                    return
 
-            # Guardar archivos .txt de tracking de deriva si corresponde
-            self._save_drift_tracking_files(finished_folder)
-
-            # Generar reporte de parámetros Time-Volt si corresponde
-            if getattr(self, "track_time_volt", True):
-                self._generate_time_volt_report(finished_folder)
-
-            self.namefolderSignal.emit(self.old_folder)
-            self.indexSignal.emit(self.i_global + 1)
-            if hasattr(self, "timeRemainingSignal"):
-                self.timeRemainingSignal.emit("Completado 🎉")
-            self.patternFinishedSignal.emit(finished_folder)
-
-            if getattr(self, "track_drift_xy", True) or getattr(self, "track_drift_z", True):
-                v_xy_list = getattr(self, "v_drift_xy_history", [])
-                v_z_list  = getattr(self, "v_drift_z_history", [])
-                mean_v_xy = float(np.mean(v_xy_list)) if v_xy_list else 0.0
-                mean_v_z  = float(np.mean(v_z_list)) if v_z_list else 0.0
-                self.driftTrackingFinishedSignal.emit({
-                    "xy": self.drift_history_xy,
-                    "z": self.drift_history_z,
-                    "folder": finished_folder,
-                    "mean_v_xy": mean_v_xy,
-                    "mean_v_z": mean_v_z
-                })
+            # Fin normal del patrón
+            self._finalize_grid_measurement()
         else:
             self.i_global += 1
+            self.total_print_attempts += 1
             self.indexSignal.emit(self.i_global)
             self._grid_move()
+
+    def _advance_healing_pass(self):
+        """
+        Ejecuta el ciclo de reintento inteligente (Healing Pass) para nodos fallidos.
+        Posiciona en el nodo, evalúa la necesidad de corrección de deriva XY en P0 (cada N partículas),
+        realiza autofoco in-situ en el sitio exacto y activa la traza con tiempo extendido (+10s).
+        """
+        if not getattr(self, "healing_failed_queue", None) or self.healing_index_in_queue >= len(self.healing_failed_queue):
+            print("[Healing Pass] 🎉 Todos los nodos del pase de autocompletitud han sido procesados.")
+            self.is_healing_pass = False
+            self._finalize_grid_measurement()
+            return
+
+        target_node = self.healing_failed_queue[self.healing_index_in_queue]
+        self.i_global = target_node
+        self.total_print_attempts += 1
+        self.effective_timemax = float(getattr(self, "timemax", 20.0)) + 10.0
+
+        self.indexSignal.emit(self.i_global)
+        self.nodeStatusSignal.emit(self.i_global, "retrying")
+        print(f"[Healing Pass] 🔄 Reintentando nodo {target_node} ({self.healing_index_in_queue + 1}/{len(self.healing_failed_queue)}) | T_max extendido = {self.effective_timemax}s")
+
+        # Verificar si corresponde corrección de deriva periódica cada N partículas
+        n_every = getattr(self, "current_n_effective", getattr(self, "autofoc", 5))
+        do_periodic_drift = getattr(self, "driftbool", False) and (self.total_print_attempts % max(1, n_every) == 0)
+
+        if do_periodic_drift:
+            print(f"[Healing Pass] 📍 Disparando corrección periódica de deriva XY en Partícula 0 (intento global {self.total_print_attempts})...")
+            self.autofocus_stage = "anchor_autofocus"
+            pi.MOV([1, 2], [self.startX, self.startY])
+            time.sleep(0.05)
+            up_flipper(); time.sleep(0.5)
+            self.grid_autofocusSignal.emit(self.mode_printing)
+        else:
+            target_x = self.grid_x[self.i_global] + self.startX
+            target_y = self.grid_y[self.i_global] + self.startY
+            pi.MOV([1, 2], [target_x, target_y])
+            time.sleep(0.05)
+            self.autofocus_stage = "insitu_autofocus"
+            up_flipper(); time.sleep(0.5)
+            print(f"[Healing Pass] 🔍 Autofoco in-situ en nodo {self.i_global} ({target_x:.3f}, {target_y:.3f}) µm...")
+            self.grid_autofocusSignal.emit(self.mode_printing)
+
+    def _finalize_grid_measurement(self):
+        finished_folder = getattr(self, 'new_folder', self.old_folder)
+        self.file_path = self.old_folder
+        self.mode_printing = "none"
+        self.is_paused = False
+        self.is_healing_pass = False
+
+        # Guardar archivos .txt de tracking de deriva si corresponde
+        self._save_drift_tracking_files(finished_folder)
+
+        # Generar reporte de parámetros Time-Volt si corresponde
+        if getattr(self, "track_time_volt", True):
+            self._generate_time_volt_report(finished_folder)
+
+        self.namefolderSignal.emit(self.old_folder)
+        self.indexSignal.emit(getattr(self, "particulas", 1))
+        if hasattr(self, "timeRemainingSignal"):
+            self.timeRemainingSignal.emit("Completado 🎉")
+        self.patternFinishedSignal.emit(finished_folder)
+
+        if getattr(self, "track_drift_xy", True) or getattr(self, "track_drift_z", True):
+            v_xy_list = getattr(self, "v_drift_xy_history", [])
+            v_z_list  = getattr(self, "v_drift_z_history", [])
+            mean_v_xy = float(np.mean(v_xy_list)) if v_xy_list else 0.0
+            mean_v_z  = float(np.mean(v_z_list)) if v_z_list else 0.0
+            self.driftTrackingFinishedSignal.emit({
+                "xy": self.drift_history_xy,
+                "z": self.drift_history_z,
+                "folder": finished_folder,
+                "mean_v_xy": mean_v_xy,
+                "mean_v_z": mean_v_z
+            })
 
     @pyqtSlot()
     def grid_pause(self):
@@ -2427,7 +2577,16 @@ class Backend(QObject):
         ts   = f"NP_{int(self.i_global):03d}"
         name = os.path.join(self.new_folder, f"{ts}.txt")
         t    = list(np.linspace(0.01, self.timer_real, self.ptr))
-        np.savetxt(name, np.transpose([t, self.data1, self.data_BS]), fmt="%.3e")
+
+        status_val = self.node_results.get(self.i_global, "UNKNOWN")
+        is_healing = getattr(self, "is_healing_pass", False)
+
+        hdr_status = f"SUCCESS (Healing Pass - Retry, t_print={self.timer_real:.2f}s)" if (is_healing and status_val == "success") else \
+                     (f"TIMEOUT (Healing Pass - Retry, t_print={self.timer_real:.2f}s)" if (is_healing and status_val != "success") else \
+                     (f"SUCCESS (Primary Pass, t_print={self.timer_real:.2f}s)" if status_val == "success" else f"TIMEOUT (Primary Pass, t_print={self.timer_real:.2f}s)"))
+
+        hdr = f"Status: {hdr_status}\nTime_s\tPhotodiode_V\tPhotodiode_BS_V"
+        np.savetxt(name, np.transpose([t, self.data1, self.data_BS]), fmt="%.3e", header=hdr)
 
     def _save_scan(self, image, gone, back, folder=None):
         folder = folder or self.new_folder

@@ -61,10 +61,11 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 | **Files** | Crear directorio diario | `Ctrl+S` | Crea automáticamente la carpeta `YYYYMMDD-HHMMSS_Session` con metadatos. |
 | **Files** | Cargar última posición | — | Lee `Last_position.txt` y mueve la platina PI a las coordenadas previas. |
 | **Tools** | Tablero de Conexiones | `Ctrl+H` | Abre el Tablero de Seguridad de Hardware ([`hardware_dashboard.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/hardware_dashboard.py)). |
+| **Tools** | Diseñador de Redes 2D | `Ctrl+G` | Abre el Diseñador Universal de Redes Cristalinas 2D ([`grid_generator.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/grid_generator.py)). |
 | **Tools** | Cámara Live View | — | Abre la ventana de Live View EDSDK de la Canon EOS 500D. |
 | **Tools** | Analizador de Imágenes | — | Abre la herramienta de deconvolución y análisis estático ([`image_analyzer.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/image_analyzer.py)). |
-| **Tools** | PSF Analyzer | — | Abre la ventana de ajuste 2D Gaussiano y Donut ([`psf_analyzer.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf_analyzer.py)). |
-| **Measurements** | Printing / Dimers | — | Abre la estación de nanofabricación y criterios de parada ([`measurements.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/measurements.py)). |
+| **Tools** | PSF Analyzer | `Ctrl+P` | Abre la ventana de ajuste 2D Gaussiano y Donut ([`psf_analyzer.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf_analyzer.py)). |
+| **Measurements** | Printing / Dimers | `Ctrl+M` | Abre la estación de nanofabricación y criterios de parada ([`measurements.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/measurements.py)). |
 
 ### Dock Confocal (Mapeo 2D/3D)
 | Control / Botón | Tipo de Widget | Valores / Rango | Descripción y Efecto en Hardware |
@@ -136,6 +137,9 @@ flowchart TD
 ---
 
 ## 7. 🔗 Referencias Cruzadas
-- [📘 Manual de Usuario — Sección 3: Arquitectura Multihilo](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#3-arquitectura-del-sistema-y-patrón-frontendbackend)
-- [📘 Manual de Usuario — Sección 4: Guía Operativa Paso a Paso](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#4-guía-operativa-paso-a-paso)
+- [📘 Manual de Usuario — Sección 3: Microscopio Derecho (`app.py`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#3-módulo-1-microscopio-derecho-apppy--pyprinting-30-suite-completa)
+- [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
+- [📐 Diseñador Universal de Redes 2D (Módulo 11)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/11_Disenador_Redes_2D_Grid_Generator.md)
+- [📋 Protocolos y SOP de Laboratorio (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md)
 - [📑 Reporte de Metrología y Calibración (`reportes/sistema/Calibracion_Metrologica_y_Exactitud_Posicionamiento.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Calibracion_Metrologica_y_Exactitud_Posicionamiento.md)
+
