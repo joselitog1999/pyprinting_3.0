@@ -285,6 +285,15 @@ class InteractiveGridWidget(QFrame):
     def reset_view(self):
         self.plot.autoRange()
 
+    def reset_all_nodes(self):
+        """Restablece todos los nodos a 'pending' en una sola pasada O(N) instantánea (< 1 ms)."""
+        if self.grid_coords is None:
+            return
+        N = self.grid_coords.shape[1]
+        self.node_states = ["pending"] * N
+        self.active_ring.clear()
+        self._update_scatter()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  DRIFT TRACKING DIALOG (Mapa 2D de Trayectoria XY y Evolución Z)
@@ -1209,7 +1218,10 @@ class Frontend(QFrame):
         self.xrefLabel.setText(str(ref[0]))
         self.yrefLabel.setText(str(ref[1]))
         self.zrefLabel.setText(str(ref[2]))
-        self.set_ref_button.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; }")
+        if str(ref[0]) in ("NaN", "0.0", "0") and str(ref[1]) in ("NaN", "0.0", "0"):
+            self.set_ref_button.setStyleSheet("QPushButton { background-color: orange; } QPushButton:pressed { background-color: blue; }")
+        else:
+            self.set_ref_button.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; }")
 
     @pyqtSlot(int)
     def particulas_edit(self, n: int):
@@ -1227,7 +1239,9 @@ class Frontend(QFrame):
     def name_folder(self, folder: str): self.NameDirValue.setText(folder); self.NameDirValue.setStyleSheet("background-color: green;")
     @pyqtSlot(int)
     def index_target(self, i: int):
+        self.indice_impresionEdit.blockSignals(True)
         self.indice_impresionEdit.setText(str(i))
+        self.indice_impresionEdit.blockSignals(False)
         self.interactive_grid.set_node_status(i, "active")
         if self.interactive_grid.grid_coords is not None:
             total = self.interactive_grid.grid_coords.shape[1]
@@ -1274,18 +1288,18 @@ class Frontend(QFrame):
         self.yrefLabel.setText("NaN")
         self.zrefLabel.setText("NaN")
         self.set_ref_button.setStyleSheet("QPushButton { background-color: orange; } QPushButton:pressed { background-color: blue; }")
+        self.indice_impresionEdit.blockSignals(True)
         self.indice_impresionEdit.setText("0")
+        self.indice_impresionEdit.blockSignals(False)
         self.drift_xy_edit.setText("(+0.0, +0.0) nm | r=0.0 nm")
         self.drift_z_edit.setText("+0.0 nm")
         self.v_drift_label.setText("v: — | N_eff: 5")
         self.drift_tol_edit.setText("25.0")
         self.time_remaining_label.setText("—")
         self.progress_bar.setValue(0)
-        self.interactive_grid.reset_view()
-        if hasattr(self, 'interactive_grid') and self.interactive_grid.grid_coords is not None:
-            total = self.interactive_grid.grid_coords.shape[1]
-            for i in range(total):
-                self.interactive_grid.set_node_status(i, "pending")
+        if hasattr(self, 'interactive_grid'):
+            self.interactive_grid.reset_all_nodes()
+            self.interactive_grid.reset_view()
         print("[Measurements] 🔄 Frontend reseteado a valores iniciales.")
 
     @pyqtSlot(str)
@@ -1326,6 +1340,9 @@ class Frontend(QFrame):
         self._tv_dialog.show()
 
     def make_connection(self, backend: Backend):
+        if getattr(self, "_connections_made", False):
+            return
+        self._connections_made = True
         backend.referenceSignal.connect(self.reference_label)
         backend.particulasSignal.connect(self.particulas_edit)
         backend.gridplotSignal.connect(self.grid_plot)
@@ -1480,6 +1497,9 @@ class Backend(QObject):
             return f"{secs:02d}s"
 
     def make_connection(self, frontend: QObject):
+        if getattr(self, "_connections_made", False):
+            return
+        self._connections_made = True
         if hasattr(frontend, "make_connection"):
             frontend.make_connection(self)
         if hasattr(frontend, "gridSignal"):
@@ -1537,14 +1557,31 @@ class Backend(QObject):
 
     @pyqtSlot()
     def reset_all(self):
-        try: close_shutter(self.laser)
-        except Exception: pass
+        # 1. Detener tareas activas de adquisición y escaneo
+        if hasattr(self, 'grid_trace_stopSignal'):
+            self.grid_trace_stopSignal.emit()
+        if hasattr(self, 'grid_scan_stopSignal'):
+            self.grid_scan_stopSignal.emit()
+
+        # 2. Cerrar obturador de forma segura
+        try:
+            if hasattr(self, 'laser') and self.laser:
+                close_shutter(self.laser)
+        except Exception:
+            pass
+
+        # 3. Restablecer estados, acumuladores y variables internas
         self.xref = self.yref = self.zref = 0.0
         self.startX = self.startY = 0.0
         self.custom_name = ""
         self.i_global = 0
         self.mode_printing = "none"
         self.is_paused = False
+        self.is_healing_pass = False
+        self.healing_failed_queue = []
+        self.healing_index_in_queue = 0
+        self.total_print_attempts = 0
+        self.node_results.clear()
         self.autofocus_stage = "idle"
         self.drift_history_xy = []
         self.drift_history_z  = []
@@ -1558,6 +1595,8 @@ class Backend(QObject):
         self.last_af_time       = 0.0
         self.last_af_index      = 0
         self.t_raw_history      = []
+
+        # 4. Emitir señales de reseteo al Frontend
         self.referenceSignal.emit(["NaN", "NaN", "NaN"])
         self.driftDisplacementSignal.emit("(+0.0, +0.0) nm | r=0.0 nm")
         self.driftZDisplacementSignal.emit("+0.0 nm")
