@@ -735,28 +735,24 @@ class Backend(QObject):
 
     def _start_ramp_xy(self):
         self.tic = time.time(); self.i = 0
-        self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         self._configure_ramp_x(self.x_pos)
         open_shutter(self.laser)
         self.PDtimer_rampxy.start(0)
 
     def _start_ramp_xz(self):
         self.tic = time.time(); self.i = 0
-        self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         self._configure_ramp_x(self.x_pos)
         open_shutter(self.laser)
         self.PDtimer_rampxz.start(0)
 
     def _start_ramp_yx(self):
         self.tic = time.time(); self.i = 0
-        self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         self._configure_ramp_y(self.y_pos)
         open_shutter(self.laser)
         self.PDtimer_rampyx.start(0)
 
     def _start_ramp_yz(self):
         self.tic = time.time(); self.i = 0
-        self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         self._configure_ramp_y(self.y_pos)
         open_shutter(self.laser)
         self.PDtimer_rampyz.start(0)
