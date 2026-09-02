@@ -693,8 +693,12 @@ class Backend(QObject):
         dx = self.range_x / self.Nx; dy = self.range_y / self.Ny
         xs = np.linspace(self.x_min + dx/2, self.x_max - dx/2, self.Nx)
         ys = np.linspace(self.y_min + dy/2, self.y_max - dy/2, self.Ny)
-        self.matrix_scan_step   = [xs, ys]
-        self.matrix_scan_spiral = to_spiral([xs, ys], "cw")
+        self.matrix_scan_step = [xs, ys]
+        try:
+            gx, gy = np.meshgrid(xs, ys)
+            self.matrix_scan_spiral = [to_spiral(gx, "cw"), to_spiral(gy, "cw")]
+        except Exception:
+            self.matrix_scan_spiral = [xs, ys]
         open_shutter(self.laser); time.sleep(0.05)
         self.PDtimer_stepxy.start(0)
 

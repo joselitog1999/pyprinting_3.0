@@ -35,15 +35,25 @@ def _base_spiral(nrow: int, ncol: int, clock_type: str) -> np.ndarray:
 
 
 def to_spiral(A, clock_type: str = "cw") -> np.ndarray:
-    A = np.array(A)
-    B = np.empty_like(A)
-    B.flat[_base_spiral(*A.shape, clock_type)] = A.flat
-    return B
+    try:
+        arr = np.asarray(A)
+        if arr.ndim < 2:
+            return arr
+        B = np.empty_like(arr)
+        B.flat[_base_spiral(*arr.shape, clock_type)] = arr.flat
+        return B
+    except Exception:
+        return np.asarray(A, dtype=object)
 
 
 def from_spiral(A, clock_type: str = "cw") -> np.ndarray:
-    A = np.array(A)
-    return A.flat[_base_spiral(*A.shape, clock_type)].reshape(A.shape)
+    try:
+        arr = np.asarray(A)
+        if arr.ndim < 2:
+            return arr
+        return arr.flat[_base_spiral(*arr.shape, clock_type)].reshape(arr.shape)
+    except Exception:
+        return np.asarray(A, dtype=object)
 
 
 def matrix_xy(xo: float, yo: float, rango: float, n: int):
