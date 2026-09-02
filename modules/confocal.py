@@ -593,22 +593,28 @@ class Backend(QObject):
         self.origin_corner_enabled = enabled
         print(f"[Confocal] Origen en posicion actual: {'ACTIVADO' if enabled else 'DESACTIVADO'}")
 
-    def _get_scan_geometry(self, x_stage: float, y_stage: float, range_x: float, range_y: float):
+    def _get_scan_geometry(self, x_stage: float, y_stage: float, z_stage: float, range_x: float, range_y: float):
         if getattr(self, "origin_corner_enabled", False):
             x_min = x_stage
             x_max = x_stage + range_x
             y_min = y_stage
             y_max = y_stage + range_y
+            z_min = z_stage
+            z_max = z_stage + range_y
             x_center = x_stage + range_x / 2.0
             y_center = y_stage + range_y / 2.0
+            z_center = z_stage + range_y / 2.0
         else:
             x_center = x_stage
             y_center = y_stage
+            z_center = z_stage
             x_min = x_center - range_x / 2.0
             x_max = x_center + range_x / 2.0
             y_min = y_center - range_y / 2.0
             y_max = y_center + range_y / 2.0
-        return x_center, y_center, x_min, x_max, y_min, y_max
+            z_min = z_center - range_y / 2.0
+            z_max = z_center + range_y / 2.0
+        return x_center, y_center, z_center, x_min, x_max, y_min, y_max, z_min, z_max
 
     @pyqtSlot(int)
     def start_scan_button(self, color_laser: int):
@@ -633,10 +639,13 @@ class Backend(QObject):
 
         x_stage, y_stage, z_stage = self._read_pos()
         self.x_start, self.y_start, self.z_start = x_stage, y_stage, z_stage
-        x_c, y_c, x_min, x_max, y_min, y_max = self._get_scan_geometry(x_stage, y_stage, self.range_x, self.range_y)
-        self.x_pos, self.y_pos, self.z_pos = x_c, y_c, z_stage
+        x_c, y_c, z_c, x_min, x_max, y_min, y_max, z_min, z_max = self._get_scan_geometry(
+            x_stage, y_stage, z_stage, self.range_x, self.range_y
+        )
+        self.x_pos, self.y_pos, self.z_pos = x_c, y_c, z_c
         self.x_min, self.x_max = x_min, x_max
         self.y_min, self.y_max = y_min, y_max
+        self.z_min, self.z_max = z_min, z_max
 
         # Muestreo previo de 4 esquinas si la corrección de inclinación Z está activa
         if getattr(self, "tilt_correction_enabled", False):
@@ -770,9 +779,11 @@ class Backend(QObject):
         pi.WAV_LIN(1, 0, Npoints, "X",  Nspeed,  self.range_total, 0, Npoints)
         pi.WAV_LIN(1, 0, Npoints, "&",  Nspeed, -self.range_total, self.range_total, Npoints)
         pi.WSL(1, 1); pi.WGC(1, 1)
-        xo = x_pos - self.range_total / 2
+        xo_raw = x_pos - self.range_total / 2
         # Clampear seguro a límites físicos de la platina PI [0.0, 100.0]
-        xo = max(0.0, min(100.0 - self.range_total, xo))
+        xo = max(0.0, min(100.0 - self.range_total, xo_raw))
+        if abs(xo - xo_raw) > 1e-4:
+            print(f"[Confocal Ramp X] ⚠️ Rampa ajustada por límites físicos PI [0, 100] µm (solicitado {xo_raw:.2f} µm -> {xo:.2f} µm)")
         pi.MOV(1, xo); pi.WOS(1, xo)
         pi.TWC(); pi.CTO(1, 3, 3)
         pi.CTO(1, 5, xo + self.extra)
@@ -790,8 +801,10 @@ class Backend(QObject):
         pi.WAV_LIN(2, 0, Npoints, "X",  Nspeed,  self.range_total_y, 0,                  Npoints)
         pi.WAV_LIN(2, 0, Npoints, "&",  Nspeed, -self.range_total_y, self.range_total_y,  Npoints)
         pi.WSL(2, 2); pi.WGC(2, 1)
-        yo = y_pos - self.range_total_y / 2
-        yo = max(0.0, min(100.0 - self.range_total_y, yo))
+        yo_raw = y_pos - self.range_total_y / 2
+        yo = max(0.0, min(100.0 - self.range_total_y, yo_raw))
+        if abs(yo - yo_raw) > 1e-4:
+            print(f"[Confocal Ramp Y] ⚠️ Rampa ajustada por límites físicos PI [0, 100] µm (solicitado {yo_raw:.2f} µm -> {yo:.2f} µm)")
         pi.MOV(2, yo); pi.WOS(2, yo)
         pi.TWC(); pi.CTO(2, 3, 3)
         pi.CTO(2, 5, yo + self.extra_y)
@@ -855,6 +868,7 @@ class Backend(QObject):
             self.image_back = np.fliplr(self.image_back)
             self.image = self.image_gone + self.image_back
             time.sleep(0.1)
+            pi.MOV([1, 2, 3], [self.x_start, self.y_start, self.z_start])
             x_o, y_o = self._CMmeasure()
             print(f"[Confocal] Ramp x/y done {round(time.time()-self.tic,2)}s")
             self._post_scan_dispatch(x_o, y_o)
@@ -862,7 +876,8 @@ class Backend(QObject):
     def _scan_ramp_xz(self):
         dz = self.range_y / self.Ny
         if self.i < self.Ny:
-            pi.MOV(3, self.z_pos - self.range_y/2 + dz/2 + self.i*dz)
+            target_z = getattr(self, "z_min", self.z_pos - self.range_y/2) + dz/2 + self.i*dz
+            pi.MOV(3, target_z)
             gone, back = self._ramp_x_line()
             self.image_gone[self.i, :] = _average(gone, self.Nx)
             self.image_back[self.i, :] = _average(back, self.Nx)
@@ -873,13 +888,14 @@ class Backend(QObject):
             close_shutter(self.laser); time.sleep(0.1)
             self.image_back = np.fliplr(self.image_back)
             self.image = self.image_gone + self.image_back
-            pi.MOV([1, 3], [self.x_pos, self.z_pos])
+            pi.MOV([1, 2, 3], [self.x_start, self.y_start, self.z_start])
             self._save_frame(); self.scandoneSignal.emit()
 
     def _scan_ramp_yx(self):
         dx = self.range_x / self.Nx
         if self.i < self.Nx:
-            pi.MOV(1, self.x_pos - self.range_x/2 + dx/2 + self.i*dx)
+            target_x = getattr(self, "x_min", self.x_pos - self.range_x/2) + dx/2 + self.i*dx
+            pi.MOV(1, target_x)
             gone, back = self._ramp_y_line()
             self.image_gone[:, self.i] = _average(gone, self.Ny)
             self.image_back[:, self.i] = _average(back, self.Ny)
@@ -890,13 +906,16 @@ class Backend(QObject):
             close_shutter(self.laser); time.sleep(0.1)
             self.image_back = np.flipud(self.image_back)
             self.image = self.image_gone + self.image_back
+            time.sleep(0.1)
+            pi.MOV([1, 2, 3], [self.x_start, self.y_start, self.z_start])
             x_o, y_o = self._CMmeasure()
             self._post_scan_dispatch(x_o, y_o)
 
     def _scan_ramp_yz(self):
         dz = self.range_x / self.Nx
         if self.i < self.Nx:
-            pi.MOV(3, self.z_pos - self.range_x/2 + dz/2 + self.i*dz)
+            target_z = getattr(self, "z_min", self.z_pos - self.range_x/2) + dz/2 + self.i*dz
+            pi.MOV(3, target_z)
             gone, back = self._ramp_y_line()
             self.image_gone[self.i, :] = _average(gone, self.Ny)
             self.image_back[self.i, :] = _average(back, self.Ny)
@@ -907,7 +926,7 @@ class Backend(QObject):
             close_shutter(self.laser); time.sleep(0.1)
             self.image_back = np.fliplr(self.image_back)
             self.image = self.image_gone + self.image_back
-            pi.MOV([2, 3], [self.y_pos, self.z_pos])
+            pi.MOV([1, 2, 3], [self.x_start, self.y_start, self.z_start])
             self._save_frame(); self.scandoneSignal.emit()
 
     # ── Post-scan dispatch ────────────────────────────────────────────────────
