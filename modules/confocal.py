@@ -1127,6 +1127,8 @@ class Backend(QObject):
         frontend.closeSignal.connect(self.close)
         if hasattr(frontend, "tiltCorrectionSignal"):
             frontend.tiltCorrectionSignal.connect(self.set_tilt_correction)
+        if hasattr(frontend, "originCornerSignal"):
+            frontend.originCornerSignal.connect(self.set_origin_corner)
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
