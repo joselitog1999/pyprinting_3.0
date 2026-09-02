@@ -5,6 +5,14 @@ Plataforma modular de software de última generación desarrollada en **Python (
 Esta versión (**PyPrinting 3.0**) refactoriza y moderniza por completo la arquitectura original de `printing2`:
 * **Migración nativa a PyQt6**: Arquitectura basada en `QMainWindow`, `QDockWidget` y `pyqtgraph.dockarea`.
 * **Microscopio Contrapropagante (`contrapropagante.py`)**: Plataforma de excitación dual con adquisición síncrona de dos confocales (TOP/BOT), mapeo dinámico de fotodiodos, modelos de ajuste diferenciados (Gauss/Donut) y cálculo vectorial de diferencia sub-nanométrica ($\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$).
+* **Escaneo Confocal Multimodal 2D/3D (`confocal.py`)**:
+  - Modos **Ramp** y **Step-by-Step** en planos $XY$, $XZ$, $YX$, $YZ$.
+  - **Alineación 3D de Inclinación (Tilt 4-Corners)**: Autocorrelación en las 4 esquinas con obturador abierto y ajuste por mínimos cuadrados de la ecuación del plano $z(x,y) = z_0 + \alpha(x - x_c) + \beta(y - y_c)$.
+  - **Checkbox 📍 Inicio en Posición Actual**: Alterna entre geometría centrada $[x_{stage} \pm \Delta x/2]$ y origen en esquina $[x_{stage} \dots x_{stage} + \Delta x]$.
+  - **Estimador ETA y Tiempo Total**: Monitoreo en tiempo real de avance, $t/\text{fila}$ y proyección de tiempo restante.
+  - **Retorno Seguro**: Re-posicionamiento automático a la coordenada inicial al concluir o cancelar el escaneo.
+* **Trazos Temporales & FFT en Tiempo Real (`trace.py` / `power_spectrum_window.py`)**: Adquisición a $10\text{ kHz}$, visor de divisor de haz (Power BS) y espectro de potencia FFT con marcador visual de ruido eléctrico de red ($50\text{ Hz}$).
+* **Control Completo de Voltaje Láser 532 nm (`laser_532.py`)**: Control analógico de salida $0.0-5.0\text{ V}$ (potencia) y shutter digital desde `app.py`, `contrapropagante.py` y `main.py`.
 * **Módulo de Caracterización de PSF (`psf_analyzer.py`)**: Caracterización analítica 2D (Gaussiana de 7 parámetros y Donut $LG_{01}$), residuales, perfiles 1D y desalineación sub-nanométrica ($\Delta r_{\text{nm}}$).
 * **Visión por computadora en tiempo real (`camera.py`)**: Control nativo de cámaras réflex Canon EOS 500D (EDSDK 64-bit) y cámaras USB OpenCV con procesamiento de imágenes, paletas LUT y tracking dinámico (`trackpy`).
 * **Protección de Exclusión Mutua en Hardware Real**: Bloqueo automático en `main.py` para evitar que el Microscopio Derecho y el Contrapropagante compitan simultáneamente por la platina PI E-517 o la tarjeta NI-DAQmx.
@@ -239,20 +247,42 @@ $env:PYPRINTING_SAFE="1"
 - **DockArea Completa**: Incorpora los paneles de Nanopositioning, Focus Z, Shutters/Flipper y Trace en la misma disposición que `app.py`.
 
 ### 3. Orquestador Microscopio Derecho (`app.py`)
-- Basado en `pyqtgraph.dockarea`, con estabilización de deriva térmica (Drift dock) y control unificado.
+- Basado en `pyqtgraph.dockarea`, con estabilización de deriva térmica (Drift dock), control unificado y orquestación multihilo (`QThread`).
 
-### 4. Caracterización Avanzada de PSF (`psf_analyzer.py`)
+### 4. Escaneo Confocal Multimodal y Corrección 3D (`modules/confocal.py`)
+- **Modos de Escaneo**: Ramp (barrido continuo por rampa piezoeléctrica) y Step-by-Step (paso a paso discreto) en planos $XY$, $XZ$, $YX$, $YZ$.
+- **Alineación 3D de Inclinación (Tilt 4-Corners)**: Mide automáticamente la autocorrelación en las 4 esquinas del área de escaneo con el obturador abierto. Ajusta un plano 3D $z(x,y) = z_0 + \alpha(x - x_c) + \beta(y - y_c)$ por mínimos cuadrados y compensa la inclinación de la muestra en tiempo real durante el barrido.
+- **Checkbox 📍 Inicio en Posición Actual**: Al estar activado, toma la coordenada capacitiva actual de la platina como esquina inicial de origen $[x_{stage} \dots x_{stage} + \text{range}_x]$. Al estar desactivado (predeterminado), centra el escaneo en la platina $[x_{stage} \pm \text{range}_x/2]$.
+- **Estimación ETA y Tiempo Total**: Monitoreo dinámico del tiempo transcurrido por fila ($t/\text{fila}$), estimando el tiempo restante (ETA) y proyectando la duración total del escaneo.
+- **Retorno Seguro**: Re-posicionamiento capacitivo cerrado automático a la posición inicial $(x_{start}, y_{start}, z_{start})$ al concluir o abortar la medición.
+
+### 5. Trazado Temporal 10 kHz & Espectros FFT (`modules/trace.py` / `modules/power_spectrum_window.py`)
+- Adquisición continua a $10\text{ kHz}$ por canal analógico.
+- Monitor fotométrico del divisor de haz (Power BS) para seguimiento de potencia incidente.
+- Ventana desplegable de Transformada Rápida de Fourier (FFT) en tiempo real con marcador visual de ruido eléctrico de red ($50\text{ Hz}$) e integración de densidad espectral de potencia.
+
+### 6. Control Completo de Voltaje Láser 532 nm (`modules/laser_532.py` / `instruments/laser532.py`)
+- Control analógico continuo de salida $0.0-5.0\text{ V}$ (mapeado a potencia de emisión) vía canal analógico `ao2` de la NI-DAQmx.
+- Control de obturador digital (Shutter 12) y sincronización con las ventanas de `app.py`, `contrapropagante.py` y `main.py`.
+
+### 7. Caracterización Avanzada de PSF (`psf_analyzer.py`)
 - Ajuste analítico 2D de Gaussiana (7 parámetros) y Donut $LG_{01}$.
 - Visores triples por canal (Original, Fit, Residuales) y superposición RGB falso color.
 
-### 5. Visión por Computadora y Cámara (`camera.py` / `canon_edsdk.py`)
+### 8. Visión por Computadora y Cámara (`camera.py` / `canon_edsdk.py`)
 - Live View en tiempo real (25.0 FPS estricto), paletas LUT de falso color, tracking `trackpy`, navegación panorámica por FOV (ejes X/Y), captura réflex de 15.1 MP multi-formato (JPG, PNG, TIFF, BMP) sin sobreescritura (`get_unique_save_path`), transferencia en RAM mediante `EdsCreateMemoryStream` (inmune a errores `0x000000AB` / `0x00000061`), capa `OverlayWidget` con reglas en µm, cursor de platina PI, ROI confocal y log de diagnóstico emergente desplegable `EDSDKLogDialog`.
 
-### 6. Rutina de Impresión Óptica y 5 Modos de Criterio de Parada (`modules/measurements.py`)
+### 9. Rutina de Impresión Óptica y 5 Modos de Criterio de Parada (`modules/measurements.py`)
 - Incorpora 5 Modos de Criterio de Parada Seleccionables en tiempo real (`Modo 0: Legacy`, `Modo 1: Salto Relativo + Absoluto & Anti-Paso`, `Modo 2: Derivada dI/dt & Aplanamiento`, `Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado`, `Modo 4: Criterio Híbrido Tri-Factor`).
-- Protección universal contra partículas "de paso" o transitorias mediante el contador de sostenimiento $N_{	ext{hold}}$ steps.
+- Protección universal contra partículas "de paso" o transitorias mediante el contador de sostenimiento $N_{\text{hold}}$ steps.
 - Guardado de imágenes y matrices confocales reescaladas (`NPscan_rescaled_00i.txt` / `.tiff`).
 - Documentado formalmente en el reporte técnico: [Algoritmo de Impresión Óptica y Ensamblado de Nanodímeros (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md).
+
+### 10. Integración en Standby del Espectrómetro (`pyspectrum/`)
+- Módulo de espectrometría CCD Andor y monocromador Shamrock integrado estructuralmente pero inactivo (standby), reservado para futuras fases de acoplamiento espectral en PyPrinting.
+
+### 11. Auditoría Metrológica de Señales PyQt6 (`reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md`)
+- **148 señales `pyqtSignal` declaradas**, con **126 señales 100% conectadas y operativas (85.1%)** y **22 señales en reserva/standby (14.9%)**.
 
 ---
 
