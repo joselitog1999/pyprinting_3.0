@@ -411,7 +411,7 @@ class Backend(QObject):
 
         # Corrección dinámica de altura (plano de inclinación Z)
         self.tilt_correction_enabled: bool = False
-        self.tilt_plane = None  # (z0, alpha, beta, x_TL, y_TL)
+        self.tilt_plane = None  # (z0, alpha, beta, x_center, y_center)
 
         self.PDtimer_stepxy = None
         self.PDtimer_rampxy = None
@@ -421,8 +421,6 @@ class Backend(QObject):
         self.drifttimer     = None
 
         self._scan_ramp_parameters([2, 2, 34, 34])
-        # Inicializar posición para evitar AttributeError en stop_scan
-        # si se llama antes del primer scan
         try:
             self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         except Exception:
@@ -437,14 +435,15 @@ class Backend(QObject):
     def _evaluate_tilt_z(self, x: float, y: float) -> float:
         if self.tilt_plane is None:
             return getattr(self, "z_pos", 10.0)
-        z0, alpha, beta, x_TL, y_TL = self.tilt_plane
-        z_target = z0 + alpha * (x - x_TL) + beta * (y - y_TL)
+        z0, alpha, beta, x_c, y_c = self.tilt_plane
+        z_target = z0 + alpha * (x - x_c) + beta * (y - y_c)
         return max(1.0, min(99.0, z_target))
 
     def _measure_4_corners_tilt(self, x_center: float, y_center: float, range_x: float, range_y: float) -> bool:
         """
         Mide el Z óptimo en las 4 esquinas del área confocal mediante autocorrelación axial (Lock Focus).
-        Calcula el plano 2D: z(x, y) = z0 + alpha*(x - x_TL) + beta*(y - y_TL)
+        Calcula el plano 2D centrado estrictamente en (x_center, y_center):
+        z(x, y) = z0 + alpha*(x - x_center) + beta*(y - y_center)
         """
         if self.focus_backend is not None and hasattr(self.focus_backend, "locked_focus"):
             if not self.focus_backend.locked_focus:
@@ -462,36 +461,38 @@ class Backend(QObject):
         ]
 
         measured_z = []
-        x_TL, y_TL = corners[0][1], corners[0][2]
+        open_shutter(self.laser)
+        try:
+            for name, cx, cy in corners:
+                cx_c = max(0.0, min(100.0, cx))
+                cy_c = max(0.0, min(100.0, cy))
+                pi.MOV([1, 2], [cx_c, cy_c])
+                time.sleep(0.05)
 
-        for name, cx, cy in corners:
-            cx_c = max(0.0, min(100.0, cx))
-            cy_c = max(0.0, min(100.0, cy))
-            pi.MOV([1, 2], [cx_c, cy_c])
-            time.sleep(0.05)
-
-            if self.focus_backend is not None and hasattr(self.focus_backend, "_focus_autocorr_lin"):
-                try:
-                    self.focus_backend._focus_autocorr_lin()
+                if self.focus_backend is not None and hasattr(self.focus_backend, "_focus_autocorr_lin"):
+                    try:
+                        self.focus_backend._focus_autocorr_lin()
+                        pos = pi.qPOS()
+                        z_meas = float(pos.get("3", 10.0))
+                    except Exception as e:
+                        print(f"[Confocal Tilt] Error midiendo esquina {name}: {e}")
+                        pos = pi.qPOS()
+                        z_meas = float(pos.get("3", 10.0))
+                else:
                     pos = pi.qPOS()
                     z_meas = float(pos.get("3", 10.0))
-                except Exception as e:
-                    print(f"[Confocal Tilt] Error midiendo esquina {name}: {e}")
-                    pos = pi.qPOS()
-                    z_meas = float(pos.get("3", 10.0))
-            else:
-                pos = pi.qPOS()
-                z_meas = float(pos.get("3", 10.0))
 
-            measured_z.append((cx, cy, z_meas))
-            print(f"[Confocal Tilt] Esquina {name} ({cx:.2f}, {cy:.2f}) um -> Z = {z_meas:.3f} um")
+                measured_z.append((cx, cy, z_meas))
+                print(f"[Confocal Tilt] Esquina {name} ({cx:.2f}, {cy:.2f}) um -> Z = {z_meas:.3f} um")
+        finally:
+            close_shutter(self.laser)
 
-        z0 = measured_z[0][2]
+        z0 = float(np.mean([cz for _, _, cz in measured_z]))
 
         A = []
         b = []
         for cx, cy, cz in measured_z:
-            A.append([cx - x_TL, cy - y_TL])
+            A.append([cx - x_center, cy - y_center])
             b.append(cz - z0)
         A = np.array(A)
         b = np.array(b)
@@ -503,10 +504,11 @@ class Backend(QObject):
             print(f"[Confocal Tilt] Error en ajuste de plano: {e}")
             alpha, beta = 0.0, 0.0
 
-        self.tilt_plane = (z0, alpha, beta, x_TL, y_TL)
-        print(f"[Confocal Tilt] [OK] Plano calculado: z(x,y) = {z0:.3f} + {alpha:.5f}*(x - {x_TL:.2f}) + {beta:.5f}*(y - {y_TL:.2f})")
+        self.tilt_plane = (z0, alpha, beta, x_center, y_center)
+        print(f"[Confocal Tilt] [OK] Plano calculado: z(x,y) = {z0:.3f} + {alpha:.5f}*(x - {x_center:.2f}) + {beta:.5f}*(y - {y_center:.2f})")
 
-        pi.MOV([1, 2, 3], [max(0.0, min(100.0, x_TL)), max(0.0, min(100.0, y_TL)), max(0.0, min(100.0, z0))])
+        # Retornar la platina ESTRICTAMENTE al centro del área de escaneo (x_center, y_center, z0)
+        pi.MOV([1, 2, 3], [max(0.0, min(100.0, x_center)), max(0.0, min(100.0, y_center)), max(0.0, min(100.0, z0))])
         return True
 
     def _ensure_timers(self):
@@ -646,8 +648,8 @@ class Backend(QObject):
         self.tic = time.time(); self.i = self.j = 0
         self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         dx = self.range_x / self.Nx; dy = self.range_y / self.Ny
-        xs = np.arange(self.x_pos - self.range_x/2 + dx/2, self.x_pos + self.range_x/2, dx)
-        ys = np.arange(self.y_pos - self.range_y/2 + dy/2, self.y_pos + self.range_y/2, dy)
+        xs = np.linspace(self.x_pos - self.range_x/2 + dx/2, self.x_pos + self.range_x/2 - dx/2, self.Nx)
+        ys = np.linspace(self.y_pos - self.range_y/2 + dy/2, self.y_pos + self.range_y/2 - dy/2, self.Ny)
         self.matrix_scan_step   = [xs, ys]
         self.matrix_scan_spiral = to_spiral([xs, ys], "cw")
         open_shutter(self.laser); time.sleep(0.05)
