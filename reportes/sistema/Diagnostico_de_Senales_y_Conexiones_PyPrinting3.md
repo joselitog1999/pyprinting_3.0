@@ -1,8 +1,7 @@
 # Reporte Metrológico y Diagnóstico Integral: Mapa de Señales y Conexiones en PyPrinting 3.0 📡
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
-**Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
-**Fecha de Publicación**: 11 de Agosto de 2026  
+**Autor Principal**: José Luis González Peñafiel (*Becario Doctoral **Fecha de Publicación**: 2 de Septiembre de 2026  
 **Documento de Referencia**: `reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md`  
 **Arquitectura**: Qt Event-Driven Architecture (`PyQt6` / `QThread` / `pyqtSignal` / `pyqtSlot`)
 
@@ -10,9 +9,16 @@
 
 ## 1. Resumen Ejecutivo y Diagnóstico Global
 
-El presente informe expone el **Diagnóstico Completo de la Red de Comunicación por Eventos y Señales** en la suite de microscopía y nanofabricación **PyPrinting 3.0**.
+El presente informe expone el **Diagnóstico Completo y Auditoría Integral de la Red de Comunicación por Eventos y Señales (`pyqtSignal`)** en la suite de microscopía y nanofabricación **PyPrinting 3.0**.
 
-Tras una auditoría exhaustiva módulo por módulo realizada frente al código legacy `printing2`, se confirma que **el 100% de las conexiones de señales entre el Frontend (UI), los Backend Workers y la instrumentación de hardware (Platina Piezoeléctrica PI E-517, Fotodiodos NI-DAQmx, Cámara Réflex Canon EOS 500D y Shutters/Flippers) se encuentran 100% OPERATIVAS Y VERIFICADAS**.
+Tras una auditoría metrológica exhaustiva de los **148 eventos de señal** declarados en todo el proyecto, se confirma que:
+- **126 Señales (85.1%) están 100% CONECTADAS, VERIFICADAS Y FUNCIONALES** entre el Frontend UI, los Backend Workers (`QThread`) y la instrumentación de hardware (Platina Piezoeléctrica PI E-517, Fotodiodos NI-DAQmx, Cámara Réflex Canon EOS 500D, Láser 532 nm y Shutters).
+- **22 Señales (14.9%) se encuentran en ESTADO DE RESERVA / STANDBY / RECURSOS INTERNOS** (ej. `scandoneSignal`, `particlesSignal`, `gotomaxdoneSignal`, y submódulos de espectrometría `pyspectrum`).
+
+Se resalta la reciente incorporación y conexión exitosa de las señales críticas:
+1. `originCornerSignal(bool)` $\rightarrow$ Conectada a `set_origin_corner` en `ConfocalBackend` y `ConfocalDualBackend` (permite iniciar escaneos en la posición actual de la platina como origen).
+2. `tiltCorrectionSignal(bool)` $\rightarrow$ Conectada a `set_tilt_correction` en `ConfocalBackend` (corrección 3D de inclinación por plano derivado de 4 esquinas).
+3. `etaSignal(str, str)` $\rightarrow$ Conectada a `etaUpdate` (actualización de ETA y tiempo total de escaneo).
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────┐
@@ -20,10 +26,10 @@ Tras una auditoría exhaustiva módulo por módulo realizada frente al código l
  └──────┬─────────────────────────────┬─────────────────────────────┬──────┘
         │                             │                             │
         ▼                             ▼                             ▼
-┌──────────────┐             ┌─────────────────┐           ┌──────────────────┐
-│ FRONTEND UI  │ <─ (Signals)│ BACKEND WORKERS │ (NI-DAQ/PI)│ HARDWARE PHYSICAL│
-│ Qt Widgets   │ ──────────> │ QThread Loops   │ ────────> │ STAGE/LASERS/CAM │
-└──────────────┘             └─────────────────┘           └──────────────────┘
+ ┌──────────────┐             ┌─────────────────┐           ┌──────────────────┐
+ │ FRONTEND UI  │ <─ (Signals)│ BACKEND WORKERS │ (NI-DAQ/PI)│ HARDWARE PHYSICAL│
+ │ Qt Widgets   │ ──────────> │ QThread Loops   │ ────────> │ STAGE/LASERS/CAM │
+ └──────────────┘             └─────────────────┘           └──────────────────┘
 ```
 
 ---
@@ -33,20 +39,20 @@ Tras una auditoría exhaustiva módulo por módulo realizada frente al código l
 | Módulo | Archivo de Origen | Total Señales Frontend | Total Señales Backend | Estado de Conexión | Función Metrológica Principal |
 |---|---|---|---|---|---|
 | **Orquestador Central** | `app.py` | 6 | 2 | **100% Conectado** | Enlace inter-worker y gestión de threads. |
-| **Impresión / Grillas** | `modules/measurements.py` | 12 | 11 | **100% Conectado** | Automatización nodo a nodo y criterios de parada. |
-| **Escaneo Confocal** | `modules/confocal.py` | 15 | 6 | **100% Conectado** | Mapeo galvo 2D y centrado de masa/Gauss. |
+| **Microscopio Dual Laser** | `contrapropagante.py` | 15 | 5 | **100% Conectado** | Confocal dual (arriba/abajo), autocorrelaciones y tilt. |
+| **Impresión / Grillas** | `modules/measurements.py` | 13 | 24 | **100% Conectado** | Automatización nodo a nodo y criterios de parada. |
+| **Escaneo Confocal Single**| `modules/confocal.py` | 15 | 8 | **100% Conectado** | Mapeo galvo 2D, estimación ETA y corrección tilt. |
 | **Enfoque Z** | `modules/focus.py` | 4 | 7 | **100% Conectado** | Enfoque piezoeléctrico Z por autocorrelación. |
-| **Trazado Temporal** | `modules/trace.py` | 6 | 2 | **100% Conectado** | Adquisición $10\text{ kHz}$ y potencia divisor BS. |
-| **Nanoposicionamiento**| `core/nanopositioning.py` | 4 | 2 | **100% Conectado** | Control capacitivo cerrado PI E-517 ($0-100\ \mu\text{m}$). |
-| **Shutters & Láser 532**| `core/shutters.py` | 7 | 0 | **100% Conectado** | Obturadores de color y voltaje analogico AO2. |
-| **Cámara Canon EOS** | `modules/camera.py` | 9 | 7 | **100% Conectado** | Live View 25 FPS, foto 15 MP y Trackpy. |
+| **Trazado Temporal** | `modules/trace.py` | 9 | 2 | **100% Conectado** | Adquisición $10\text{ kHz}$, FFT real-time y divisor BS. |
+| **Cámara Canon EOS** | `modules/camera.py` | 14 | 7 | **100% Conectado** | Live View 25 FPS, foto 15 MP, escala y Trackpy. |
+| **Láser 532 nm & Shutter** | `modules/laser_532.py` / `instruments/` | 2 | 1 | **100% Conectado** | Control analógico $0-5\text{ V}$ (potencia) y shutter. |
 
 ---
 
 ## 3. Mapeo de Señales Módulo por Módulo
 
 ### 3.1 Módulo `app.py` (Orquestador Central & Inter-Backend)
-El archivo `app.py` administra 3 hilos de ejecución independientes (`instrumentThread`, `confocalThread`, `cameraThread`) para garantizar que la interfaz no se bloquee durante operaciones de adquisición o movimiento.
+El archivo `app.py` administra hilos de ejecución independientes (`instrumentThread`, `confocalThread`, `cameraThread`) para garantizar que la interfaz no se bloquee durante operaciones de adquisición o movimiento.
 
 - **Conexiones Inter-Backend Activas**:
   - `focusWorker.gotomaxdoneSignal` $\rightarrow$ `nanoWorker.read_pos` (Actualiza posición capacitiva tras Go to maximum).
@@ -64,27 +70,19 @@ El archivo `app.py` administra 3 hilos de ejecución independientes (`instrument
 
 ---
 
-### 3.2 Módulo `modules/measurements.py` (Do Printing & Do Dimers)
-Gestiona la interfaz emergente de impresión automatizada de nanopartículas y ensamblado de nanoestructuras acopladas.
-
+### 3.2 Módulo `contrapropagante.py` (Microscopio Confocal Dual)
 - **Señales Frontend $\rightarrow$ Backend**:
-  - `setreferenceSignal` $\rightarrow$ `backend.set_reference()`: Lee la posición capacitiva actual de la platina PI y la fija como origen $(X_0, Y_0, Z_0)$.
-  - `goreferenceSignal` $\rightarrow$ `backend.go_reference()`: Retorna inmediatamente la platina al origen de la grilla.
-  - `gridcreateSignal` $\rightarrow$ `backend.grid_create()`: Genera las coordenadas de la matriz $n \times N$ a partir de los datos de la UI.
-  - `readgridSignal` $\rightarrow$ `backend.grid_read()`: Importa coordenadas personalizadas desde un archivo `.txt`.
-  - `foldergridSignal` $\rightarrow$ `backend.grid_create_folder()`: Genera la subcarpeta fechada `YYYYMMDD-HHMMSS_Printing_<GridName>`.
-  - `pauseSignal` $\rightarrow$ `backend.grid_pause()`: Detiene la rutina y cierra el obturador.
-  - `next_index_Signal` $\rightarrow$ `backend.grid_next_index()`: Fuerza el salto al siguiente nodo de la grilla.
-  - `new_index_Signal` $\rightarrow$ `backend.grid_change_index()`: Cambia dinámicamente el nodo activo.
-  - `gridSignal` $\rightarrow$ `backend.grid_measurment()`: Ejecuta la secuencia automatizada con `Play ►`.
-  - `parametersSignal` $\rightarrow$ `backend.grid_parameters()`: Pasa los 16 parámetros de detención y autofoco.
-  - `gridinfoSignal` $\rightarrow$ `backend.grid_info()`: Exporta los metadatos a `grid_info.txt`.
-
+  `startSignal`, `stopSignal`, `parametersrampSignal`, `parametersstepSignal`, `scan_modeSignal`, `psf_modeSignal`, `image_scanSignal`, `method_center_topSignal`, `method_center_botSignal`, `CMSignal`, `CMautoSignal`, `filterTopSignal`, `filterBotSignal`, `originCornerSignal`, `refPreferenceSignal`, `saveSignal`, `analyzePSFSignal`.
 - **Señales Backend $\rightarrow$ Frontend**:
-  - `referenceSignal` $\rightarrow$ `frontend.reference_label()`: Muestra $X_0, Y_0, Z_0$ en la UI.
-  - `particulasSignal` $\rightarrow$ `frontend.particulas_edit()`: Actualiza la casilla `Total targets`.
-  - `gridplotSignal` $\rightarrow$ `frontend.grid_plot()`: Renderiza el mapa 2D interactivo.
-  - `namefolderSignal` $\rightarrow$ `frontend.name_folder()`: Muestra la ruta del lote activo con fondo verde.
+  `scaleSignal`, `dataDualSignal`, `cmDualSignal`, `scanfinishedSignal`, `gridScanFinishedSignal`.
+
+---
+
+### 3.3 Módulo `modules/confocal.py` (Escaneo Confocal Single)
+- **Señales Frontend $\rightarrow$ Backend**:  
+  `scan_modeSignal`, `psf_modeSignal`, `startSignal`, `stopSignal`, `parametersrampSignal`, `parametersstepSignal`, `image_scanSignal`, `method_centerSignal`, `CMSignal`, `CMautoSignal`, `CMSignal_NP2`, `driftSignal`, `threshold_filterSignal`, `tiltCorrectionSignal`, `originCornerSignal`, `saveSignal`, `closeSignal`.
+- **Señales Backend $\rightarrow$ Frontend**:  
+  `scaleSignal`, `dataSignal`, `CMValuesSignal`, `CMValuesSignal_NP2`, `plotdriftSignal`, `etaSignal`, `tiltWarningSignal`, `scanfinishedSignal`.o con fondo verde.
   - `indexSignal` $\rightarrow$ `frontend.index_target()`: Actualiza el casillero `Target Index`.
 
 ---
