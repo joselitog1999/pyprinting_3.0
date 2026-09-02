@@ -1,27 +1,63 @@
 # PyPrinting 3.0 — UNSAM Nanofotónica 🔬
+> **Documento Maestro de Contexto, Arquitectura y Especificación Metrológica para Agentes de IA y Desarrolladores**
 
-Plataforma modular de software de última generación desarrollada en **Python (rango compatible: >= 3.10, < 3.14 — probada en 3.10, 3.11, 3.12 y 3.13) / PyQt6** para **control de instrumentos, espectroscopía confocal láser, visión por computadora, microscopía contrapropagante y nanofabricación asistida por luz** (impresión óptica fototérmica de nanopartículas metálicas y ensamblado guiado de nanodímeros plasmónicos).
+Plataforma modular de software de última generación desarrollada en **Python (compatible: >= 3.10, < 3.14 — probada en 3.10, 3.11, 3.12 y 3.13) / PyQt6** para **control de instrumentos, espectroscopía confocal láser, visión por computadora, microscopía contrapropagante y nanofabricación asistida por luz** (impresión óptica fototérmica de nanopartículas metálicas de Au/Ag y ensamblado guiado de nanodímeros plasmónicos).
 
-Esta versión (**PyPrinting 3.0**) refactoriza y moderniza por completo la arquitectura original de `printing2`:
-* **Migración nativa a PyQt6**: Arquitectura basada en `QMainWindow`, `QDockWidget` y `pyqtgraph.dockarea`.
-* **Microscopio Contrapropagante (`contrapropagante.py`)**: Plataforma de excitación dual con adquisición síncrona de dos confocales (TOP/BOT), mapeo dinámico de fotodiodos, modelos de ajuste diferenciados (Gauss/Donut) y cálculo vectorial de diferencia sub-nanométrica ($\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$).
-* **Escaneo Confocal Multimodal 2D/3D (`confocal.py`)**:
-  - Modos **Ramp** y **Step-by-Step** en planos $XY$, $XZ$, $YX$, $YZ$.
-  - **Alineación 3D de Inclinación (Tilt 4-Corners)**: Autocorrelación en las 4 esquinas con obturador abierto y ajuste por mínimos cuadrados de la ecuación del plano $z(x,y) = z_0 + \alpha(x - x_c) + \beta(y - y_c)$.
-  - **Checkbox 📍 Inicio en Posición Actual**: Alterna entre geometría centrada $[x_{stage} \pm \Delta x/2]$ y origen en esquina $[x_{stage} \dots x_{stage} + \Delta x]$.
-  - **Estimador ETA y Tiempo Total**: Monitoreo en tiempo real de avance, $t/\text{fila}$ y proyección de tiempo restante.
-  - **Retorno Seguro**: Re-posicionamiento automático a la coordenada inicial al concluir o cancelar el escaneo.
-* **Trazos Temporales & FFT en Tiempo Real (`trace.py` / `power_spectrum_window.py`)**: Adquisición a $10\text{ kHz}$, visor de divisor de haz (Power BS) y espectro de potencia FFT con marcador visual de ruido eléctrico de red ($50\text{ Hz}$).
-* **Control Completo de Voltaje Láser 532 nm (`laser_532.py`)**: Control analógico de salida $0.0-5.0\text{ V}$ (potencia) y shutter digital desde `app.py`, `contrapropagante.py` y `main.py`.
-* **Módulo de Caracterización de PSF (`psf_analyzer.py`)**: Caracterización analítica 2D (Gaussiana de 7 parámetros y Donut $LG_{01}$), residuales, perfiles 1D y desalineación sub-nanométrica ($\Delta r_{\text{nm}}$).
-* **Visión por computadora en tiempo real (`camera.py`)**: Control nativo de cámaras réflex Canon EOS 500D (EDSDK 64-bit) y cámaras USB OpenCV con procesamiento de imágenes, paletas LUT y tracking dinámico (`trackpy`).
-* **Protección de Exclusión Mutua en Hardware Real**: Bloqueo automático en `main.py` para evitar que el Microscopio Derecho y el Contrapropagante compitan simultáneamente por la platina PI E-517 o la tarjeta NI-DAQmx.
-* **Modelo de Incertidumbre Metrológica (Norma ISO/GUM)**: Documentado en `reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`, respaldando la resolución sub-píxel ($\approx 0.35\ \text{nm}$) con objetivo de agua $60\times$ $\text{NA}=1.0$, pinhole de $50\ \mu\text{m}$ y tamaño de píxel óptimo ($\Delta x \in [15, 25]\ \text{nm/px}$).
-* **Modo Seguro (`SAFE_MODE`) con simulación completa de hardware**: Simulación coherente de platina piezoeléctrica PI E-517 ($0-100\ \mu\text{m}$), tarjetas NI-DAQmx y transmisión de video sintética.
+**Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
+**Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
+**Repositorio GitHub**: [`joselitog1999/pyprinting_3.0`](https://github.com/joselitog1999/pyprinting_3.0.git)
 
 ---
 
-## 📁 Árbol de Organización del Proyecto (`printing3`)
+## 🤖 Guía Rápida de Onboarding para IAs y Agentes de Código
+
+Si eres una Inteligencia Artificial o un desarrollador modificando, auditando o depurando este proyecto, **lee este bloque antes de editar cualquier archivo**:
+
+1. **Arquitectura Concurrente Multi-Hilo (`PyQt6` / `QThread`)**:
+   - La interfaz gráfica corre en el hilo principal de la GUI.
+   - Cada subsistema pesado (platina PI, fotodiodos NI-DAQmx, cámara Canon) corre en su propio `QThread` (`instrumentThread`, `confocalThread`, `cameraThread`).
+   - **REGLA CRÍTICA**: Los hilos de Backend NUNCA deben manipular directamente widgets de PyQt. La comunicación se realiza **exclusivamente mediante señales `pyqtSignal` y slots `pyqtSlot`**.
+   - Al agregar una nueva señal en el Frontend o Backend, **SIEMPRE debes registrar su conexión en el método `make_connection(self, worker)`** correspondiente.
+
+2. **Modo Seguro (`SAFE_MODE`) vs. Modo Producción (Hardware Real)**:
+   - Para probar código sin hardware físico conectado, define la variable de entorno:
+     ```powershell
+     $env:PYPRINTING_SAFE="1"
+     python app.py  # o contrapropagante.py
+     ```
+   - El sistema cargará MOCKs simétricos de la platina PI E-517 ($0-100\ \mu\text{m}$), tarjetas NI-DAQmx y cámara sintética sin lanzar excepciones de E/S.
+
+3. **Verificación de Cambios**:
+   - Antes de dar por terminada una tarea, compila el código sin errores de sintaxis:
+     ```powershell
+     python -m py_compile modules/confocal.py contrapropagante.py app.py main.py
+     ```
+   - Mantén intactos los comentarios metrológicos y ecuaciones físicas en docstrings.
+
+---
+
+## 1. Visión General del Sistema y Contexto de Dominio
+
+**PyPrinting 3.0** refactoriza y moderniza por completo la arquitectura del sistema legacy `printing2`:
+
+* **Migración Nativa a PyQt6**: Arquitectura modular basada en `QMainWindow`, `QDockWidget` y `pyqtgraph.dockarea` que permite desacoplar, reorganizar o flotar ventanas independientemente.
+* **Microscopio Contrapropagante (`contrapropagante.py`)**: Plataforma de excitación dual con adquisición síncrona de dos confocales (TOP/BOT), mapeo dinámico de fotodiodos (`ai0`, `ai1`, `ai3`), modelos de ajuste diferenciados (Gauss/Donut) y cálculo vectorial de diferencia sub-nanométrica ($\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$).
+* **Escaneo Confocal Multimodal 2D/3D (`modules/confocal.py`)**:
+  - Modos **Ramp** (barrido piezoeléctrico continuo) y **Step-by-Step** (paso a paso discreto) en planos $XY$, $XZ$, $YX$, $YZ$.
+  - **Alineación 3D de Inclinación (Tilt 4-Corners)**: Autocorrelación en las 4 esquinas del área de escaneo con el obturador abierto y ajuste por mínimos cuadrados de la ecuación del plano $z(x,y) = z_0 + \alpha(x - x_c) + \beta(y - y_c)$.
+  - **Checkbox 📍 Inicio en Posición Actual (`originCornerSignal`)**: Permite alternar dinámicamente entre escaneo centrado $[x_{\text{stage}} \pm \Delta x/2]$ y escaneo con origen en la posición capacitiva actual $[x_{\text{stage}} \dots x_{\text{stage}} + \Delta x]$.
+  - **Estimación ETA y Tiempo Total**: Despliegue dinámico del tiempo restante y proyectado en `lbl_confocal_eta` y `lbl_confocal_total`.
+  - **Retorno Seguro**: Re-posicionamiento capacitivo cerrado automático a la coordenada inicial al concluir o cancelar la medición.
+* **Trazos Temporales & FFT en Tiempo Real (`modules/trace.py` / `modules/power_spectrum_window.py`)**: Adquisición continua a $10\text{ kHz}$, monitor de potencia en divisor de haz (Power BS) y espectro de potencia FFT con marcador visual de ruido de red a $50\text{ Hz}$.
+* **Control Completo de Voltaje Láser 532 nm (`modules/laser_532.py` / `instruments/laser532.py`)**: Control analógico de salida $0.0-5.0\text{ V}$ (mapeado a potencia de emisión) vía canal analógico `ao2` de la NI-DAQmx y shutter digital.
+* **Caracterización Avanzada de PSF (`psf_analyzer.py`)**: Caracterización analítica 2D (Gaussiana de 7 parámetros y Donut $LG_{01}$), residuales, perfiles 1D y desalineación sub-nanométrica ($\Delta r_{\text{nm}}$).
+* **Visión por Computadora en Tiempo Real (`modules/camera.py` / `core/canon_edsdk.py`)**: Control nativo de cámaras réflex Canon EOS 500D (EDSDK 64-bit) y cámaras USB OpenCV con Live View a 25.0 FPS, transferencia por RAM (`EdsCreateMemoryStream`), paletas LUT y tracking dinámico (`trackpy`).
+* **Protección de Exclusión Mutua en Hardware Real (`main.py`)**: Bloqueo automático en `main.py` para evitar que el Microscopio Derecho y el Contrapropagante compitan simultáneamente por la platina PI E-517 o la tarjeta NI-DAQmx.
+* **Modelo de Incertidumbre Metrológica (Norma ISO/GUM)**: Documentado en `reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`, respaldando la resolución sub-píxel ($\approx 0.35\ \text{nm}$) con objetivo de agua $60\times$ $\text{NA}=1.0$, pinhole de $50\ \mu\text{m}$ y tamaño de píxel óptimo ($\Delta x \in [15, 25]\ \text{nm/px}$).
+
+---
+
+## 📁 2. Árbol de Organización del Proyecto (`printing3`)
 
 ```
 printing3/
@@ -32,10 +68,12 @@ printing3/
 ├── requirements.txt      # 📦 Lista de dependencias de Python para producción y desarrollo.
 │
 ├── 🎛️ Módulos Principales de Medición (`modules/`)
-│   ├── confocal.py       # Mapeo y escaneo confocal 2D/3D (Ramp/Step en XY, XZ, YZ) con ajuste PSF.
-│   ├── measurements.py   # Motor unificado de mediciones automatizadas (Grillas de Impresión y Dímeros).
+│   ├── confocal.py       # Mapeo y escaneo confocal 2D/3D (Ramp/Step en XY, XZ, YZ), Tilt 3D, ETA y origin corner.
+│   ├── measurements.py   # Motor unificado de mediciones automatizadas (Grillas de Impresión y Dímeros con 5 modos de parada).
 │   ├── focus.py          # Estabilización activa de foco Z (autofoco dinámico por autocorrelación).
 │   ├── trace.py          # Adquisición de trazas a 10 kHz, FFT en tiempo real con marcador 50 Hz y Power BS.
+│   ├── power_spectrum_window.py # Ventana desplegable con gráfico espectral FFT de densidad de potencia.
+│   ├── laser_532.py      # Panel de control de voltaje analógico (0-5V AO2) y shutter para el láser verde de 532 nm.
 │   ├── camera.py         # Control de cámara réflex Canon EOS 500D (EDSDK Live View + Trackpy).
 │   ├── hardware_dashboard.py # Tablero gráfico de seguridad, matriz de LEDs y aislamiento por software.
 │   └── preset_wizard.py  # Asistente guiado de 5 pasos (QWizard) para creación de presets experimentales.
@@ -48,6 +86,11 @@ printing3/
 │   ├── nidaq.py          # Abstracción unificada de tarjetas NI-DAQmx (canales analógicos y digitales).
 │   └── canon_edsdk.py    # Wrapper nativo C/Python para la API Canon EDSDK (Live View 25 FPS & 15 MP).
 │
+├── 🔬 Módulo Espectrométrico en Standby (`pyspectrum/`)
+│   ├── window.py         # Ventana principal del espectrómetro (standby).
+│   ├── modules/          # Cámaras CCD Andor y drivers de monocromador Shamrock.
+│   └── routines/         # Rutinas cinéticas y espectrales.
+│
 ├── 📁 Archivos de Configuración de Presets (`presets/`)
 │   ├── AuNP_60nm_ImpresionRapida.txt
 │   ├── AuNP_60nm_AltaPotencia.txt
@@ -56,14 +99,14 @@ printing3/
 │
 ├── 📐 Librerías Matemáticas y Analizadores (`analysis/` & raíz)
 │   ├── psf.py            # Ajuste Gaussiano 2D (7 parámetros), Centro de Masa y resolución multi-partícula.
-│   ├── spiral.py         # Generación de matrices de escaneo helicoidal para búsqueda rápida.
+│   ├── spiral.py         # Generación de matrices de escaneo helicoidal para búsqueda rápida (`to_spiral`, `from_spiral`).
 │   ├── image_analyzer.py # Analizador gráfico de imágenes estáticas con reglas en µm/px y tracking.
-│   └── psf_analyzer.py   # Herramienta de caracterización y ajuste de PSF ópticas.
+│   └── psf_analyzer.py   # Herramienta de caracterización y ajuste de PSF ópticas (Gaussiana / Donut).
 │
 └── 📋 Documentación y Reportes Metrológicos
-    ├── README.md         # 📖 Documentación exhaustiva y fundamentos físicos/matemáticos.
-    ├── MANUAL_USUARIO.md # 📘 Manual detallado de usuario, protocolos y FAQ.
-    ├── WALKTHROUGH.md    # 📝 Registro continuo de cambios y validaciones.
+    ├── README.md         # 📖 Documentación maestro de contexto y arquitectura.
+    ├── docs/MANUAL_USUARIO.md # 📘 Manual detallado de usuario, protocolos y FAQ.
+    ├── walkthrough.md    # 📝 Registro continuo de cambios y validaciones en tiempo de ejecución.
     └── reportes/         # 📑 Informes metrológicos y técnicos desglosados:
         ├── ⚙️ sistema/
         │   ├── Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md
@@ -84,74 +127,9 @@ printing3/
 
 ---
 
-## ⚛️ Fundamentos Físicos y Formulación Matemática
+## 🏗️ Arquitectura de Hilos y Concurrencia (`QThread`)
 
-### 1. Impresión Óptica Fototérmica de Nanopartículas
-La impresión óptica consiste en la transferencia dirigida de nanopartículas coloidales metálicas (Au, Ag) desde la solución hacia un sustrato transparente (vidrio o silicio) mediante fuerzas de presión de radiación óptica y gradientes fototérmicos. Al sintonizar la excitación con la **Resonancia de Plasmón de Superficie Localizado (LSPR)**, la fuerza de gradiente óptico $\mathbf{F}_{\text{grad}}$ atrae la partícula al centro de la cintura del haz focalizado:
-
-$$\mathbf{F}_{\text{grad}} = \frac{1}{4} \varepsilon_m \operatorname{Re}(\alpha) \nabla |\mathbf{E}|^2$$
-
-donde $\alpha$ es la polarizabilidad de Clausius-Mossotti de la nanopartícula y $\mathbf{E}$ es el campo eléctrico óptico incidente.
-
-### 2. Microscopía Confocal Contrapropagante y Mapeo Dinámico Láser-Fotodiodo
-El microscopio contrapropagante dispone de dos vías ópticas de excitación e iluminación síncrona:
-- **Vía Superior (TOP / Derecho)**: Iluminación por objetivo superior mediante líneas láser seleccionables (Verde $532\ \text{nm}$, Rojo $637\ \text{nm}$, Amarillo $592\ \text{nm}$).
-- **Vía Inferior (BOT / Invertido)**: Iluminación por objetivo de agua ($60\times$, $\text{NA}=1.0$) ubicado por debajo del cubreobjetos mediante láser verde de $532\ \text{nm}$.
-
-Debido al sistema de espejos dicroicos y filtros notch, la lectura analógica de adquisición del fotodiodo queda vinculada directamente a la línea láser seleccionada:
-$$\text{Láser } 532\ \text{nm (Verde)} \longrightarrow \text{Shutter } 12 \longrightarrow \text{Fotodiodo } 0\ (\texttt{ai0})$$
-$$\text{Láser } 637\ \text{nm (Rojo)} \longrightarrow \text{Shutter } 11 \longrightarrow \text{Fotodiodo } 1\ (\texttt{ai1})$$
-$$\text{Láser } 592\ \text{nm (Amarillo)} \longrightarrow \text{Shutter } 10 \longrightarrow \text{Fotodiodo } 3\ (\texttt{ai3})$$
-
-### 3. Ajuste Gaussiano 2D de 7 Parámetros con Orientación ($\theta$)
-Para caracterizar la función de punto de dispersión (PSF) de excitación confocal estándar (láser Gaussiano $TEM_{00}$), el sistema ajusta la distribución de intensidad normalizada $Z_n$ utilizando una Gaussiana 2D no lineal de 7 parámetros ajustada por mínimos cuadrados (`scipy.optimize.curve_fit`):
-
-$$G(x, y) = Z_{\text{offset}} + A \cdot \exp\left( -\left[ a(x - x_0)^2 + 2b(x - x_0)(y - y_0) + c(y - y_0)^2 \right] \right)$$
-
-donde los coeficientes espaciales orientados a un ángulo $\theta$ son:
-
-$$a = \frac{\cos^2\theta}{2\sigma_x^2} + \frac{\sin^2\theta}{2\sigma_y^2}, \quad b = -\frac{\sin(2\theta)}{4\sigma_x^2} + \frac{\sin(2\theta)}{4\sigma_y^2}, \quad c = \frac{\sin^2\theta}{2\sigma_x^2} + \frac{\cos^2\theta}{2\sigma_y^2}$$
-
-El Ancho Completo a la Mitad del Máximo (FWHM) para cada eje principal se determina mediante:
-
-$$\text{FWHM}_x = 2\sqrt{2\ln 2} \cdot \sigma_x \approx 2.35482 \cdot \sigma_x, \quad \text{FWHM}_y = 2.35482 \cdot \sigma_y$$
-
-### 4. Modelo Analítico de Haz Vortex / Donut ($LG_{01}$)
-Para caracterizar haces de fase espiral o donas de depleción en la vía inferior BOT, el módulo modela el perfil Laguerre-Gauss $LG_{01}$:
-
-$$I_{\text{donut}}(x, y) = Z_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right)$$
-
-donde la distancia radial elíptica normalizada es:
-
-$$r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
-
-### 5. Métricas de Calidad de PSF, Co-alineación y Vector de Desplazamiento
-* **Desalineación espacial vectorial entre confocales TOP y BOT ($\mathbf{\Delta r}_{\text{nm}}$)**:
-  $$\mathbf{\Delta r} = \mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}} = (\Delta x_{\text{nm}}, \Delta y_{\text{nm}})$$
-  $$\|\mathbf{\Delta r}_{\text{nm}}\| = \sqrt{(x_{\text{TOP}} - x_{\text{BOT}})^2 + (y_{\text{TOP}} - y_{\text{BOT}})^2} \times 1000 \quad [\text{nm}]$$
-* **Calidad del cero central**:
-  $$Q_{\text{cero}} = \frac{I_{\min}}{I_{\max}}$$
-* **Coeficiente de Correlación de Pearson ($\text{PCC}$)**:
-  $$\text{PCC} = \frac{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)(Z_{2,ij} - \bar{Z}_2)}{\sqrt{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)^2 \cdot \sum_{i,j} (Z_{2,ij} - \bar{Z}_2)^2}}$$
-
-### 6. Modelo Metrológico de Incertidumbre Sub-píxel (Norma ISO/GUM)
-El sistema cumple con la estimación metrológica formal documentada en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`:
-$$u_c = \sqrt{u_{\text{ruido\_óptico}}^2 + u_{\text{platina\_PI}}^2 + u_{\text{desalineación\_cadena}}^2 + u_{\text{muestreo\_píxel}}^2} \approx 0.35\ \text{nm}$$
-Con una incertidumbre expandida ($k=2$, $95\%$ nivel de confianza) de **$U = 0.70\ \text{nm}$**, respaldando la precisión en localización sub-nanométrica.
-
-### 7. Criterios de Parada Adaptativos en Tiempo Real (`measurements.py`)
-Para garantizar la deposición fototérmica controlada sin foto-fusión ni deposiciones múltiples, el motor de impresión evalúa en tiempo real 5 algoritmos de parada:
-* **Modo 0 (Legacy Relativo)**: Salto relativo instantáneo $I_{\text{new}} / I_{\text{old}} > \text{Umbral}$.
-* **Modo 1 (Relativo + Absoluto + Anti-Paso)**: Evalúa $I_{\text{new}}/I_{\text{old}} > \text{Umbral} \;\mathbf{OR}\; I_{\text{new}} > V_{\text{abs}}$ durante $N_{\text{hold}}$ pasos consecutivos (resuelve la deposición rápida a $t=0$ y filtra partículas volando).
-* **Modo 2 (Derivada $dI/dt$ & Aplanamiento)**: Monitorea el aplanamiento de la curva exponencial de crecimiento fototérmico ($\frac{dI}{dt} < \text{Slope\_Flat}$).
-* **Modo 3 (Confocal Raw & Rescaled)**: Calibración física automatizada del umbral en Volts a partir de la imagen confocal previa ($K_{\text{scale}} = P_{\text{print}}/P_{\text{scan}}$, $P\%$), guardando mapas reescalados `.txt` y `.tiff`.
-* **Modo 4 (Híbrido Tri-Factor All-In-One)**: Evaluación simultánea del salto relativo, umbral absoluto, aplanamiento $dI/dt$ y filtro anti-paso.
-
----
-
-## 🏗️ Arquitectura de Hilos y Concurrencia
-
-Para garantizar una interfaz gráfica fluida a 60+ FPS sin congelamientos durante adquisiciones intensivas de datos a 1.0 MS/s, la aplicación distribuye las tareas en **4 hilos dedicados `QThread`** respaldados por un fondo de hilos (`ThreadPoolExecutor`):
+Para garantizar una interfaz gráfica fluida a 60+ FPS sin congelamientos durante adquisiciones de datos a $1.0\text{ MS/s}$, la aplicación distribuye las tareas en **4 hilos dedicados `QThread`** respaldados por un fondo de hilos (`ThreadPoolExecutor`):
 
 ```mermaid
 graph TD
@@ -184,108 +162,64 @@ graph TD
 
 ---
 
-## 🔄 Flujo de Trabajo Experimental: Microscopio Contrapropagante
+## 🔌 Canales de Hardware e Interfaz Física (NI-DAQmx & PI E-517)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Op as Operador
-    participant GUI as Interface Contrapropagante
-    participant Backend as ConfocalDualBackend
-    participant PI as Platina Piezoeléctrica PI
-    participant DAQ as NI-DAQmx Multicanal
-    participant PSFWin as PSF Analyzer
+La tarjeta **NI-DAQmx** (PCIe/USB-6353) y la platina piezoeléctrica **Physik Instrumente (PI E-517)** siguen el siguiente mapeo estandarizado en `config.py` y `core/nidaq.py`:
 
-    Op->>GUI: Seleccionar Láser TOP (532/637/592) & BOT (532)
-    Op->>GUI: Definir Rango XY, Píxeles & Presionar 'Start Dual Scan'
-    Backend->>DAQ: Configurar Entradas Analógicas según PD_CHANNELS
-    Backend->>PI: Iniciar Rampa de Escaneo en X e Incremento Y
-    loop Para cada Línea Y de la Imagen
-        PI->>PI: Mover Eje X con Disparo por Hardware (Trigger)
-        DAQ-->>Backend: Adquirir Muestras Síncronas (PD_TOP & PD_BOT)
-        Backend->>GUI: Actualizar Mapa Confocal TOP & Confocal BOT
-    end
-    Backend->>Backend: Calcular Centroides CM (Gauss TOP / Gauss-Donut BOT)
-    Backend->>GUI: Mostrar Posiciones (x, y) & Vector Diferencia Delta r (nm)
-    Op->>GUI: Presionar 'Analyze with PSF Analyzer'
-    GUI->>PSFWin: Cargar Canal TOP (Ch1) & Canal BOT (Ch2) para Ajuste 2D
-```
+### Canales Analógicos y Digitales NI-DAQmx
 
----
+| Dispositivo / Canal | Tipo de Señal | Conexión Física | Propósito Metrológico |
+|---|---|---|---|
+| **`ai0`** | Entrada Analógica | Fotodiodo Verde ($532\ \text{nm}$) | Lectura de emisión/dispersión confocal verde. |
+| **`ai1`** | Entrada Analógica | Fotodiodo Rojo ($637\ \text{nm}$) | Lectura de emisión/dispersión confocal roja. |
+| **`ai3`** | Entrada Analógica | Fotodiodo Amarillo ($592\ \text{nm}$) | Lectura de emisión/dispersión confocal amarilla. |
+| **`ai6`** | Entrada Analógica | Fotodiodo Beam Splitter (BS) | Monitoreo fotométrico de potencia incidente ($10\text{ kHz}$). |
+| **`ai4`** | Entrada Analógica | PI Monitor Eje X | Lectura capacitiva en bucle cerrado ($0-10\text{ V} \rightarrow 0-100\ \mu\text{m}$). |
+| **`ai5`** | Entrada Analógica | PI Monitor Eje Y | Lectura capacitiva en bucle cerrado ($0-10\text{ V} \rightarrow 0-100\ \mu\text{m}$). |
+| **`ao2`** | Salida Analógica | Láser $532\ \text{nm}$ (Modulación) | Control de voltaje $0.0-5.0\text{ V}$ para regulación de potencia. |
+| **`do12`** | Salida Digital | Shutter Láser $532\ \text{nm}$ | Obturación digital de alta velocidad ($< 1.0\text{ ms}$). |
+| **`do11`** | Salida Digital | Shutter Láser $637\ \text{nm}$ | Obturación digital de alta velocidad. |
+| **`do10`** | Salida Digital | Shutter Láser $592\ \text{nm}$ | Obturación digital de alta velocidad. |
+| **`do14`** | Salida Digital | Flipper Power (High/Low) | Alterna el atenudador óptico de potencia. |
+| **`do15`** | Salida Digital | Flipper Notch $532\ \text{nm}$ | Conmuta el espejo dicroico/filtro en la vía de colección. |
 
-## ⚡ Modos de Ejecución: Producción vs. Modo Seguro (`SAFE_MODE`)
+### Ejes de Platina Piezoeléctrica PI E-517
 
-### 🔴 Modo Producción (Hardware Real)
-Conecta directamente con la platina piezoeléctrica **Physik Instrumente (PI E-517/E-736)** vía USB, la tarjeta **National Instruments (NI-DAQmx PCIe/USB-6353)** y la cámara física Canon EOS por SDK EDSDK.
-```powershell
-.\.venv\Scripts\python.exe app.py
-```
-> [!IMPORTANT]
-> **Exclusión Mutua de Hardware**: En Modo Producción, `main.py` bloquea la apertura simultánea de `app.py` y `contrapropagante.py` para impedir colisiones físicas en la platina PI o en las líneas analógicas de NI-DAQ.
-
-### 🟢 Modo Seguro (`SAFE_MODE` — Simulación de Hardware)
-Permite ejecutar el $100\%$ de la aplicación gráfica, botones, ventanas y algoritmos de mediciones/impresión en cualquier computadora personal sin hardware conectado.
-```powershell
-$env:PYPRINTING_SAFE="1"
-.\.venv\Scripts\python.exe contrapropagante.py
-```
+| Eje PI | Rango Físico | Resolución Capacitiva | Función en el Sistema |
+|---|---|---|---|
+| **Eje 1 (X)** | $0.0 \dots 100.0\ \mu\text{m}$ | $< 0.35\ \text{nm}$ | Barrido rampa/step en plano horizontal. |
+| **Eje 2 (Y)** | $0.0 \dots 100.0\ \mu\text{m}$ | $< 0.35\ \text{nm}$ | Incremento de línea o barrido ortogonal. |
+| **Eje 3 (Z)** | $0.0 \dots 100.0\ \mu\text{m}$ | $< 0.35\ \text{nm}$ | Estabilización activa de foco y escaneos axiales $XZ/YZ$. |
 
 ---
 
-## 🛠️ Detalle de Módulos y Funcionalidades
+## 📡 Matriz de Señales y Conectividad (`pyqtSignal`)
 
-### 1. Lanzador Principal (`main.py`)
-- Grilla de 8 tarjetas visuales interactiva con atajos directos.
-- Control global de Modo Seguro / Modo Laboratorio.
-- Verificación automática de exclusión mutua de procesos de hardware.
+PyPrinting 3.0 se fundamenta en una red orientada a eventos. La auditoría metrológica de señales (documentada en `reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md`) establece:
 
-### 2. Microscopio Contrapropagante (`contrapropagante.py`)
-- **Visualización Simétrica**: Confocal TOP a la izquierda, Controles compartidos en el centro, Confocal BOT a la derecha.
-- **Mapeo Dinámico de Fotodiodos**: Asignación automática de canal analógico `ai0`, `ai1` o `ai3` según la excitación láser.
-- **Lector Sub-nanométrico**: Cálculo en vivo de la posición $(x, y)$ de cada confocal y del vector diferencia $\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$ en nanómetros.
-- **Acceso Directo a PSF Analyzer**: Botón `Analyze with PSF Analyzer` que transfiere instantáneamente ambas confocales a la suite analítica.
-- **DockArea Completa**: Incorpora los paneles de Nanopositioning, Focus Z, Shutters/Flipper y Trace en la misma disposición que `app.py`.
+- **Total de Señales Declaradas**: **148 señales `pyqtSignal`**.
+- **Señales 100% Conectadas y Operativas**: **126 señales (85.1%)**.
+- **Señales en Standby / Reserva**: **22 señales (14.9%)** (reservadas para instrumentación secundaria de espectrometría `pyspectrum`).
 
-### 3. Orquestador Microscopio Derecho (`app.py`)
-- Basado en `pyqtgraph.dockarea`, con estabilización de deriva térmica (Drift dock), control unificado y orquestación multihilo (`QThread`).
+### Conexiones Críticas Destacadas
 
-### 4. Escaneo Confocal Multimodal y Corrección 3D (`modules/confocal.py`)
-- **Modos de Escaneo**: Ramp (barrido continuo por rampa piezoeléctrica) y Step-by-Step (paso a paso discreto) en planos $XY$, $XZ$, $YX$, $YZ$.
-- **Alineación 3D de Inclinación (Tilt 4-Corners)**: Mide automáticamente la autocorrelación en las 4 esquinas del área de escaneo con el obturador abierto. Ajusta un plano 3D $z(x,y) = z_0 + \alpha(x - x_c) + \beta(y - y_c)$ por mínimos cuadrados y compensa la inclinación de la muestra en tiempo real durante el barrido.
-- **Checkbox 📍 Inicio en Posición Actual**: Al estar activado, toma la coordenada capacitiva actual de la platina como esquina inicial de origen $[x_{stage} \dots x_{stage} + \text{range}_x]$. Al estar desactivado (predeterminado), centra el escaneo en la platina $[x_{stage} \pm \text{range}_x/2]$.
-- **Estimación ETA y Tiempo Total**: Monitoreo dinámico del tiempo transcurrido por fila ($t/\text{fila}$), estimando el tiempo restante (ETA) y proyectando la duración total del escaneo.
-- **Retorno Seguro**: Re-posicionamiento capacitivo cerrado automático a la posición inicial $(x_{start}, y_{start}, z_{start})$ al concluir o abortar la medición.
+```python
+# Conexión en ConfocalBackend.make_connection(frontend)
+frontend.startSignal.connect(self.start_scan_button)
+frontend.stopSignal.connect(self.stop_scan)
+frontend.parametersrampSignal.connect(self.scan_ramp_parameters)
+frontend.parametersstepSignal.connect(self.scan_step_parameters)
+frontend.tiltCorrectionSignal.connect(self.set_tilt_correction)
+frontend.originCornerSignal.connect(self.set_origin_corner)
 
-### 5. Trazado Temporal 10 kHz & Espectros FFT (`modules/trace.py` / `modules/power_spectrum_window.py`)
-- Adquisición continua a $10\text{ kHz}$ por canal analógico.
-- Monitor fotométrico del divisor de haz (Power BS) para seguimiento de potencia incidente.
-- Ventana desplegable de Transformada Rápida de Fourier (FFT) en tiempo real con marcador visual de ruido eléctrico de red ($50\text{ Hz}$) e integración de densidad espectral de potencia.
-
-### 6. Control Completo de Voltaje Láser 532 nm (`modules/laser_532.py` / `instruments/laser532.py`)
-- Control analógico continuo de salida $0.0-5.0\text{ V}$ (mapeado a potencia de emisión) vía canal analógico `ao2` de la NI-DAQmx.
-- Control de obturador digital (Shutter 12) y sincronización con las ventanas de `app.py`, `contrapropagante.py` y `main.py`.
-
-### 7. Caracterización Avanzada de PSF (`psf_analyzer.py`)
-- Ajuste analítico 2D de Gaussiana (7 parámetros) y Donut $LG_{01}$.
-- Visores triples por canal (Original, Fit, Residuales) y superposición RGB falso color.
-
-### 8. Visión por Computadora y Cámara (`camera.py` / `canon_edsdk.py`)
-- Live View en tiempo real (25.0 FPS estricto), paletas LUT de falso color, tracking `trackpy`, navegación panorámica por FOV (ejes X/Y), captura réflex de 15.1 MP multi-formato (JPG, PNG, TIFF, BMP) sin sobreescritura (`get_unique_save_path`), transferencia en RAM mediante `EdsCreateMemoryStream` (inmune a errores `0x000000AB` / `0x00000061`), capa `OverlayWidget` con reglas en µm, cursor de platina PI, ROI confocal y log de diagnóstico emergente desplegable `EDSDKLogDialog`.
-
-### 9. Rutina de Impresión Óptica y 5 Modos de Criterio de Parada (`modules/measurements.py`)
-- Incorpora 5 Modos de Criterio de Parada Seleccionables en tiempo real (`Modo 0: Legacy`, `Modo 1: Salto Relativo + Absoluto & Anti-Paso`, `Modo 2: Derivada dI/dt & Aplanamiento`, `Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado`, `Modo 4: Criterio Híbrido Tri-Factor`).
-- Protección universal contra partículas "de paso" o transitorias mediante el contador de sostenimiento $N_{\text{hold}}$ steps.
-- Guardado de imágenes y matrices confocales reescaladas (`NPscan_rescaled_00i.txt` / `.tiff`).
-- Documentado formalmente en el reporte técnico: [Algoritmo de Impresión Óptica y Ensamblado de Nanodímeros (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md).
-
-### 10. Integración en Standby del Espectrómetro (`pyspectrum/`)
-- Módulo de espectrometría CCD Andor y monocromador Shamrock integrado estructuralmente pero inactivo (standby), reservado para futuras fases de acoplamiento espectral en PyPrinting.
-
-### 11. Auditoría Metrológica de Señales PyQt6 (`reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md`)
-- **148 señales `pyqtSignal` declaradas**, con **126 señales 100% conectadas y operativas (85.1%)** y **22 señales en reserva/standby (14.9%)**.
+# Conexión en ConfocalFrontend.make_connection(backend)
+backend.dataSignal.connect(self.get_img)
+backend.etaSignal.connect(self.etaUpdate)
+backend.tiltWarningSignal.connect(self.showTiltWarning)
+backend.scanfinishedSignal.connect(self.on_scan_finished)
+```
 
 ---
-
 
 ## ⚛️ Fundamentos Físicos y Formulación Matemática
 
@@ -296,17 +230,7 @@ $$\mathbf{F}_{\text{grad}} = \frac{1}{4} \varepsilon_m \operatorname{Re}(\alpha)
 
 donde $\alpha$ es la polarizabilidad de Clausius-Mossotti de la nanopartícula y $\mathbf{E}$ es el campo eléctrico óptico incidente.
 
-### 2. Microscopía Confocal Contrapropagante y Mapeo Dinámico Láser-Fotodiodo
-El microscopio contrapropagante dispone de dos vías ópticas de excitación e iluminación síncrona:
-- **Vía Superior (TOP / Derecho)**: Iluminación por objetivo superior mediante líneas láser seleccionables (Verde $532\ \text{nm}$, Rojo $637\ \text{nm}$, Amarillo $592\ \text{nm}$).
-- **Vía Inferior (BOT / Invertido)**: Iluminación por objetivo de agua ($60\times$, $\text{NA}=1.0$) ubicado por debajo del cubreobjetos mediante láser verde de $532\ \text{nm}$.
-
-Debido al sistema de espejos dicroicos y filtros notch, la lectura analógica de adquisición del fotodiodo queda vinculada directamente a la línea láser seleccionada:
-$$\text{Láser } 532\ \text{nm (Verde)} \longrightarrow \text{Shutter } 12 \longrightarrow \text{Fotodiodo } 0\ (\texttt{ai0})$$
-$$\text{Láser } 637\ \text{nm (Rojo)} \longrightarrow \text{Shutter } 11 \longrightarrow \text{Fotodiodo } 1\ (\texttt{ai1})$$
-$$\text{Láser } 592\ \text{nm (Amarillo)} \longrightarrow \text{Shutter } 10 \longrightarrow \text{Fotodiodo } 3\ (\texttt{ai3})$$
-
-### 3. Ajuste Gaussiano 2D de 7 Parámetros con Orientación ($\theta$)
+### 2. Ajuste Gaussiano 2D de 7 Parámetros con Orientación ($\theta$)
 Para caracterizar la función de punto de dispersión (PSF) de excitación confocal estándar (láser Gaussiano $TEM_{00}$), el sistema ajusta la distribución de intensidad normalizada $Z_n$ utilizando una Gaussiana 2D no lineal de 7 parámetros ajustada por mínimos cuadrados (`scipy.optimize.curve_fit`):
 
 $$G(x, y) = Z_{\text{offset}} + A \cdot \exp\left( -\left[ a(x - x_0)^2 + 2b(x - x_0)(y - y_0) + c(y - y_0)^2 \right] \right)$$
@@ -319,7 +243,7 @@ El Ancho Completo a la Mitad del Máximo (FWHM) para cada eje principal se deter
 
 $$\text{FWHM}_x = 2\sqrt{2\ln 2} \cdot \sigma_x \approx 2.35482 \cdot \sigma_x, \quad \text{FWHM}_y = 2.35482 \cdot \sigma_y$$
 
-### 4. Modelo Analítico de Haz Vortex / Donut ($LG_{01}$)
+### 3. Modelo Analítico de Haz Vortex / Donut ($LG_{01}$)
 Para caracterizar haces de fase espiral o donas de depleción en la vía inferior BOT, el módulo modela el perfil Laguerre-Gauss $LG_{01}$:
 
 $$I_{\text{donut}}(x, y) = Z_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right)$$
@@ -328,19 +252,69 @@ donde la distancia radial elíptica normalizada es:
 
 $$r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
 
-### 5. Métricas de Calidad de PSF, Co-alineación y Vector de Desplazamiento
-* **Desalineación espacial vectorial entre confocales TOP y BOT ($\mathbf{\Delta r}_{\text{nm}}$)**:
+### 4. Desalineación Espacial Vectorial y Corrección de Inclinación 3D (Tilt)
+* **Vector Desplazamiento ($\mathbf{\Delta r}_{\text{nm}}$)**:
   $$\mathbf{\Delta r} = \mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}} = (\Delta x_{\text{nm}}, \Delta y_{\text{nm}})$$
   $$\|\mathbf{\Delta r}_{\text{nm}}\| = \sqrt{(x_{\text{TOP}} - x_{\text{BOT}})^2 + (y_{\text{TOP}} - y_{\text{BOT}})^2} \times 1000 \quad [\text{nm}]$$
-* **Calidad del cero central**:
-  $$Q_{\text{cero}} = \frac{I_{\min}}{I_{\max}}$$
-* **Coeficiente de Correlación de Pearson ($\text{PCC}$)**:
-  $$\text{PCC} = \frac{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)(Z_{2,ij} - \bar{Z}_2)}{\sqrt{\sum_{i,j} (Z_{1,ij} - \bar{Z}_1)^2 \cdot \sum_{i,j} (Z_{2,ij} - \bar{Z}_2)^2}}$$
+* **Plano 3D de Corrección de Inclinación**:
+  $$z(x, y) = z_0 + \alpha(x - x_c) + \beta(y - y_c)$$
+  donde $z_0$ es el foco central, $x_c, y_c$ son las coordenadas del centro geométrico y $\alpha, \beta$ son las pendientes ajustadas por mínimos cuadrados desde las mediciones en las 4 esquinas ($TL, TR, BL, BR$).
 
-### 6. Modelo Metrológico de Incertidumbre Sub-píxel (Norma ISO/GUM)
-El sistema cumple con la estimación metrológica formal documentada en `reportes/Incertidumbre_Metrologica_PyPrinting3.md`:
-$$u_c = \sqrt{u_{\text{ruido\_óptico}}^2 + u_{\text{platina\_PI}}^2 + u_{\text{desalineación\_cadena}}^2 + u_{\text{muestreo\_píxel}}^2} \approx 0.35\ \text{nm}$$
-Con una incertidumbre expandida ($k=2$, $95\%$ nivel de confianza) de **$U = 0.70\ \text{nm}$**, respaldando la precisión en localización sub-nanométrica.
+### 5. Criterios de Parada Adaptativos en Tiempo Real (`measurements.py`)
+Para garantizar la deposición fototérmica controlada sin foto-fusión ni deposiciones múltiples, el motor de impresión evalúa en tiempo real 5 algoritmos de parada:
+* **Modo 0 (Legacy Relativo)**: Salto relativo instantáneo $I_{\text{new}} / I_{\text{old}} > \text{Umbral}$.
+* **Modo 1 (Relativo + Absoluto + Anti-Paso)**: Evalúa $I_{\text{new}}/I_{\text{old}} > \text{Umbral} \;\mathbf{OR}\; I_{\text{new}} > V_{\text{abs}}$ durante $N_{\text{hold}}$ pasos consecutivos (resuelve la deposición rápida a $t=0$ y filtra partículas volando).
+* **Modo 2 (Derivada $dI/dt$ & Aplanamiento)**: Monitorea el aplanamiento de la curva exponencial de crecimiento fototérmico ($\frac{dI}{dt} < \text{Slope\_Flat}$).
+* **Modo 3 (Confocal Raw & Rescaled)**: Calibración física automatizada del umbral en Volts a partir de la imagen confocal previa ($K_{\text{scale}} = P_{\text{print}}/P_{\text{scan}}$, $P\%$), guardando mapas reescalados `.txt` y `.tiff`.
+* **Modo 4 (Híbrido Tri-Factor All-In-One)**: Evaluación simultánea del salto relativo, umbral absoluto, aplanamiento $dI/dt$ y filtro anti-paso.
+
+---
+
+## ⚡ Modos de Ejecución: Producción vs. Modo Seguro (`SAFE_MODE`)
+
+### 🔴 Modo Producción (Hardware Real)
+Conecta directamente con la platina piezoeléctrica **Physik Instrumente (PI E-517/E-736)** vía USB, la tarjeta **National Instruments (NI-DAQmx PCIe/USB-6353)** y la cámara física Canon EOS por SDK EDSDK.
+```powershell
+.\.venv\Scripts\python.exe app.py
+```
+
+### 🟢 Modo Seguro (`SAFE_MODE` — Simulación de Hardware)
+Permite ejecutar el $100\%$ de la aplicación gráfica, botones, ventanas y algoritmos de mediciones/impresión en cualquier computadora personal sin hardware conectado.
+```powershell
+$env:PYPRINTING_SAFE="1"
+.\.venv\Scripts\python.exe contrapropagante.py
+```
+
+---
+
+## 🛠️ Guía de Desarrollo y Buenas Prácticas para Agentes
+
+Al realizar modificaciones en el código de **PyPrinting 3.0**, respeta los siguientes principios:
+
+1. **Preserva Firmas de Métodos y Métodos Helper**:
+   - Si modificas una firma de función (ej. `start_scan_routines`), realiza una búsqueda global (`grep`) para actualizar todos sus sitios de llamada en `app.py`, `contrapropagante.py` y `measurements.py`.
+2. **NUNCA Tragues Excepciones ni Enmascares Errores**:
+   - Inspecciona los logs y tracebacks completos ante cualquier falla en tiempo de ejecución. Evita usar `try...except: pass` sin loguear o notificar la falla.
+3. **Garantiza la Limpieza y Cierre de Tareas NI-DAQmx**:
+   - Encapsula siempre las tareas de adquisición en bloques `try...finally: task.close()` para prevenir memory leaks en la tarjeta NI-DAQmx.
+4. **Verificación de Retorno Seguro de Platina**:
+   - En cualquier rutina de escaneo confocal o movimiento de grilla, asegúrate de que la platina retorne capacitivamente a la posición inicial $(x_{\text{start}}, y_{\text{start}}, z_{\text{start}})$ al completar o cancelar la tarea.
+
+---
+
+## 📑 Documentación Relacionada e Índice de Reportes
+
+- **Manual de Usuario**: [Manual de Usuario PyPrinting 3.0 (`docs/MANUAL_USUARIO.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
+- **Reportes Técnicos del Sistema (`reportes/sistema/`)**:
+  - 📡 [Diagnóstico de Señales y Conexiones PyQt6](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)
+  - 🧵 [Arquitectura de Hilos y Concurrencia Multi-Thread](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
+  - 📷 [Módulo Cámara Canon EOS 500D y EDSDK](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md)
+  - 🐞 [Reporte de Bugs y Errores de Impresión](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md)
+- **Reportes Científicos y Metrológicos (`reportes/cientificos/`)**:
+  - 📐 [Modelo de Incertidumbre Metrológica (Norma ISO/GUM)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)
+  - 🧮 [Algoritmos de Criterios de Parada e Impresión de Grillas](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
+  - 📍 [Corrección de Deriva Termomecánica (Drift Correction)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
+  - 🔬 [Guía Protocolar "DO PRINTING"](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
 
 ---
 
@@ -357,7 +331,5 @@ La plataforma define un conjunto de constantes globales estandarizadas en `confi
 | **`PD_CHANNELS`** | `{532nm: 0, 637nm: 1, 592nm: 3, BS: 6}` | Canal `ai` | Mapeo físico de fotodiodos de emisión y Beam Splitter en la NI-DAQmx. |
 | **`TRIGGER_CHANNELS`** | `{"X": 4, "Y": 5, "Z": 3}` | Canal `ai` | Mapeo analógico de canales de trigger de la platina PI E-517. |
 | **`PIXEL_SIZE_UM`** | `0.059` | $\mu\text{m/px}$ | Escala espacial en el plano muestra con objetivo $100\times / 1.4\text{ NA}$. |
-| **Rango de Platina PI** | `100.0` | $\mu\text{m}$ | Rango de desplazamiento piezoeléctrico capacitivo en bucle cerrado ($XYZ$). |
-| **`DEFAULT_POWER_BS_SLOPE`** | `3.0` | $\text{mW/V}$ | Pendiente por defecto de calibración fotométrica en el Beam Splitter. |
 
 
