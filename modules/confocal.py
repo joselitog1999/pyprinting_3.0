@@ -68,9 +68,10 @@ class Frontend(QFrame):
     CMSignal_NP2         = pyqtSignal()
     driftSignal          = pyqtSignal(bool, int, float, float)
     threshold_filterSignal = pyqtSignal(float)
+    tiltCorrectionSignal   = pyqtSignal(bool)
+    originCornerSignal     = pyqtSignal(bool)
     saveSignal           = pyqtSignal()
     closeSignal          = pyqtSignal()
-    tiltCorrectionSignal = pyqtSignal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -193,6 +194,11 @@ class Frontend(QFrame):
         self.tilt_correction_check.setStyleSheet("color: #89b4fa; font-weight: bold;")
         self.tilt_correction_check.toggled.connect(self._on_tilt_correction_toggled)
 
+        self.origin_corner_check = QCheckBox("📍 Inicio en Posición Actual")
+        self.origin_corner_check.setToolTip("Define la posición actual de la platina como la esquina inicial (origen) del área de escaneo, en lugar del centro geométrico.")
+        self.origin_corner_check.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+        self.origin_corner_check.toggled.connect(lambda b: self.originCornerSignal.emit(b))
+
         self.lbl_confocal_eta = QLabel("ETA: —")
         self.lbl_confocal_eta.setStyleSheet("color: #89dceb; font-family: monospace; font-size: 8pt;")
         self.lbl_confocal_total = QLabel("Total: —")
@@ -215,13 +221,14 @@ class Frontend(QFrame):
         sg.addWidget(self.scanButtonstop,     7, 2)
         sg.addWidget(self.saveimageButton,    7, 3)
         sg.addWidget(self.tilt_correction_check, 8, 1, 1, 3)
+        sg.addWidget(self.origin_corner_check,   9, 1, 1, 3)
 
         etaBox = QWidget()
         eta_lo = QHBoxLayout(etaBox)
         eta_lo.setContentsMargins(0, 0, 0, 0)
         eta_lo.addWidget(self.lbl_confocal_eta)
         eta_lo.addWidget(self.lbl_confocal_total)
-        sg.addWidget(etaBox, 9, 1, 1, 3)
+        sg.addWidget(etaBox, 10, 1, 1, 3)
 
         # ── CM widget ─────────────────────────────────────────────────────────
         self.CMcheck     = QPushButton("Go to NP1")
@@ -581,6 +588,28 @@ class Backend(QObject):
 
     # ── Inicio / parada de scan ───────────────────────────────────────────────
 
+    @pyqtSlot(bool)
+    def set_origin_corner(self, enabled: bool):
+        self.origin_corner_enabled = enabled
+        print(f"[Confocal] Origen en posicion actual: {'ACTIVADO' if enabled else 'DESACTIVADO'}")
+
+    def _get_scan_geometry(self, x_stage: float, y_stage: float, range_x: float, range_y: float):
+        if getattr(self, "origin_corner_enabled", False):
+            x_min = x_stage
+            x_max = x_stage + range_x
+            y_min = y_stage
+            y_max = y_stage + range_y
+            x_center = x_stage + range_x / 2.0
+            y_center = y_stage + range_y / 2.0
+        else:
+            x_center = x_stage
+            y_center = y_stage
+            x_min = x_center - range_x / 2.0
+            x_max = x_center + range_x / 2.0
+            y_min = y_center - range_y / 2.0
+            y_max = y_center + range_y / 2.0
+        return x_center, y_center, x_min, x_max, y_min, y_max
+
     @pyqtSlot(int)
     def start_scan_button(self, color_laser: int):
         self.mode_printing = "none"
@@ -602,9 +631,15 @@ class Backend(QObject):
         self.image_gone = np.zeros((self.Ny, self.Nx))
         self.image_back = np.zeros((self.Ny, self.Nx))
 
+        x_stage, y_stage, z_stage = self._read_pos()
+        self.x_start, self.y_start, self.z_start = x_stage, y_stage, z_stage
+        x_c, y_c, x_min, x_max, y_min, y_max = self._get_scan_geometry(x_stage, y_stage, self.range_x, self.range_y)
+        self.x_pos, self.y_pos, self.z_pos = x_c, y_c, z_stage
+        self.x_min, self.x_max = x_min, x_max
+        self.y_min, self.y_max = y_min, y_max
+
         # Muestreo previo de 4 esquinas si la corrección de inclinación Z está activa
         if getattr(self, "tilt_correction_enabled", False):
-            x_c, y_c, z_c = self._read_pos()
             ok = self._measure_4_corners_tilt(x_c, y_c, self.range_x, self.range_y)
             if not ok:
                 print("[Confocal] ⚠️ Cancelando inicio de escaneo (Lock focus no preparado).")
@@ -624,9 +659,9 @@ class Backend(QObject):
     def stop_scan(self):
         if not self.signal_scan_stop:
             close_shutter(self.laser)
-        xp = getattr(self, "x_pos", 50.0)
-        yp = getattr(self, "y_pos", 50.0)
-        zp = getattr(self, "z_pos", 10.0)
+        xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
+        yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
+        zp = getattr(self, "z_start", getattr(self, "z_pos", 10.0))
         timers = {
             (SCAN_MODES[0], PSF_MODES[0]): (self.PDtimer_rampxy, [1, 2], [xp, yp]),
             (SCAN_MODES[0], PSF_MODES[1]): (self.PDtimer_rampxz, [1, 3], [xp, zp]),
@@ -646,10 +681,9 @@ class Backend(QObject):
 
     def _start_step(self):
         self.tic = time.time(); self.i = self.j = 0
-        self.x_pos, self.y_pos, self.z_pos = self._read_pos()
         dx = self.range_x / self.Nx; dy = self.range_y / self.Ny
-        xs = np.linspace(self.x_pos - self.range_x/2 + dx/2, self.x_pos + self.range_x/2 - dx/2, self.Nx)
-        ys = np.linspace(self.y_pos - self.range_y/2 + dy/2, self.y_pos + self.range_y/2 - dy/2, self.Ny)
+        xs = np.linspace(self.x_min + dx/2, self.x_max - dx/2, self.Nx)
+        ys = np.linspace(self.y_min + dy/2, self.y_max - dy/2, self.Ny)
         self.matrix_scan_step   = [xs, ys]
         self.matrix_scan_spiral = to_spiral([xs, ys], "cw")
         open_shutter(self.laser); time.sleep(0.05)
@@ -808,7 +842,7 @@ class Backend(QObject):
     def _scan_ramp_xy(self):
         dy = self.range_y / self.Ny
         if self.i < self.Ny:
-            target_y = self.y_pos - self.range_y/2 + dy/2 + self.i*dy
+            target_y = getattr(self, "y_min", self.y_pos - self.range_y/2) + dy/2 + self.i*dy
             if getattr(self, "tilt_correction_enabled", False):
                 target_z = self._evaluate_tilt_z(self.x_pos, target_y)
                 pi.MOV([2, 3], [target_y, target_z])

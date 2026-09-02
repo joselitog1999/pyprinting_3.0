@@ -82,6 +82,7 @@ class ConfocalDualFrontend(QWidget):
     CMautoSignal = pyqtSignal(bool)
     filterTopSignal = pyqtSignal(float)
     filterBotSignal = pyqtSignal(float)
+    originCornerSignal = pyqtSignal(bool)
     refPreferenceSignal = pyqtSignal(int)  # 0: TOP, 1: BOT
     saveSignal = pyqtSignal()
     analyzePSFSignal = pyqtSignal()
@@ -228,12 +229,18 @@ class ConfocalDualFrontend(QWidget):
         self.NxEdit.textChanged.connect(self._set_parameters)
         self.NyEdit.textChanged.connect(self._set_parameters)
 
+        self.origin_corner_check = QCheckBox("📍 Inicio en Posición Actual")
+        self.origin_corner_check.setToolTip("Define la posición actual de la platina como la esquina inicial (origen) del área de escaneo, en lugar del centro geométrico.")
+        self.origin_corner_check.setStyleSheet("color: #A6E3A1; font-weight: bold;")
+        self.origin_corner_check.toggled.connect(lambda b: self.originCornerSignal.emit(b))
+
         param_glo.addWidget(QLabel("Modo:"), 0, 0); param_glo.addWidget(self.scan_mode, 0, 1)
         param_glo.addWidget(QLabel("Dirección:"), 0, 2); param_glo.addWidget(self.PSF_mode, 0, 3)
         param_glo.addWidget(QLabel("Range X (µm):"), 1, 0); param_glo.addWidget(self.scanrangeEdit, 1, 1)
         param_glo.addWidget(QLabel("Range Y (µm):"), 1, 2); param_glo.addWidget(self.scanrangeEdit_y, 1, 3)
         param_glo.addWidget(QLabel("Pixels X:"), 2, 0); param_glo.addWidget(self.NxEdit, 2, 1)
         param_glo.addWidget(QLabel("Pixels Y:"), 2, 2); param_glo.addWidget(self.NyEdit, 2, 3)
+        param_glo.addWidget(self.origin_corner_check, 3, 0, 1, 4)
         controls_vlo.addWidget(param_box)
 
         # Panel 2.3: Acciones Principales
@@ -458,10 +465,33 @@ class ConfocalDualBackend(QObject):
         frontend.refPreferenceSignal.connect(self.set_ref_preference)
         frontend.CMSignal.connect(self.measure_CM)
         frontend.CMautoSignal.connect(self.set_cm_auto)
+        frontend.originCornerSignal.connect(self.set_origin_corner)
 
         self.scaleSignal.connect(frontend.get_view_scale)
         self.dataDualSignal.connect(frontend.get_dual_img)
         self.cmDualSignal.connect(frontend.update_cm_results)
+
+    @pyqtSlot(bool)
+    def set_origin_corner(self, enabled: bool):
+        self.origin_corner_enabled = enabled
+        print(f"[ConfocalDual] Origen en posicion actual: {'ACTIVADO' if enabled else 'DESACTIVADO'}")
+
+    def _get_scan_geometry(self, x_stage: float, y_stage: float, range_x: float, range_y: float):
+        if getattr(self, "origin_corner_enabled", False):
+            x_min = x_stage
+            x_max = x_stage + range_x
+            y_min = y_stage
+            y_max = y_stage + range_y
+            x_center = x_stage + range_x / 2.0
+            y_center = y_stage + range_y / 2.0
+        else:
+            x_center = x_stage
+            y_center = y_stage
+            x_min = x_center - range_x / 2.0
+            x_max = x_center + range_x / 2.0
+            y_min = y_center - range_y / 2.0
+            y_max = y_center + range_y / 2.0
+        return x_center, y_center, x_min, x_max, y_min, y_max
 
     @pyqtSlot(float)
     def set_filter_top(self, v: float): self.filter_top = v
@@ -524,7 +554,13 @@ class ConfocalDualBackend(QObject):
         self.image_top = np.zeros((self.Ny, self.Nx))
         self.image_bot = np.zeros((self.Ny, self.Nx))
         self.i = 0
-        self.x_pos, self.y_pos, self.z_pos = self._read_pos()
+        x_stage, y_stage, z_stage = self._read_pos()
+        self.x_start, self.y_start, self.z_start = x_stage, y_stage, z_stage
+        x_c, y_c, x_min, x_max, y_min, y_max = self._get_scan_geometry(x_stage, y_stage, self.range_x, self.range_y)
+        self.x_pos, self.y_pos, self.z_pos = x_c, y_c, z_stage
+        self.x_min, self.x_max = x_min, x_max
+        self.y_min, self.y_max = y_min, y_max
+
         self._configure_ramp_x(self.x_pos)
 
         open_shutter(SHUTTERS[self.top_laser_idx])
@@ -537,6 +573,10 @@ class ConfocalDualBackend(QObject):
         if self.PDtimer_rampxy and self.PDtimer_rampxy.isActive():
             self.PDtimer_rampxy.stop()
         close_all_shutters()
+        xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
+        yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
+        zp = getattr(self, "z_start", getattr(self, "z_pos", 50.0))
+        pi.MOV([1, 2, 3], [xp, yp, zp])
 
     def _read_pos(self) -> tuple[float, float, float]:
         if SAFE_MODE:
@@ -567,6 +607,10 @@ class ConfocalDualBackend(QObject):
             self.PDtimer_rampxy.stop()
             close_all_shutters()
             self.measure_CM()
+            xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
+            yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
+            zp = getattr(self, "z_start", getattr(self, "z_pos", 50.0))
+            pi.MOV([1, 2, 3], [xp, yp, zp])
             if getattr(self, 'is_grid_routine', False):
                 self.is_grid_routine = False
                 self.gridScanFinishedSignal.emit(self.image_top, self.cm_top, None, None,
@@ -577,7 +621,8 @@ class ConfocalDualBackend(QObject):
             return
 
         dy = self.range_y / self.Ny
-        pi.MOV(2, self.y_pos - self.range_y / 2 + dy / 2 + self.i * dy)
+        target_y = getattr(self, "y_min", self.y_pos - self.range_y / 2) + dy / 2 + self.i * dy
+        pi.MOV(2, target_y)
 
         # Adquisición multicanal mapeando canal láser -> canal fotodiodo
         task = channels_photodiodos(self.frequency, self.Nramp)
