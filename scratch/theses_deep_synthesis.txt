@@ -1,0 +1,741 @@
+=== JULIAN GARGIULO 2017: CONCEPTOS Y MODELOS CLAVE ===
+
+--- SECCIÓN 3.1 ---
+3.1 the ﬁrst paper on optical printing is described, and t herefore the working
+principles of the technique are introduced. Then, a summary of relevant progress
+during the last years is presented in section 3.2. Finally the open questions and
+current challenges of optical printing are discussed in sec tion 3.3.
+3.1 Fundamentals of Optical Printing
+Optical printing is a simple and versatile method to ﬁx collo idal NPs from suspen-
+sion into speciﬁc locations of a substrate using optical for ces, as outlined in ﬁgure
+3.1a. It was introduced by a paper by Urban et. al.[ 48] in 2010. Unlike other
+approaches, in this work NPs were ﬁxed directly out of a colloi dal suspension
+without previous stable 3D trapping. A colloidal suspensio n of NPs, stabilized
+by electrostatic repulsion between NPs, was put in contact wi th a substrate.
+Spontaneous adsorption of the NPs onto the substrate was avoi ded by preparing
+the substrate to be charged with the same sign as the NPs. The fu nctionalization
+of the substrate was achieved trough the layer-by-layer ass embly of a monolayer
+of a charged polyelectrolyte[ 51].
+In addition to the electrostatic repulsion Felect(z), an attractive Lifshitz-van
+der Waals force FLvdW (z) acts at short separation distances between the NP
+and the substrate. The total interaction FDLV O (z) = Felect(z) + FLvdW (z) is
+given by the Derjaguin-Landau-Verwey-Overbeek (DL VO)[52] formalism, by dif-
+ferentiation of the interaction energies between a charged sphere and a c
+--------------------------------------------------
+
+--- SECCIÓN 3.2 ---
+3.2. Finally the open questions and
+current challenges of optical printing are discussed in sec tion 3.3.
+3.1 Fundamentals of Optical Printing
+Optical printing is a simple and versatile method to ﬁx collo idal NPs from suspen-
+sion into speciﬁc locations of a substrate using optical for ces, as outlined in ﬁgure
+3.1a. It was introduced by a paper by Urban et. al.[ 48] in 2010. Unlike other
+approaches, in this work NPs were ﬁxed directly out of a colloi dal suspension
+without previous stable 3D trapping. A colloidal suspensio n of NPs, stabilized
+by electrostatic repulsion between NPs, was put in contact wi th a substrate.
+Spontaneous adsorption of the NPs onto the substrate was avoi ded by preparing
+the substrate to be charged with the same sign as the NPs. The fu nctionalization
+of the substrate was achieved trough the layer-by-layer ass embly of a monolayer
+of a charged polyelectrolyte[ 51].
+In addition to the electrostatic repulsion Felect(z), an attractive Lifshitz-van
+der Waals force FLvdW (z) acts at short separation distances between the NP
+and the substrate. The total interaction FDLV O (z) = Felect(z) + FLvdW (z) is
+given by the Derjaguin-Landau-Verwey-Overbeek (DL VO)[52] formalism, by dif-
+ferentiation of the interaction energies between a charged sphere and a charged
+39
+
+--- PAGE 41 ---
+40 3. Optical Printing
+(a) (b)
+(c)
+Figure 3.1: (a) Schematic representation of the optical forc es acting on a NP
+during the printing process. (b) Calculated dependence on d istanc
+--------------------------------------------------
+
+--- SECCIÓN 4.1 ---
+4.1. Also, a custom software was develop to control and
+automate the measurements, as described in section 4.2
+4.1 The set-up
+The setup is schematically depicted in Figure 4.1. It consist s of a home-built up-
+right optical microscope that combines three diﬀerent tech niques: i) Dark-ﬁeld
+imaging in wide ﬁeld. ii) Multicolour sample scanning confo cal microscopy. iii)
+Scattering and micro-Raman spectroscopy.
+Sample scanning is performed with an XYZ piezoelectric stage (PI P-545) with
+nanometer precision and a range of 200 µm in the three axes. Three continuous
+wave lasers of 405nm (Cobolt), 532nm (Laser Ventus) and 640n m (MPB) are used
+for both printing and as illumination sources for confocal im aging and micro-
+spectroscopy. The polarization of each beam is controlled i ndependently using
+corresponding λ/ 2 and λ/ 4 waveplates. Beams are spatially ﬁltered using single-
+mode optical ﬁbers. They are combined into a common optical p ath towards
+the sample using suitable dichroic beam splitters. Each lase r path includes a
+mechanic shutter and a neutral density ﬁlter mounted on a mot orized ﬂipper,
+48
+
+--- PAGE 50 ---
+4.1. The set-up 49
+both controlled from the computer. This way the beam can be bl ocked, or its
+intensity switched between two values by including or removin g the ﬁlter from the
+path. This is useful when the same laser is used for both printi ng and scanning
+but diﬀerent intensities are needed for each application. S ince the ﬁlter is placed
+before the ﬁber coup
+--------------------------------------------------
+
+--- SECCIÓN 4.2 ---
+4.2
+4.1 The set-up
+The setup is schematically depicted in Figure 4.1. It consist s of a home-built up-
+right optical microscope that combines three diﬀerent tech niques: i) Dark-ﬁeld
+imaging in wide ﬁeld. ii) Multicolour sample scanning confo cal microscopy. iii)
+Scattering and micro-Raman spectroscopy.
+Sample scanning is performed with an XYZ piezoelectric stage (PI P-545) with
+nanometer precision and a range of 200 µm in the three axes. Three continuous
+wave lasers of 405nm (Cobolt), 532nm (Laser Ventus) and 640n m (MPB) are used
+for both printing and as illumination sources for confocal im aging and micro-
+spectroscopy. The polarization of each beam is controlled i ndependently using
+corresponding λ/ 2 and λ/ 4 waveplates. Beams are spatially ﬁltered using single-
+mode optical ﬁbers. They are combined into a common optical p ath towards
+the sample using suitable dichroic beam splitters. Each lase r path includes a
+mechanic shutter and a neutral density ﬁlter mounted on a mot orized ﬂipper,
+48
+
+--- PAGE 50 ---
+4.1. The set-up 49
+both controlled from the computer. This way the beam can be bl ocked, or its
+intensity switched between two values by including or removin g the ﬁlter from the
+path. This is useful when the same laser is used for both printi ng and scanning
+but diﬀerent intensities are needed for each application. S ince the ﬁlter is placed
+before the ﬁber coupling, the beam does not move in the sample plane when the
+ﬁlter is included.
+Figure 4.1: Scheme of the expe
+--------------------------------------------------
+
+--- SECCIÓN 4.3 ---
+4.3b. Notch
+ﬁlters are used to ﬁlter light from the laser beams and avoid da maging of the
+cameras.
+Confocal scanning imaging of metallic nanoparticles (MNPs)
+The conﬁguration for confocal detection is depicted in Figure 4.2.a. A small
+circular aperture called pinhole is included in the conjuga ted plane of the sample
+plane. Light from the sample plane crosses through the pinho le and is detected
+by the photodiode. On the other hand, most of the light coming from an object
+in a diﬀerent plane does not cross the pin hole and is blocked. For illumination,
+the beam size of the three lasers is chosen to overﬁll the pupi l of the objetive, and
+its collimation lens are adjusted to assure that the three bea ms are focused to
+its diﬀraction limit on the sample plane. Using notch ﬁlters, elastically scattered
+light is separated and sent to respective ampliﬁed photodio des through confocal
+detection. The advantage of using notch ﬁlters on this conﬁg uration is two-fold
+i) They ﬁlter light from the laser beam, avoiding damage of th e cameras and
+ii) Dark ﬁeld detection is barely aﬀected and can be perform s imultaneously to
+confocal scanning, because only a small portion of the optic al spectrum is ﬁltered
+A computer routine was programmed for synchronously scannin g the sample
+and measuring the signal in the photodiode, (see section4.2 ). This way images
+can be acquired, using the elastically scattered light of th e laser beams by the
+sample. When scanning a MNPs, it is important to no
+--------------------------------------------------
+
+--- SECCIÓN 5.1 ---
+5.1a shows, as a function of wavelen gth, the maximal axial
+and radial forces exerted on Ag and Au nanoparticles (NPs) of the s ame diameter
+(60 nm), placed at the centre of a diﬀraction limited focus (NA = 1.0). As can
+be seen, the magnitude of optical forces is many times strong er for wavelengths
+close to the plasmon resonance of the particle. Also, the rati o between radial
+an axial forces dramatically changes with the wavelength. O n resonance, axial
+forces dominate, being approximately ten-fold stronger tha n radial forces. On the
+contrary, out of the plasmon resonance towards the red regio n, both axial and
+radial forces have similar magnitudes. Figures 5.1b-e show r epresentative force
+maps for Ag and Au at laser wavelengths on and oﬀ resonance.
+Optical printing of gold and silver NPs was proven to be possib le using a
+printing wavelength either at plasmon resonance[ 56] or oﬀ-resonance[ 60, 64], but
+no detailed study comparing the precision in each case has be en reported. Based
+on the ﬁrst measurement by Urban et.al.[ 48] (described in section 3), it has been
+accepted as a ‘rule of thumb’ that the printing accuracy of a si ngle particle was
+around 50 nm. However, there are still many open questions: Is that accuracy the
+best achievable? If so, which is the limiting phenomenon? Is there any inﬂuence
+of the wavelength or power of the printing beam? What is the bes t deﬁnition
+of precision? The aim of this chapter is to provide a deeper und erstanding of
+the subject in
+--------------------------------------------------
+
+--- SECCIÓN 5.2 ---
+5.2 deﬁnes
+the method to quantify the precision. Then, accuracy limits are tested for Au
+and Ag NPs on-resonance (section 5.3) and oﬀ-resonance (sectio n 5.4). Finally,
+(in section5.5) a theoretical framework and simulations are used to rationalize
+the experimental results.
+5.1 Sample preparation
+In all the experiments presented in this chapter, Au and Ag NPs we re printed
+on glass substrates. Both NPs were citrate coated, and negati vely charged at
+neutral pH. In order to avoid spontaneous binding of the metal lic nanoparti-
+cles (MNPs), the substrates were surface functionalized with negative charges
+employing a layer-by-layer deposition of polyelectrolyte s[51, 68, 69], with Polydi-
+allyldimethylammonium chloride (PDDA) Mw = 400000− 500000 as polycation
+and sodium polystyrene sulfonate (PSS) as polyanion Mw = 70000 (both from
+Sigma-Aldrich). First, glass coverslips were cleaned throug h the folowing steps:
+1. Sonication for 10 minutes in Hellmanex (2% v/v)
+2. Thorough rinse with MilliQ water.
+3. Acetone rinse.
+4. Dry in a laboratory oven at 80 ◦C.
+5. Plasma cleaning for 3 minutes.
+Then, substrate was surface modiﬁed by:
+1. Immersion in PDDA solution (1 mg/ml in 0.5M NaCl).
+2. Rinsing with MilliQ water.
+3. Immersion in PSS solution (1mg/ml in 0.5M NaCl).
+4. Rinsing and stored in MilliQ
+Citrate-capped gold NPs were purchased from Nanopartz (speci ﬁed diameter
+62± 2nm; average diameter determined by FE-SEM 63 nm ± 3 nm). Citrate-
+capped silver NPs (speciﬁed diameter 60nm ± 8n
+--------------------------------------------------
+
+--- SECCIÓN 6.1 ---
+6.1 mW
+8,3 mW
+10,9 mW
+λ= 532nm λ= 640nm
+Figure 5.6: Oﬀ-resonance printing: (a) Radial CDF for Ag NPs at λ = 532 nm
+and diﬀerent powers. (c) Radial CDF for Au NPs at λ = 640 nm and diﬀerent
+powers.
+Median waiting time [s]
+0 5 10 15 20 25
+1
+10
+100
+Ag@532nm
+Au@640nm
+0 5 10 15 20 25
+0
+50
+100
+150
+200
+250
+eRMS [nm]
+Laser Power [mW] Laser Power [mW]
+(a) (b)
+Ag@532nm
+Au@640nm
+Figure 5.7: (a) Oﬀ-resonance waiting time (log scale) as func tion of laser power.
+Black:Ag at λ = 405 nm. Red: Au at λ = 532 nm.
+In order to print NPs out of resonance, lasers of 532 nm for Ag and 640nm for
+Au were used, with a beam waist w0 of (265±5)nm and (319±6)nm respectively.
+As expected from the smaller absorption and scattering cross sections involved,
+higher laser powers are required for optical printing. The t hreshold powers were
+Pth = 3. 5 mW for Ag and Pth = (5± 0. 5) mW for Au.
+
+--- PAGE 71 ---
+70 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+On resonance, the automatic detection of printing events is done with the
+printing beam itself. This can be diﬃcult when working oﬀ-res onance, due to
+destructive interference that occurs at the detector (disc ussed in section4.1). For
+this reason, a detection laser was superimposed to the printi ng beam, resonant
+with plasmon of the particle. The intensity of the detection laser was kept as
+low as possible, and in all cases the force exerted by this bea m was below 10%
+of the force exerted by the printing beam. An additional diﬃcu lty for 
+--------------------------------------------------
+
+=== LUCIANA MARTINEZ: CONCEPTOS Y MODELOS CLAVE ===
+
+--- HIT 'ÍNDICE' (#1) ---
+ÍNDICE Y CAPÍTULOS PRINCIPALES ===
+
+
+--- PAGE 1 (ÍNDICE) ---
+ 
+UNIVERSIDAD DE BUENOS AIRES 
+Facultad de Ciencias Exactas y Naturales 
+Departamento de Física 
+ 
+Manipulación óptica, nanotermometría y 
+crecimiento inducido por plasmónica de 
+nanopartículas individuales 
+ 
+Tesis presentada para optar al título de Doctora de la Universidad de 
+Buenos Aires en el área de Ciencias Físicas por 
+LUCIANA PAULA MARTINEZ 
+ 
+Director: Dr. Fernando D. Stefani 
+Directora Adjunta: Dra. Ianina L. Violi 
+Consejera de Estudios: Dra. Andrea V. Bragas 
+Lugar de Trabajo: Centro de Investigaciones en Bionanociencias,  
+Consejo Nacional de Investigaciones Científicas y Técnicas 
+ 
+Ciudad Autónoma de Buenos Aires, noviembre de 2024 
+
+
+--- PAGE 2 (ÍNDICE) ---
+2 
+ 
+ 
+  
+
+--- PAGE 3 (ÍNDICE) ---
+3 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+A mamá y papá, 
+ quienes me inculcaron el amor por la curiosidad  
+y las ganas de descubrir el mundo.  
+Gracias por su apoyo infinito.  
+ 
+  
+
+--- PAGE 4 (ÍNDICE) ---
+4 
+ 
+  
+
+--- PAGE 5 (ÍNDICE) ---
+5
+--------------------------------------------------
+
+--- HIT 'ÍNDICE' (#2) ---
+ÍNDICE) ---
+6 
+ 
+  
+
+--- PAGE 7 (ÍNDICE) ---
+7 
+ 
+Optical manipulation, nanothermometry and  
+plasmon-assisted growth of single nanoparticles 
+ 
+Abstract 
+ 
+ Metallic nanoparticles (NPs) stand out for their strong interaction with light, mediated 
+by localized surface plasmon resonances. This interaction allows the manipulation of NPs 
+through optical forces, and is also associated with a series of phenomena that are relevant for 
+nanotechnology, such as localized heating, near-field enhancement, and the generation of hot-
+carriers. 
+ To effectively exploit these phenomena, it is advantageous to perform direct 
+measurements of optical and photothermal properties at the single-particle level. In this thesis, 
+the spectroscopic capabilities of an instrument for optical manipulation of NPs were improved 
+to monitor scattering or photoluminescence spectra , enabling new types of single -particle 
+measurements. 
+ In a first application, Chapter 4 presents an innovative nanothermometry for N
+--------------------------------------------------
+
+--- HIT 'ÍNDICE' (#3) ---
+ÍNDICE) ---
+8 
+ 
+ 
+  
+
+--- PAGE 9 (ÍNDICE) ---
+9 
+ 
+Índice general 
+Introducción y Motivación ......................................................................................................... 13 
+Capítulo 1: Propiedades ópticas de las nanopartículas metálicas ............................................ 19 
+1.1. Resonancias de plasmones superficiales localizados .................................................. 19 
+1.2. Absorción y dispersión ................................................................................................ 21 
+1.3. Fuerzas ópticas ............................................................................................................ 23 
+1.4. Intensificación del campo eléctrico cercano ............................................................... 27 
+1.5. Generación de calor .................................................................................................... 27 
+1.6. Portadores de carga de alta energía .....................
+--------------------------------------------------
+
+--- HIT 'Capítulo 2' (#1) ---
+Capítulo 2: Estado del arte y desafíos de la impresión óptica de nanopartículas coloidales .. 33 
+2.1. Nanofabricación .......................................................................................................... 33 
+2.2. Impresión óptica de nanopartículas coloidales ........................................................... 35 
+2.2.1. Principios de la impresión óptica ........................................................................ 35 
+2.2.2. Funcionalización del sustrato .............................................................................. 37 
+2.2.3. Automatización ................................................................................................... 38 
+2.3. Precisión ...................................................................................................................... 40 
+2.4. Resolución lateral ........................................................................................................ 43 
+2.5. Selectividad ..
+--------------------------------------------------
+
+--- HIT 'Capítulo 3' (#1) ---
+Capítulo 3: Dispositivo y protocolos experimentales de impresión óptica y espectroscopía de 
+partículas individuales ................................................................................................................ 55 
+3.1. Montaje experimental ................................................................................................. 55 
+3.2. Imágenes y espectros .................................................................................................. 57 
+3.2.1. Microscopía Confocal de interferencia de dispersión (iSCAT) ............................. 57 
+3.2.1. Microscopía de Campo Oscuro............................................................................ 58 
+3.2.2. Espectroscopía de dispersión .............................................................................. 59 
+3.2.3. Espectroscopía de fotoluminiscencia anti-Stokes y Stokes ................................. 62 
+3.3. Cálculo de irradiancia ............................................
+--------------------------------------------------
+
+--- HIT 'Capítulo 3' (#2) ---
+Capítulo 3: Dispositivo y protocolos experimentales de impresión 
+óptica y espectroscopía de partículas individuales 
+ 
+ Un aspecto central de esta tesis fue la mejora de las capacidades espectroscópicas del 
+dispositivo experimental para la manipulación óptica de NPs coloidales .19 En este Capítulo se 
+presenta el montaje experimental mejorado y aspectos fundamentales de los protocolos de 
+medición. En la sección 3.1. se describe el arreglo óptico básico, mientras que la sección 3.2. 
+incluye detalles de la detección de NPs por imágenes de microscopía de campo oscuro y de 
+dispersión interferométrica, y sobre las mediciones de espectros de dispersión y 
+fotoluminiscencia. La sección 3.3. presenta el cálculo de irradiancias para láseres ga ussianos 
+enfocados a partir de la cintura del haz. En la sección 3.4. se presentan los nuevos programas de 
+adquisición desarrollados en Python que mejoran el desempeño y además reemplazan 
+programas cerrados y bajo licencia. En la sección 3.5., se 
+--------------------------------------------------
+
+--- HIT 'Capítulo 4' (#1) ---
+Capítulo 4 presenta una innovadora clase de 
+nanotermometría de NPs basada en imágenes hiperespectrales de fotoluminiscencia. Esta 
+técnica se aplicó para determinar la temperatura y el coeficiente de calentamiento fototérmico 
+de NPs esféricas de oro en diversos entornos, así como de NPs híbridas de oro-paladio, relevantes 
+en catálisis. 
+ En el Capítulo 5, las espectroscopías de dispersión y fotoluminiscencia se utilizaron para 
+caracterizar la impresión óptica de nanoestrellas de oro con láseres de diferentes longitudes de 
+onda. Asimismo, el nuevo método de nanotermometría permitió verificar condiciones de 
+impresión con bajo calentamiento, evitando deformaciones y preservan do la compleja 
+morfología de las nanoestrellas.  
+En el Capítulo 6, se describe una tercera aplicación de la espectroscopía de 
+fotoluminiscencia en tiempo real para realizar un control fino en lazo cerrado del crecimiento 
+inducido por plasmónica de NPs esféricas de oro  y se llevaron a cabo estudios prelimin
+--------------------------------------------------
+
+--- HIT 'Capítulo 4' (#2) ---
+Capítulo 4: Nanotermometría por fotoluminiscencia anti-Stokes ............................................ 81 
+4.1 Introducción: temperatura en la nanoescala .............................................................. 81 
+4.2 Nanotermometría por anti-Stokes .............................................................................. 84 
+4.2.1. Modelo de la señal de fotoluminiscencia ............................................................ 84 
+4.2.2. Propiedades fototérmicas y ópticas .................................................................... 86 
+4.2.3. Implementación de nanotermometría por anti-Stokes ...................................... 87 
+4.3 Nanotermometría por imágenes hiperespectrales de fotoluminiscencia .................. 89 
+4.4 Nanoesferas de Au como termómetros ...................................................................... 94 
+4.5 Coeficiente fototérmico en función del tamaño de las NPs ........................................ 95 
+4.6 Coeficiente
+--------------------------------------------------
+
+--- HIT 'Capítulo 4' (#3) ---
+Capítulo 4: Nanotermometría por fotoluminiscencia anti-Stokes 
+ 
+En este Capítulo se desarrolla la medición de temperatura de NPs individuales a través 
+de su señal de fotoluminiscencia anti-Stokes. En principio en la sección 4.1. se presenta una breve 
+introducción del típico gradiente térmico que se genera por calentamiento fototérmico de una 
+NP metálica y de las diversas técnicas actuales de nanotermometría. En la sección 4.2. se 
+introducen los antecedentes de la técnica de termometría por fotoluminiscencia anti -Stokes, 
+incluyendo el modelo teórico de la señal, las propiedades ópticas y fototérmicas que se miden a 
+partir de la señal de fotoluminiscencia y la implementación utilizada para medir. Luego en la 
+sección 4.3. se muestra la implementación utilizada en esta tesis para medir la temperatura de 
+NPs a partir de su imagen conf ocal hiperespectral, y los resultados obtenidos para diversos 
+sistemas: para medir la el incremento de temperatura bajo excitación de NPs de Au exp
+--------------------------------------------------
+
+--- HIT 'Capítulo 5' (#1) ---
+Capítulo 5, las espectroscopías de dispersión y fotoluminiscencia se utilizaron para 
+caracterizar la impresión óptica de nanoestrellas de oro con láseres de diferentes longitudes de 
+onda. Asimismo, el nuevo método de nanotermometría permitió verificar condiciones de 
+impresión con bajo calentamiento, evitando deformaciones y preservan do la compleja 
+morfología de las nanoestrellas.  
+En el Capítulo 6, se describe una tercera aplicación de la espectroscopía de 
+fotoluminiscencia en tiempo real para realizar un control fino en lazo cerrado del crecimiento 
+inducido por plasmónica de NPs esféricas de oro  y se llevaron a cabo estudios preliminares en 
+función de la longitud de onda del láser. 
+Estas nuevas capacidades permitieron establecer una plataforma robusta para el estudio 
+sistemático de las propiedades ópticas y fototérmicas de NPs plasmónicas individuales. 
+ 
+Palabras claves: nanopartículas plasmónicas, fotoluminiscencia, nanotermometría, impresión 
+óptica, química asistida po
+--------------------------------------------------
+
+--- HIT 'Capítulo 5' (#2) ---
+Capítulo 5: Impresión óptica de nanoestrellas de oro ............................................................ 115 
+5.1. Introducción .............................................................................................................. 115 
+5.2. Caracterización de las nanoestrellas de oro .............................................................. 116 
+5.3. Impresión óptica con distintos láseres ...................................................................... 118 
+5.4. Deformación por absorción óptica ............................................................................ 122 
+5.5. Medición de la temperatura ...................................................................................... 124 
+5.6. Optimización de la impresión óptica para distintos tamaños ................................... 126 
+5.7. Precisión de la impresión óptica ............................................................................... 128 
+5.9. Conclusiones.....................
+--------------------------------------------------
+
+--- HIT 'Capítulo 5' (#3) ---
+Capítulo 5, se explorará 
+la fabricación de dímeros esfera-estrella de Au con un láser de 808 nm.  
+ 
+ 
+Figura 3.11. Impresión óptica de homo-dímeros de NPs esféricas de Au de 60 nm de diámetro.  
+a) Imágenes de campo oscuro. b) Imágenes iSCAT con láser de 532 nm durante la fabricación de 
+un dímero: i) imagen de la primera NP, ii) imagen después de imprimir la segunda NP, iii) resta 
+de ii)-i). Los puntos de color azul y rojo indican las posiciones de los centros de masa de cada NP . 
+ 
+3.4.3. PySpectrum 
+ 
+PySpectrum combina las funciones de  PyPrinting e incorpora el control del 
+espectrómetro y la cámara . La interfaz gráfica de PySpectrum (Figura 3.12) permite ajustar 
+parámetros clave en la configuración inicial del espectrómetro (Figura 3.12.a.) y la cámara (Figura 
+3.12.b.) y para la adquisición de espectros (Figura 3.12.c.), ya sea de dispersión o 
+fotoluminiscencia.  
+ A modo de ejemplo, se muestra como se ve en la interfaz gráfica la señal de 
+fotoluminiscencia de una NP de 
+--------------------------------------------------
+
+--- HIT 'obturador' (#1) ---
+obturadores mecánicos para encender y apagar cada 
+láser, y se utiliza un filtro neutro montado en un flipper motorizado en el camino de la excitación 
+para trabajar alternativamente con potencias más bajas. La alineación de los láseres se logra 
+mediante espejos dicroicos en un telescopio común antes del divisor de haz. Para el enfoque, se 
+emplea un objetivo de inmersión de agua de 60x con una apertura numérica NA = 1 (Olympus 
+LUMPLFLN 60XW), o un objetivo de aire 20x, NA = 0.5 (Olympus UPlanFL N 20x/0.50). 
+ En cuanto a la muestra, se utiliza comúnmente un sustrato transparente, como vidrio. 
+En el caso de colocar NPs coloidales o precursores químicos en solución acuosa, el objetivo se 
+protege con un film transparente para evitar su contaminación. Para posicionar la muestra y 
+realizar escaneos, se recurre a una platina piezoeléctrica XYZ (Physik Instrumente P-545), con 
+una precisión de 1 nm y un rango máximo de 200 µm en XY y 50 µm en Z. 
+ En el camino de la detección, el micros
+--------------------------------------------------
+
+--- HIT 'obturador' (#2) ---
+obturadores de láseres y filtros, b) Señal del fotodiodo en el tiempo, c) Platina 
+piezoeléctrica XYZ, d) Imágenes iSCAT (escaneo 2D), e) Control de foco en Z (escaneo 1D).  
+Escaneo en Z sobre una NP de Au de 60 nm de diámetro depositada sobre sustrato de vidrio. 
+ 
+c)
+b)
+d)
+a)
+e)
+Z posición (µm)
+Z position (µm)
+Intensidad
+vidrio agua
+Au NP
+Ir al máximo
+
+
+--- PAGE 66 ---
+66 
+ 
+ 
+Control motorizado de obturadores de láseres y filtros 
+ En la interfaz gráfica de la Figura 3.6.a. se muestran los botones para controlar el 
+obturador de cada láser. Estos operan por señales TTL enviadas a través de la placa de 
+adquisición. 
+ También se muestran los botones para controlar la posición de un filtro neutro y un filtro 
+notch. El filtro neutro permite cambiar rápidamente la intensidad del láser a una más baja, que 
+se usa para la adquisición de imágenes iSCAT , mientras que el filtro notch se utiliza en 
+aplicaciones de espectroscopía. Estos se montan en un flipper motorizado y se controlan por
+--------------------------------------------------
+
+--- HIT 'obturador' (#3) ---
+obturador. Como se describió en la Sección 3.2.1., la señal de 
+detección es proporcional 𝐈𝐝 de la Ecuación 3.1.  
+ La señal de iSCAT en el tiempo, permite poner en foco a la muestra de manera rápida, 
+controlarlo y corregirlo durante los experimentos y detectar la presencia de la NP en el foco para 
+automatizar a la impresión óptica. Cada vez que se utiliza, se guarda automáticamente un archivo 
+de la señal en función del tiempo, que se denomina traza.  
+ 
+Platina piezoeléctrica 
+La platina piezoeléctrica se comunica digitalmente con la computadora a través de 
+conexión USB y se controla mediante el programa. En la interfaz gráfica (Figura 3.6.c.) se muestra 
+la posición actual de lectura y se configura la próxima posición para moverse 
+independientemente en X, Y o Z. Se puede controlar mediante los botones del cursor en pasos 
+discretos o escribir el número de la posición deseada en los casilleros. 
+ 
+Imágenes iSCAT (escaneo 2D) 
+ En la Figura 3.6.d. se muestran las imágenes iSCAT ob
+--------------------------------------------------
+
+--- HIT 'fotodiodo' (#1) ---
+fotodiodo. E móvil: espejo sobre soporte magnético, se detecta imágenes de 
+campo oscuro en la cámara de color CMOS, y se quita para realizar espectroscopía. El objetivo 
+utilizado es de inmersión de agua, el porta -muestra soporta un sustrato y solución, colocado s 
+sobre una platina piezoeléctrica XYZ. 
+ 
+iSCAT 642 nm
+iSCAT 592 nm
+iSCAT 532 nm FN 532 nm
+FN 592 nm
+FN 642 nm
+EMCCD / 
+Espectrómetro
+FN 808 nmiSCAT 808 nm
+iSCAT 405 nm FN 405 nm
+Cámara 
+CMOS
+P
+E móvil
+BS
+E DBS DBS
+532 nm
+DBS DBS
+592 nm808 nm 405 nm642 nm
+P
+L
+Luz blanca
+Condensador
+Campo Oscuro
+Platina 
+piezoeléctrica
+XYZ
+Sustrato
+Objetivo 
+de inmersión 
+de Agua
+Solución
+
+--- PAGE 57 ---
+57 
+ 
+3.2. Imágenes y espectros 
+ 
+3.2.1. Microscopía Confocal de interferencia de dispersión (iSCAT) 
+ 
+En la Figura 3.2.a. se presenta la configuración de detección confocal. C uando un láser 
+se enfoca sobre una NP , la luz dispersada elásticamente por la muestra es primero colectada por 
+el objetivo. Posteriormente, se utiliza un filtro
+--------------------------------------------------
+
+--- HIT 'fotodiodo' (#2) ---
+fotodiodo.  El pinhole se sitúa en el plano conjugado de la muestra 
+asegurando que la luz proveniente de otros planos no sea detectada por el fotodiodo. 
+La señal detectada proviene tanto de la dispersión elástica de una NP como de la 
+reflexión del láser en la interfase agua/sustrato. Dado que la iluminación proviene de una fuente 
+coherente, estas señales pueden interferir de manera constructiva o destructiva .100 En la  
+literatura, esta técnica se clasifica dentro de la familia de microscopía de interferencia de  
+dispersión (iSCAT, por sus siglas en inglés, Interferometric Scattering Microscopy). 
+En presencia de una NP , la señal detectada por el fotodiodo es proporcional a la 
+intensidad (Id) resultante de la superposición del campo de reflexión del láser 𝐄𝐫 =  Erei Фr y el 
+campo dispersado por la NP 𝐄𝐬𝐜𝐚 =  Escaei Фsca: 
+ 
+ Id  =  |𝐄𝐫 + 𝐄𝐬𝐜𝐚|2 =  Ir + Isca + 2𝐄𝐫 𝐄𝐬𝐜𝐚 cos(Ф) Ecuación 3.1 
+ 
+ Donde el primer término es la contribución del campo reflejado Ir =  |Er|2 , el segund
+--------------------------------------------------
+
+--- HIT 'fotodiodo' (#3) ---
+fotodiodo con los barridos 
+en posición de la platina piezoeléctrica XYZ. En la Figura 3.2.b.  se presentan ejemplos de 
+escaneos tipo XY para una NP de Au de 80 nm de diámetro. Utilizando un láser de λ= 532 nm, se 
+observa un máximo en la NP , mientras que con λ= 808 nm se observa un mínimo, debido a que 
+la función dieléctrica de la NP cambia con la longitud de onda. Ambas imágenes permiten 
+localizar el centro de masa de la NP , y cuanto mayor sea el |𝜎| de la NP , mejor será su detección. 
+
+--- PAGE 58 ---
+58 
+ 
+ 
+Figura 3.2. a) Esquema de detección confocal, b) Ejemplo de imágenes iSCAT de una NP de Au 
+de 80 nm de diámetro. i) Con láser de λ= 532 nm, se observa un máximo. ii) Con láser de λ= 808 
+nm, se observa un mínimo. 
+ 
+3.2.1.  Microscopía de Campo Oscuro 
+ 
+ Para la microscopía de campo oscuro se emplea un condensador con inmersión en aceite 
+que tiene una apertura numérica NA = 1.2. La luz procedente de una lámpara  blanca se colima 
+para iluminar a la muestra. Los rayos i
+--------------------------------------------------
+
+--- HIT 'deriva' (#1) ---
+Deriva mecánica del dispositivo experimental ............................................................ 75 
+3.6. Estudio del efecto de la iluminación prolongada en NPs impresas ............................. 76 
+Capítulo 4: Nanotermometría por fotoluminiscencia anti-Stokes ............................................ 81 
+4.1 Introducción: temperatura en la nanoescala .............................................................. 81 
+4.2 Nanotermometría por anti-Stokes .............................................................................. 84 
+4.2.1. Modelo de la señal de fotoluminiscencia ............................................................ 84 
+4.2.2. Propiedades fototérmicas y ópticas .................................................................... 86 
+4.2.3. Implementación de nanotermometría por anti-Stokes ...................................... 87 
+4.3 Nanotermometría por imágenes hiperespectrales de fotoluminiscencia .................. 89 
+4.4 Nanoesferas de Au 
+--------------------------------------------------
+
+--- HIT 'deriva' (#2) ---
+deriva mecánica en la imagen hiperespectral .................................... 161 
+Publicaciones derivadas del trabajo de esta tesis ................................................................... 165 
+Bibliografía ................................................................................................................................ 167 
+ 
+ 
+  
+
+--- PAGE 12 (ÍNDICE) ---
+12 
+ 
+  
+
+--- PAGE 13 (ÍNDICE) ---
+13 
+ 
+Introducción y Motivación 
+ 
+En el contexto de la química coloidal, las nanopartículas (NPs) han emergido como 
+elementos destacados en una amplia gama de disciplinas, que van desde la biomedicina hasta la 
+ciencia de los materiales. Esta prominencia se debe al desarrollo de métodos altamente eficaces 
+para la síntesis de NPs con una variedad de formas, tamaños, composiciones de materiales y 
+funcionalidades superficiales. En la escala nanométrica, los efectos cuánticos de confinamiento 
+y superficie se vuelven especialmente relevante debido a la alta relación sup
+--------------------------------------------------
+
+--- HIT 'deriva' (#3) ---
+deriva mecánica del dispositivo 
+experimental. Por último, en la sección 3.6., se presenta un estudio del efecto de la iluminación 
+prolongada en NPs impresas. 
+ 
+3.1. Montaje experimental 
+ 
+ La Figura 3.1 presenta un esquema simplificado del dispositivo mejorado. En el camino 
+de la excitación, se dispone de cinco láseres de onda continua (CW) de uso independiente: 405 
+nm (Cobolt), 532 nm (Laserquantum Ventus), 592 nm (MPB), 640 nm (MPB) y 808 nm (Thorlabs 
++ Lumics). Estos láseres están espacialmente filtrados mediante fibras ópticas monomodo y  se 
+coliman a la salida de las mismas  para generar, una vez enfocados, haces gaussianos con 
+diámetros de aproximadamente 300 nm . La polarización se controla mediante un polarizador 
+lineal y una lámina de media onda para polarización lineal, con la opción de agregar una lámina 
+de cuarto de onda para cambiar a polarización circular. La potencia se ajusta de manera 
+individual. Adicionalmente, se incorporan obturadores mecánicos para ence
+--------------------------------------------------
+
+--- HIT 'dímeros' (#1) ---
+dímeros ....................................................................... 70 
+3.4.3. PySpectrum ......................................................................................................... 71 
+
+--- PAGE 10 (ÍNDICE) ---
+10 
+ 
+3.4.4. Experimentos automatizados de PySpectrum .................................................... 74 
+3.5. Deriva mecánica del dispositivo experimental ............................................................ 75 
+3.6. Estudio del efecto de la iluminación prolongada en NPs impresas ............................. 76 
+Capítulo 4: Nanotermometría por fotoluminiscencia anti-Stokes ............................................ 81 
+4.1 Introducción: temperatura en la nanoescala .............................................................. 81 
+4.2 Nanotermometría por anti-Stokes .............................................................................. 84 
+4.2.1. Modelo de la señal de fotoluminiscencia ..........................................
+--------------------------------------------------
+
+--- HIT 'dímeros' (#2) ---
+dímeros ,21 y las dificultades  para fabricar 
+homodímeros de NPs de Au debido a la presencia de fuerzas fototérmicas en sustratos poco 
+disipativos, como el vidrio.22 Además, experimentos de impresión sobre substratos de zafiro e 
+incluyendo una monocapa de grafeno resaltaron la importancia de la  disipación de calor para 
+conectar de partículas idénticas. Aunque los efectos fototérmicos han sido identificados como 
+
+--- PAGE 15 (ÍNDICE) ---
+15 
+ 
+fenómenos clave que dificultan los resultados de varios experimentos de manipulación óptica 
+no se comprenden bien a escala nanométrica. En el contexto de la impresión óptica, se 
+discutieron fenómenos como la termoforesis y la termoósmosis.22  
+ 
+Figura 2. Resumen de avances en impresión óptica  realizados por el grupo del Dr. Fernando 
+Stefani durante el período 2016-2019. a) Caracterización detallada de la impresión óptica de NPs 
+metálicas, tanto en resonancia como fuera de resonancia plasmónica para NPs de Au y Ag. 20 b) 
+Fabricación de
+--------------------------------------------------
+
+--- HIT 'dímeros' (#3) ---
+dímeros de NPs de Au y Ag. 21 c) Estudio de fuerzas fototérmicas 
+involucradas en el  proceso de impresión óptica , las cuales dificultan la fabricación de 
+homodímeros.22 d) Crecimiento de NPs de Au asistido por luz, utilizando las NPs impresas como 
+semillas y a HAuCl 4 como precursor químico.23  e) Impresión selectiva de NPs de Si de distintos 
+tamaños, logrando por primera vez la impresión de partículas dielétricas.24 
+ 
+El uso de  espectroscopía de dispersió n permitió caracterizar l as NPs impresas in situ, 
+particularmente en los trabajos más recientes. En un estudio enfocado en la química asistida por 
+plasmónica, Violi et. al 23 emplearon arreglos de NP s de Au impresas para investigar el 
+crecimiento direccionado por luz en presencia de HAuCl 4 (aq), utilizando las NPs como semillas 
+y catalizadores para la reducción a Au . Mediante la detección polarizada de la dispersión, 
+descubrieron que el crecimiento presentaba una preferencia en la dirección de la polarización 
+de la l
+--------------------------------------------------

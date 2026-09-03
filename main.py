@@ -460,7 +460,18 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=self._launch_hardware_dashboard
         )
 
-        # 10. Documentación y Créditos
+        # 10. Analizador Raman & SERS (raman_analyzer.py)
+        card_raman = ApplicationCard(
+            icon_str="📊",
+            title="Analizador Raman & SERS",
+            subtitle="Andor Solis, Línea Base & Picos",
+            description="Procesamiento espectroscópico cuantitativo: supresión de fluorescencia (AsLS/AirPLS), rayos cósmicos, conversión a cm⁻¹, reglas duales y termometría.",
+            button_text="📊 Iniciar Analizador Raman",
+            button_color="#89B4FA",
+            launch_callback=lambda: self._launch_script("raman_analyzer.py", "Analizador Raman & SERS")
+        )
+
+        # 11. Documentación y Créditos
         card_docs = DocAndCreditsCard(
             open_doc_callback=self._open_document,
             show_credits_callback=self._show_credits
@@ -482,8 +493,9 @@ class MainWindowLauncher(QMainWindow):
         grid.addWidget(card_lattice, 2, 1)
         grid.addWidget(card_hardware, 2, 2)
 
-        # Fila 4: Documentación, Guías de Usuario y Créditos (ancho completo)
-        grid.addWidget(card_docs, 3, 0, 1, 3)
+        # Fila 4: Analizador Raman & SERS y Documentación
+        grid.addWidget(card_raman, 3, 0)
+        grid.addWidget(card_docs, 3, 1, 1, 2)
 
         main_vlo.addLayout(grid)
 

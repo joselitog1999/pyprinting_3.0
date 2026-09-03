@@ -1,0 +1,118 @@
+==========================================================================================
+DOCUMENTO: Julian_Gargiulo_2017.pdf
+==========================================================================================
+
+Total de páginas: 143
+
+--- ÍNDICE / ESTRUCTURA DE CAPÍTULOS ---
+* Portada
+* Resumen
+* Abstract
+* Contents
+* Motivation and Outlook
+* 1. Optical properties of metallic nanoparticles
+* 2. Assembly of 2D patterns of colloidal nanoparticles onto surfaces
+* 3. Optical Printing
+* 4. Experimental set-up for automated multi-color optical printing
+* 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+* 6. Connecting Metallic Nanoparticles by Optical Printing
+* 7. Light-Induced growth of optically printed Nanoparticles
+* 8. Conclusions
+* Agradecimientos
+* Glossary
+* Bibliography
+
+--- BÚSQUEDA DE SECCIONES CRÍTICAS POR PALABRAS CLAVE ---
+- 'optical printing': 79 menciones (Páginas: [8, 9, 10, 11, 13, 25, 28, 37, 38, 40, 41, 42, 43, 44, 45]...)
+- 'impresión óptica': 1 menciones (Páginas: [1]...)
+- 'shutter': 5 menciones (Páginas: [49, 50, 56, 57, 60]...)
+- 'obturador': 0 menciones (Páginas: []...)
+- 'scattering': 35 menciones (Páginas: [8, 10, 11, 13, 16, 18, 19, 20, 24, 25, 26, 27, 47, 49, 51]...)
+- 'gradiente': 0 menciones (Páginas: []...)
+- 'fuerza de radiación': 0 menciones (Páginas: []...)
+- 'radiation force': 0 menciones (Páginas: []...)
+- 'drift': 2 menciones (Páginas: [65, 84]...)
+- 'deriva': 2 menciones (Páginas: [20, 25]...)
+- 'APTES': 0 menciones (Páginas: []...)
+- 'silanización': 0 menciones (Páginas: []...)
+- 'potencial zeta': 0 menciones (Páginas: []...)
+- 'criterio de parada': 0 menciones (Páginas: []...)
+- 'stopping criterion': 0 menciones (Páginas: []...)
+- 'step and glue': 0 menciones (Páginas: []...)
+- 'confocal': 14 menciones (Páginas: [49, 50, 51, 52, 53, 60, 65, 66, 83, 84, 88, 89, 91, 119]...)
+- 'fotodiodo': 0 menciones (Páginas: []...)
+- 'photodiode': 3 menciones (Páginas: [51, 57, 58]...)
+- 'autofoco': 0 menciones (Páginas: []...)
+- 'autofocus': 0 menciones (Páginas: []...)
+- 'dimer': 28 menciones (Páginas: [11, 46, 56, 59, 60, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91]...)
+- 'dímero': 0 menciones (Páginas: []...)
+- 'CTAB': 0 menciones (Páginas: []...)
+- 'citrato': 0 menciones (Páginas: []...)
+- 'gold': 18 menciones (Páginas: [9, 16, 36, 37, 44, 62, 63, 100, 123, 125, 134, 136, 137, 138, 139]...)
+- 'oro': 12 menciones (Páginas: [6, 17, 43, 44, 54, 55, 63, 118, 119, 135, 138, 139]...)
+- 'silver': 8 menciones (Páginas: [9, 16, 62, 63, 123, 138, 141, 142]...)
+- 'plata': 2 menciones (Páginas: [6, 115]...)
+- 'laser 532': 0 menciones (Páginas: []...)
+- 'laser 808': 0 menciones (Páginas: []...)
+- 'laser 637': 0 menciones (Páginas: []...)
+- 'laser 592': 0 menciones (Páginas: []...)
+- 'heating': 17 menciones (Páginas: [9, 10, 11, 15, 21, 22, 44, 45, 96, 104, 112, 113, 118, 125, 128]...)
+- 'calentamiento': 1 menciones (Páginas: [6]...)
+- 'temperature': 30 menciones (Páginas: [15, 21, 22, 23, 69, 74, 78, 96, 97, 98, 99, 100, 101, 103, 104]...)
+- 'temperatura': 0 menciones (Páginas: []...)
+- 'cavitation': 0 menciones (Páginas: []...)
+- 'nanocavitation': 0 menciones (Páginas: []...)
+
+==========================================================================================
+
+==========================================================================================
+DOCUMENTO: Tesis Luciana Martinez.pdf
+==========================================================================================
+
+Total de páginas: 182
+
+--- ÍNDICE / ESTRUCTURA DE CAPÍTULOS ---
+
+--- BÚSQUEDA DE SECCIONES CRÍTICAS POR PALABRAS CLAVE ---
+- 'optical printing': 4 menciones (Páginas: [7, 165, 168, 171]...)
+- 'impresión óptica': 72 menciones (Páginas: [5, 9, 10, 14, 15, 16, 17, 19, 25, 26, 33, 34, 35, 37, 38]...)
+- 'shutter': 0 menciones (Páginas: []...)
+- 'obturador': 4 menciones (Páginas: [55, 65, 66, 73]...)
+- 'scattering': 17 menciones (Páginas: [7, 57, 76, 111, 115, 148, 169, 170, 172, 173, 175, 176, 177, 178, 179]...)
+- 'gradiente': 7 menciones (Páginas: [24, 25, 28, 81, 86, 108, 142]...)
+- 'fuerza de radiación': 0 menciones (Páginas: []...)
+- 'radiation force': 0 menciones (Páginas: []...)
+- 'drift': 1 menciones (Páginas: [75]...)
+- 'deriva': 13 menciones (Páginas: [10, 11, 28, 55, 68, 75, 93, 95, 141, 161, 162, 163, 165]...)
+- 'APTES': 0 menciones (Páginas: []...)
+- 'silanización': 0 menciones (Páginas: []...)
+- 'potencial zeta': 1 menciones (Páginas: [36]...)
+- 'criterio de parada': 0 menciones (Páginas: []...)
+- 'stopping criterion': 0 menciones (Páginas: []...)
+- 'step and glue': 0 menciones (Páginas: []...)
+- 'confocal': 16 menciones (Páginas: [9, 38, 39, 41, 42, 55, 56, 57, 58, 74, 93, 148, 150, 161, 162]...)
+- 'fotodiodo': 6 menciones (Páginas: [56, 57, 58, 65, 66, 68]...)
+- 'photodiode': 0 menciones (Páginas: []...)
+- 'autofoco': 0 menciones (Páginas: []...)
+- 'autofocus': 0 menciones (Páginas: []...)
+- 'dimer': 5 menciones (Páginas: [167, 168, 172, 177, 180]...)
+- 'dímero': 20 menciones (Páginas: [9, 14, 15, 43, 44, 45, 46, 51, 52, 70, 71, 113, 115, 116, 119]...)
+- 'CTAB': 0 menciones (Páginas: []...)
+- 'citrato': 3 menciones (Páginas: [37, 96, 112]...)
+- 'gold': 16 menciones (Páginas: [7, 165, 168, 169, 170, 171, 172, 174, 175, 176, 177, 178, 179, 180, 181]...)
+- 'oro': 43 menciones (Páginas: [5, 10, 17, 20, 22, 35, 43, 49, 50, 81, 101, 108, 109, 110, 111]...)
+- 'silver': 4 menciones (Páginas: [167, 172, 178, 181]...)
+- 'plata': 11 menciones (Páginas: [5, 17, 22, 35, 43, 91, 108, 129, 135, 153, 156]...)
+- 'laser 532': 0 menciones (Páginas: []...)
+- 'laser 808': 0 menciones (Páginas: []...)
+- 'laser 637': 0 menciones (Páginas: []...)
+- 'laser 592': 0 menciones (Páginas: []...)
+- 'heating': 7 menciones (Páginas: [7, 167, 169, 173, 174, 175, 176]...)
+- 'calentamiento': 22 menciones (Páginas: [5, 10, 17, 44, 52, 53, 81, 86, 88, 89, 91, 94, 95, 112, 116]...)
+- 'temperature': 8 menciones (Páginas: [7, 167, 170, 174, 175, 176, 179, 181]...)
+- 'temperatura': 58 menciones (Páginas: [5, 10, 14, 17, 28, 29, 30, 31, 38, 44, 45, 46, 49, 50, 81]...)
+- 'cavitation': 0 menciones (Páginas: []...)
+- 'nanocavitation': 0 menciones (Páginas: []...)
+
+==========================================================================================
+

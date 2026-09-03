@@ -414,7 +414,9 @@ class Backend(QObject):
         self.mode_printing     = "none"
         self.number_scan       = "none"
         self.signal_scan_stop  = False
+        self.laser             = SHUTTERS[0]
         self.focus_backend     = None
+        self._step_task        = None
 
         # Corrección dinámica de altura (plano de inclinación Z)
         self.tilt_correction_enabled: bool = False
@@ -668,6 +670,12 @@ class Backend(QObject):
     def stop_scan(self):
         if not self.signal_scan_stop:
             close_shutter(self.laser)
+        if getattr(self, "_step_task", None) is not None:
+            try:
+                self._step_task.close()
+            except Exception:
+                pass
+            self._step_task = None
         xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
         yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
         zp = getattr(self, "z_start", getattr(self, "z_pos", 10.0))
@@ -690,6 +698,12 @@ class Backend(QObject):
 
     def _start_step(self):
         self.tic = time.time(); self.i = self.j = 0
+        if getattr(self, "_step_task", None) is not None:
+            try:
+                self._step_task.close()
+            except Exception:
+                pass
+            self._step_task = None
         dx = self.range_x / self.Nx; dy = self.range_y / self.Ny
         xs = np.linspace(self.x_min + dx/2, self.x_max - dx/2, self.Nx)
         ys = np.linspace(self.y_min + dy/2, self.y_max - dy/2, self.Ny)
@@ -712,8 +726,9 @@ class Backend(QObject):
                     pi.MOV([1, 2, 3], [target_x, target_y, target_z])
                 else:
                     pi.MOV([1, 2], [target_x, target_y])
-                task = channels_photodiodos(self.rate, self.Nph)
-                raw  = task.read(self.Nph); task.wait_until_done(); task.close()
+                if self._step_task is None:
+                    self._step_task = channels_photodiodos(self.rate, self.Nph)
+                raw = self._step_task.read(self.Nph)
                 self.image[self.j, self.i] = np.mean(raw[PD_CHANS_LIST.index(PD_CHANNELS[self.laser])])
                 self.dataSignal.emit(self.image); self.i += 1
             else:
@@ -733,6 +748,12 @@ class Backend(QObject):
         else:
             self.PDtimer_stepxy.stop()
             self.signal_scan_stop = True
+            if self._step_task is not None:
+                try:
+                    self._step_task.close()
+                except Exception:
+                    pass
+                self._step_task = None
             close_shutter(self.laser)
             time.sleep(0.1)
             x_o, y_o = self._CMmeasure()

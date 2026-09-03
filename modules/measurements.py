@@ -30,8 +30,6 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 from PIL import Image
-import tkinter as tk
-from tkinter import filedialog
 
 import pyqtgraph as pg
 from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
@@ -568,7 +566,7 @@ class Frontend(QFrame):
     setreferenceSignal  = pyqtSignal()
     goreferenceSignal   = pyqtSignal()
     resetAllSignal      = pyqtSignal()
-    readgridSignal      = pyqtSignal()
+    readgridSignal      = pyqtSignal(str)
     gridcreateSignal    = pyqtSignal(list)
     gridSignal          = pyqtSignal()
     foldergridSignal    = pyqtSignal(str)
@@ -769,7 +767,7 @@ class Frontend(QFrame):
 
         self.cargar_archivo_button = QPushButton("Load grid (.txt)")
         self.cargar_archivo_button.setToolTip("Carga una grilla personalizada de posiciones desde un archivo .txt.")
-        self.cargar_archivo_button.clicked.connect(lambda: self.readgridSignal.emit())
+        self.cargar_archivo_button.clicked.connect(self._on_load_grid_clicked)
         self.cargar_archivo_button.setStyleSheet(
             "QPushButton { background-color: orange; }"
             "QPushButton:pressed { background-color: blue; }")
@@ -782,7 +780,6 @@ class Frontend(QFrame):
             "QPushButton:hover { background-color: #45475a; color: white; }"
             "QPushButton:pressed { background-color: #585b70; }"
         )
-
         # ── Info extra ────────────────────────────────────────────────────────
         self.powerlaser  = QLineEdit("—"); self.powerlaser.setToolTip("Potencia medida en la pupila trasera del objetivo (BFP en mW).")
         self.typeNP      = QLineEdit("—"); self.typeNP.setToolTip("Tipo y tamaño de la solución coloidal de nanopartículas (ej. AuNP 60 nm).")
@@ -1005,6 +1002,13 @@ class Frontend(QFrame):
         self._gridGenWindow.show()
         self._gridGenWindow.raise_()
         self._gridGenWindow.activateWindow()
+
+    def _on_load_grid_clicked(self):
+        name, _ = QFileDialog.getOpenFileName(
+            self, "Cargar Grilla de Coordenadas", "", "Archivos (*.txt *.csv *.dat);;Todos (*.*)"
+        )
+        if name:
+            self.readgridSignal.emit(name)
 
     def _on_grid_node_clicked(self, idx: int):
         self.indice_impresionEdit.setText(str(idx))
@@ -1640,17 +1644,21 @@ class Backend(QObject):
         while not all(pi.qONT(axes).values()):
             time.sleep(0.01)
 
-    @pyqtSlot()
-    def grid_read(self):
-        root = tk.Tk(); root.withdraw()
-        name = filedialog.askopenfilename()
-        if not name: return
-        datos = np.loadtxt(name, unpack=True)
-        self.grid_name = "Load_grid"
-        self.grid_x = datos[0, :]; self.grid_y = datos[1, :]
-        self.particulas = len(self.grid_x)
-        self.particulasSignal.emit(self.particulas)
-        self.gridplotSignal.emit(datos)
+    @pyqtSlot(str)
+    def grid_read(self, name: str = ""):
+        if not name or not os.path.exists(name):
+            return
+        try:
+            datos = np.loadtxt(name, unpack=True)
+            self.grid_name = os.path.splitext(os.path.basename(name))[0] or "Load_grid"
+            self.grid_x = datos[0, :]
+            self.grid_y = datos[1, :]
+            self.particulas = len(self.grid_x)
+            self.particulasSignal.emit(self.particulas)
+            self.gridplotSignal.emit(datos)
+            print(f"[Measurements] Grilla cargada desde: {name} ({self.particulas} partículas)")
+        except Exception as e:
+            print(f"[Measurements Error] Error cargando grilla desde {name}: {e}")
 
     @pyqtSlot(list)
     def grid_create(self, grid: list):
@@ -2670,6 +2678,8 @@ class Backend(QObject):
     @pyqtSlot()
     def grid_pause(self):
         try: close_shutter(self.laser); self.grid_trace_stopSignal.emit()
+        except Exception: pass
+        try: up_flipper()
         except Exception: pass
         try: self.grid_scan_stopSignal.emit()
         except Exception: pass

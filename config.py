@@ -153,29 +153,36 @@ class _MockPI:
     valores coherentes después de cada MOV().
     Todos los métodos de wave generator (WAV_LIN, WGO, etc.) son no-op.
     """
+    _lock = threading.RLock()
+
     def __init__(self):
-        self._pos      = {1: PI_HOME_POS[0],
-                          2: PI_HOME_POS[1],
-                          3: PI_HOME_POS[2]}
-        self._connected = False
+        with self._lock:
+            self._pos       = {1: PI_HOME_POS[0],
+                               2: PI_HOME_POS[1],
+                               3: PI_HOME_POS[2]}
+            self._connected = False
 
     def connect(self, serial: str = PI_SERIAL) -> None:
-        self._connected = True
-        print(f"[PI MOCK] Conectada (serial ignorado: {serial})")
+        with self._lock:
+            self._connected = True
+            print(f"[PI MOCK] Conectada (serial ignorado: {serial})")
 
     def disconnect(self) -> None:
-        self._connected = False
-        print("[PI MOCK] Desconectada.")
+        with self._lock:
+            self._connected = False
+            print("[PI MOCK] Desconectada.")
 
     @property
     def connected(self) -> bool:
-        return self._connected
+        with self._lock:
+            return self._connected
 
     # ── Lectura de posición ───────────────────────────────────────────────────
 
     def qPOS(self, axes=None):
         """Devuelve posición actual como dict con claves string '1','2','3'."""
-        return {"1": self._pos[1], "2": self._pos[2], "3": self._pos[3]}
+        with self._lock:
+            return {"1": self._pos[1], "2": self._pos[2], "3": self._pos[3]}
 
     def qONT(self, axes=None):
         """Siempre 'on target' — no hay movimiento real que esperar."""
@@ -187,13 +194,14 @@ class _MockPI:
     # ── Movimiento ────────────────────────────────────────────────────────────
 
     def MOV(self, axes, targets):
-        if isinstance(axes, int):
-            axes   = [axes]
-            targets = [targets]
-        for ax, tg in zip(axes, targets):
-            if ax in self._pos:
-                self._pos[ax] = round(float(tg), 4)
-        print(f"[PI MOCK] MOV {dict(zip(axes, targets))}")
+        with self._lock:
+            if isinstance(axes, int):
+                axes    = [axes]
+                targets = [targets]
+            for ax, tg in zip(axes, targets):
+                if ax in self._pos:
+                    self._pos[ax] = round(float(tg), 4)
+            print(f"[PI MOCK] MOV {dict(zip(axes, targets))}")
 
     # ── Wave generator (no-op) ────────────────────────────────────────────────
 

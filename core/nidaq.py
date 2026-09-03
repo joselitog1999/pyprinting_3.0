@@ -8,6 +8,9 @@ La lógica real solo se instancia si SAFE_MODE = False.
 """
 from __future__ import annotations
 import time
+import sys
+import atexit
+import threading
 import numpy as np
 
 from config import (
@@ -76,6 +79,52 @@ _flipper_task0                    = None
 _flipper_task1                    = None
 _flipper532_task                  = None
 _laser532_task                    = None
+
+_nidaq_lock                       = threading.RLock()
+_watchdog_active: bool            = True
+_watchdog_deadline: float | None  = None
+_watchdog_lock                    = threading.Lock()
+
+
+def _watchdog_loop():
+    global _watchdog_deadline
+    while _watchdog_active:
+        time.sleep(0.1)
+        with _watchdog_lock:
+            dl = _watchdog_deadline
+        if dl is not None and time.time() > dl:
+            with _watchdog_lock:
+                _watchdog_deadline = None
+            try:
+                close_all_shutters()
+                up_flipper()
+            except Exception as err:
+                try: print(f"[WATCHDOG Error] Error en cierre forzado: {err}")
+                except Exception: pass
+            try:
+                print("[WATCHDOG WARNING] Heartbeat expirado: forzando CIERRE INMEDIATO de obturadores por seguridad!")
+            except Exception:
+                pass
+
+_watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True, name="ShutterWatchdog")
+_watchdog_thread.start()
+
+
+def heartbeat_shutter(timeout_s: float = 30.0) -> None:
+    """Renueva el temporizador de vida del obturador para proteger la muestra."""
+    global _watchdog_deadline
+    with _watchdog_lock:
+        _watchdog_deadline = time.time() + max(0.1, float(timeout_s))
+
+
+def _emergency_shutdown():
+    try:
+        close_all_shutters()
+        up_flipper()
+    except Exception:
+        pass
+
+atexit.register(_emergency_shutdown)
 
 
 def _get_shutter_task():
@@ -150,106 +199,119 @@ def _get_flipper532_task():
 #  API PÚBLICA  — misma en ambos modos
 # ══════════════════════════════════════════════════════════════════════════════
 
-def open_shutter(name: str) -> None:
+def open_shutter(name: str, timeout_s: float = 30.0) -> None:
     if name not in SHUTTERS:
         raise ValueError(f"Shutter desconocido: {name}")
-    if SAFE_MODE:
-        print(f"[NI MOCK] open_shutter({name})")
-        return
-    try:
-        from core.hardware_manager import hardware_manager
-        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
-            print(f"[NI MOCK (Aislado)] open_shutter({name})")
-            return
-    except Exception:
-        pass
-    try:
+    with _nidaq_lock:
         idx = SHUTTERS.index(name)
         _shutter_signal[idx] = SHUTTER_POLARITY[name]
-        t = _get_shutter_task()
-        if isinstance(t, _MockNITask):
+        heartbeat_shutter(timeout_s)
+        if SAFE_MODE:
             print(f"[NI MOCK] open_shutter({name})")
-        else:
-            t.write(_shutter_signal, auto_start=True)
-    except Exception as e:
-        print(f"[NI-DAQ Error] open_shutter({name}): {e}")
+            return
+        try:
+            from core.hardware_manager import hardware_manager
+            if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+                print(f"[NI MOCK (Aislado)] open_shutter({name})")
+                return
+        except Exception:
+            pass
+        try:
+            t = _get_shutter_task()
+            if isinstance(t, _MockNITask):
+                print(f"[NI MOCK] open_shutter({name})")
+            else:
+                t.write(_shutter_signal, auto_start=True)
+        except Exception as e:
+            print(f"[NI-DAQ Error] open_shutter({name}): {e}")
 
 
 def close_shutter(name: str) -> None:
     if name not in SHUTTERS:
         raise ValueError(f"Shutter desconocido: {name}")
-    if SAFE_MODE:
-        print(f"[NI MOCK] close_shutter({name})")
-        return
-    try:
-        from core.hardware_manager import hardware_manager
-        if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
-            print(f"[NI MOCK (Aislado)] close_shutter({name})")
-            return
-    except Exception:
-        pass
-    try:
+    with _nidaq_lock:
         idx = SHUTTERS.index(name)
         _shutter_signal[idx] = not SHUTTER_POLARITY[name]
-        t = _get_shutter_task()
-        if isinstance(t, _MockNITask):
+        if SAFE_MODE:
             print(f"[NI MOCK] close_shutter({name})")
         else:
-            t.write(_shutter_signal, auto_start=True)
-    except Exception as e:
-        print(f"[NI-DAQ Error] close_shutter({name}): {e}")
+            try:
+                from core.hardware_manager import hardware_manager
+                if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+                    print(f"[NI MOCK (Aislado)] close_shutter({name})")
+                else:
+                    t = _get_shutter_task()
+                    if isinstance(t, _MockNITask):
+                        print(f"[NI MOCK] close_shutter({name})")
+                    else:
+                        t.write(_shutter_signal, auto_start=True)
+            except Exception as e:
+                print(f"[NI-DAQ Error] close_shutter({name}): {e}")
+
+        # Si todos los shutters están en reposo cerrado, desactivar deadline
+        if all(s == (not SHUTTER_POLARITY[sh]) for s, sh in zip(_shutter_signal, SHUTTERS)):
+            with _watchdog_lock:
+                global _watchdog_deadline
+                _watchdog_deadline = None
 
 
 def close_all_shutters() -> None:
-    for name in SHUTTERS:
-        close_shutter(name)
+    with _nidaq_lock:
+        for name in SHUTTERS:
+            close_shutter(name)
+        with _watchdog_lock:
+            global _watchdog_deadline
+            _watchdog_deadline = None
 
 
 def up_flipper() -> None:
-    if SAFE_MODE:
-        print("[NI MOCK] up_flipper()"); return
-    try:
-        t0, t1 = _get_flipper_tasks()
-        if isinstance(t1, _MockNITask):
+    with _nidaq_lock:
+        if SAFE_MODE:
             print("[NI MOCK] up_flipper()"); return
-        t1.write(5); time.sleep(0.003); t1.write(0)
-    except Exception as e:
-        print(f"[NI-DAQ Error] up_flipper: {e}")
+        try:
+            t0, t1 = _get_flipper_tasks()
+            if isinstance(t1, _MockNITask):
+                print("[NI MOCK] up_flipper()"); return
+            t1.write(5); time.sleep(0.003); t1.write(0)
+        except Exception as e:
+            print(f"[NI-DAQ Error] up_flipper: {e}")
 
 
 def down_flipper() -> None:
-    if SAFE_MODE:
-        print("[NI MOCK] down_flipper()"); return
-    try:
-        t0, t1 = _get_flipper_tasks()
-        if isinstance(t0, _MockNITask):
+    with _nidaq_lock:
+        if SAFE_MODE:
             print("[NI MOCK] down_flipper()"); return
-        t0.write(5); time.sleep(0.003); t0.write(0)
-    except Exception as e:
-        print(f"[NI-DAQ Error] down_flipper: {e}")
+        try:
+            t0, t1 = _get_flipper_tasks()
+            if isinstance(t0, _MockNITask):
+                print("[NI MOCK] down_flipper()"); return
+            t0.write(5); time.sleep(0.003); t0.write(0)
+        except Exception as e:
+            print(f"[NI-DAQ Error] down_flipper: {e}")
 
 
 def flipper_notch532(desired: str) -> None:
     global _flipper_notch532_up
     if desired not in ("up", "down"):
         raise ValueError(f"Estado desconocido: '{desired}'")
-    if SAFE_MODE:
-        _flipper_notch532_up = (desired == "up")
-        print(f"[NI MOCK] flipper_notch532({desired})"); return
-    try:
-        task = _get_flipper532_task()
-        if isinstance(task, _MockNITask):
+    with _nidaq_lock:
+        if SAFE_MODE:
             _flipper_notch532_up = (desired == "up")
             print(f"[NI MOCK] flipper_notch532({desired})"); return
-        need_up  = desired == "up"
-        if need_up and not _flipper_notch532_up:
-            task.write(True); time.sleep(0.003); task.write(False)
-            _flipper_notch532_up = True
-        elif not need_up and _flipper_notch532_up:
-            task.write(True); time.sleep(0.003); task.write(False)
-            _flipper_notch532_up = False
-    except Exception as e:
-        print(f"[NI-DAQ Error] flipper_notch532: {e}")
+        try:
+            task = _get_flipper532_task()
+            if isinstance(task, _MockNITask):
+                _flipper_notch532_up = (desired == "up")
+                print(f"[NI MOCK] flipper_notch532({desired})"); return
+            need_up  = desired == "up"
+            if need_up and not _flipper_notch532_up:
+                task.write(True); time.sleep(0.003); task.write(False)
+                _flipper_notch532_up = True
+            elif not need_up and _flipper_notch532_up:
+                task.write(True); time.sleep(0.003); task.write(False)
+                _flipper_notch532_up = False
+        except Exception as e:
+            print(f"[NI-DAQ Error] flipper_notch532: {e}")
 
 
 def channels_photodiodos(rate: float, samps_per_chan: int):

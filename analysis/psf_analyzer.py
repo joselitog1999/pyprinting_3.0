@@ -18,7 +18,7 @@ import sys
 import os
 import math
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, Dict, Any, List, Union
 
 # ── Registrar directorio raíz incondicionalmente en sys.path ───────────────────
 _this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -32,15 +32,18 @@ for _p in [_parent1, _parent2, os.path.join(_parent1, "core"), os.path.join(_par
 import numpy as np
 from PIL import Image
 from scipy.ndimage import map_coordinates
+from scipy.optimize import curve_fit
 
 import pyqtgraph as pg
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QRectF
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QLabel, QLineEdit,
                              QPushButton, QComboBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QGroupBox, QMessageBox, QFileDialog,
-                             QSplitter, QTabWidget, QFormLayout)
-from PyQt6.QtGui import QFont, QColor
+                             QSplitter, QTabWidget, QFormLayout, QDoubleSpinBox,
+                             QSpinBox, QScrollArea, QFrame)
+from PyQt6 import QtGui
+from PyQt6.QtGui import QFont, QColor, QPen, QPalette
 
 try:
     from config import (DEFAULT_DATA_PATH, PIXEL_SIZE_UM,
@@ -298,6 +301,148 @@ def extract_1d_profile(Z: np.ndarray, xo_px: float, yo_px: float,
     return dist_um, profile
 
 
+def extract_arbitrary_line_profile(
+    Z: np.ndarray,
+    p1: Tuple[float, float],
+    p2: Tuple[float, float],
+    pixel_size_um: float = PIXEL_SIZE_UM,
+    line_width_px: int = 1
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Extrae un corte de perfil de intensidad 1D entre dos puntos arbitrarios p1=(x1, y1) y p2=(x2, y2).
+    Permite promediar transversalmente según line_width_px para suprimir ruido.
+    Retorna:
+      dist_axis: vector 1D de distancia física (µm) desde p1
+      profile: vector 1D de intensidad media a lo largo del corte
+    """
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    dx = x2 - x1
+    dy = y2 - y1
+    length_px = float(np.hypot(dx, dy))
+    if length_px < 1.0:
+        c_y = int(np.clip(y1, 0, Z.shape[0] - 1))
+        c_x = int(np.clip(x1, 0, Z.shape[1] - 1))
+        return np.array([0.0]), np.array([float(Z[c_y, c_x])])
+
+    num_pts = max(int(np.round(length_px)) + 1, 2)
+    t = np.linspace(0.0, 1.0, num_pts)
+    dist_um = t * length_px * pixel_size_um
+
+    # Vector unitario normal perpendicular
+    nx = -dy / length_px
+    ny = dx / length_px
+
+    w_half = max(0, (line_width_px - 1) // 2)
+    offsets = np.arange(-w_half, w_half + 1) if w_half > 0 else [0]
+
+    profiles = []
+    for off in offsets:
+        x_pts = x1 + t * dx + off * nx
+        y_pts = y1 + t * dy + off * ny
+        coords = np.array([y_pts, x_pts])
+        p = map_coordinates(Z, coords, order=1, mode='nearest')
+        profiles.append(p)
+
+    avg_profile = np.mean(profiles, axis=0)
+    return dist_um, avg_profile
+
+
+def extract_radial_profile(
+    Z: np.ndarray,
+    center_xy: Tuple[float, float],
+    pixel_size_um: float = PIXEL_SIZE_UM,
+    max_radius_px: Optional[float] = None
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Calcula el perfil radial promediado en 360° desde el centroide (xo, yo).
+    Retorna (r_um, I_r).
+    """
+    xo, yo = float(center_xy[0]), float(center_xy[1])
+    Ny, Nx = Z.shape
+    if max_radius_px is None:
+        max_radius_px = min(xo, yo, Nx - 1 - xo, Ny - 1 - yo)
+    max_radius_px = max(float(max_radius_px), 2.0)
+
+    num_r = int(np.ceil(max_radius_px))
+    r_px = np.linspace(0.0, max_radius_px, num_r)
+    theta = np.linspace(0, 2 * np.pi, 72, endpoint=False)
+
+    radial_profiles = []
+    for r in r_px:
+        x_pts = xo + r * np.cos(theta)
+        y_pts = yo + r * np.sin(theta)
+        coords = np.array([y_pts, x_pts])
+        vals = map_coordinates(Z, coords, order=1, mode='nearest')
+        radial_profiles.append(float(np.mean(vals)))
+
+    r_um = r_px * pixel_size_um
+    return r_um, np.array(radial_profiles)
+
+
+def fit_1d_gaussian(s: np.ndarray, intensity: np.ndarray) -> Optional[Dict[str, Any]]:
+    """
+    Ajusta un perfil 1D a una campana Gaussiana:
+      I(s) = I_offset + A * exp( -(s - s0)^2 / (2 * sigma^2) )
+    Retorna parámetros analíticos y FWHM = 2 * sqrt(2*ln(2)) * sigma.
+    """
+    if len(s) < 5:
+        return None
+
+    s = np.asarray(s, dtype=np.float64)
+    y = np.asarray(intensity, dtype=np.float64)
+
+    i_min = float(np.min(y))
+    i_max = float(np.max(y))
+    amp_guess = max(i_max - i_min, 1e-6)
+    idx_max = int(np.argmax(y))
+    s0_guess = float(s[idx_max])
+
+    half_max = i_min + amp_guess / 2.0
+    above_half = np.where(y >= half_max)[0]
+    if len(above_half) >= 2:
+        fwhm_guess = abs(float(s[above_half[-1]] - s[above_half[0]]))
+    else:
+        fwhm_guess = abs(float(s[-1] - s[0])) / 4.0
+    fwhm_guess = max(fwhm_guess, abs(s[1] - s[0]) * 2.0)
+    sigma_guess = fwhm_guess / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+
+    p0 = [i_min, amp_guess, s0_guess, sigma_guess]
+    bounds = (
+        [-np.inf, 0.0, float(s.min()), 1e-6],
+        [np.inf, np.inf, float(s.max()), abs(s[-1] - s[0]) * 2.0]
+    )
+
+    def gauss_fn(x, i_off, a, x0, sig):
+        return i_off + a * np.exp(-0.5 * ((x - x0) / max(sig, 1e-12))**2)
+
+    try:
+        popt, _ = curve_fit(gauss_fn, s, y, p0=p0, bounds=bounds, maxfev=2000)
+        i_off, a, s0, sig = popt
+        fwhm = 2.0 * np.sqrt(2.0 * np.log(2.0)) * abs(sig)
+
+        s_dense = np.linspace(s[0], s[-1], max(200, len(s)))
+        y_fit = gauss_fn(s_dense, i_off, a, s0, sig)
+
+        ss_res = np.sum((y - gauss_fn(s, *popt))**2)
+        ss_tot = np.sum((y - np.mean(y))**2) + 1e-12
+        r2 = max(0.0, min(1.0, 1.0 - (ss_res / ss_tot)))
+
+        return {
+            "model": "Gaussiana 1D",
+            "offset": float(i_off),
+            "amplitude": float(a),
+            "center": float(s0),
+            "sigma": float(sig),
+            "fwhm": float(fwhm),
+            "r_squared": float(r2),
+            "fit_s": s_dense,
+            "fit_y": y_fit
+        }
+    except Exception:
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  PANEL INDIVIDUAL DE CANAL CONFOCAL (TRIPLE VISTA: ORIGINAL, FIT, RESIDUAL)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -444,6 +589,14 @@ class ConfocalChannelPanel(QGroupBox):
             self._re_fit()
         except Exception as e:
             QMessageBox.critical(self, "Error de carga", f"No se pudo cargar la imagen:\n{e}")
+
+    def set_data(self, Z: np.ndarray, px_size_um: Optional[float] = None):
+        """Asigna directamente una matriz 2D de datos de imagen."""
+        self.Z = np.asarray(Z, dtype=np.float64)
+        self.image_path = None
+        self.lbl_info.setText(f"Cargado en memoria [{self.Z.shape[1]}x{self.Z.shape[0]}]")
+        self.imageLoadedSignal.emit()
+        self._re_fit()
 
     def clear_panel(self):
         self.Z = None
@@ -760,17 +913,607 @@ class PSFAnalyzerWidget(QWidget):
         self._update_analysis()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  MODO FOTO ÚNICA & PERFILES DE CORTE DE INTENSIDAD (SINGLE IMAGE PROFILE)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SingleImageProfileWidget(QWidget):
+    """
+    Widget para cargar y analizar imágenes individuales (.tiff, .png, .jpg, .npy, .txt),
+    con líneas de corte interactivas (arbitrarias, ortogonales y radiales), perfiles de
+    intensidad 1D, ajuste Gaussiano analítico, cálculo automático de FWHM y reglas duales.
+    """
+
+    def __init__(self, parent_window=None, parent=None):
+        super().__init__(parent)
+        self.parent_window = parent_window
+
+        self.Z: Optional[np.ndarray] = None
+        self.pixel_size_um: float = PIXEL_SIZE_UM
+        self.unit_mode: str = "um"
+        self.line_width_px: int = 1
+        self.cut_mode: str = "arbitrary"
+
+        self.current_dist: np.ndarray = np.array([])
+        self.current_profile: np.ndarray = np.array([])
+
+        self._setup_ui()
+        self._load_default_demo()
+
+    def _setup_ui(self):
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(6)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # ── Lado Izquierdo: Visor 2D y Controles de Imagen ────────────────────
+        left_widget = QWidget()
+        left_vlo = QVBoxLayout(left_widget)
+        left_vlo.setContentsMargins(0, 0, 0, 0)
+        left_vlo.setSpacing(6)
+
+        # Barra Superior de Controles
+        ctrl_box = QGroupBox("🖼️ Imagen & Línea de Corte")
+        c_vlo = QVBoxLayout(ctrl_box)
+        c_vlo.setSpacing(6)
+
+        btn_hlo = QHBoxLayout()
+        self.btn_open_img = QPushButton("📂 Abrir Imagen...")
+        self.btn_open_img.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold; padding: 6px;")
+        self.btn_open_img.clicked.connect(self._on_open_image)
+
+        self.btn_demo_img = QPushButton("🖼️ Cargar Demo")
+        self.btn_demo_img.clicked.connect(self._on_load_demo_clicked)
+
+        btn_hlo.addWidget(self.btn_open_img)
+        btn_hlo.addWidget(self.btn_demo_img)
+        c_vlo.addLayout(btn_hlo)
+
+        grid_params = QGridLayout()
+        grid_params.setSpacing(6)
+
+        grid_params.addWidget(QLabel("Tamaño Píxel:"), 0, 0)
+        self.spin_px_size = QDoubleSpinBox()
+        self.spin_px_size.setRange(0.001, 100.0)
+        self.spin_px_size.setValue(self.pixel_size_um)
+        self.spin_px_size.setDecimals(4)
+        self.spin_px_size.setSuffix(" µm")
+        self.spin_px_size.valueChanged.connect(self._on_px_size_changed)
+        grid_params.addWidget(self.spin_px_size, 0, 1)
+
+        grid_params.addWidget(QLabel("Unidades:"), 0, 2)
+        self.combo_units = QComboBox()
+        self.combo_units.addItems(["µm (Micrómetros)", "px (Píxeles)"])
+        self.combo_units.currentIndexChanged.connect(self._on_units_changed)
+        grid_params.addWidget(self.combo_units, 0, 3)
+
+        grid_params.addWidget(QLabel("Modo de Corte:"), 1, 0)
+        self.combo_cut_mode = QComboBox()
+        self.combo_cut_mode.addItems([
+            "Línea Libre (Arrastrable 2 Puntos)",
+            "↔️ Horizontal al Centro / Máximo",
+            "↕️ Vertical al Centro / Máximo",
+            "Diagonal 45°",
+            "Diagonal 135°",
+            "⭕ Radial Promediado 360°"
+        ])
+        self.combo_cut_mode.currentIndexChanged.connect(self._on_cut_mode_changed)
+        grid_params.addWidget(self.combo_cut_mode, 1, 1)
+
+        grid_params.addWidget(QLabel("Espesor Promedio:"), 1, 2)
+        self.spin_line_width = QSpinBox()
+        self.spin_line_width.setRange(1, 31)
+        self.spin_line_width.setValue(1)
+        self.spin_line_width.setSuffix(" px")
+        self.spin_line_width.valueChanged.connect(self._update_profile)
+        grid_params.addWidget(self.spin_line_width, 1, 3)
+
+        grid_params.addWidget(QLabel("Paleta:"), 2, 0)
+        self.combo_cmap = QComboBox()
+        self.combo_cmap.addItems(["Viridis", "Inferno", "Magma", "Thermal", "Grayscale", "Plasma"])
+        self.combo_cmap.currentIndexChanged.connect(self._update_colormap)
+        grid_params.addWidget(self.combo_cmap, 2, 1)
+
+        c_vlo.addLayout(grid_params)
+        left_vlo.addWidget(ctrl_box)
+
+        # Visor Gráfico 2D con LUT
+        img_layout = pg.GraphicsLayoutWidget()
+        self.plot_img = img_layout.addPlot(row=0, col=0)
+        self.plot_img.setLabel("bottom", "X (píxeles)")
+        self.plot_img.setLabel("left", "Y (píxeles)")
+        self.plot_img.setAspectLocked(True)
+
+        self.img_item = pg.ImageItem()
+        self.plot_img.addItem(self.img_item)
+
+        # Barra de Contraste LUT
+        self.lut_item = pg.HistogramLUTItem()
+        self.lut_item.setImageItem(self.img_item)
+        img_layout.addItem(self.lut_item, row=0, col=1)
+
+        # ROI de Línea de Corte con Manijas
+        self.line_roi = pg.LineSegmentROI(
+            positions=[[20, 50], [80, 50]],
+            pen=pg.mkPen("#F38BA8", width=2.5)
+        )
+        self.line_roi.sigRegionChanged.connect(self._on_roi_changed)
+        self.plot_img.addItem(self.line_roi)
+
+        left_vlo.addWidget(img_layout)
+
+        self.lbl_img_info = QLabel("Coordenadas: (X: --, Y: --) | Intensidad: -- cts | Dim: -- x -- px")
+        self.lbl_img_info.setStyleSheet("background-color: #181825; color: #CDD6F4; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
+        left_vlo.addWidget(self.lbl_img_info)
+
+        splitter.addWidget(left_widget)
+
+        # ── Lado Derecho: Gráfico de Perfil 1D, Ajuste FWHM y Metrología ──────
+        right_widget = QWidget()
+        right_vlo = QVBoxLayout(right_widget)
+        right_vlo.setContentsMargins(0, 0, 0, 0)
+        right_vlo.setSpacing(6)
+
+        # Barra Superior Derecha (Modelo de Ajuste y Exportación)
+        top_right_hlo = QHBoxLayout()
+        top_right_hlo.addWidget(QLabel("<b>Modelo 1D:</b>"))
+        self.combo_fit_model = QComboBox()
+        self.combo_fit_model.addItems(["Gaussiana 1D", "Sin Ajuste"])
+        self.combo_fit_model.currentIndexChanged.connect(self._update_profile)
+        top_right_hlo.addWidget(self.combo_fit_model)
+
+        top_right_hlo.addStretch()
+        self.btn_copy_tsv = QPushButton("📋 Copiar Perfil (TSV)")
+        self.btn_copy_tsv.clicked.connect(self._on_copy_tsv)
+        self.btn_export_csv = QPushButton("💾 Exportar CSV")
+        self.btn_export_csv.setStyleSheet("background-color: #A6E3A1; color: #11111B; font-weight: bold;")
+        self.btn_export_csv.clicked.connect(self._on_export_csv)
+        top_right_hlo.addWidget(self.btn_copy_tsv)
+        top_right_hlo.addWidget(self.btn_export_csv)
+
+        right_vlo.addLayout(top_right_hlo)
+
+        # Gráfico de Perfil 1D
+        self.plot_profile = pg.PlotWidget(title="Perfil de Intensidad 1D a lo largo de la Línea de Corte")
+        self.plot_profile.setLabel("bottom", "Distancia a lo largo del corte (µm)")
+        self.plot_profile.setLabel("left", "Intensidad (Cuentas)")
+        self.plot_profile.showGrid(x=True, y=True, alpha=0.25)
+        self.plot_profile.addLegend(offset=(-10, 10))
+
+        self.curve_profile_raw = self.plot_profile.plot(
+            pen=pg.mkPen("#89B4FA", width=2.0), symbol="o", symbolSize=4, symbolBrush=pg.mkBrush("#89B4FA"), name="Datos de Corte"
+        )
+        self.curve_profile_fit = self.plot_profile.plot(
+            pen=pg.mkPen("#F38BA8", width=2.2), name="Ajuste Gaussiano"
+        )
+
+        # Reglas verticales A y B en el perfil
+        self.cursor_a = pg.InfiniteLine(pos=0.5, angle=90, movable=True, pen=pg.mkPen("#F38BA8", width=1.8))
+        self.cursor_a.sigPositionChanged.connect(self._on_cursors_moved)
+        self.plot_profile.addItem(self.cursor_a)
+
+        self.cursor_b = pg.InfiniteLine(pos=1.5, angle=90, movable=True, pen=pg.mkPen("#F9E2AF", width=1.8, style=Qt.PenStyle.DashLine))
+        self.cursor_b.sigPositionChanged.connect(self._on_cursors_moved)
+        self.plot_profile.addItem(self.cursor_b)
+
+        self.region_ab = pg.LinearRegionItem(values=[0.5, 1.5], brush=pg.mkBrush(137, 180, 250, 40), movable=False)
+        self.plot_profile.addItem(self.region_ab)
+
+        right_vlo.addWidget(self.plot_profile)
+
+        # Métricas Analíticas y FWHM
+        box_metrics = QGroupBox("📊 Caracterización Analítica & FWHM de la PSF")
+        m_vlo = QVBoxLayout(box_metrics)
+        m_vlo.setSpacing(6)
+
+        self.lbl_fwhm_results = QLabel(
+            "<b>FWHM Experimental:</b> -- | <b>Centro s₀:</b> --<br>"
+            "<b>Amplitud Neta A:</b> -- | <b>Fondo I_offset:</b> -- | <b>Calidad R²:</b> --"
+        )
+        self.lbl_fwhm_results.setStyleSheet("color: #CDD6F4; font-size: 9pt; line-height: 1.4;")
+        m_vlo.addWidget(self.lbl_fwhm_results)
+
+        self.lbl_diffraction_limit = QLabel(
+            "🔍 <i>Límite teórico de difracción Abbe (λ=532 nm, NA=1.4): FWHM_teórico = 193.7 nm</i>"
+        )
+        self.lbl_diffraction_limit.setStyleSheet("color: #9399B2; font-size: 8pt;")
+        m_vlo.addWidget(self.lbl_diffraction_limit)
+
+        self.lbl_dual_metrics = QLabel(
+            "<b>Regla A:</b> -- | <b>Regla B:</b> -- | <b>ΔX:</b> -- | <b>ΔY:</b> -- | <b>Área:</b> --"
+        )
+        self.lbl_dual_metrics.setStyleSheet("background-color: #181825; color: #F9E2AF; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
+        m_vlo.addWidget(self.lbl_dual_metrics)
+
+        right_vlo.addWidget(box_metrics)
+
+        splitter.addWidget(right_widget)
+        splitter.setSizes([600, 700])
+
+        main_layout.addWidget(splitter)
+
+        # Conectar movimiento del mouse sobre la imagen
+        self.img_item.hoverEvent = self._on_image_hover
+
+    def _load_default_demo(self):
+        """Carga o genera una imagen PSF demo realista para inicializar la herramienta."""
+        Ny, Nx = 100, 100
+        x = np.linspace(-2.5, 2.5, Nx)
+        y = np.linspace(-2.5, 2.5, Ny)
+        X, Y = np.meshgrid(x, y)
+        # Spot Gaussiano con ruido de disparo
+        R = np.sqrt(X**2 + Y**2)
+        Z_clean = 450.0 + 8500.0 * np.exp(-0.5 * (R / 0.45)**2)
+        noise = np.random.poisson(np.maximum(Z_clean, 0.0)) - Z_clean
+        Z = np.clip(Z_clean + noise, 0, 65535).astype(np.float64)
+
+        self.set_image_data(Z, pixel_size_um=0.05)
+
+    def set_image_data(self, Z: np.ndarray, pixel_size_um: Optional[float] = None):
+        """Asigna una matriz 2D de intensidad al visor y actualiza los cortes."""
+        self.Z = np.asarray(Z, dtype=np.float64)
+        if pixel_size_um is not None:
+            self.pixel_size_um = float(pixel_size_um)
+            self.spin_px_size.setValue(self.pixel_size_um)
+
+        Ny, Nx = self.Z.shape
+        self.img_item.setImage(self.Z.T)
+        self._update_colormap()
+
+        # Posicionar la línea de corte inicial atravesando el máximo
+        max_idx = np.unravel_index(np.argmax(self.Z), self.Z.shape)
+        yo, xo = float(max_idx[0]), float(max_idx[1])
+
+        # Centrar línea horizontal por defecto
+        self._set_roi_endpoints((max(0.0, xo - 25.0), yo), (min(float(Nx - 1), xo + 25.0), yo))
+
+        self.lbl_img_info.setText(f"Dim: {Nx} x {Ny} px | Mín: {self.Z.min():.0f} | Máx: {self.Z.max():.0f} cts")
+        self._update_profile()
+
+    def _get_roi_endpoints(self) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+        handles = self.line_roi.getHandles()
+        if len(handles) >= 2:
+            p1 = self.line_roi.mapToParent(handles[0].pos())
+            p2 = self.line_roi.mapToParent(handles[1].pos())
+            return (float(p1.x()), float(p1.y())), (float(p2.x()), float(p2.y()))
+        pts = self.line_roi.listPoints()
+        return (float(pts[0].x()), float(pts[0].y())), (float(pts[1].x()), float(pts[1].y()))
+
+    def _set_roi_endpoints(self, p1: Tuple[float, float], p2: Tuple[float, float]):
+        self.line_roi.blockSignals(True)
+        handles = self.line_roi.getHandles()
+        if len(handles) >= 2:
+            self.line_roi.movePoint(handles[0], [float(p1[0]), float(p1[1])], coords='parent')
+            self.line_roi.movePoint(handles[1], [float(p2[0]), float(p2[1])], coords='parent')
+        self.line_roi.blockSignals(False)
+
+    def _on_open_image(self):
+        start_dir = str(Path.home() / "Documents")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Abrir Imagen de PSF", start_dir,
+            "Imágenes (*.tiff *.tif *.png *.jpg *.bmp *.npy *.txt *.asc);;Todos (*.*)"
+        )
+        if not file_path:
+            return
+
+        p = Path(file_path)
+        try:
+            if p.suffix.lower() in (".tiff", ".tif"):
+                try:
+                    import tifffile
+                    Z = tifffile.imread(p)
+                except Exception:
+                    im = Image.open(p)
+                    Z = np.array(im)
+            elif p.suffix.lower() == ".npy":
+                Z = np.load(p)
+            elif p.suffix.lower() in (".txt", ".asc"):
+                try:
+                    Z = np.loadtxt(p)
+                except Exception:
+                    _, _, counts = parse_andor_solis_file(p)
+                    Z = counts.reshape(1, -1)
+            else:
+                im = Image.open(p).convert("L")
+                Z = np.array(im)
+
+            if Z.ndim == 3:
+                # Convertir a luminancia si es RGB
+                Z = 0.299 * Z[..., 0] + 0.587 * Z[..., 1] + 0.114 * Z[..., 2]
+
+            self.set_image_data(Z)
+        except Exception as e:
+            QMessageBox.critical(self, "Error al Cargar Imagen", f"No se pudo abrir {p.name}:\n{e}")
+
+    def _on_load_demo_clicked(self):
+        self._load_default_demo()
+
+    def _on_px_size_changed(self, val: float):
+        self.pixel_size_um = val
+        unit_str = "µm" if self.unit_mode == "um" else "px"
+        self.plot_profile.setLabel("bottom", f"Distancia a lo largo del corte ({unit_str})")
+        self._update_profile()
+
+    def _on_units_changed(self, idx: int):
+        self.unit_mode = "um" if idx == 0 else "px"
+        unit_str = "µm" if self.unit_mode == "um" else "px"
+        self.plot_profile.setLabel("bottom", f"Distancia a lo largo del corte ({unit_str})")
+        self._update_profile()
+
+    def _update_colormap(self):
+        cmap_name = self.combo_cmap.currentText().lower()
+        if cmap_name == "viridis":
+            c_name = "viridis"
+        elif cmap_name == "inferno":
+            c_name = "inferno"
+        elif cmap_name == "magma":
+            c_name = "magma"
+        elif cmap_name == "thermal":
+            c_name = "thermal"
+        elif cmap_name == "plasma":
+            c_name = "plasma"
+        else:
+            c_name = "gray"
+
+        try:
+            import matplotlib as mpl
+            import matplotlib.cm as cm
+            cmap = mpl.colormaps[c_name] if hasattr(mpl, "colormaps") else cm.get_cmap(c_name)
+            lut = (cmap(np.linspace(0, 1, 256)) * 255).astype(np.uint8)
+            self.img_item.setLookupTable(lut)
+        except Exception:
+            pass
+
+    def _on_cut_mode_changed(self, idx: int):
+        if self.Z is None:
+            return
+        Ny, Nx = self.Z.shape
+        max_idx = np.unravel_index(np.argmax(self.Z), self.Z.shape)
+        yo, xo = float(max_idx[0]), float(max_idx[1])
+
+        self.line_roi.blockSignals(True)
+        if idx == 0:  # Línea Libre
+            self.cut_mode = "arbitrary"
+            self.line_roi.setVisible(True)
+        elif idx == 1:  # Horizontal
+            self.cut_mode = "horizontal"
+            self.line_roi.setVisible(True)
+            self._set_roi_endpoints((0.0, yo), (float(Nx - 1), yo))
+        elif idx == 2:  # Vertical
+            self.cut_mode = "vertical"
+            self.line_roi.setVisible(True)
+            self._set_roi_endpoints((xo, 0.0), (xo, float(Ny - 1)))
+        elif idx == 3:  # Diagonal 45°
+            self.cut_mode = "diag45"
+            self.line_roi.setVisible(True)
+            d = min(xo, yo, Nx - 1 - xo, Ny - 1 - yo)
+            self._set_roi_endpoints((xo - d, yo - d), (xo + d, yo + d))
+        elif idx == 4:  # Diagonal 135°
+            self.cut_mode = "diag135"
+            self.line_roi.setVisible(True)
+            d = min(xo, yo, Nx - 1 - xo, Ny - 1 - yo)
+            self._set_roi_endpoints((xo - d, yo + d), (xo + d, yo - d))
+        elif idx == 5:  # Radial 360°
+            self.cut_mode = "radial"
+            self.line_roi.setVisible(False)
+
+        self._update_profile()
+
+    def _on_roi_changed(self):
+        if self.combo_cut_mode.currentIndex() != 0:
+            self.combo_cut_mode.blockSignals(True)
+            self.combo_cut_mode.setCurrentIndex(0)  # Cambió a línea libre
+            self.cut_mode = "arbitrary"
+            self.combo_cut_mode.blockSignals(False)
+        self._update_profile()
+
+    def _update_profile(self):
+        if self.Z is None:
+            return
+
+        px_scale = self.pixel_size_um if self.unit_mode == "um" else 1.0
+        unit_str = "µm" if self.unit_mode == "um" else "px"
+        lw = self.spin_line_width.value()
+
+        if self.cut_mode == "radial":
+            max_idx = np.unravel_index(np.argmax(self.Z), self.Z.shape)
+            yo, xo = float(max_idx[0]), float(max_idx[1])
+            dist, prof = extract_radial_profile(self.Z, (xo, yo), pixel_size_um=px_scale)
+            self.plot_profile.setTitle("Perfil Radial Promediado en 360° desde el Centroide")
+        else:
+            p1, p2 = self._get_roi_endpoints()
+            dist, prof = extract_arbitrary_line_profile(self.Z, p1, p2, pixel_size_um=px_scale, line_width_px=lw)
+            self.plot_profile.setTitle(f"Perfil 1D a lo largo de la Línea de Corte (Espesor: {lw} px)")
+
+        self.current_dist = dist
+        self.current_profile = prof
+
+        self.curve_profile_raw.setData(dist, prof)
+
+        # Ajuste analítico Gaussiano si está seleccionado
+        if self.combo_fit_model.currentIndex() == 0 and len(dist) >= 5:
+            fit_res = fit_1d_gaussian(dist, prof)
+            if fit_res:
+                self.curve_profile_fit.setData(fit_res["fit_s"], fit_res["fit_y"])
+                fwhm_val = fit_res["fwhm"]
+                fwhm_px = fwhm_val / self.pixel_size_um if self.unit_mode == "um" else fwhm_val
+                fwhm_um = fwhm_val if self.unit_mode == "um" else fwhm_val * self.pixel_size_um
+
+                sbr = (fit_res["amplitude"] + fit_res["offset"]) / max(fit_res["offset"], 1e-12)
+                self.lbl_fwhm_results.setText(
+                    f"<b>FWHM:</b> <span style='color:#A6E3A1; font-size:10pt;'><b>{fwhm_um:.3f} µm</b> ({fwhm_px:.1f} px)</span> | "
+                    f"<b>Centro s₀:</b> {fit_res['center']:.2f} {unit_str}<br>"
+                    f"<b>Amplitud A:</b> {fit_res['amplitude']:.0f} cts | <b>Fondo I₀:</b> {fit_res['offset']:.0f} cts | "
+                    f"<b>SBR:</b> {sbr:.1f} | <b>Calidad R²:</b> <b>{fit_res['r_squared']:.4f}</b>"
+                )
+            else:
+                self.curve_profile_fit.clear()
+                self.lbl_fwhm_results.setText("No convergió el ajuste Gaussiano 1D en el corte actual.")
+        else:
+            self.curve_profile_fit.clear()
+            self.lbl_fwhm_results.setText("Ajuste desactivado.")
+
+        # Reubicar cursores si están fuera de rango
+        if len(dist) > 1:
+            d_min = float(dist[0])
+            d_max = float(dist[-1])
+            pos_a = float(self.cursor_a.value())
+            pos_b = float(self.cursor_b.value())
+            if pos_a < d_min or pos_a > d_max:
+                self.cursor_a.setValue(d_min + (d_max - d_min) * 0.25)
+            if pos_b < d_min or pos_b > d_max:
+                self.cursor_b.setValue(d_min + (d_max - d_min) * 0.75)
+
+        self._on_cursors_moved()
+
+    def _on_cursors_moved(self):
+        if len(self.current_dist) < 2 or len(self.current_profile) != len(self.current_dist):
+            return
+
+        pos_a = float(self.cursor_a.value())
+        pos_b = float(self.cursor_b.value())
+        x_min = min(pos_a, pos_b)
+        x_max = max(pos_a, pos_b)
+
+        self.region_ab.setRegion([x_min, x_max])
+
+        unit_str = "µm" if self.unit_mode == "um" else "px"
+        y_a = float(np.interp(pos_a, self.current_dist, self.current_profile))
+        y_b = float(np.interp(pos_b, self.current_dist, self.current_profile))
+
+        mask = (self.current_dist >= x_min) & (self.current_dist <= x_max)
+        x_sub = self.current_dist[mask]
+        y_sub = self.current_profile[mask]
+        area = float(np.trapezoid(y_sub, x_sub) if hasattr(np, "trapezoid") else np.trapz(y_sub, x_sub)) if len(x_sub) >= 2 else 0.0
+
+        self.lbl_dual_metrics.setText(
+            f"<b>Regla A:</b> {pos_a:.2f} {unit_str} (Y={y_a:.0f}) | "
+            f"<b>Regla B:</b> {pos_b:.2f} {unit_str} (Y={y_b:.0f}) | "
+            f"<b>ΔX:</b> {abs(pos_b - pos_a):.2f} {unit_str} | <b>ΔY:</b> {y_b - y_a:+.0f} cts | "
+            f"<b>Área:</b> {area:.2e}"
+        )
+
+    def _on_image_hover(self, event):
+        if self.Z is None:
+            return
+        if event.isExit():
+            return
+        pos = event.pos()
+        x, y = int(pos.x()), int(pos.y())
+        Ny, Nx = self.Z.shape
+        if 0 <= x < Nx and 0 <= y < Ny:
+            val = self.Z[y, x]
+            self.lbl_img_info.setText(
+                f"Coordenadas: (X: {x} px, Y: {y} px) | Intensidad: <b>{val:.0f}</b> cts | Dim: {Nx} x {Ny} px"
+            )
+
+    def _on_copy_tsv(self):
+        if len(self.current_dist) == 0:
+            return
+        unit_str = "um" if self.unit_mode == "um" else "px"
+        lines = [f"Distance_{unit_str}\tIntensity_Counts"]
+        for s, val in zip(self.current_dist, self.current_profile):
+            lines.append(f"{s:.4f}\t{val:.2f}")
+        QApplication.clipboard().setText("\n".join(lines))
+        if self.parent_window and hasattr(self.parent_window, "statusBar"):
+            self.parent_window.statusBar().showMessage("Perfil 1D copiado al portapapeles (formato TSV).", 4000)
+
+    def _on_export_csv(self):
+        if len(self.current_dist) == 0:
+            QMessageBox.warning(self, "Sin datos", "No hay perfil de corte para exportar.")
+            return
+
+        out_path, _ = QFileDialog.getSaveFileName(
+            self, "Exportar Perfil 1D", "PSF_Line_Profile.csv", "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+        )
+        if not out_path:
+            return
+
+        try:
+            unit_str = "um" if self.unit_mode == "um" else "px"
+            header = f"Distance_{unit_str},Intensity_Counts"
+            data = np.column_stack([self.current_dist, self.current_profile])
+            np.savetxt(out_path, data, delimiter=",", header=header, comments="", fmt="%.4f,%.2f")
+            QMessageBox.information(self, "Exportación Exitosa", f"Perfil exportado en:\n{out_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar el perfil:\n{e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  VENTANA PRINCIPAL: PSF ANALYZER (BI-MODAL)
+# ══════════════════════════════════════════════════════════════════════════════
+
 class PSFAnalyzerWindow(QMainWindow):
-    """Ventana independiente que aloja PSFAnalyzerWidget."""
+    """
+    Ventana independiente de caracterización de PSF.
+    Aloja dos modos de trabajo principales:
+      1. 📸 Modo Foto Única & Líneas de Corte (SingleImageProfileWidget)
+      2. 🔬 Modo Co-Alineación Dual Confocal (PSFAnalyzerWidget)
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("PSF Analyzer — Caracterización & Alineación Dual PSF")
-        self.resize(1300, 850)
-        self.widget = PSFAnalyzerWidget()
-        self.setCentralWidget(self.widget)
+        self.setWindowTitle("PSF Analyzer — Caracterización 2D & Líneas de Corte (UNSAM Nanofotónica)")
+        self.resize(1420, 880)
+        self.setMinimumSize(1100, 700)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        self.main_tabs = QTabWidget()
+        self.setCentralWidget(self.main_tabs)
+
+        # ── Modo 1: Foto Única & Líneas de Corte (Perfil 1D y FWHM) ──────────
+        self.tab_single = SingleImageProfileWidget(parent_window=self)
+        self.main_tabs.addTab(self.tab_single, "📸 Foto Única & Líneas de Corte")
+
+        # ── Modo 2: Co-Alineación Dual Confocal ──────────────────────────────
+        self.widget_dual = PSFAnalyzerWidget()
+        self.main_tabs.addTab(self.widget_dual, "🔬 Co-Alineación Dual Confocal")
 
     def load_dual_images(self, Z1: np.ndarray, Z2: np.ndarray, px_size_um: float):
-        self.widget.load_dual_images(Z1, Z2, px_size_um)
+        """Mantiene 100% de compatibilidad con llamadas de app.py y contrapropagante.py."""
+        self.main_tabs.setCurrentIndex(1)
+        self.widget_dual.load_dual_images(Z1, Z2, px_size_um)
         self.show()
         self.raise_()
+
+    def load_single_image(self, Z: np.ndarray, px_size_um: float):
+        """Abre y analiza una única imagen en el modo de corte 1D."""
+        self.main_tabs.setCurrentIndex(0)
+        self.tab_single.set_image_data(Z, px_size_um)
+        self.show()
+        self.raise_()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PUNTO DE ENTRADA PRINCIPAL Y EJECUCIÓN AUTÓNOMA
+# ══════════════════════════════════════════════════════════════════════════════
+
+def main():
+    """Función principal de ejecución para PSF Analyzer."""
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setStyle("Fusion")
+
+    # Paleta Catppuccin Mocha
+    dark_palette = QtGui.QPalette()
+    dark_palette.setColor(QtGui.QPalette.ColorRole.Window, QColor("#11111B"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.WindowText, QColor("#CDD6F4"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.Base, QColor("#181825"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.AlternateBase, QColor("#1E1E2E"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.ToolTipBase, QColor("#1E1E2E"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.ToolTipText, QColor("#CDD6F4"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.Text, QColor("#CDD6F4"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.Button, QColor("#313244"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QColor("#CDD6F4"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.Highlight, QColor("#89B4FA"))
+    dark_palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QColor("#11111B"))
+    app.setPalette(dark_palette)
+
+    window = PSFAnalyzerWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

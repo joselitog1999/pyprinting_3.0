@@ -1,0 +1,2851 @@
+=== LUCIANA MARTINEZ - ÍNDICE Y CAPÍTULOS PRINCIPALES ===
+
+
+--- PAGE 1 (ÍNDICE) ---
+ 
+UNIVERSIDAD DE BUENOS AIRES 
+Facultad de Ciencias Exactas y Naturales 
+Departamento de Física 
+ 
+Manipulación óptica, nanotermometría y 
+crecimiento inducido por plasmónica de 
+nanopartículas individuales 
+ 
+Tesis presentada para optar al título de Doctora de la Universidad de 
+Buenos Aires en el área de Ciencias Físicas por 
+LUCIANA PAULA MARTINEZ 
+ 
+Director: Dr. Fernando D. Stefani 
+Directora Adjunta: Dra. Ianina L. Violi 
+Consejera de Estudios: Dra. Andrea V. Bragas 
+Lugar de Trabajo: Centro de Investigaciones en Bionanociencias,  
+Consejo Nacional de Investigaciones Científicas y Técnicas 
+ 
+Ciudad Autónoma de Buenos Aires, noviembre de 2024 
+
+
+--- PAGE 2 (ÍNDICE) ---
+2 
+ 
+ 
+  
+
+--- PAGE 3 (ÍNDICE) ---
+3 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+A mamá y papá, 
+ quienes me inculcaron el amor por la curiosidad  
+y las ganas de descubrir el mundo.  
+Gracias por su apoyo infinito.  
+ 
+  
+
+--- PAGE 4 (ÍNDICE) ---
+4 
+ 
+  
+
+--- PAGE 5 (ÍNDICE) ---
+5 
+ 
+Resumen 
+ 
+ Las nanopartículas (NPs) metálicas se destacan por su fuerte interacción con la luz, 
+mediada por resonancias plasmónicas superficiales localizadas. Esta permite su manipulación 
+mediante fuerzas ópticas y está asociada una serie de fenómenos que resultan relevantes en 
+nanotecnología, como el calentamiento localizado, la amplificación del campo cercano y la 
+generación de portadores de carga de alta energía. 
+Para aprovechar eficientemente estos fenómenos, es ventajoso realizar mediciones 
+directas de las propiedades ópticas y fototérmicas a nivel de partícula individual. Con este 
+objetivo, se mejoraron las capacidades espectroscópicas de un instrumento de manipulación 
+óptica de NPs para monitorear espectros de dispersión o de fotoluminiscencia, y se aplicaron a 
+una serie de nuevos métodos de medición de partículas individuales.  
+En una primera aplicación, el Capítulo 4 presenta una innovadora clase de 
+nanotermometría de NPs basada en imágenes hiperespectrales de fotoluminiscencia. Esta 
+técnica se aplicó para determinar la temperatura y el coeficiente de calentamiento fototérmico 
+de NPs esféricas de oro en diversos entornos, así como de NPs híbridas de oro-paladio, relevantes 
+en catálisis. 
+ En el Capítulo 5, las espectroscopías de dispersión y fotoluminiscencia se utilizaron para 
+caracterizar la impresión óptica de nanoestrellas de oro con láseres de diferentes longitudes de 
+onda. Asimismo, el nuevo método de nanotermometría permitió verificar condiciones de 
+impresión con bajo calentamiento, evitando deformaciones y preservan do la compleja 
+morfología de las nanoestrellas.  
+En el Capítulo 6, se describe una tercera aplicación de la espectroscopía de 
+fotoluminiscencia en tiempo real para realizar un control fino en lazo cerrado del crecimiento 
+inducido por plasmónica de NPs esféricas de oro  y se llevaron a cabo estudios preliminares en 
+función de la longitud de onda del láser. 
+Estas nuevas capacidades permitieron establecer una plataforma robusta para el estudio 
+sistemático de las propiedades ópticas y fototérmicas de NPs plasmónicas individuales. 
+ 
+Palabras claves: nanopartículas plasmónicas, fotoluminiscencia, nanotermometría, impresión 
+óptica, química asistida por plasmónica 
+ 
+ 
+ 
+  
+
+--- PAGE 6 (ÍNDICE) ---
+6 
+ 
+  
+
+--- PAGE 7 (ÍNDICE) ---
+7 
+ 
+Optical manipulation, nanothermometry and  
+plasmon-assisted growth of single nanoparticles 
+ 
+Abstract 
+ 
+ Metallic nanoparticles (NPs) stand out for their strong interaction with light, mediated 
+by localized surface plasmon resonances. This interaction allows the manipulation of NPs 
+through optical forces, and is also associated with a series of phenomena that are relevant for 
+nanotechnology, such as localized heating, near-field enhancement, and the generation of hot-
+carriers. 
+ To effectively exploit these phenomena, it is advantageous to perform direct 
+measurements of optical and photothermal properties at the single-particle level. In this thesis, 
+the spectroscopic capabilities of an instrument for optical manipulation of NPs were improved 
+to monitor scattering or photoluminescence spectra , enabling new types of single -particle 
+measurements. 
+ In a first application, Chapter 4 presents an innovative nanothermometry for NPs based 
+on hyperspectral photoluminescence images. This technique was applied to determine the 
+temperature and photothermal heating coefficient of spherical gold NPs  in various 
+environments, as well as gold-palladium hybrid NPs, relevant in catalysis. 
+  In Chapter 5, scattering and photoluminescence spectroscopies were used to 
+characterize the optical printing of gold nanostars at different laser wavelengths. Likewise, the 
+new nanothermometry method made it possible to verify printing conditions with low heating, 
+avoiding reshaping and preserving the complex morphology of the nanostars. 
+ In Chapter 6, a third application of real -time photoluminescence spectroscopy is 
+described to perform fine closed-loop control of the plasmon-assisted growth of spherical gold 
+NPs, and preliminary studies were conducted as a function of the laser wavelength. 
+ With these new capabilities, a robust platform for the systematic study of the optical and 
+photothermal properties of single plasmonic NPs has been established. 
+ 
+Keywords: plasmonic nanoparticles, photoluminescence, nanothermometry, optical printing, 
+plasmonic-assisted chemistry 
+ 
+ 
+ 
+
+--- PAGE 8 (ÍNDICE) ---
+8 
+ 
+ 
+  
+
+--- PAGE 9 (ÍNDICE) ---
+9 
+ 
+Índice general 
+Introducción y Motivación ......................................................................................................... 13 
+Capítulo 1: Propiedades ópticas de las nanopartículas metálicas ............................................ 19 
+1.1. Resonancias de plasmones superficiales localizados .................................................. 19 
+1.2. Absorción y dispersión ................................................................................................ 21 
+1.3. Fuerzas ópticas ............................................................................................................ 23 
+1.4. Intensificación del campo eléctrico cercano ............................................................... 27 
+1.5. Generación de calor .................................................................................................... 27 
+1.6. Portadores de carga de alta energía ............................................................................ 29 
+1.7. Fotoluminiscencia........................................................................................................ 30 
+Capítulo 2: Estado del arte y desafíos de la impresión óptica de nanopartículas coloidales .. 33 
+2.1. Nanofabricación .......................................................................................................... 33 
+2.2. Impresión óptica de nanopartículas coloidales ........................................................... 35 
+2.2.1. Principios de la impresión óptica ........................................................................ 35 
+2.2.2. Funcionalización del sustrato .............................................................................. 37 
+2.2.3. Automatización ................................................................................................... 38 
+2.3. Precisión ...................................................................................................................... 40 
+2.4. Resolución lateral ........................................................................................................ 43 
+2.5. Selectividad ................................................................................................................. 46 
+2.6. Fotoestabilidad ............................................................................................................ 49 
+2.7. Conclusiones y perspectivas ........................................................................................ 53 
+Capítulo 3: Dispositivo y protocolos experimentales de impresión óptica y espectroscopía de 
+partículas individuales ................................................................................................................ 55 
+3.1. Montaje experimental ................................................................................................. 55 
+3.2. Imágenes y espectros .................................................................................................. 57 
+3.2.1. Microscopía Confocal de interferencia de dispersión (iSCAT) ............................. 57 
+3.2.1. Microscopía de Campo Oscuro............................................................................ 58 
+3.2.2. Espectroscopía de dispersión .............................................................................. 59 
+3.2.3. Espectroscopía de fotoluminiscencia anti-Stokes y Stokes ................................. 62 
+3.3. Cálculo de irradiancia .................................................................................................. 63 
+3.4. Programas de adquisición libres en Python ................................................................ 64 
+3.4.1. PyPrinting ............................................................................................................ 65 
+3.4.2. Experimentos automatizados de PyPrinting ....................................................... 68 
+3.4.2.1. Impresión óptica de nanopartículas coloidales ........................................... 68 
+3.4.2.2. Impresión óptica de dímeros ....................................................................... 70 
+3.4.3. PySpectrum ......................................................................................................... 71 
+
+--- PAGE 10 (ÍNDICE) ---
+10 
+ 
+3.4.4. Experimentos automatizados de PySpectrum .................................................... 74 
+3.5. Deriva mecánica del dispositivo experimental ............................................................ 75 
+3.6. Estudio del efecto de la iluminación prolongada en NPs impresas ............................. 76 
+Capítulo 4: Nanotermometría por fotoluminiscencia anti-Stokes ............................................ 81 
+4.1 Introducción: temperatura en la nanoescala .............................................................. 81 
+4.2 Nanotermometría por anti-Stokes .............................................................................. 84 
+4.2.1. Modelo de la señal de fotoluminiscencia ............................................................ 84 
+4.2.2. Propiedades fototérmicas y ópticas .................................................................... 86 
+4.2.3. Implementación de nanotermometría por anti-Stokes ...................................... 87 
+4.3 Nanotermometría por imágenes hiperespectrales de fotoluminiscencia .................. 89 
+4.4 Nanoesferas de Au como termómetros ...................................................................... 94 
+4.5 Coeficiente fototérmico en función del tamaño de las NPs ........................................ 95 
+4.6 Coeficiente fototérmico en función del sustrato......................................................... 98 
+4.7 Coeficiente fototérmico de NPs bimetálicas de oro y paladio .................................. 101 
+4.8 Coeficiente fototérmico de NPs en láminas delgadas mesoporosas ......................... 108 
+4.9 Efecto del calentamiento en la manipulación óptica de NPs .................................... 112 
+4.10 Conclusiones y perspectivas ...................................................................................... 113 
+Capítulo 5: Impresión óptica de nanoestrellas de oro ............................................................ 115 
+5.1. Introducción .............................................................................................................. 115 
+5.2. Caracterización de las nanoestrellas de oro .............................................................. 116 
+5.3. Impresión óptica con distintos láseres ...................................................................... 118 
+5.4. Deformación por absorción óptica ............................................................................ 122 
+5.5. Medición de la temperatura ...................................................................................... 124 
+5.6. Optimización de la impresión óptica para distintos tamaños ................................... 126 
+5.7. Precisión de la impresión óptica ............................................................................... 128 
+5.9. Conclusiones.............................................................................................................. 132 
+Capítulo 6: Crecimiento asistido por plasmónica en nanopartículas individuales ................. 135 
+6.1. Introducción .............................................................................................................. 135 
+6.2. Materiales.................................................................................................................. 138 
+6.3. Control sobre las propiedades finales de las nanopartículas de oro ........................ 139 
+6.3.1. Método Stokes: seguimiento de la reacción en vivo ......................................... 139 
+6.3.2. Crecimiento controlado por dosis de irradiación .............................................. 141 
+6.3.3. Crecimiento por control de lazo cerrado ........................................................... 143 
+6.3.4. Comparación de resultados ............................................................................... 144 
+6.4. Estudios preliminares del crecimiento a diferentes longitudes de onda .................. 147 
+6.4.1. Seguimiento de la reacción en vivo ................................................................... 151 
+
+--- PAGE 11 (ÍNDICE) ---
+11 
+ 
+6.5. Conclusiones y perspectivas ...................................................................................... 153 
+Capítulo 7: Conclusiones generales y perspectivas ................................................................. 155 
+Agradecimientos ....................................................................................................................... 157 
+Apéndice ................................................................................................................................... 159 
+A.1. Implementación de nanotermometría por anti-Stokes ............................................ 159 
+A.2. Impacto de la deriva mecánica en la imagen hiperespectral .................................... 161 
+Publicaciones derivadas del trabajo de esta tesis ................................................................... 165 
+Bibliografía ................................................................................................................................ 167 
+ 
+ 
+  
+
+--- PAGE 12 (ÍNDICE) ---
+12 
+ 
+  
+
+--- PAGE 13 (ÍNDICE) ---
+13 
+ 
+Introducción y Motivación 
+ 
+En el contexto de la química coloidal, las nanopartículas (NPs) han emergido como 
+elementos destacados en una amplia gama de disciplinas, que van desde la biomedicina hasta la 
+ciencia de los materiales. Esta prominencia se debe al desarrollo de métodos altamente eficaces 
+para la síntesis de NPs con una variedad de formas, tamaños, composiciones de materiales y 
+funcionalidades superficiales. En la escala nanométrica, los efectos cuánticos de confinamiento 
+y superficie se vuelven especialmente relevante debido a la alta relación superficie-volumen de 
+las NPs, confiriéndoles propiedades físicas y químicas excepcionales  que no se encuentran en  
+materiales a escala macroscópica. 
+En particular, las NPs metálicas son altamente relevantes debido a sus propiedades 
+optoelectrónicas, que se originan en las resonancias de plasmones superficiales localizad as 
+(conocidas como LSPR por sus siglas en inglés). 1 La interacción de las NPs con la luz ha dado 
+origen a un campo de investigación denominado nanoplasmónica. Cuando una NP metálica es 
+iluminada en su LSPR, se desencadena una serie de  fenómenos físicos tanto en su  entorno 
+cercano como en la NP, como la intensificación del campo eléctrico cercano, la generación de 
+calor y la generación de portadores de carga alta energía  en la superficie  (ver esquema en la 
+Figura 1).2  
+ 
+ 
+Figura 1. Esquema de los principales fenómenos que ocurren al iluminar una NP plasmónica: 
+intensificación del campo cercano, generación de calor y generación de electrones y huecos de 
+alta energía en la superficie. Figura adaptada de Baffou et al.2 
+ 
+Estos fenómenos definen gran parte del espectro de aplicaciones de las NPs metálicas, 
+que abarcan desde su síntesis, la detección ultrasensible de moléculas, 3 dispositivos 
+optoelectrónicos,4 fuentes nanoscópicas de calor, 1,5–8 hasta estudios biológicos no invasivos a 
+nivel celular y subcelular,9 el desarrollo de nanoantenas ópticas,10,11 y su uso como nanoreactores 
+Generación de 
+calor
+Intensificación del 
+campo cercano
+Generación de 
+portadores de carga
+de alta energía
+Luz Luz hνLuz
+
+--- PAGE 14 (ÍNDICE) ---
+14 
+ 
+para inducir o catalizar reacciones (foto-)químicas de forma localizada, remota y con dinámicas 
+muy rápidas.12–14 
+Como estos fenómenos ocurren en el entorno de la NP de manera prácticamente 
+simultánea, resulta difícil elucidar y controlar el grado de participación de cada mecanismo en 
+las aplicaciones y/o mediciones . Por ejemplo, las nanoantenas ópticas se utilizan  por la 
+intensificación del campo cercano para detectar moléculas de baja concentración, sin embargo, 
+la generación de calor puede influir en la difusión del analito y las constantes de afinidad, 
+dificultando su cuantificación. En un segundo ejemplo, cuando l as NPs se utilizan como 
+nanoreactores para inducir o catalizar una reacción química en su superficie, los tres fenómenos 
+mencionados en  la Figura 1 pueden participar de la reacción. La intensificación del campo 
+cercano incrementa la tasa de fotones incidentes sobre el reactivo cercano, la temperatura 
+puede aumentar la velocidad de la reacción y la generación de portadores de carga positivas y 
+negativas pueden ser transferidos de la NP al reactivo cercano , interviniendo en reacciones 
+redox. Además, otros mecanismos dependientes de la temperatura, como  la adsorción sobre 
+superficies, transferencia de carga entre el metal y el entorno, los intermediarios fotoquímicos, 
+las fuerzas ópticas y las fuerzas fototérmicas que interactúen con los reactivos, también pueden 
+estar involucrados. Debido a la diversidad de fenómenos, el campo de exploración en términos 
+de reacciones, variables involucradas, mecanismos de reacción y posibles aplicaciones es muy 
+amplio.2,5,12,15–18 Comprender y controlar estos procesos asistidos por plasmónica es esencial 
+para el diseño racional de fotocatalizadores, optimizados de acuerdo a su capacidad para 
+modificar la superficie de energía potencial de una reacción química determinada. 
+Para obtener una comprensión completa de la interrelación entre estos fenómenos, es 
+esencial trabajar a nivel de NPs individuales. Sin embargo, la manipulación de nanoestructuras y 
+la realización de mediciones con resolución nanométrica plantean desafíos significativos.  
+En el laboratorio del Dr. Fernando Stefani en CIBION, se abordan los desafíos de la 
+nanotecnología mediante la técnica de impresión óptica de NPs coloidales. Esta metodología se 
+presenta como una solución prometedora para fabricar arreglos de nanoestructuras sobre 
+sustratos sólidos de manera flexible, práctica, rápida y sin necesidad de una sala limpia. La 
+técnica emplea fuerzas ópticas para capturar NPs de sde una suspensión coloidal, impulsarlas 
+hacia un sustrato y fijarlas en ubicaciones predefinidas mediante la atracción de fuerzas de van 
+der Waals. De este modo, se abre una doble posibilidad: i) realizar mediciones sistemáticas sobre 
+NPs individuales y ii) aprovechar la enorme diversidad de NP s fabricadas por química coloidal, 
+combinándolas en dispositivos. 
+Un antecedente importante es la tesis del Dr. Julián Gargiulo, en la que se desarrolló una 
+versión automatizada de la técnica de impresión óptica de NPs coloidales.19 Durante el período 
+2016-2019, se realizaron diversos trabajos que exploraron la técnica para NPs coloidales de Au, 
+Ag, Si, investigando sus limitaciones y potencialidades (resumidos en la Figura 2). Estos trabajos 
+incluyeron la evaluación de la precisión de la técnica para NPs de Au y Ag ,20 la conectividad de 
+las partículas para la fabricación de heterodímeros ,21 y las dificultades  para fabricar 
+homodímeros de NPs de Au debido a la presencia de fuerzas fototérmicas en sustratos poco 
+disipativos, como el vidrio.22 Además, experimentos de impresión sobre substratos de zafiro e 
+incluyendo una monocapa de grafeno resaltaron la importancia de la  disipación de calor para 
+conectar de partículas idénticas. Aunque los efectos fototérmicos han sido identificados como 
+
+--- PAGE 15 (ÍNDICE) ---
+15 
+ 
+fenómenos clave que dificultan los resultados de varios experimentos de manipulación óptica 
+no se comprenden bien a escala nanométrica. En el contexto de la impresión óptica, se 
+discutieron fenómenos como la termoforesis y la termoósmosis.22  
+ 
+Figura 2. Resumen de avances en impresión óptica  realizados por el grupo del Dr. Fernando 
+Stefani durante el período 2016-2019. a) Caracterización detallada de la impresión óptica de NPs 
+metálicas, tanto en resonancia como fuera de resonancia plasmónica para NPs de Au y Ag. 20 b) 
+Fabricación de heterodímeros de NPs de Au y Ag. 21 c) Estudio de fuerzas fototérmicas 
+involucradas en el  proceso de impresión óptica , las cuales dificultan la fabricación de 
+homodímeros.22 d) Crecimiento de NPs de Au asistido por luz, utilizando las NPs impresas como 
+semillas y a HAuCl 4 como precursor químico.23  e) Impresión selectiva de NPs de Si de distintos 
+tamaños, logrando por primera vez la impresión de partículas dielétricas.24 
+ 
+El uso de  espectroscopía de dispersió n permitió caracterizar l as NPs impresas in situ, 
+particularmente en los trabajos más recientes. En un estudio enfocado en la química asistida por 
+plasmónica, Violi et. al 23 emplearon arreglos de NP s de Au impresas para investigar el 
+crecimiento direccionado por luz en presencia de HAuCl 4 (aq), utilizando las NPs como semillas 
+y catalizadores para la reducción a Au . Mediante la detección polarizada de la dispersión, 
+descubrieron que el crecimiento presentaba una preferencia en la dirección de la polarización 
+de la luz, lo que sugiere un papel crucial del campo eléctrico . Finalmente, expandieron la 
+manipulación óptica a partículas dieléctricas, estudiando la impresión selectiva de NPs de Si de 
+a) Caracterización de la impresión óptica de NPs metálicas 
+b) Fabricación de heterodímeros de NPs de Au-Ag c) Estudio de fuerzas fototérmicas
+d) Crecimiento inducido por plasmónica e) Impresión selectiva de NPs de Si
+
+--- PAGE 41 ---
+41 
+ 
+confocales de dispersión de las NPs. La Figura 2. 5.b. muestra la diferencia entre la posición 
+objetivo y la posición impresa de la NP , definida como el error de impresión (δx, δy). El análisis 
+de todos los eventos (diagrama en Figura 2. 5.c.) reveló simetría circular en los errores de 
+impresión, indicando que la polarización del láser no afecta la precisión. Para cuantificarla, se 
+empleó el radio de impresión R90, que contiene el 90 % de las NPs impresas (línea de puntos en 
+el diagrama de puntos de la Figura 2.5.c.). 
+El estudio simulado y comparativo entre las fuerzas ópticas y la interacción DLVO con el 
+sustrato condujo a la predicción cuantitativa de la precisión.20 En la Figura 2.5.d., la Fz evaluada 
+en el sustrato se comparó con Fth, definiendo así un "radio de impresión” teórico Rp cuando se 
+cumple que la condición umbral Fz  > Fth. El comportamiento de Rp en función de la potencia 
+se comparó con el experimental obtenido de R90. 
+Finalmente, las Figuras 2.5.e. y 2.5.f. mostraron el radio de impresión experimental R90  
+en función de la potencia del láser (círculos para Au, cuadrados para Ag), en longitudes de onda 
+en resonancia plasmónica y fuera de ella. En resonancia, la precisión disminuye con el aumento 
+de la potencia del láser, mientras que fuera de resonancia, R90 es independiente de la potencia 
+del láser y ligeramente más grande que en el caso resonante. Como se esperaba desde la teoría, 
+no fue posible imprimir partículas por debajo de un cierto umbral de potencia del láser . Los 
+valores de R90 se comparan Rp en función de la potencia del láser para la impresión de NPs de 
+Ag (línea continua azul) y NPs de Au  (línea continua verde). En el caso en resonancia,  Rp 
+representa muy bien los valores experimentales R90 y predice correctamente el valor de la 
+potencia umbral. Sin embargo, para el caso fuera de resonancia, se puede ver que Rp no predice 
+el R90 experimental, por lo que los autores realizaron un análisis más profundo. 
+El análisis más detallado consideró las posibles trayectorias impuestas por las fuerzas 
+ópticas sobre las NPs al imprimir. Las Figuras 2.5.g. y 2.5.h. mostraron las trayectorias de NPs de 
+Au impresas ópticamente en resonancia y fuera de ella, respectivamente. La Rp alcanzada con 
+cada potencia del láser reveló que, en resonancia, el aumento de la potencia del láser aumenta 
+las trayectorias disponibles para la impresión, disminuyendo la precisión. Fuera de resonancia, 
+la mayoría de las trayectorias disponibles se alca nzan tan pronto como la potencia del láser 
+supera el umbral de impresión, explicando la independencia de R90 respecto a la potencia del 
+láser para la impresión fuera de resonancia. 
+En resumen, la mejor precisión para la impresión óptica de NPs esféricas con haces 
+gaussianos se logra en resonancia y cerca del umbral de potencia. En estas condiciones, el 90 % 
+de las NPs se imprime dentro de los 100 nm del objetivo deseado, con una desviación cuadrática 
+media radial del orden de 50 nm. Estos números son considerablemente más pequeños que la 
+cintura del haz de impresión y son comparables al diámetro de las NP s. La predicción de la 
+precisión de la impresión requiere dos pasos: (1) calcular  el radio de impresión a partir del 
+equilibrio entre la fuerza óptica y la interacción DLVO con el sustrato y (2) un análisis de las 
+posibles trayectorias para determinar las regiones del radio de impresión. 
+Se destaca que el análisis se centra en la impresión de NPs coloidales con difusión libre. 
+Una mayor precisión podría lograrse si las NPs fueran forzadas a ingresar al volumen de captura 
+desde la misma posición, por ejemplo, utilizando una pinza óptica adi cional o una cámara de 
+microfluídica para controlar la dirección y velocidad de las NPs. Aunque se ha explorado 
+
+--- PAGE 42 ---
+42 
+ 
+principalmente con haces gaussianos, la incorporación de perfiles ópticos más complejos podría 
+abrir la puerta a mayores precisiones alcanzables. 
+Por otro lado, la impresión de NPs no esféricas, como las barras, introduce el desafío 
+adicional de controlar su orientación. En la revisión25 se analizan los trabajos que han abordado 
+este desafío al lograr un control preciso de la orientación angular durante la deposición78,79. Estos 
+estudios destacan la combinación de técnicas de trampa e impresión óptica, empleando láseres 
+polarizados para alcanzar niveles avanzados de precisión en la orientación de las NPs no esféricas 
+durante el proceso de impresión. 
+ 
+ 
+Figura 2.5. a) Valor absoluto de las fuerzas máximas axiales (Fz) y radiales (Fr) frente a la longitud 
+de onda para NP de Ag y Au de 60 nm colocadas en el lugar para imprimir NP de Ag y Au en 
+resonancia y fuera de resonancia: 405, 532 y 642 nm. b) Ejemplo de una imagen confocal de 
+dispersión utilizada para determinar el centro de la NP impresa y el error de impresión δx y δy. 
+c) Diagrama 2D del error de impresión de 196 NPs de Au . El círculo (de radio R90) delimita la 
+región donde se imprimieron el 90 % de las NPs. d) Cálculo de la fuerza axial óptica Fz en el 
+sustrato (plano focal, z = 0) en función de la posición radial, para NPs de Au  impresas en 
+resonancia con láser de 532 nm a distintas potencias del láser ( P). La línea horizontal indica el 
+umbral de impresión óptica impuesto por la repulsiva barrera DLVO (Fth). Un radio de impresión 
+Rp se define por Fz  > Fth , como se muestra para el caso de P = 3 mW.  e, f) Los valores 
+experimentales de R90 en función de la potencia del láser para NP s de Au (círculos) y Ag 
+(cuadrados) de 60 nm impresos en resonancia e) y fuera de resonancia f). h, i) Trayectorias 
+calculadas para NPs de Au  de 60 nm a diferentes potencias, en resonancia h) y fuera de 
+resonancia i). Los cuadros de colores en z = 0 representan el radio de impresión en cada potencia. 
+Figuras adaptadas.20 
+ 
+400 450 500 550 600 650
+Longitud de onda (nm)
+0.005
+0.01
+0.1
+1
+2
+Fuerca óptica (pN)
+Au | |
+Au | |
+Ag | |
+Ag | |
+a)
+g)
+0
+-500 0 250-250 500
+0.5
+1
+Au NP  532 nm
+(nm)
+(nm)
+(mW)
+1.2
+1.5
+2.0
+En resonancia
+200 nm
+b) c)
+100-100 0
+0
+-100
+100
+h)
+0.5
+(nm)
+0
+-500 0 250-250 500
+1
+Au NP  642 nm
+(nm)
+(mW)
+5
+7
+10
+Fuera de resonancia
+200 100 0 100 200
+(nm)
+-300 3000
+3
+1
+(z=0) (pN)
+2
+3
+4
+= 5 mW
+1.5
+(3 mW)
+2
+f)
+d)
+e)
+5
+Fuera de resonancia
+300
+100
+0 5 15 20 2510
+200
+0
+Au Ag
+(mW)
+(nm)
+300
+100
+0 1 3 42
+200
+0
+Au Ag
+En resonancia
+(mW)
+(nm)
+
+--- PAGE 43 ---
+43 
+ 
+2.4.  Resolución lateral 
+ 
+La resolución lateral, definida como la distancia mínima a la que se pueden imprimir dos 
+partículas de manera controlada, representa un desafío clave en la impresión óptica. En 2013, 
+Urban et al. 80,81 identificaron una limitación en la impresión de NPs a distancias cortas, 
+observando que la impresión de dos o más NPs de oro (Au) muy cercanas no se había logrado 
+experimentalmente a distancias de separación inferiores a 300 nm. Posteriormente, en 2014, 
+Bao et al.75 llevaron a cabo un estudio sistemático de la resolución lateral utilizando una trampa 
+óptica lineal para imprimir patrones de cadena de NPs de plata (Ag) de 200 nm. En los 
+experimentos de Bao et al., se intentó imprimir pares de cadenas a diferentes distancias de 
+separación (Δx) y se identificaron tres regímenes distintos: (i) un régimen de no interacción para 
+distancias mayores a 600 nm, donde las cadenas de partículas se imprimieron con la separación 
+deseada; (ii) un régimen de interacción para 300 nm < Δx < 600 nm, donde las NPs se imprimían 
+a distancias mayores de las establecidas; y (iii) un régimen inestable para Δx < 300 nm, que 
+resultó en la pérdida de control del proceso de impresión y la formación de agregados. 
+En 2016, Gargiulo et al.21 llevaron a cabo un estudio adicional sobre la resolución lateral, 
+esta vez manipulando NPs individuales. Imprimieron pares individuales de NPs de Ag y Au de 60 
+nm y compararon las distancias establecidas (de centro a centro) con las distancias entre 
+partículas logradas experimentalmente. En este caso, las NPs se imprimieron en resonancia 
+utilizando longitudes de onda de 405 y 532 nm para NPs de Ag y Au, respectivamente. 
+En el estudio de pares de NPs de Au , se observaron tres regímenes distintos, como se 
+muestra en la Figura 2.6.a. (círculos). Para distancias establecidas superiores a 350 nm, las NP s 
+se imprimieron correctamente; entre las distancias de 250 nm a 350 nm, las NPs se imprimieron 
+a distancias de separación mayores; y para distancias establecidas inferiores a 250 nm, fue 
+imposible imprimir la segunda NP para formar el dímero. Estos resultados sugirieron la presencia 
+de una fuerza repulsiva inducida por la luz qu e se activa tan pronto como se ilumina la NP ya 
+impresa. 
+Para investigar más a fondo esta repulsión, se fabricaron heterodímeros de Ag -Au a 
+diferentes distancias establecidas. Los resultados dependieron del orden de impresión (Figura 
+2.6.a., cuadrados). Si la NP de Au se imprime primero, siempre es posible imprimir la segunda 
+NP de Ag , aunque a distancias mayores a las distancias establecidas menores a 250 nm, 
+demostrando que la repulsión es más débil que en el caso del par de NP de Au. Por otro lado, si 
+se imprime primero la NP de Ag, la repulsión desaparece por completo, y la impresión óptica es 
+posible y libre de interacciones para cada distancia establecida. La Figura 2. 6.b. muestra 
+imágenes SEM y de campo oscuro de heterodímeros Ag -Au ejemplares, impresos con una 
+distancia establecida de 60 nm, igual al diámetro de las NPs. 
+Sorprendentemente, por primera vez fue posible conectar un par de NPs mediante 
+impresión óptica. Además, la orientación del dímero estaba bien controlada. Los experimentos 
+confirman que la resolución de la impresión óptica puede estar limitada por una repu lsión 
+inducida por la luz. Las transiciones entre los regímenes de interacción y de no interacción 
+ocurren a distancias establecidas comparables a la cintura del rayo láser en el plano focal (~250 
+nm), donde se ilumina la NP ya impresa. Además, la magnitud  de la repulsión depende de la 
+
+--- PAGE 44 ---
+44 
+ 
+interacción óptica entre la primera NP y la longitud de onda de impresión de la segunda. Es fuerte 
+para las NPs de Au a 532 nm, débil para las NPs de Au a 405 nm e insignificante para las NPs de 
+Ag a 532 nm, que responde con las extinciones ópticas en cada longitud de onda respectiva. 
+El siguiente paso de los autores fue determinar la naturaleza de la repulsión inducida por 
+la luz, ya sea debido a dispersión, absorción o ambas. La dispersión por la NP ya impresa podría 
+distorsionar el enfoque del láser, desplazando la posición de máxima  fuerza axial lejos de la 
+posición objetivo de impresión. Durante el proceso de impresión óptica, tanto la primera NP 
+impresa como la que se aproxima se polarizan, con dipolos inducidos paralelos al campo 
+eléctrico. La interacción entre los dipolos inducid os generaría fuerzas adicionales de manera 
+similar a como ocurre en la optical binding. Por lo tanto, si la repulsión se debe a la dispersión, 
+es sensato esperar dependencia de la polarización de la luz. Esto se probó experimentalmente 
+imprimiendo dímeros de Au -Au con un láser de 532 nm polarizado linealmente a diferentes 
+distancias de sepa ración establecidas con dos orientaciones: paralela y perpendicular a la 
+polarización. Curiosamente, no existen diferencias distinguibles entre las dos orientaciones. 
+Se atribuye la repulsión de impresión a la absorción de la NP ya impresa. Cuando se 
+configura un foco láser para imprimir una NP cerca de otra NP ya impresa, ambas NP absorben 
+luz y generan un aumento de temperatura local. En 2017, Gargiulo et al.22 estudiaron la influencia 
+del calentamiento fototérmico en el proceso de impresión implementando diferentes estrategias 
+para mejorar la disipación del calor. Para ello, decidieron imprimir dímeros de Au-Au de 60 nm 
+con diferentes espacios establecidos sobre un sustrato de zafiro, ya que es un material con mayor 
+conductividad térmica (κ ~ 20 W/m K) que el vidrio (κ ~ 1 W/m K). 
+La Figura 2.6.c. muestra las distancias medidas de dímeros de NPs de Au  de 60 nm 
+impresos ópticamente en vidrio y zafiro frente a la separación establecida. Sorprendentemente, 
+en el zafiro, la repulsión inducida por la luz se reduce considerablemente y la impresión óptica 
+de la segunda NP es posible en cualquier distancia esta blecida. Se observa una interacción con 
+el régimen de impresión para separaciones establecidas menores de 200 nm, lo que lleva a 
+distancias experimentales tan pequeñas como 150 nm. En vid rio, la impresión óptica se volvió 
+imposible en distancias establecidas de menos de 230 nm (línea discontinua horizontal en la 
+Figura 2.6.c.). Luego, se realizó la impresión óptica de una NPs de Au junto a un nanodisco de Au 
+(ND). Los ND se fabricaron sobre sustratos de zafiro mediante litografía de top-down. Dado que 
+tienen una mayor área de contacto con el sustrato, se espera una mejor disipación del calor. La 
+Figura 2.6.c. (cuadrados rosados) muestra la distancia medida frente a la separación establecida 
+para la impresión óptica de una NPs de Au de 60 nm junto a un ND con una altura de 50 nm y un 
+diámetro de 70 nm. La impresión fue posible en cada caso y se lograron separaciones por debajo 
+de 100 nm. El recuadro muestra una imagen de campo oscuro de dímeros ND-NP fabricados para 
+una separación establecida de 0 nm, junto con una imagen SEM. Los experimentos se repitieron 
+utilizando discos más grandes con una altura de 50 nm y diámetros de 100 y 150 nm. 
+Para comprender el rol de la temperatura, los autores realizaron simulaciones que 
+consideraron la sección transversal de absorción, la disipación del sustrato, la potencia del láser 
+y la distancia entre la partícula y el haz de impresión. Las Figuras 2.6.d. muestran el aumento de 
+temperatura simulado para las NPs de Au sobre sustratos de vidrio y zafiro, respectivamente. En 
+ambos casos, la NP está sumergida en agua y en el centro de un láser gaussiano de 532 nm de 
+
+--- PAGE 45 ---
+45 
+ 
+longitud de onda, 266 nm de cintura y 1.2 mW de potencia. En el zafiro, el aumento de 
+temperatura es siete veces menor que en el vidrio. 
+Finalmente, la Figura 2.6.e. recopila los resultados de todos los experimentos descritos 
+hasta ahora, incluida la impresión cerca de NPs y nanodiscos (ND) en sustratos de vidrio y zafiro. 
+El error de impresión (calculado como la desviación entre la distancia establecida y la dista ncia 
+medida promedio) se representa frente al aumento de temperatura calculado de la NP o el ND 
+impreso. En particular, el aumento de temperatura de la partícula impresa es un buen predictor 
+del error al imprimir una segunda partíc ula, lo que indica claramente que la resolución de la 
+impresión óptica está limitada por los efectos fototérmicos. 
+En el mismo manuscrito, los autores evaluaron un sustrato con mayor disipación de calor. 
+Para esto, utilizaron una monocapa altamente conductora térmica de óxido de grafeno reducido 
+(rGO) sobre un sustrato de zafiro, como se esquematiza en la Figura 2.6.f. Usando este sustrato, 
+lograron la impresión óptica de dímeros de NPs de Au  conectados, como se muestra en las 
+imágenes SEM de la Figura 2.5.f. Estos experimentos indican que las repulsiones fototérmicas 
+podrían evitarse por completo si se implementan estrategias efectivas de disipación térmica. 
+Varios mecanismos fueron considerados por Gargiulo et al.22 para explicar la repulsión 
+fototérmica, entre ellos la convección natural, la convección de Marangoni, los flujos 
+termoosmóticos y la termoforesis. Después de la evaluación, descubrieron que una repulsión 
+termoforética explicaba las observaciones experimentales, mientras que los demás fenómenos 
+desempeñaban un papel menor o insignificante. Realizaron cálculos de las fuerzas 
+termoforéticas (𝐹𝑡ℎ𝑒𝑟𝑚𝑎𝑙) presentes durante la impresión óptica. La Figura 2. 6.g muestra un 
+esquema de las fuerzas activas durante la impresión óptica de dímeros. Además de la fuerza 
+óptica, la repulsión termoforética empuja a la segunda NP lejos de la NP impresa caliente, hacia 
+la solución fría, por lo que las distancias de impresi ón resultan mayores que las establecidas y 
+puede existir una distancia mínima de impresión, que evita la impresión en contacto entre las 
+NPs.  
+En última instancia, la repulsión termoforética ha emergido como un factor dominante 
+en la limitación de la resolución lateral de la impresión óptica, subrayando la importancia de 
+comprender y gestionar los efectos fototérmicos en este proceso. Estos halla zgos ofrecen 
+valiosas perspectivas para el diseño de la muestra y la optimización de la técnica. 
+ 
+
+--- PAGE 46 ---
+46 
+ 
+ 
+Figura 2.6. a) Fabricación de dímeros en vidrio. Distancias entre NPs medidas en función a la 
+distancia establecida para diferentes dímeros impresos ópticamente de esferas de Au y Ag. b) 
+Imágenes de campo oscuro y SEM de dímeros de Au -Au y Ag -Au impresos ópticamente . c) 
+Fabricación de dímeros en zafiro de esferas y discos (ND) de Au. Separación obtenida para los 
+dímeros de esfera -esfera Au y dímeros de disco -esfera Au en función de las separaciones 
+establecidas entre las superficies de las estructuras. La l ínea discontinua horizontal muestra el 
+umbral de fabricación posible para el dímero de esferas de Au-Au en vidrio. El recuadro muestra 
+imágenes de campo oscuro y SEM de dímeros de disco -esfera fabricados con un espacio 
+establecido de 0 nm, donde no se logra el contacto. d) Mapa de aumento de temperatura para 
+una esfera de Au, de 60 nm de diámetro sumergida en agua, en el centro de un haz gaussiano 
+sobre sustratos de vidrio (panel arriba) y zafiro (panel abajo). e) Error de impresión medio de la 
+segunda partícula en el dímero frente al aumento de temperatura de la primera partícula. Las 
+líneas discontinuas verticales en el área gris indican condiciones experimentales donde no fue 
+posible imprimir la segunda partícula. f) Arriba: esquema de una cuadrícula de NPs de Au  
+impresa ópticamente sobre un sustrato de zafiro recubierto con óxido de grafeno reducido. 
+Abajo: imágenes de campo oscuro de NPs de Au  de 60 nm impresas ópticamente en rGO. g) 
+Esquema del experimento de impresión de los dímeros Au -Au y las fuerzas relevantes. Cuando 
+el láser ilumina a la NP ya impresa, la temperatura aumenta generando una fuerza termoforética 
+repulsiva en la NP en solución, lo que empora la resolución lateral de la impresión óptica. 
+ 
+2.5. Selectividad 
+ 
+A menudo las suspensiones coloidales contienen NPs que abarcan una amplia gama de 
+tamaños e incluso formas diferentes. Dado que las propiedades ópticas de las NP s suelen 
+depender en gran medida del tamaño y la forma, la impresión óptica se puede utilizar de manera 
+inteligente para separar e inmovilizar selectivamente diferentes especies de NP s en un mismo 
+coloide. 
+Error de impresión (nm)
+ΔT (K)
+Imposible 
+imprimir
+60 nm NP vidrio
+60 nm NP zafiro
+70 nm ND zafiro
+100 nm ND zafiro
+150 nm ND zafiro
+a)
+100 nm
+0 nm
+50 nm
+0 100
+Separación establecida (nm)
+200 300 400 500
+0
+100
+200
+300
+400
+500
+Separación experimental (nm)
+Umbral en 
+vidrio
+Impresión en zafiro
+Au-Au ⊥Au-Au ∥ Ag-Au
+Distancia 500 nm Distancia 60 nm 
+b) c)
+d)
+Vidrio
+Agua
+Agua
+Zafiro
+e)
+30 nm
+30 nm
+Zafiro
+0 100
+Distancia establecida (nm)
+200 300 400 500 6000
+100
+200
+300
+400
+500
+600
+Distancia entre NPs (nm)
+Au-Ag
+Ag-Au
+Au-Au ⊥
+Au-Au ∥
+Impresión en vidrio
+f)
+g)
+
+--- PAGE 47 ---
+47 
+ 
+Por ejemplo, en 2016, Huergo et al.70 utilizaron la impresión óptica para investigar la 
+síntesis de NPs de Au  mediante la reducción de HAuCl 4 con Na 2S, lo que resultó en una 
+suspensión compleja que incluía NP s esféricas, NPs triangulares equiláteras y NPs triangulares 
+con puntas truncadas (Figura 2.7.a.). Al emplear la impresión óptica con distintos láseres (532, 
+808 y 1064 nm), pudieron seleccionar NPs según su resonancia plasmónica, evaluando el 
+producto de síntesis para dos tiempos de reacción diferentes (Figura 2. 7.b.). Las imágenes de 
+campo oscuro de las NPs impresas con 808 y 532 nm (Figura 2.7.c.) revelaron NPs con diferentes 
+colores de dispersión. Las imágenes SEM confirmaron la selectividad de acuerdo con la impresión 
+óptica en las tres longitudes de onda (Figura 2. 7.d.). Con el láser de 1064 nm se imprimieron 
+selectivamente NPs triangulares de punta afilada y bastante equiláteras. Utilizando el láser de 
+808 nm, se imprimieron NPs triangulares con puntas truncadas. Finalmente, con el láser de 532 
+nm se imprimieron preferentemente NP s esféricas. La Figura 2. 7.e. muestra espectros de 
+dispersión de una de las NP s esféricas impresas a 532 nm y una NP triangular con puntas 
+truncadas impresas a 808 nm. La impresión óptica selectiva en resonancia de estos dos tipos de 
+NPs se explica claramente por sus distintas resonancias de plasmón alrededor de 530 y 780 nm. 
+Aparte de las NPs plasmónicas, las NPs dieléctricas, particularmente las de Si, han ganado 
+un interés considerable debido a sus fuertes resonancias dipolares magnéticas dependientes del 
+tamaño en el rango visible 82 y menores pérdidas en comparación con sus contrapartes 
+metálicas83. Sin embargo, su aplicación generalizada ha sido limitada porque su preparación en 
+coloides monodispersos sigue siendo un desafío. 
+En 2019, Zaza et al. estudiaron la impresión óptica de NPs de Si y su selectividad 24 por 
+tamaño, que se había propuesto teóricamente unos años antes.84 En este trabajo, las NPs de Si 
+se imprimieron ópticamente a partir de una suspensión coloidal polidispersa utilizando tres 
+longitudes de onda diferentes (405, 532 y 642 nm). La Figura 2.7.g. muestra imágenes de campo 
+oscuro de las NPs de Si impresas en cada longitud de onda, junto con una imagen SEM 
+representativa, mostrando que se pueden imprimir de forma selectiva en tamaño ajustando la 
+longitud de onda del láser. La selectividad de tamaño se observa mejor en las distribuciones de 
+tamaño que se muestran en la Figura 2.7.h. En gris, se muestra la distribución de tamaños del 
+coloide inicial, que incluye  NPs de Si con radios que oscilan entre 20 y 110 nm. La impresión 
+óptica selecciona subpoblaciones con distribuciones de tamaño estrechas con anchos de 
+alrededor de 10 nm. Se midieron los espectros de dispersión a nivel de partícula única y se 
+correlacionaron con las imágenes SEM. La Figura 2. 7.i. muestra el radio de  NPs de Si (R) en 
+función de la posición del máximo de dispersión (λmax) para 115 NPs de Si impresas ópticamente. 
+Los datos siguen muy bien la predicción teórica para la resonancia magnética dipolar λmax =
+2 R n (siendo n el índice de refracción de Si ). La presencia de una resonancia magnética única 
+que contribuye predominantemente a la fuerza óptica para un tamaño particular permite la 
+impresión óptica selectiva del tamaño.  Para una longitud de onda dada, se pueden aplicar 
+fuerzas ópticas de modo que sólo las NPs de cierto tamaño sean capaces de superar la barrera 
+electrostática e imprimirse. Es importante señalar que la potencia del láser también es un 
+parámetro clave, ya que, si la potencia del láser es demasiado alta, la selectividad de tamaño se 
+reduce y eventualmente se pierde. 
+
+--- PAGE 48 ---
+48 
+ 
+Estos dos trabajos muestran que la impresión óptica puede utilizase para seleccionar 
+subpoblaciones NPs de un coloide polidisperso, siempre y cuando presenten resonancias ópticas 
+a distintas longitudes de onda. 
+ 
+ 
+Figura 2.7. a,e) Impresión óptica selectiva de NP s de Au  a partir de un coloidal polidisperso 
+producido al reducir HAuCl4 con Na2S. a) Esquema de la síntesis y productos. b) Esquema de la 
+impresión óptica selectiva utilizando diferentes longitudes de onda. c) Imágenes de campo 
+oscuro de NP s impresas ópticamente a partir del coloide resultante con un láser de 808 nm 
+(arriba) y 532 nm (abajo). Barra de escala: 20 μm. d) Imágenes SEM de NP s obtenidas en dos 
+tiempos de reacción diferentes e impresas con diferentes longitudes de onda. e) Espectros de 
+dispersión de partículas individuales de NPs impresas utilizando el láser de 808 nm (cuva verde) 
+y el láser d e 1064 nm (curva roja). Barra de escala: 100 nm. f,i) Impresión óptica selectiva de 
+tamaño de NPs de Si. f) Esquema de la impresión óptica selectiva de tamaño utilizando diferentes 
+longitudes de onda. g) Imágenes de campo oscuro de NP s de Si impresas ópticamente a partir 
+del mismo coloide con tres longitudes de onda diferentes; Imágenes SEM que representan cada 
+tamaño de la NP impresa. Barra de escala de campo oscuro: 2 μm, barra de escala SEM: 100 nm. 
+h) Distribuciones de tamaño de NPs de Si impresas ópticamente a 405, 532 y 642 nm. En el fondo, 
+se muestra a escala la distribución de tamaños de la suspensión coloidal original para comparar. 
+i) Radio de la NP (R) en función dispersión máxima (λmax) de la resonancia magnética para 115 
+NPs de Si impresas con las tres longitudes de onda. La línea continua gris es la predicción teórica 
+λmax = 2 R n. El área gris representa la dependencia calculada de la eficiencia de la presión de 
+radiación con respecto a la longitud de onda y el radio de la partícula.  
+ 
+ 
+ 
+λ: 532 nm
+λ: 808 nm
+a)
+b)
+c) d) e)
+f)
+g)
+h) i)
+Radio (nm) (nm)
+Radio (nm)
+Longitud de onda (nm)
+Dispersión (u.a.)
+Posibles productos
+Impresión @642 nm
+Impresión @532 nm
+Impresión @405 nm
+Suspensión coloidal
+Cuentas
+Tiempos de reacción
+405 nm
+532 nm
+642 nm
+@642 nm
+@532 nm
+@405 nm
+HAuCl4 + Na2S
+532 nm
+808 nm
+1064 nm
+532 nm
+808 nm
+t1
+t2
+
+--- PAGE 49 ---
+49 
+ 
+2.6.  Fotoestabilidad 
+ 
+El uso de densidades de potencia de láser elevadas durante la impresión óptica puede 
+resultar en deformación, fusión o degradación de las funcionalidades superficiales de las NPs. 
+Las imágenes de campo oscuro en la Figura 2.8.a revelan los efectos adversos de la alta 
+densidad de potencia del láser al imprimir  NPs de Ag  esféricas en su resonancia plasmónica. 
+Mientras que las NPs impresas con baja potencia muestran el color azul esperado de su 
+resonancia, con una potencia láser alta se imprimen NPs de varios colores. 25 Aunque parte de 
+esta variación se atribuye a la pérdida de selectividad de tamaño, las discrepancias observadas 
+sugieren cambios morfológicos o de composición, indicando posiblemente la fotooxidación de 
+Ag.85,86 
+Las NPs anisotrópicas, como las nanovarillas de Au ( nanorods, NRs), pueden 
+experimentar cambios morfológicos durante la impresión óptica. Cuando se imprimen NRs de 
+Au con una longitud de onda de 808 nm sobre sustratos de vidrio, se observa una reducción en 
+la longitud25. La Figura 2.8.b. presenta imágenes SEM de una NR antes (azul) y después (naranja) 
+de la impresión, junto con distribuciones de longitud de NR del coloide original, sin impresión 
+óptica, y después del proceso. El casi nulo grado de solapamiento entre las dos distribuciones es 
+un fuerte indicativo que la reducción de longitud observada no se debe a una impresión selectiva 
+de NRs más cortos, sino a una remodelación durante la impresión. 
+Es importante señalar que los cambios morfológicos inducidos por la luz podrían ser 
+empleados como una herramienta para controlar la forma de las nanoestructuras impresas, 
+como se ilustra en el trabajo de Babynina et al., donde demostraron la posibilidad de doblar de 
+manera controlada NRs de Au durante la impresión en resonancia plasmónica a 1064 nm.77  
+Por otro lado, la preservación de la funcionalidad superficial de las NPs coloidales es otro 
+desafío clave. Durante el proceso de impresión, la temperatura de las NPs puede aumentar varios 
+cientos de grados. Este incremento térmico plantea preocupaciones s obre la posible 
+desestabilización de la funcionalización superficial, incluso cuando se utilizan enlaces covalentes 
+de alta estabilidad como Au-S.87 Mientras que el enlace Au-S se rompe en 470 K,88 una NP de Au 
+de 60 nm puede alcanzar temperaturas de hasta 645 K durante la impresión en resonancia, como 
+se muestra en la Figura 2. 6.d. Sin embargo, cabe señalar que las altas temperaturas durante el 
+proceso de impresión sólo se alcanzan durante un corto tiempo de unos pocos milisegundos 21, 
+por lo que la estabilidad de la funcionalización superficial dependerá de la cinética particular de 
+cada reacción. 
+Para abordar este desafío, Do et al.89 llevaron a cabo la impresión de NPs de Au de 60 
+nm funcionalizadas superficialmente con láminas de ADN -origami (denominadas Au@DNA -
+origami), como se ilustra en la Figura 2. 8.c. Estas NPs de Au se funcionalizaron mediante una 
+cadena tiolada de 24 bases de timina, a la cual se unieron las láminas de ADN mediante 
+hibridación de ADN. Dado que el origami de ADN es sensible a la temperatura, realizaron la 
+impresión óptica usando baja intensidad. El procedimiento consistió en atrapar inicialmente las 
+NPs de Au@DNA -origami con un láser fuera de la resonancia óptica y luego acercarlas a un 
+sustrato cargado positivamente. Esto eliminó la repulsión del sustrato y les permitió utilizar 
+potencias de láser lo suficientemente bajas como para reducir significativamente la absorción, 
+
+--- PAGE 50 ---
+50 
+ 
+logrando imprimir NPs de Au@DNA-origami intactas (Figura 2.8.c.). No obstante, este enfoque 
+presenta la desventaja de que las NPs pueden adherirse al sustrato espontáneamente en 
+posiciones aleatorias debido a la atracción electrostática. Los autores minimizaron este efecto 
+mediante el uso de coloides altamente diluidos, lo que, a su vez, ralentizó considerablemente el 
+proceso de impresión. A potencias más elevadas y temperaturas de 329 K, se observó la 
+degradación de las láminas de ADN 2D (Figura 2. 8.d.). Resultados similares fueron reportados 
+por Goodman et al.90 al iluminar NPs de SiO 2@Au funcionalizadas con ADN bicatenario. Estos 
+hallazgos indican que, al realizar la impresión óptica de NPs modificadas con ADN, es más 
+probable alcanzar la temperatura de fusión del dúplex de ADN que romper el enlace Au-S, como 
+es esperable de las energías involucradas en cada proceso. 
+ 
+ 
+Figura 2.8. a) Imágenes de campo oscuro de arreglos de NPs de Ag de 60 nm fabricadas mediante 
+impresión óptica en resonancia con un láser de 405 nm en condiciones de irradiancia baja (0.3 
+MW/cm2) y alta (1 MW/cm 2). Barras de escala: 3 μm. b) Remodelación de NR de Au durante la 
+impresión óptica con láser 632 nm. Arriba: esquema de impresión junto a las imágenes SEM 
+representativas de las NR de Au en el coloide original y después de imprimir. Abajo: Histograma 
+de la longitud de Au NR antes (azul) y después (naranja) de la impresión óptica. Imágenes de 
+campo oscuro de los arreglos Au NR impresos. c) Esquema de trampa óptica e impresión de 
+híbridos Au@DNA-origami. Se utiliza un láser de onda continua a 1064 nm para atrapar y llevar 
+las estructuras a la superficie de un sus trato de vidrio donde se fijan electrostáticamente. d) 
+Efecto de la potencia de la trampa óptica sobre la estabilidad de los híbridos Au@DNA-origami. 
+Para cada potencia del láser (FWHM = 1 μm), se indican las temperaturas previstas de las NPs de 
+Au. Se muestran ejemplos de imágenes SEM y de campo oscuro y un esquema del nanohíbrido 
+después de la impresión. 
+ 
+Las NP s heterogéneas o híbridas también son propensas a remodelarse durante el 
+proceso de impresión. Un ejemplo de ello es la investigación llevada a cabo en nuestro grupo 
+sobre la impresión óptica de NPs de núcleo @cáscara de sílice-oro, SiO2@Au (SiO2 de 150 nm – 
+Au de 20 nm).25 Estas NPs se imprimieron ópticamente sobre un sustrato de vidrio utilizando un 
+a) Baja potencia
+I = 0.3 MW/cm2
+Alta potencia
+I = 1 MW/cm2
+d)
+c)
+Ópticamente  guiado Pegado azaroso
+3 µm
+b)
+Largo (nm)
+Frecuencia normalizada
+1 µm
+50 nm
+Antes
+ Después
+493 mW
+(95 °C)
+229 mW
+(56 °C)
+68 mW
+(31 °C)
+
+--- PAGE 51 ---
+51 
+ 
+láser de 642 nm, y se observó que la morfología y composición de las NPs impresas no siempre 
+se conservaron. Se identificaron tres resultados de imprimir, como se muestra en la Figura 2.9.a.: 
+(i) NP de núcleo @cáscara de SiO 2@Au aparentemente intactas y correctamente impresas, (ii) 
+dímeros de NP de SiO 2 y NP de Au, y (iii) NP de SiO 2 solo sin presencia de Au. La Figura 2. 9.b. 
+muestra una imagen de campo oscuro con una cuadrícula ejemplar de NP de SiO2@Au impresas 
+ópticamente, y la Figura 2. 9.c., presenta la imagen SEM del área en el cuadro blanco, con 
+ejemplos de los tres resultados posibles. La NP con una caja azul claro tiene un diámetro de (191 
+± 4) nm, compatible con una NP de SiO 2@Au de 150@20 nm. Además, la Figura 2. 9.d. (curva 
+continua azul) muestra su espectro de dispersión que se superpone muy bien con el espectro 
+simulado obtenido con la teoría de Mie (curva discontinua negro). En el cuadrado naranja se 
+observa un dímero, donde la partícula izquierda tiene un diáme tro de (142 ± 4) nm, 
+correspondiente potencialmente al núcleo de SiO 2, mientras que la NP derecha tiene un 
+diámetro de (151 ± 4) nm, coincidiendo aproximadamente con el volumen promedio de la 
+cáscara de Au en las NPs de SiO2@Au. El espectro de dispersión de este dímero se muestra en la 
+Figura 2.9.d., línea continua de color naranja, coincidiendo con el espectro de dispersión de una 
+esfera de Au con un diámetro de 152 nm, indicando que la partícula a la derecha del dímero es 
+una NP de Au. El cuadro verde muestra una NP de SiO2 sin Au presente. El SiO2 tiene una sección 
+transversal de dispersión débil y no es visible mediante microscopía o espectroscopía de 
+dispersión del campo oscuro. Este es el caso de la partícula izquierda del dímero y de la NP de 
+SiO2 del cuadro verde. Todas estas observaciones indican qué durante el proceso de impresión, 
+la energía absorbida por las NPs podría inducir la difusión de la cáscara de Au, produciendo una 
+NP de Au, que pued e perderse durante el proceso de impresión o terminar adherida al núcleo 
+de SiO2, formando el dímero de SiO2-Au.  
+Estos resultados indican que láser de 642 nm no es óptimo para conservar las 
+propiedades de estas NPs durante el proceso de impresión óptica. Sin embargo, las NP s de 
+SiO2@Au presenta amplias resonancias ópticas en una gran región del espectro visible e IR, como 
+se muestra en los espectros de dispersión (Figura 2. 9.e.), lo que permite su impresión con 
+diversas longitudes de onda. En tales casos, una estrategia para minimizar el daño fototérmico 
+durante la impresión es encontrar una longitud de onda que maxim ice la fuerza óptica axial y 
+minimice la absorción. En la Figura 2.9.f., se calcula la relación entre la eficiencia de la presión de 
+radiación Qpr y la eficiencia de absorción Qabs en función de la longitud de onda, para las NPs 
+de SiO2@Au (curva negra). Se observa que la relación de eficiencia 
+Qpr
+Qabs
+ tiene un valor de 1.5 a 
+642 nm, pero alcanza un máximo de 8.3 a 900 nm. Un análisis detallado de Qpr y Qabs indica 
+que, en comparación con 642 nm, un haz de impresión de 900 nm duplicaría la fuerza óptica y 
+reduciría el calor fotogenerado en un factor de 2.8 (Figura 2. 9.g.). Por lo tanto, imprimir a 900 
+nm reduciría significativamente el daño fototérmico y podría ser la clave para imprimir NP s de 
+SiO2@Au intactas. En contraste, considerando que la impresión óptica de NPs de SiO2 desnudas 
+es un desafío debido a su débil respuesta óptica, el uso de una longitud de onda que minimice a 
+Qpr
+Qabs
+, alrededor de 500 nm, podría permitir la impresión de NPs de SiO 2 desnudas usando a las 
+NPs de SiO 2@Au como precursores. Cabe destacar que esta estrategia no siempre está 
+disponible, como se observa en el caso de una NP de Au esférica de 60 nm (Figura 2. 9.f. curva 
+roja), donde la relación  
+Qpr
+Qabs
+ en función de longitud de onda presenta variaciones menores.  
+
+--- PAGE 52 ---
+52 
+ 
+ 
+Figura 2.9. a) Resultados de la impresión óptica de NP núcleo@cáscara de SiO2@Au. De arriba a 
+abajo, esquemas e imágenes SEM de un dímero Au-SiO2, de una NP núcelo@cáscara SiO2@Au y 
+de un núcleo de SiO2. Los diámetros de las NPs de Au y SiO2 del dímero son (151 ± 4) nm y (142 
+± 4), respectivamente. El diámetro del NP núcleo @cáscara de SiO 2@Au es (191 ± 4) nm. El 
+diámetro del núcleo de SiO2 es (140 ± 4) nm. Barra de escala = 100 nm en todas las imágenes. b) 
+Imagen de campo oscuro de una serie de NP de SiO 2@Au impresas ópticamente sobre un 
+sustrato de vidrio en agua. Barra de escala = 1 μm. c) Imagen SEM de la región resaltada en d), 
+cuadrado blanco. Se marca un dímero de NP de Au -SiO2 (naranja), una NP de núcleo@cáscara 
+(azul) y un núcleo de SiO2 (verde). Barra de escala = 500 nm. d) Espectros de dispersión medidos 
+en agua de una NP núcleo @cáscara de SiO2@Au (núcleo de SiO 2 de 150 nm - cáscara de Au de 
+20 nm) y del dímero Au -SiO2. Calculados en agua por Mie (curvas negras) de  la NP 
+núcleo@cáscara de SiO2@Au (núcleo de SiO2 de 150 nm - cáscara de Au de 20 nm) y de una NP 
+de Au esférica (152 nm). e) Espectros de dispersión de nueve NP s de SiO 2@Au inmovilizadas 
+sobre vidrio, en agua (línea continua) y espectro simulado por Mie de un núcleo de SiO2 de 150 
+nm y c áscara de Au de 20 nm en agua (línea discontinua). f) Relación entre la eficiencia de la 
+presión de radiación Qpr y la eficiencia de absorción Qabs en función de la longitud de onda 
+calculada para una NP núcleo@cáscara de SiO2@Au (núcleo de SiO2 de 150 nm-envoltura de Au 
+de 20 nm; curva negra) y una esfera de 60 nm NP de Au (curva roja). g) La presión de radiación 
+Qpr (curva amarilla) y la eficiencia de absorción Qabs (curva verde) en función de la longitud de 
+onda calculada para una NP núcleo@cáscara de SiO2@Au. 
+ 
+En resumen, los diversos ejemplos presentados en esta sección evidencian que la 
+absorción de luz y el calentamiento durante el proceso de impresión pueden modificar la 
+composición, forma o funcionalización de la superficie de las NPs. No obstante, se han 
+identificado enfoques para lograr la impresión óptica de NPs de manera intacta. Estrategias como 
+la búsqueda de longitudes de onda que maximicen la relación entre las fuerzas ópticas y la 
+absorción, o el ajuste preciso de la repulsión entre la NP y el sustrato para minimizar la potencia 
+del láser necesaria, son claros indicativos de cómo mitigar los efectos no deseados. Asimismo, la 
+automatización del proceso de impresión, con la capacidad de apagar rápidamente el láser al 
+b)
+c)
+Resultados de imprimir
+a)
+Wavelength (nm)
+f)
+Exp. SiO2–Au dímero
+Mie Au 
+Exp. SiO2@Au
+Mie SiO2@Au
+Longitud de onda (nm)
+SiO2@Au
+Au 60 nm
+Longitud de onda (nm)
+Longitud de onda (nm)
+Dispersión norm. (u.a.)
+d)
+Dispersión norm. (u.a.)
+e)
+Longitud de onda (nm)
+g)
+1 µm
+500 nm100 nm
+
+--- PAGE 53 ---
+53 
+ 
+completar la impresión de una NP específica, ofrece una manera eficiente de minimizar la 
+exposición innecesaria al láser. 
+ 
+2.7. Conclusiones y perspectivas 
+ 
+La impresión óptica se presenta como una técnica de nanofabricación que permite la 
+captura, posicionamiento, orientación y combinación de NPs individuales en patrones arbitrarios 
+sobre diversos sustratos. A lo largo de este Capítulo, se han abordado los avances y 
+contribuciones clave en los últimos años, evaluándolos en relación con cuatro desafíos 
+fundamentales: precisión, resolución, selectividad y fotoestabilidad. 
+Durante este período, se ha logrado una comprensión detallada del mecanismo 
+subyacente de la impresión óptica y se han identificado los parámetros físicos más relevantes.  
+Para NPs aisladas, la precisión posicional está determinada por el equilibrio entre la interacción 
+DLVO y el campo de fuerzas ópticas. 
+La resolución de la impresión óptica se ve afectada por fuerzas termoforéticas que 
+surgen de la absorción y calentamiento de las NPs fija das que son iluminadas por el láser de 
+impresión. Este fenómeno puede ser beneficioso para imprimir arreglos de NPs individuales 
+aisladas. Sin embargo, estrategias para conectar NPs requieren enfoques específicos, como 
+reducir la interacción óptica o implementar estrategias de gestión del calor. Una tercera 
+estrategia bastante inexplorada e s reducir las interacciones termoforéticas 91. Asimismo, e l 
+avance en el conocimiento detallado del mecanismo de la impresión óptica abre caminos para 
+investigar otros fenómenos térmicos a nanoescala. 
+Los primeros estudios de impresión óptica se realizaron con NPs metálicas esféricas (Au 
+y Ag). Más recientemente, la impresión óptica se aplicó a NP s semiconductoras (Si), NP s 
+inorgánicas multicomponentes, nanosistemas híbridos inorgánicos -orgánicos e incluso 
+materiales 2D de diferentes formas. 92 En el futuro, prevemos la impresión óptica de NP s 
+plasmónicas y NPs híbridas con una variedad de morfologías y modificaciones supramoleculares 
+de superficie. Cuando no se dispone de coloides monodispersos, se puede utilizar la impresión 
+óptica en resonancia para imprimir selectivamente subpoblaciones de NPs, siempre que 
+presenten respuestas espectrales diferenciables. En este caso, los cálculos de la fuerza óptica son 
+particularmente útiles para predecir la selectividad de impresión en función de la longit ud de 
+onda, como se demostró con NPs de Si.24 
+Garantizar la estabilidad de las NPs durante el proceso de impresión también es un 
+desafío. Aquí se resumieron algunas pautas para abordar esto, como encontrar longitudes de 
+onda de impresión que maximicen las fuerzas ópticas mientras minimizan el calor ge nerado, o 
+reducir la barrera electrostática con el sustrato para utilizar menores irradiancias de impresión. 
+Por otro lado, la remodelación, sinterización o fusión de NPs híbridas inducida por la luz puede 
+proporcionar rutas alternativas para imprimir nano materiales que no están disponibles 
+mediante métodos sintéticos, como la producción de NPs aleadas a partir de la fusión de NPs 
+bimetálicas núcleo @cáscara, o para imprimir NPs que de otro modo serían imposibles de 
+imprimir, como se muestra preliminarmente para las NPs de SiO2.  
+
+--- PAGE 54 ---
+54 
+ 
+La mayoría de las demostraciones de impresión óptica se realizaron sobre sustratos de 
+vidrio. Sin embargo, la impresión óptica también es adecuada para incorporar NPs coloidales 
+individuales en ubicaciones específicas de sistemas más complejos. Ya se ha demostrado que las 
+NPs de Au pueden imprimirse en cristales fotónicos 93, células vivas 94 o materiales de carbono 
+2D.22 Se proyecta una mayor integración de las NPs en sistemas fotónicos, como guías de ondas 
+planas 2D, 95 guías de ondas 3D de núcleo hueco, 96 microestructuras,97 fibras ópticas, 98 o 
+microcavidades.99  
+Por otro lado, nuevos desarrollos para paralelizar y aumentar el rendimiento de la 
+impresión óptica será clave para permitir la deposición de un gran número de NPs. Además, la 
+impresión óptica puede acelerar nuevas investigaciones de coloides y fenómenos a nanoescala 
+a nivel de partícula única. Tener un patrón ordenado de NPs iguales facilita la implementación 
+de rutinas de medición automatizadas y la acumulación de conjuntos más grandes de datos de 
+NPs únicas. Como veremos en los siguientes capítulos, se ha utilizado para estudiar crecimiento 
+asistidas por plasmones en NPs individuales 23,30 y la respuesta fototérmica de NPs de Au 
+individuales de diversas formas y sustratos.27 Este tipo de estudio sistemático se puede realizar 
+no solo con NPs metálicas sino también de alto índice de refracción y nanomateriales híbridos.28  
+Los avances aquí reseñados amplían el campo de aplicación de la impresión óptica como 
+estrategia versátil para colocar NPs coloidales sobre una superficie sólida. En resumen, los 
+conocimientos acumulados sobre el mecanismo físico de la impresión óptica brindan directrices 
+claras para diseñar estrategias mejoradas con alta precisión, resolución, selectividad y 
+fotoestabilidad. La impresión óptica se proyecta como una herramienta valiosa en la fabricación 
+de nanoestructuras y circuitos funcionales complejos con componentes NPs coloidales. 
+  
+
+--- PAGE 55 ---
+55 
+ 
+Capítulo 3: Dispositivo y protocolos experimentales de impresión 
+óptica y espectroscopía de partículas individuales 
+ 
+ Un aspecto central de esta tesis fue la mejora de las capacidades espectroscópicas del 
+dispositivo experimental para la manipulación óptica de NPs coloidales .19 En este Capítulo se 
+presenta el montaje experimental mejorado y aspectos fundamentales de los protocolos de 
+medición. En la sección 3.1. se describe el arreglo óptico básico, mientras que la sección 3.2. 
+incluye detalles de la detección de NPs por imágenes de microscopía de campo oscuro y de 
+dispersión interferométrica, y sobre las mediciones de espectros de dispersión y 
+fotoluminiscencia. La sección 3.3. presenta el cálculo de irradiancias para láseres ga ussianos 
+enfocados a partir de la cintura del haz. En la sección 3.4. se presentan los nuevos programas de 
+adquisición desarrollados en Python que mejoran el desempeño y además reemplazan 
+programas cerrados y bajo licencia. En la sección 3.5., se mide la deriva mecánica del dispositivo 
+experimental. Por último, en la sección 3.6., se presenta un estudio del efecto de la iluminación 
+prolongada en NPs impresas. 
+ 
+3.1. Montaje experimental 
+ 
+ La Figura 3.1 presenta un esquema simplificado del dispositivo mejorado. En el camino 
+de la excitación, se dispone de cinco láseres de onda continua (CW) de uso independiente: 405 
+nm (Cobolt), 532 nm (Laserquantum Ventus), 592 nm (MPB), 640 nm (MPB) y 808 nm (Thorlabs 
++ Lumics). Estos láseres están espacialmente filtrados mediante fibras ópticas monomodo y  se 
+coliman a la salida de las mismas  para generar, una vez enfocados, haces gaussianos con 
+diámetros de aproximadamente 300 nm . La polarización se controla mediante un polarizador 
+lineal y una lámina de media onda para polarización lineal, con la opción de agregar una lámina 
+de cuarto de onda para cambiar a polarización circular. La potencia se ajusta de manera 
+individual. Adicionalmente, se incorporan obturadores mecánicos para encender y apagar cada 
+láser, y se utiliza un filtro neutro montado en un flipper motorizado en el camino de la excitación 
+para trabajar alternativamente con potencias más bajas. La alineación de los láseres se logra 
+mediante espejos dicroicos en un telescopio común antes del divisor de haz. Para el enfoque, se 
+emplea un objetivo de inmersión de agua de 60x con una apertura numérica NA = 1 (Olympus 
+LUMPLFLN 60XW), o un objetivo de aire 20x, NA = 0.5 (Olympus UPlanFL N 20x/0.50). 
+ En cuanto a la muestra, se utiliza comúnmente un sustrato transparente, como vidrio. 
+En el caso de colocar NPs coloidales o precursores químicos en solución acuosa, el objetivo se 
+protege con un film transparente para evitar su contaminación. Para posicionar la muestra y 
+realizar escaneos, se recurre a una platina piezoeléctrica XYZ (Physik Instrumente P-545), con 
+una precisión de 1 nm y un rango máximo de 200 µm en XY y 50 µm en Z. 
+ En el camino de la detección, el microscopio permite la adquisición de señal a través de 
+diversas técnicas, entre las que se incluyen la microscopía confocal de interferencia de dispersión 
+(iSCAT), microscopía de campo oscuro, espectroscopía de dispersión y fotoluminiscencia. A 
+continuación, se presenta una descripción detallada de cada una. 
+
+--- PAGE 56 ---
+56 
+ 
+ 
+ 
+Figura 3.1. Esquema simplificado del montaje experimental utilizado para la impresión óptica de 
+NPs coloidales, y para la medición de espectroscopías de dispersión y/o fotoluminiscencia. L: 
+lente, P: control de polarización (polarizador lineal, lámina de media y de cuarto de onda), E: 
+espejo, DBS: filtro dicroico divisor de haz, BS: divisor de haz, FN: filtro Notch, iSCAT: detección 
+confocal de interferencia de dispersión para cada láser compuesta por un orificio estenopeico 
+(pinhole) y un fotodiodo. E móvil: espejo sobre soporte magnético, se detecta imágenes de 
+campo oscuro en la cámara de color CMOS, y se quita para realizar espectroscopía. El objetivo 
+utilizado es de inmersión de agua, el porta -muestra soporta un sustrato y solución, colocado s 
+sobre una platina piezoeléctrica XYZ. 
+ 
+iSCAT 642 nm
+iSCAT 592 nm
+iSCAT 532 nm FN 532 nm
+FN 592 nm
+FN 642 nm
+EMCCD / 
+Espectrómetro
+FN 808 nmiSCAT 808 nm
+iSCAT 405 nm FN 405 nm
+Cámara 
+CMOS
+P
+E móvil
+BS
+E DBS DBS
+532 nm
+DBS DBS
+592 nm808 nm 405 nm642 nm
+P
+L
+Luz blanca
+Condensador
+Campo Oscuro
+Platina 
+piezoeléctrica
+XYZ
+Sustrato
+Objetivo 
+de inmersión 
+de Agua
+Solución
+
+--- PAGE 57 ---
+57 
+ 
+3.2. Imágenes y espectros 
+ 
+3.2.1. Microscopía Confocal de interferencia de dispersión (iSCAT) 
+ 
+En la Figura 3.2.a. se presenta la configuración de detección confocal. C uando un láser 
+se enfoca sobre una NP , la luz dispersada elásticamente por la muestra es primero colectada por 
+el objetivo. Posteriormente, se utiliza un filtro Notch como espejo que selecciona exclusivamente 
+la longitud de onda del láser utilizado para la iluminación, y finalmente, la luz se colecta a través 
+de un pinhole con un fotodiodo.  El pinhole se sitúa en el plano conjugado de la muestra 
+asegurando que la luz proveniente de otros planos no sea detectada por el fotodiodo. 
+La señal detectada proviene tanto de la dispersión elástica de una NP como de la 
+reflexión del láser en la interfase agua/sustrato. Dado que la iluminación proviene de una fuente 
+coherente, estas señales pueden interferir de manera constructiva o destructiva .100 En la  
+literatura, esta técnica se clasifica dentro de la familia de microscopía de interferencia de  
+dispersión (iSCAT, por sus siglas en inglés, Interferometric Scattering Microscopy). 
+En presencia de una NP , la señal detectada por el fotodiodo es proporcional a la 
+intensidad (Id) resultante de la superposición del campo de reflexión del láser 𝐄𝐫 =  Erei Фr y el 
+campo dispersado por la NP 𝐄𝐬𝐜𝐚 =  Escaei Фsca: 
+ 
+ Id  =  |𝐄𝐫 + 𝐄𝐬𝐜𝐚|2 =  Ir + Isca + 2𝐄𝐫 𝐄𝐬𝐜𝐚 cos(Ф) Ecuación 3.1 
+ 
+ Donde el primer término es la contribución del campo reflejado Ir =  |Er|2 , el segundo 
+de la dispersión de la NP Isca =  |Esca|2, y el tercer término es el de interferencia cruzada 
+2Er Esca cos(Ф) con Ф =  Фr − Фsca, donde la diferencia de fase está determinada por la 
+función dieléctrica de la partícula.  
+A partir de esta expresión se define al contraste σ como:  
+σ = Id − Ir
+Ir
+ 
+ Cuando 𝜎 > 0, indica que la NP se detecta como un máximo en comparación a la señal 
+en el sustrato. Por otro lado, cuando 𝜎 < 0 la NP se detecta como un mínimo. 
+Para construir imágenes iSCAT se sincronizó la detección del fotodiodo con los barridos 
+en posición de la platina piezoeléctrica XYZ. En la Figura 3.2.b.  se presentan ejemplos de 
+escaneos tipo XY para una NP de Au de 80 nm de diámetro. Utilizando un láser de λ= 532 nm, se 
+observa un máximo en la NP , mientras que con λ= 808 nm se observa un mínimo, debido a que 
+la función dieléctrica de la NP cambia con la longitud de onda. Ambas imágenes permiten 
+localizar el centro de masa de la NP , y cuanto mayor sea el |𝜎| de la NP , mejor será su detección. 
+
+--- PAGE 58 ---
+58 
+ 
+ 
+Figura 3.2. a) Esquema de detección confocal, b) Ejemplo de imágenes iSCAT de una NP de Au 
+de 80 nm de diámetro. i) Con láser de λ= 532 nm, se observa un máximo. ii) Con láser de λ= 808 
+nm, se observa un mínimo. 
+ 
+3.2.1.  Microscopía de Campo Oscuro 
+ 
+ Para la microscopía de campo oscuro se emplea un condensador con inmersión en aceite 
+que tiene una apertura numérica NA = 1.2. La luz procedente de una lámpara  blanca se colima 
+para iluminar a la muestra. Los rayos inciden oblicuos a la muestra de forma tal que solo la 
+dispersión proveniente de la muestra sea colectada por el objetivo y dirigida a la cámara. Para la 
+adquisición de imágenes a color, se utiliza una cámara CMOS (Canon EOS-500D). 
+En la Figura 3.3.a. se muestra una imagen obtenida por campo oscuro de un experimento 
+de impresión óptica en vivo de NPs de Au  esféricas de 80 nm de diámetro sobre sustrato de 
+vidrio. En el centro se aprecia el patrón impreso formando la “Copa del Mundo” compuesta por 
+287 NPs, mientras que alrededor flotan NPs del coloide utilizado. Luego en la Figura 3.3.b., se 
+presentan más patrones impresos con motivos del Mundial de Futbol 2022. Esta imagen se 
+capturó utilizando el objetivo de aire de menor aumento para obtener una visión más amplia del 
+campo. A la izquierda de los patrones, se aprecia la dispersión brill ante de una marca de 
+a)
+Pinhole
+Objetivo
+Lente
+Filtro 
+NotchFotodiodo
+π1
+π2
+b)
+λ = 532 nm λ =808 nm
+i) ii)
+X (nm) X (nm)
+Y (nm)
+Y (nm)
+
+--- PAGE 59 ---
+59 
+ 
+referencia generada sobre el sustrato de vidrio con una punta de diamante. En la Figura 3.3.c. se 
+ha reconstruido a la marca de referencia, una “R”, utilizando varias imágenes de campo amplio. 
+Esta marca de referencia es esencial para la localización de los patrones impresos, especialmente 
+cuando se quiere observar la misma región de una muestra en distintos microscopios, tanto 
+ópticos como SEM o AFM. En términos generales, para llevar a cabo experimentos de NP única, 
+se imprimen arreglos de 10x10 NPs con una distancia entre NPs de 3 µm x 3 µm como se muestra 
+en el zoom de la Figura 3.3.c. 
+ 
+Figura 3.3.   Imágenes de campo oscuro de arreglos de NPs de Au  de 80 nm de diámetro 
+obtenidos por impresión óptica sobre un sustrato de vidrio. a) La “Copa del Mundo” compuesta 
+por 287 NPs, con más NPs alrededor flotando en solución. Se utilizó el objetivo de inmersión de 
+agua. b) Con un objetivo de aire de menor aume nto, se observa la “Copa del Mundo” y varios 
+patrones, ubicados a la derecha de una marca obtenida con punta de diamante sobre el sustrato 
+de vidrio. c) Para facilitar la localización de los a rreglos, se emplea una marca en forma de “R” 
+sobre el sustrato de vidrio. La imagen completa de la “R” se obtiene de la superposición de varias 
+imágenes.  
+ 
+3.2.2. Espectroscopía de dispersión 
+ 
+ Para medir espectros de dispersión se emplea la iluminación por campo oscuro. La luz 
+dispersada por la muestra atraviesa un espectrómetro Shamrock 500i con una red de difracción 
+de 150 líneas/mm. El espectro resultante se enfoca en una cámara EMCCD (Andor Ixon EM+ 885), 
+como se muestra en la configuración de la Figura 3.4.a. La muestra, la entrada de la rendija y el 
+sensor de la cámara se encuentran en planos conjugados del sistema óptico.  
+ Para adquirir los espectros, se retiran los  filtros Notchs del camino de detección. Para 
+medir espectros dependientes de la polarización, se agrega un polarizador lineal para seleccionar 
+la polarización a detectar y una lámina de media onda para alinear la polarización detectada con 
+el eje óptimo de la red de difracción. 
+En la Figura 3.4.b. se describe paso a paso el procedimiento de adquisición para obtener 
+los espectros de dispersión de NPs individuales. Para realizar estadística de cien NPs de Au de 80 
+nm, primero se imprimen arreglos de 10x10 NPs separadas 3 µm entre sí. De esta manera, es 
+160 µm
+100 µm
+c)b)a)
+30 µm
+
+--- PAGE 60 ---
+60 
+ 
+posible adquirir los espectros de diez NPs simultáneamente, centrando una columna en la 
+rendija del espectrómetro.  
+A modo de comparación, en la Figura 3.4.b. i) se muestra la imagen de campo oscuro de 
+una columna, mientras que en la Figura 3.4.b. ii) se presenta la imagen difractada a través del 
+espectrómetro y capturada por la cámara EMCCD, en el rango espectral del rojo. La resolución 
+de la red de difracción es de 1 nm, y el rango espectral que se proyecta en la cámara es de 103 
+nm. La calibración de la red espectral viene proporcionada por el fabricante del equipo; antes de 
+su uso, se ajusta con un valor de correcció n que se verifica con la incidencia de dos láseres 
+distintos. 
+Para obtener un espectro de dispersión completo en el visible, entre 450 nm y 950 nm, 
+se necesita adquirir un mínimo de seis imágenes, desplazando la red de manera automatizada 
+después de cada captura. En la Figura 3.4.b. iii) se presenta el espectro completo de una NP , 
+conformado por seis imágenes. Cada intensidad del espectro se obtuvo integrando las cuentas 
+en una región de interés de 9 pixeles. Luego, superponiendo y uniendo las señales de manera 
+correcta, se genera el espectro completo. El tiempo de exposición típico para adquirir espectros 
+de este tipo puede variar entre 2 y 8 s por imagen, dependiendo del sistema estudiado. 
+Es crucial tener en cuenta que el espectro así detectado consiste de la dispersión de la 
+NP en respuesta a la iluminación de la lámpara, y contiene la respuesta espectral de distintos 
+elementos del sistema (espejos, filtros, substrato, etc.). Para obtener el espectro de dispersión 
+de la NP , se deben seguir los siguientes pasos: 
+1) Adquirir el espectro la lámpara incluyendo los distintos elementos del sistema 
+(ILámpara). Esto se logra mediante una medición de transmisión directa, sin presencia de 
+un condensador  (en este caso se considerará que el condensador es perfectamente 
+transparente), o por dispersión de una muestra “blanca”, como puede ser una marca en 
+el sustrato de vidrio realizada con punta de diamante. 
+2) Calcular el cociente de  INP =
+ILámparaxNP
+ILámpara
+, dividiendo la señal medida ILámparaxNP por el 
+espectro de la lámpara ILámpara. 
+En la Figura 3.4.b. iv), se representan los espectros normalizados de la señal adquirida 
+ILámparaxNP (curva naranja),  ILámpara (curva azul), y finalmente de INP (curva verde). Debido a 
+la eficiencia de la cámara y al espectro de la lámpara, la región en la cual los espectros se miden 
+con menor ruido es entre 480 nm y 880 nm.  
+Finalmente, al repetir el procedimiento para las diez columnas, es posible obtener los 
+cien espectros del patrón de 10x10 NPs individuales, como se muestra en la Figura 3.4.b. v). 
+
+--- PAGE 61 ---
+61 
+ 
+ 
+Figura 3.4. Espectroscopía de dispersión. a) Esquema de la detección: la luz dispersada por  la 
+muestra incide al espectrómetro a través de la rendija hasta llegar al sensor de la cámara EMCCD. 
+𝝅𝟏, 𝝅𝟐 y 𝝅𝟑 representan los planos conjugados del sistema óptico. La muestra se excita con una 
+lámpara halógena a través del condensador de campo oscuro. b) Procedimiento de adquisición 
+de espectros de dispersión de NPs individuales. i) Imagen de campo oscuro de una columna diez 
+NPs de Au de 80 nm de diámetro. ii) La cámara EMCCD detecta los espectros en un rango de 103 
+nm, cada línea corresponde a la señal proveniente de una NP en el rango espectral del rojo. iii) 
+El espectro completo en el rango visible se obtiene m ediante la adquisición y unión de varias 
+imágenes consecutivas, moviendo la red de difracción de manera automatizada. iv) La señal 
+
+
+--- PAGE 62 ---
+62 
+ 
+adquirida consiste en la dispersión de una NP modulada por el espectro de  la lámpara y la 
+transmisión/reflexión de componentes del sistema (curva naranja). El espectro de dispersión de 
+una NP (curva verde) se obtiene normalizando a la señal adquirida (curva naranja) por el 
+espectro de referencia (curva azul). v) Repitiendo la medición para diez columnas, se obtienen 
+los espectros de dispersión de cien NPs. 
+ 
+3.2.3.  Espectroscopía de fotoluminiscencia anti-Stokes y Stokes 
+ 
+ Para medir espectros de fotoluminiscencia a nivel de partícula única, se ilumina a la NP 
+con un láser enfocado y se mide la emisión en el mismo espectrómetro, utilizando irradiancias 
+bajas para evitar el daño por irradiación. En el camino de la excitación, se utiliza un filtro clean-
+up para limpiar el espectro del láser de excitaciones espurias, y en el camino de la detección se 
+añaden dos filtros Notch para evitar la incidencia directa del láser en la cámara. 
+De manera análoga a  los espectros de dispersión, los espectros de fotoluminiscencia 
+pueden adquirirse con un rango de 103 nm, o en un rango espectral amplio moviendo la red de 
+difracción y combinando varias imágenes de manera automatizada . Para obtener información 
+dinámica, se pueden adquirir videos, donde la resolución temporal depende del tiempo de 
+exposición de cada espectro. También, al combinar con la platina piezoeléctrica, es posible 
+obtener información espectral de distintos puntos de la muestra. 
+En la Figura 3.5.a se presenta la señal de fotoluminiscencia de una NP de Au de 60 nm 
+soportada en vidrio y rodeada de agua al ser excitada con el láser de 532 nm (curva gris). La señal 
+consta de su componente anti -Stokes a la izquierda del láser, y a la derecha, la señal Stokes. 
+Debido a la baja eficiencia de la señal anti -Stokes, esta se adquiere con tiempos de exposición 
+elevados y/o alta ganancia, seguido de un suavizado posterior. La señal está compuesta por la 
+emisión tanto de la NP como del fondo (sustrato de vidrio, agua).  
+Para obtener la emisión proveniente de la NP de Au (curva negra), se mide la emisión 
+proveniente del fondo (curva azul), y se la resta a la señal compuesta ( curva gris). A modo de 
+comparación, en la Figura 3.5.b. se muestran las mismas señales, pero adquiridas con el láser de 
+592 nm. En este caso, la emisión de la NP muestra menos contraste en comparación con la 
+emisión de fondo, resultando la curva negra en una señal más ruidosa. 
+ 
+
+--- PAGE 63 ---
+63 
+ 
+ 
+Figura 3.5.  Fotoluminiscencia (𝐏𝐋) de una NP de Au de 60 nm. a)  Espectro adquirido con láser 
+de 532 nm. La barra verde indica el filtro notch. La curva punteada de color gris corresponde al 
+espectro de una NP más la señal de fondo (sustrato de vidrio, agua). La curva punteada de color 
+azul corresponde a la señal del fondo en ausencia de NP . Finalmente, la curva negra es la resta 
+de ambas señales, representando la fotoluminiscencia de la NP . b) Espectros adquiridos con el 
+láser de 592 nm para la misma NP . 
+ 
+3.3. Cálculo de irradiancia 
+ 
+La distribución del campo eléctrico de un láser es considerada un haz Gaussiano. 
+Enfocado en coordenadas cilíndricas, dependiendo del radio r y la altura z, se describe como:101 
+E (r, z) =  Eo √2
+π  ⍵
+ ⍵′  e− r2
+ ⍵′2 e
+i (k( r2
+2R+z)+ Ф)
+ 
+R = z (1 +  
+zo2
+z2 ) ;              Ф = tan−1 (
+z
+zo
+);         ⍵′(z) = ⍵ √1 +  
+zo2
+z2  
+Con zo =
+π n ⍵2
+λ  y Eo la máxima amplitud del campo en (0 ,0), se calcula con la potencia total 
+incidente como  |Eo|2 =  
+2 P μoc
+𝑛 ⍵2 . El parámetro ⍵ es la cintura del haz en el plano (z = 0) y 
+representa el radio al cual el campo decae 1/e y la intensidad 1/e2. 
+La irradiancia es la  magnitud utilizada para describir la  potencia incidente por unidad 
+de superficie. En  electromagnetismo se define la irradiancia como el valor de la intensidad 
+energética promedio de una onda electromagnética en un punto dado y se calcula como el valor 
+promedio del vector de Poynting. 
+ 
+I = Re(𝐄 × 𝐇∗)
+2 =  
+|𝐄|2n
+2μoc  
+ 
+
+
+--- PAGE 64 ---
+64 
+ 
+Para un haz Gaussiano, I sigue la forma: 
+ 
+I (r, z = 0) = n
+2μoc 2
+π |Eo|2  e
+−2 ·r2
+ ⍵2  
+ 
+I (r = 0, z = 0) = 2 P
+ π ⍵2  
+ 
+Experimentalmente la cintura del haz ⍵ es determinada a partir de un ajuste gaussiano 
+a imágenes iSCAT de NPs individuales. Para tener una medición exacta deben utilizarse detección 
+sin pinhole o con un pinhole amplio, y en NPs pequeñas. 
+ 
+Finalmente, la irradiancia de un haz gaussiano en la muestra (I) se calcula como: 
+ 
+ I =  2 · P′ · T
+π ⍵2  Ecuación 3.2 
+ 
+donde P′ es la potencia total del láser medida antes de ingresar a la pupila del objetivo y T es la 
+transmitancia del objetivo en esa longitud de onda. 
+ 
+3.4. Programas de adquisición libres en Python 
+ 
+Para controlar al microscopio, se desarrollaron dos programas de adquisición libres en 
+Python con una interfaz gráfica de sencillo uso para el usuario, llamados PyPrinting y 
+PySpectrum. Los programas permiten un control básico de los instrumentos de manera 
+individual, adquirir mediciones que combinen los distintos instrumentos e incluso armar 
+mediciones en serie de un gran número de NPs durante largos períodos para realizar estadística. 
+Para esto se utiliza una placa de adquisición DAQ (National Instrument PCIe-6353) que permite 
+adquirir, enviar y sincronizar señales de distintos instrumentos. Se conecta a la computadora a 
+través de puerto PCI-express y se controla con librerías de Python.  
+ Por un lado, PyPrinting se utiliza en la automatización de la manipulación óptica de NPs 
+coloidales, mientras que PySpectrum en la automatización de experimentos basados en 
+espectroscopías. A continuación, se muestra la interfaz gráfica principal de cada uno y se 
+describen las herramientas desarrolladas en el programa. 
+ 
+ 
+ 
+ 
+
+--- PAGE 65 ---
+65 
+ 
+3.4.1. PyPrinting 
+ 
+ 
+Figura 3.6. Interfaz gráfica de PyPrinting, el programa de adquisición desarrollado en Python para 
+el control del microscopio para impresión óptica. Herramientas desarrolladas: a) Control 
+motorizado de obturadores de láseres y filtros, b) Señal del fotodiodo en el tiempo, c) Platina 
+piezoeléctrica XYZ, d) Imágenes iSCAT (escaneo 2D), e) Control de foco en Z (escaneo 1D).  
+Escaneo en Z sobre una NP de Au de 60 nm de diámetro depositada sobre sustrato de vidrio. 
+ 
+c)
+b)
+d)
+a)
+e)
+Z posición (µm)
+Z position (µm)
+Intensidad
+vidrio agua
+Au NP
+Ir al máximo
+
+
+--- PAGE 66 ---
+66 
+ 
+ 
+Control motorizado de obturadores de láseres y filtros 
+ En la interfaz gráfica de la Figura 3.6.a. se muestran los botones para controlar el 
+obturador de cada láser. Estos operan por señales TTL enviadas a través de la placa de 
+adquisición. 
+ También se muestran los botones para controlar la posición de un filtro neutro y un filtro 
+notch. El filtro neutro permite cambiar rápidamente la intensidad del láser a una más baja, que 
+se usa para la adquisición de imágenes iSCAT , mientras que el filtro notch se utiliza en 
+aplicaciones de espectroscopía. Estos se montan en un flipper motorizado y se controlan por 
+señal analógica con la placa de adquisición.  
+ 
+Seguimiento en el tiempo de iSCAT 
+ En Figura 3.6.b. se muestra la traza de detección del láser seleccionado el fotodiodo 
+correspondiente. Para esto se sincroniza la lectura del fotodiodo por señal analógica con la placa 
+de adquisición y el control del obturador. Como se describió en la Sección 3.2.1., la señal de 
+detección es proporcional 𝐈𝐝 de la Ecuación 3.1.  
+ La señal de iSCAT en el tiempo, permite poner en foco a la muestra de manera rápida, 
+controlarlo y corregirlo durante los experimentos y detectar la presencia de la NP en el foco para 
+automatizar a la impresión óptica. Cada vez que se utiliza, se guarda automáticamente un archivo 
+de la señal en función del tiempo, que se denomina traza.  
+ 
+Platina piezoeléctrica 
+La platina piezoeléctrica se comunica digitalmente con la computadora a través de 
+conexión USB y se controla mediante el programa. En la interfaz gráfica (Figura 3.6.c.) se muestra 
+la posición actual de lectura y se configura la próxima posición para moverse 
+independientemente en X, Y o Z. Se puede controlar mediante los botones del cursor en pasos 
+discretos o escribir el número de la posición deseada en los casilleros. 
+ 
+Imágenes iSCAT (escaneo 2D) 
+ En la Figura 3.6.d. se muestran las imágenes iSCAT obtenidas a través de escaneos 2D, 
+sincronizando el obturador y el movimiento de la platina con la lectura en el fotodiodo del láser 
+seleccionado. Para lograr esto, la platina envía señales analógicas a la placa de adquisici ón 
+desplazándose en forma de rampa. Se pueden obtener escaneos 2D combinando los ejes de la 
+platina (XY , XZ, YZ), en un eje rápido el barrido es tipo rampa y en el otro eje el movimiento es 
+por pasos. 
+En la Figura 3.7.a. se muestra un esquema del barrido XY , donde para cada pixel de X, la 
+platina se mueve en el eje Y en una rampa lineal de ida (flecha azul) y vuelta (flecha roja) sobre 
+el mismo eje antes de pasar al siguiente pixel en X. Este tipo de escaneo genera tres imágenes 
+
+--- PAGE 67 ---
+67 
+ 
+iSCAT: la correspondiente al barrido a la ida, a la vuelta y el promedio de ambas imágenes. En la 
+Figura 3.7.b. se muestran las imágenes iSCAT obtenidas por el escaneo XY sobre una NP de Au 
+de 60 nm de diámetro usando el láser de 532 nm, en una región de 2 µm x 2 µm, de 34 pixeles x 
+34 pixeles. Cada vez que se escanea, el programa guarda automáticamente las tres imágenes.  
+Debido a retrasos en la comunicación y respuesta de la platina, las imágenes de ida y 
+vuelta no coinciden exactamente. La separación entre ellas aumenta con la velocidad de 
+escaneo. Para localizar una NP se calcula el centro de masa o el centro de un ajuste gaussiano de 
+la imagen promedio. Esta localización se corresponde con la posición de la platina para centrar 
+la NP con el láser, y se muestra en forma de cruz en la interfaz gráfica. Para caracterizar a la 
+cintura del haz del láser, se realizan ajustes gaussianos sobre las imágenes de ida y/o vuelta. En 
+este caso la señal es máxima en la NP , si fuese mínima se puede realizar el mismo procedimiento 
+invirtiendo la imagen. 
+ 
+Figura 3.7. a) Esquema simplificado del escaneo 2D tipo rampa. El eje Y es del eje rápido y el X 
+el eje lento. La posición en el eje rápido avanza con una rampa de ida y de vuelta. La posición en 
+el eje lento avanza de a pasos discretos. b) Ejemplo de escaneo 2D de un a NP de Au de 60 nm 
+de diámetro con láser de 532 nm, en una región de 2 µm x 2 µm, de 34 pixeles x 34 pixeles. Se 
+obtiene una imagen por el barrido a la ida, a la vuelta, y del promedio de ambas imágenes. 
+ 
+Control de foco en Z por iSCAT (escaneo 1D) 
+ En la Figura 3.6.e. se muestra la sección de la interfaz gráfica que se utiliza para realizar 
+el escaneo en 1D en la dirección Z, que sirve para posicionar a la muestra en el foco del objetivo.  
+Con el botón “Go to máximum”, se realiza un escaneo 1D tipo rampa ida y vuelta en la 
+dirección Z. A modo de ejemplo, se muestra la detección en una NP de Au de 60 nm de diámetro 
+depositada en un sustrato de vidrio, barriendo un rango en Z de 10 µm. Se muestran dos señales, 
+la ida y la vuelta del barrido que coinciden, lo que indica una buena sincronización de la señal de 
+lectura con la posición de la platina. La señal es máxima en la NP , y se ve que no es simétrica 
+debido a la interfase vidrio -agua. A la izquierda del máximo, la señal se obtiene con el láser 
+enfocado debajo de la NP , dentro del vidrio, y a la derecha, enfocado por encima de la NP , en el 
+agua.  
+ Luego de poner el láser en foco con la NP , la muestra se desplaza a una zona en donde 
+no hay una NP , y con el botón “Lock focus” se guarda la señal en el sustrato como referencia. 
+Finalmente, el botón “Autocorrelation” se puede utilizar en cualquier momento para corregir el 
+ida vuelta promedio
+a) b)
+X
+Y
+
+--- PAGE 68 ---
+68 
+ 
+foco en Z de forma automática. Lo que hace es buscar el nuevo Z donde la señal correlacione con 
+la señal de referencia guardada.  
+ 
+3.4.2. Experimentos automatizados de PyPrinting 
+ 
+El programa permite combinar las herramientas desarrolladas para realizar la impresión 
+óptica de NPs coloidales de manera automatizada, sin necesidad de la presencia del usuario y 
+con corrección de la deriva térmica incluida. A continuación, se nombran las rutinas principales 
+para la fabricación de muestras. 
+ 
+3.4.2.1. Impresión óptica de nanopartículas coloidales 
+ 
+ En el menú superior de la interfaz gráfica de la Figura 3.6. en “Measurements”, se 
+encuentra la opción para realizar la rutina de impresión óptica. Este botón abre la interfaz gráfica 
+mostrada en la Figura 3.8.  
+Figura 3.8. Interfaz gráfica de PyPrinting para la configuración de una rutina de impresión óptica.  
+ 
+ Para realizar arreglos de NPs, es necesario diseñar el patrón. Lo más sencillo es imprimir 
+arreglos en formas de grillas. En la interfaz, se pueden cargar directamente las coordenadas XYZ 
+del patrón o los  parámetros que definen la grilla (número de columnas, número de NP s por 
+columna, distancias entre NPs). También es necesario establecer una posición de la platina como 
+referencia inicial del arreglo, que será la ubicación de la primera NP impresa. 
+ Para automatizar la impresión óptica con el láser seleccionado, se define a la detección 
+de un evento de impresión óptica con un umbral y un tiempo de espera máximo entre cada 
+evento.  
+La Figura 3.9. muestra cómo se detecta un evento de impresión óptica de una NP a partir 
+de la señal en el tiempo medida en el fotodiodo (𝐈(𝐭)), que es es proporcional a 𝐈𝐝 de la Ecuación 
+3.1. Antes la impresión óptica, en un tiempo 𝐭𝟎, la detección 𝐈(𝐭𝟎) es proporcional a la reflexión 
+del láser en el sustrato 𝐈𝐫, y luego de un tiempo 𝛕 cuando la NP se imprime en un área cercana 
+al foco del láser, la señal 𝐈(𝐭𝟎 + 𝛕) es proporcional a  𝐈𝐝, que depende de la interferencia de la 
+NP . Se define como umbral de impresión al cociente entre:  
+
+
+--- PAGE 69 ---
+69 
+ 
+u =   I(t0 + τ)
+ I(t0) =   Id
+ Ir
+   
+ Este umbral puede ser u > 1 si la señal es máxima en la NP o u < 1 si la señal es mínima 
+con respecto a la señal del sustrato. En ambos casos, seguir la traza en el tiempo permite detectar 
+eventos de impresión siempre y cuando haya contraste entre Id y Ir. En la práctica, para detectar 
+al evento de impresión, el umbral se monitorea de manera activa como el cociente de 
+intensidades de dos señales cercanas u(t) =
+ I(t+dt)
+ I(t−dt), donde dt es del orden de 10 a 100 ms, 
+ajustándose libremente para cada experimento. 
+ 
+ 
+Figura 3.9. Traza de impresión de una NP de Au de 60 nm de diámetro con el láser de 532 nm. 
+ Otro parámetro que se define en la rutina es cada cuantas NPs impresas se realiza el 
+ajuste del foco en Z. Además, está la opción de realizar un escaneo 2D después de cada 
+impresión, lo cual es útil para evaluar la precisión de la técnica. Ambos procesos se realizan con 
+el filtro neutro activo, irradiando a baja potencia lo cual garantiza que  no se imprimirán NPs 
+mientras se realiza el ajuste de foco, y que tampoco serán dañadas al escanearlas.   
+ En la Figura 3.10. se muestran imágenes de campo oscuro de distintos patrones 
+impresos. 
+
+
+--- PAGE 70 ---
+70 
+ 
+ 
+Figura 3.10. Imágenes de campo oscuro de patrones obtenidos con la técnica de impresión 
+óptica de NPs coloidales. 
+ 
+3.4.2.2. Impresión óptica de dímeros 
+ 
+ La fabricación de dímeros se lleva a cabo a partir de una grilla de NPs ya impresas. Para 
+imprimir la segunda NP del dímero, el láser se ubica a una distancia predefinida de la primera NP 
+ya impresa. Inicialmente, se localiza el centro de masa de la primera NP utilizando una imagen 
+iSCAT como referencia. En la Figura 3.11.a., se presenta la imagen de campo oscuro de cinco 
+homo-dímeros de NPs de Au de 60 nm de diámetro, dispuestos a 500 nm de distancia promedio 
+entre los centros de masa. Estos dímeros se fabricaron utilizando un láser de 532 nm.  
+Para cuantificar la distancia obtenida entre los centros de las NPs, se adquieren imágenes 
+iSCAT antes y después de fabricar el dímero durante la rutina de impresión. La Figura 3.11.b. 
+muestra las imágenes iSCAT adquiridas para uno de los casos: en i) la primera NP impresa con su 
+
+
+--- PAGE 71 ---
+71 
+ 
+centro de masa marcado en azul, en ii) el dímero fabricado, y luego en iii) la resta entre ii) e i), 
+donde se destaca el centro de masa de la segunda NP impresa con color rojo. A partir de estos 
+puntos se calcula la distancia experimental del dímero en cada eje como Dx = (X2 −  X1) y Dy =
+(Y2 − Y1); en este caso, se obtuvo Dx= 22 nm, Dy= 518 nm. 
+Estas distancias experimentales proporcionan información valiosa sobre la disposición 
+espacial de las NPs en el dímero y la resolución lateral de la técnica. En el Capítulo 5, se explorará 
+la fabricación de dímeros esfera-estrella de Au con un láser de 808 nm.  
+ 
+ 
+Figura 3.11. Impresión óptica de homo-dímeros de NPs esféricas de Au de 60 nm de diámetro.  
+a) Imágenes de campo oscuro. b) Imágenes iSCAT con láser de 532 nm durante la fabricación de 
+un dímero: i) imagen de la primera NP, ii) imagen después de imprimir la segunda NP, iii) resta 
+de ii)-i). Los puntos de color azul y rojo indican las posiciones de los centros de masa de cada NP . 
+ 
+3.4.3. PySpectrum 
+ 
+PySpectrum combina las funciones de  PyPrinting e incorpora el control del 
+espectrómetro y la cámara . La interfaz gráfica de PySpectrum (Figura 3.12) permite ajustar 
+parámetros clave en la configuración inicial del espectrómetro (Figura 3.12.a.) y la cámara (Figura 
+3.12.b.) y para la adquisición de espectros (Figura 3.12.c.), ya sea de dispersión o 
+fotoluminiscencia.  
+ A modo de ejemplo, se muestra como se ve en la interfaz gráfica la señal de 
+fotoluminiscencia de una NP de Au de 60 nm de diámetro al excitarla con el láser de 532 nm. 
+Para poder medir la señal proveniente de los pixeles de interés , se debe seleccionar  con un 
+rectángulo la región de la imagen en la que se encuentra la NP.  
+ 
+ 
+i) ii) iii)b)a)
+-800
+0
+800
+-800 0 800
+X (nm)
+Y (nm)
+-800 0 800
+X (nm)
+-800 0 800
+X (nm)
+
+--- PAGE 72 ---
+72 
+ 
+  
+Figura 3.12.  Interfaz gráfica de PySpectrum, el programa de adquisición desarrollado en Python 
+para el control del microscopio para espectroscopía. a) Configuración inicial del espectrómetro. 
+b) Configuración inicial de la cámara EMCCD. c) Adquisición de espectros  para 
+dispersión/fotoemisión.  
+ 
+Seguimiento en el tiempo de la señal de fotoluminiscencia 
+A continuación, en la Figura 3.13.a. se muestra el espectro adquirido. Dado que la señal 
+de fotoluminiscencia es intrínsecamente baja, la señal del láser se detecta incluso teniendo dos 
+filtros Notch. A la izquierda de la señal del láser se encuentra la señal anti-Stokes y a la derecha 
+la señal Stokes.  
+PySpectrum permite seguir en tiempo real parámetros como la integral de cuentas de la 
+señal Stokes  (Figura 3.13.b) y la longitud de onda de máxima emisión (Figura 3.13.c) que 
+permiten monitorear a la NP de forma directa. Desde la interfaz gráfica principal se define el 
+tiempo de exposición para seguir a la señal y las regiones espectrales donde calcular estos 
+parámetros, con la opción de suavizar o ajustar a la emisión con distintos modelos (polinomios, 
+lorentzianas, gaussianas) para obtener a los parámetros de interés. 
+ 
+a)
+b) c)
+
+--- PAGE 73 ---
+73 
+ 
+ 
+Figura 3.13. Interfaz gráfica para espectroscopía de fotoluminiscencia (PL) en el tiempo. a) PL 
+de una NP de Au obtenida con el láser de 532 nm en la que se observa su señal y también se 
+indica la señal anti-Stokes de la NP a la izquierda, y a la derecha la señal Stokes. b) Seguimiento 
+en el tiempo de la integral de cuentas de la señal Stokes. y c) seguimiento en el tiempo de la 
+longitud de onda máxima emisión.  
+ 
+Imagen Hiperespectral de fotoluminiscencia 
+La combinación de  espectroscopía, con el control del obturador del láser y la platina 
+piezoeléctrica posibilita la adquisición de imágenes hiperespectrales. En esta configuración e l 
+láser enfocado realiza un escaneo 2D en el plano XY sobre una NP soportada en el sustrato.  En 
+cada pixel, se adquiere un espectro con la red de difracción centrada cerca de la longitud de onda 
+del láser, permitiendo medir tanto la señal anti-Stokes como la señal Stokes de la NP .  
+En la Figura 3.14. a la izquierda se muestra la imagen hiperespectral de una NP de Au. 
+Para la rápida visualización de la imagen, cada pixel muestra la suma de las cuentas de la señal 
+Stokes. El pixel amarillo corresponde a l a señal de mayor amplitud , que corresponde al láser 
+enfocado en el centro de la NP . Los pixeles de color negro muestran a las señales de menor 
+amplitud, que corresponde a la señal en el sustrato. En la Figura 3.14. a la derecha se muestra la 
+interfaz gráfica que permite ingresar parámetros variables como el tamaño, cantidad de pixeles, 
+tiempo de exposición y región espectral de la imagen. 
+ 
+ 
+a) b) c)
+Tiempo (s) Tiempo (s)
+PL
+(nm)
+Láser
+Stokes
+anti-Stokes
+(nm)
+
+
+--- PAGE 74 ---
+74 
+ 
+Figura 3.1 4. Interfaz gráfica para la adquisición de la imagen confocal hiperespectral de 
+fotoluminiscencia (𝐏𝐋), los pixeles se obtienen de la integral de la señal Stokes en la región de 
+540-580 nm. 
+ 
+Herramienta adicional: Cursor 
+Aunque la cámara a color CMOS no se controla directamente por Python, PySpectrum 
+incorpora una herramienta adicional de cursor para cargar imágenes adquiridas previamente. 
+Esto es útil para ubicar rápidamente a las NPs en los experimentos de espectroscopía de 
+fotoluminiscencia, cuando se pierde el monitoreo directo por campo oscuro (Figura 3.15.). En 
+este caso, se correlaciona la posición actual en la que se encuentra el láser indicándolo como 
+referencia en la imagen de referencia cargada, que aparece como un cursor.  
+ 
+ 
+Figura 3.15. Interfaz gráfica del cursor, una herramienta adicional de PySpectrum. 
+ 
+3.4.4. Experimentos automatizados de PySpectrum 
+ 
+Pyspectrum facilita la implementación de rutinas automatizadas para experimentos 
+avanzados de química asistida por plasmones y de nanotermometría, especialmente centrados 
+en partículas únicas. Estas rutinas se ejecutan preferiblemente en arreglos de NPs previamente 
+impresos o patrones electrostáticamente depositados, fáciles de ubicar mediante el foco láser. 
+En los Capítulos 4, 5 y 6 se explicará en detalle cada rutina empleada en cada caso particular.  
+Estas rutinas automatizadas ofrecen robustez y eficiencia, allana ndo el camino para 
+investigaciones detalladas y experimentos de largos tiempos de adquisición en el área de la 
+plasmónica. 
+ 
+ 
+ 
+
+
+--- PAGE 75 ---
+75 
+ 
+3.5. Deriva mecánica del dispositivo experimental 
+ 
+Un microscopio bien construido tiene inevitablemente derivas mecánicas que desplazan 
+la muestra con respecto al objetivo. Típicamente estas derivas toman valores de entre 10 a 50 
+nm por minuto. Para mediciones limitadas por difracción (~300 nm) y que son realizadas en 
+segundos, la deriva mecánica es irrelevante. En cambio, para las mediciones de impresión óptica 
+de múltiples NPs que requieren de decenas de minutos y a veces horas, y apuntan a manipular 
+NPs con precisión nanométrica, conocer y eventualmente corregir la deriva mecánica se vuelve 
+crítico. Pyprinting incluye rutinas para medir y corregir la deriva.  
+En la Figura 3.6.d., se muestra el botón “Drift Measurement” diseñado para evaluar la 
+deriva del microscopio. A través de la observación de una NP de Au individual depositada en el 
+sustrato de vidrio, se adquieren imágenes iSCAT en el transcurso del tiempo. Mediante el ajuste 
+gaussiano, se determina el centro de la NP y la cintura del haz ⍵ en función del tiempo. 
+Como se ilustra en la Figura 3.16.a., el análisis de la deriva mecánica en el plano XY 
+durante un período de 20 min revela que la NP experimenta un desplazamiento de 800 nm en 
+un eje y 400 nm en el otro, con una velocidad promedio de 30 nm/min, equivalente a 0.5 nm/s. 
+En la Figura 3.16.b., se exhibe la evolución de la ⍵, y adicionalmente mediante la calibración de 
+este parámetro para distintos planos en Z, es posible estimar la deriva mecánica en dicha 
+dirección. 
+Figura 3.16. Deriva mecánica. a) Deriva mecánica en el plano XY: Centro de masa en el tiempo 
+de una NP de Au de 60 nm, se desplaza en promedio 0.5 nm/s. b) Deriva en Z: ⍵ en el tiempo de 
+una NP de Au de 60 nm. 
+ 
+Para corregir la deriva durante experimentos de impresión óptica o de seguimiento 
+espectroscópico, se pueden incluir en la rutina pasos de recentrado. Por ejemplo, cuando se 
+construyen arreglos de NPs, cada cierto intervalo de tiempo se puede volver a medir la posición 
+de una o varias NPs y recentrar el haz para continuar la fabricación. La elección del  período de 
+corrección se basará en la precisión deseada teniendo en cuenta la caracterización de la deriva 
+mencionada arriba. Pasos de recentrados análogos pueden aplicarse de manera automatizada 
+a) b)
+Deriva mecánica (nm)
+ω (nm)
+190
+210
+230
+250
+270
+290
+Tiempo (min) Tiempo (min)
+
+--- PAGE 76 ---
+76 
+ 
+para realizar mediciones espectroscópicas de larga duración o sobre múltiples NPs. Esto permite, 
+por ejemplo, llevar a cabo mediciones prolongadas de nanotermometría durante la noche sin 
+requerir la presencia constate del usuario. 
+ 
+3.6. Estudio del efecto de la iluminación prolongada en NPs impresas 
+ 
+La iluminación prolongada o intensa puede provocar cambios morfológicos en las NPs, 
+como su remodelación o destrucción, e incluso dañar permanentemente las funcionalidades de 
+su superficie. Estos efectos pueden ocurrir incluso en sistemas considerados estables, como las 
+NPs de Au, dependiendo de la dosis de luz, que es el producto entre la irradiancia (I) y el tiempo 
+de exposición (t) de la luz. 
+Para poder evaluar este efecto de una forma cuantitativa  sobre NPs individuales, se 
+imprimieron arreglos de NPs de Au esféricas sobre vidrio. Se utilizaron NPs de Au comerciales 
+(Nanopartz™), con un diámetro nominal de 60 nm, funcionalizadas con un agente estabilizante 
+de carga negativa (Nanopartz Carboxylic Acid , provisto por la marca) . En la Figura 3.17.a. se 
+presenta el espectro de extinción normalizado de la suspensión de NPs en agua, medido con un 
+Espectrómetro UV-Visible. La impresión se realizó sobre vidrio funcionalizado con una doble capa 
+de polielectrolito (PDDA más PSS), usando el láser CW enfocado de 532 nm con irradiancia 10 
+mW/μm2. Después de la impresión, la muestra se lavó y se caracterizó para garantizar su 
+integridad tras el proceso de impresión. En la Figura 3.17. b. se muestra la distribución de 
+diámetros medidas por imágenes de microscopía electrónica de barrido (SEM), dando un 
+diámetro medio de 66 ± 4 nm. En la Figura 3.17. c. se presentan 12 espectros de dispersión de 
+las partículas individuales, impresas en sustrato de vidrio e inmersas en agua. Los espectros se 
+adquirieron con excitación y detección de luz no polarizadas. De acuerdo a la dispersión, la 
+resonancia plasmónica presenta un valor promedio de λmaxS  = 547 ± 3 nm. 
+ 
+Figura 3.17. Propiedades de las NPs de Au. a) Espectro de extinción normalizado de la suspensión 
+de NPs de Au comerciales (Nanopartz™). b) Histograma de diámetro (nm) de 23 NPs de Au, 
+determinadas por imágenes de microscopía electrónica de barrido (SEM). La subfigura muestra 
+una imagen SEM de una NP , escala = 50 nm. El diámetro promedio es 66 nm con desviación 
+estándar de 4 nm. c) Espectros de dispersión normalizados de 12 NPs de Au. La subfigura 
+presenta una imagen de campo oscuro de 25 NPs del arreglo impreso, escala = 3 µm. 
+ 
+Frecuencia
+Diámetro (nm)
+Dispersión normalizada (u.a.)
+Longitud de onda (nm)
+500 550 600 650 700
+1.0
+0.0
+0.5
+500 525 550 575 600 625 650 675 700
+Norm. Scattering
+Wavelenght (nm)
+Extinción normalizada (u.a.)
+Longitud de onda (nm)
+500 600 700400 800
+1.0
+0.0
+0.5
+b) c)a)
+
+--- PAGE 77 ---
+77 
+ 
+Posteriormente, se expusieron diferentes columnas del arreglo a distintas dosis de luz 
+utilizando el láser CW enfocado de 532 nm, con la muestra en agua. Para lograr diferentes dosis, 
+se ubicaron las NPs en el centro del haz enfocado, utilizando distintos valores de irradiancia I1 = 
+4 mW/μm2, I2 = 7 mW/μm2, I3 = 15 mW/μm2 y de tiempos de exposición t1 = 60 s y t2 = 300 s. 
+La Figura 3.18.a. muestra imágenes obtenidas mediante  microscopía de campo oscuro y 
+microscopía de fuerza atómica (AFM) para cada caso.  
+Comparando con el caso de control (sin irradiación), se observa un desplazamiento de la 
+dispersión de las NP s hacia el rojo en las imágenes de campo oscuro. Este fenómeno podría 
+atribuirse a cambios morfológicos en las NPs o a cambios en su entorno, como un mayor contacto 
+con el sustrato de vidrio. 
+ 
+ 
+ 
+Figura 3.18. Efectos de la exposición a diferentes dosis de luz en las NP s de Au. Se presentan 
+imágenes obtenidas mediante microscopía de campo oscuro y microscopía de fuerza atómica 
+(AFM) de arreglos de NP s de Au esféricas de 60 nm de diámetro, impresas sobre vidrio 
+funcionalizado con una doble capa de polielectrolito (PDDA más PSS). Las imágenes muestran 
+los cambios morfológicos inducidos por la exposición de dosis de luz láser CW enfocado de 532 
+nm, con valores de irradiancia de I1 = 4 mW/ μm2, I2 = 7 mW/ μm2, I3 = 15 mW/ μm2, durante 
+tiempos de exposición de t1 = 60 s, t2 = 300 s.  
+ 
+A partir de las imágenes de AFM, se procedió a cuantificar los cambios morfológicos 
+observados. La Figura 3.19.a. muestra cuatro perfiles de altura de diferentes casos NPs, uno de 
+ellos correspondiente al caso de control y los otros tres expuestos a diferentes irradiancias 
+durante un tiempo de 60 s. A partir de estos perfiles, se extrajo la altura máxima de las NP s, 
+representada como Z (distancia máxima Z desde el sustrato, donde Z = 0).  
+La Figura 3.19.b. muestra el valor promedio de Z para cinco NP s en función de la 
+irradiancia, para dos tiempos de exposición distintos. Se observa que la altura de las NPs se 
+mantiene constante para la irradiancia más baja, incluso durante exposiciones prolongadas, sin 
+mostrar diferencias significativas con respecto al caso de control. Sin embargo, para las 
+irradiancias más altas (I2 = 7 mW/ μm2 y I3 = 15 mW/ μm2), la altura de las NP s disminuye al 
+aumentar la dosis de irradiación, lo que sugiere que las NP s experimentan deformaciones o se 
+entierran en el vidrio. 
+Control
+NP de Au 60 nm
+Tiempos  (s): = 60, = 300;  Irradiancias (mW/μm2): = 4,  = 7, = 15
+Z (nm)
+-20 0
+ -20
+1 µm
+
+--- PAGE 78 ---
+78 
+ 
+Un aspecto relevante observado con dosis altas de irradiación es la formación de un halo 
+alrededor de las NP s, como se muestra en la Figura 3.18. Este halo presenta un diámetro 
+aproximado de entre ~300 y 1000 nm (ver Figura 3.19.c.) y una profundidad de ~3 nm (ver Figura 
+3.19.d.). La profundidad del halo coincide con la altura de la doble capa de polielectrolito (PDDA 
+más PSS) utilizada para repeler las NPs durante el proceso de impresión. Presumiblemente, estas 
+capas se vieron afectadas por el calor liberado por las NPs durante la irradiación. 
+ 
+ 
+ 
+Figura 3.19. Cambios morfológicos de la NP de Au esférica de 60 nm luego de las dosis de 
+irradiación con láser de 532 nm CW. a) Perfiles de altura (Z vs X) de la NP original (Control), y de 
+tres NPs irradiadas durante el mismo período de tiempo, 60 s, bajo distintas irradiancias. b) 
+Altura promedio (< Z >), de cuatro NPs por caso, en función de la irradiancia, para dos tiempos 
+de irradiación de 60 s y 300 s. c) Diámetro del halo en función de la irradiancia durante 60 s y 
+300 s. d) Profundidad del halo en función de la irradiancia durante 60 s y 300 s. e) Esquema con 
+vista lateral y superior del efecto de la alta dosis de irradiación sobre la NP de Au (color amarillo) 
+y la doble capa de polielectrolito alrededor. El sustrato de vidrio se muestra de color gris, la doble 
+capa de polielectrolito de color rosa.  
+(mW/μm2)
+a)
+= 60 s
+Z (nm)
+60
+0
+20
+40
+0-100 100
+X (nm)
+0 1 2 3 4 5
+0
+250
+500
+750
+1000
+1250
+ Tiempos
+ 60 s
+ 300 s
+Diámetro halo (nm)
+Potencias (mW)
+0 4 7 15
+1000
+0
+250
+500
+750
+1250
+(mW/μm2)
+Diámetro halo (nm)
+60 s
+300 s
+Halo
+Sin Halo
+c)
+0 1 2 3 4 5
+-4,0
+-3,5
+-3,0
+-2,5
+-2,0
+-1,5
+-1,0
+-0,5
+0,0
+0,5
+1,0  Tiempos
+ 60 s
+ 300 s
+Profundidad halo (nm)
+Potencias (mW)
+Sin halo
+0 4 7 15
+(mW/μm2)
+1.0
+0.0
+-2.0
+-3.0
+-1.0
+-4.0
+Profundidad halo (nm)
+60 s
+300 sSin halo
+Halo
+d)
+b)
+0 1 2 3 4 5
+-80
+-60
+-40
+-20
+0
+20
+40
+60
+80
+Sustrato
+  Tiempos 
+ 60 s
+ 300 s
+Altura (nm)
+Potencias (mW)
+Nanopartícula
+Pozo
+0 4 7 15
+(mW/μm2)
+60
+-20
+-40
+20
+-60
+40
+0
+< Z > (nm)
+80
+-80
+NP
+Sustrato
+60 s
+300 s
+4
+7
+15
+x t
+Vista lateral
+ Vista superior
+Halo
+e)
+
+--- PAGE 79 ---
+79 
+ 
+ 
+En la Figura 3.19.e. se presenta un esquema de los efectos observados en el 
+experimento. Con dosis altas de irradiación (altos valores de irradiancia o tiempo de exposición), 
+las NPs se entierran por debajo del nivel del sustrato y se forma un halo radial alrededor de ellas 
+debido a que la doble capa de polielectrolito alrededor de las NP s desaparece. Además, según 
+las imágenes de AFM, también se observan pequeñas aglomeraciones alrededor de las NP s, lo 
+que indica cambios en su morfología y tamaño.  Dado que estos cambios son i sotrópicos, se 
+sugiere que la causa principal es fototérmica. 
+Este experimento proporciona valores de dosis de irradiación máxima a los que pueden 
+someterse NPs esféricas de Au soportadas sin sufrir deformación, lo cual resulta imprescindible 
+para establecer las condiciones experimentales de iluminación en periodos prolongados. 
+ 
+
+--- PAGE 80 ---
+80 
+ 
+  
+
+--- PAGE 81 ---
+81 
+ 
+Capítulo 4: Nanotermometría por fotoluminiscencia anti-Stokes 
+ 
+En este Capítulo se desarrolla la medición de temperatura de NPs individuales a través 
+de su señal de fotoluminiscencia anti-Stokes. En principio en la sección 4.1. se presenta una breve 
+introducción del típico gradiente térmico que se genera por calentamiento fototérmico de una 
+NP metálica y de las diversas técnicas actuales de nanotermometría. En la sección 4.2. se 
+introducen los antecedentes de la técnica de termometría por fotoluminiscencia anti -Stokes, 
+incluyendo el modelo teórico de la señal, las propiedades ópticas y fototérmicas que se miden a 
+partir de la señal de fotoluminiscencia y la implementación utilizada para medir. Luego en la 
+sección 4.3. se muestra la implementación utilizada en esta tesis para medir la temperatura de 
+NPs a partir de su imagen conf ocal hiperespectral, y los resultados obtenidos para diversos 
+sistemas: para medir la el incremento de temperatura bajo excitación de NPs de Au expuestas a 
+distintas temperaturas del medio circundante (sección 4.4.), NPs de Au esféricas de diversos 
+tamaños (sección 4.5.), NPs de Au soportadas en diversos sustratos (sección 4.6.), NP bimetálicas 
+de oro y paladio (sección 4.7.) y NPs de Au en contacto con láminas delgadas mesoporosas 
+(sección 4.8.). En la sección 4.9. se evalúa el efecto del calentamiento inducido por iluminación, 
+tanto en la impresión óptica de NPs como en la irradiación prolongada en NPs impresas. 
+Finalmente, en la sección 4.10. se dan conclusiones generales y perspectivas. 
+ 
+4.1 Introducción: temperatura en la nanoescala 
+ 
+ En los últimos años se han logrado avances significativos en el desarrollo de materiales 
+fototérmicos a escala nanométrica, los cuales permiten un aumento controlado de la 
+temperatura localizado en el espacio y el tiempo a través de la luz. Entre los más destacados se 
+encuentran los materiales plasmónicos,33,102,103 sin embargo, la gama de materiales fototérmicos 
+disponibles también abarca dieléctricos de alto índice de refracción, semiconductores, polímeros 
+orgánicos y nanoestructuras basadas en carbono, tal como se describe en la revisión realizada 
+por Cui et al.104 
+ Estos materiales han encontrado una amplia gama de aplicaciones en diversos campos. 
+Por ejemplo, se han utilizado en la manipulación optotérmica,105–107 terapias contra el cáncer,108–
+110 detección,111 administración de fármacos ,112,113 bioimagen,114 purificación del agua ,115,116 
+energía solar,117,118 química asistida por plasmones ,5,119,120 nanofotónica,46,121,122 así como en 
+dispositivos de microfluídica y laboratorio en chip.123–125 La extensa revisión realizada por Baffou 
+et al. proporciona una visión integral de estas aplicaciones y sus implicancias.126 
+ No obstante, la cuantificación de los campos fototérmicos alrededor de NPs individuales 
+sigue siendo un desafío, lo que dificulta la interpretación y comprensión de los fenómenos 
+inducidos en la nanoescala, así como el control preciso de las aplicaciones fototérmicas o la 
+implementación de estrategias de disipación del calor. A pesar de que muchas termometrías 
+ofrecen una resolución submicrométrica y varios trabajos analizan sus mecanismos de 
+funcionamiento, sensibilidad y resolución térmica ,102,127–129 su implementación en NP s 
+individuales no es sencilla. Esto se debe en parte a la baja capacidad calorífica de las NPs, lo que 
+
+--- PAGE 82 ---
+82 
+ 
+hace que la mayoría de los métodos tradicionales de termometría de contacto sean demasiado 
+invasivos. Por otro lado, las técnicas ópticas sin contacto también enfrentan dificultades debido 
+a su limitada resolución espacial. 
+  En el 2024, publicamos una revisión de las nanotermometrías actuales, con sensibilidad 
+para medir el campo fototérmico de NP s individuales bajo iluminación de onda continua, y las 
+clasificamos según a la región espacial a la cual acceden. 26 Para introducir conceptualmente los 
+diferentes métodos, consideramos el caso simple de un perfil de temperatura en estado 
+estacionario alrededor de una única NP esférica de Au de 50 nm de diámetro, ubicada en un 
+medio homogéneo acuoso. La Ecuación de difusión del calor dentro y fuera de la NP resuelta 
+analíticamente es:102 
+ ΔT(r) = Q ( 1
+4πκa + Rk
+4πa2)            r ≤ a Ecuación 4.1 
+ ΔT(r) =  Q
+4πκr                                    r > a Ecuación 4.2 
+ 
+Donde ΔT es el campo de temperatura con simetría radial,  r es la distancia radial con el 
+centro de la NP en r = 0, Q es el calor generado fototérmicamente, a el radio de la NP , κ la 
+conductividad térmica del medio circundante y Rk es la resistencia Kapitza, que induce una 
+discontinuidad de temperatura en la interfase,102 en este caso entre el Au-agua. 
+ 
+ 
+Figura 4.1. a) Esquema de una NP esférica de Au de 50 nm rodeada de agua, bajo iluminación y 
+el aumento de temperatura en función coordenada radial. Las líneas negra y roja corresponden 
+a resistencias de Kapitza de Rk=0 y Rk= 8.3 10-12 K.m2 mW-1 (esta última correspondiente a la 
+interfase entre Au y agua),130 respectivamente. Las líneas discontinuas de color azul claro indican 
+un diámetro de 300 nm, una longitud característica del límite de difracción de la luz visible. Las 
+líneas discontinuas verdes están situadas a 20 nm de la superficie de la NP para indicar una región 
+típica de medición de técnicas superficiales. b) Ilustración de las cuatro categorías utilizadas para 
+clasificar las nanotermometrías según sus regiones de sondeo y resolución espacial: (1) un 
+(1) Límite de difracción (2) Superficie
+(3) Nanopartícula (4) Mapa nanométrico
+(b)
+(a)
+(3)
+(2)
+(1)
+140
+120
+100
+80
+60
+40
+20
+0
+ΔT (K)
+-250 -150 -50 50 150 250
+Distancia radial (nm)
+
+--- PAGE 83 ---
+83 
+ 
+volumen limitado por difracción, (2) una capa nanométrica cerca de la superficie de la NP , (3) la 
+temperatura interna de la NP , (4) un mapa del campo de temperatura con resolución 
+nanométrica. 
+ 
+ En la Figura 4.1.a. se muestra un esquema de la NP iluminada con un haz gaussiano 
+enfocado junto con el gráfico del campo de temperatura generado (curva negra). Se observa que 
+el campo de temperatura decae en una longitud comparable al tamaño de la NP , es decir, en 
+unas pocas decenas de nanómetros. Como se muestra en la Figura 4.1.b. se distinguen cuatro 
+tipos de nanotermometría disponibles para medir la temperatura según la región espacial a la 
+cual acceden. 
+ La primera categoría corresponde a nanotermometrías ópticas que exploran un volumen 
+limitado por difracción que rodea a la NP , representado esquemáticamente con líneas 
+discontinuas de color celeste en la Figura 4.1.a. Debido a que el tamaño del volumen de medición 
+es mayor que la longitud de caída del campo de temperatura, estos métodos proporcionan una 
+temperatura promedio de las regiones más frías y más calientes. En esta categoría se encuentran 
+técnicas que utilizan sondas en el medio como: la termometr ía de polarización de 
+fluorescencia,131 termometría de conversión ascendente ,132 termometría de intensidad de 
+fluorescencia,133 termometría por tiempo de vida de luminscencia .134 Otras técnicas menos 
+invasivas no utilizan sondas, y se basan en cambios ópticos del medio circundante, como la 
+microscopía térmica plasmónica135 y la técnica de imagen de frente de onda.136,137 
+ Un segundo grupo son las técnicas superficiales, que se basan en medir una propiedad 
+dependiente de la temperatura en las inmediaciones de las NP s, representadas con líneas 
+discontinuas verdes en la Figura 4. 1.a. Estas nanotermometrías pueden dividirse en dos tipos : 
+en primer lugar, están las que miden la temperatura a partir de la funcionalización de superficie 
+de la NP como la termometría ADN -PAINT138 y la termometría radiométrica por Raman 139 de 
+moléculas; en segundo lugar, las que miden la temperatura por cambios ópticos en el entorno 
+cercano, como la termometría basada en la dinámica browniana ,140 la termometría óptica de 
+campo oscuro,141 termometría basada en transiciones de fase del medio.142,143 
+ La tercera categoría corresponde a nanotermometrías que miden la temperatura propia 
+de la NP . Debido a la resistencia de Kapitza en la interfase entre el material de la NP y el medio 
+circundante, la temperatura interna suele ser más alta  que la de su entorno , mostrada en rojo 
+en la Figura 4.1.a. Por otro lado, en la mayoría de los casos prácticos, la conductividad térmica 
+de la NP es mucho mayor que la del medio circundante, por lo que es prácticamente uniforme. 
+Las nanotermometrías de esta categoría se basan entre la interacción de las NPs con la radiación 
+electromagnética, como la nanotermometría por anti-Stokes27 y la nanotermometría por 
+dispersión Raman,144 que se ha utilizado en NP metálicas y dieléctricas respectivamente.  
+ Finalmente, existe una cuarta categoría de nanotermometrías capaces de medir el 
+campo de temperatura con suficiente resolución espacial para observar la longitud de 
+decaimiento y otras posibles características del campo térmico. Sin embargo, debido a su mayor 
+complejidad, hay menos ejemplos y en la may oría de los casos los métodos aún están en 
+desarrollo o resultan invasivos . Existen técnicas basadas en barridos con punta  como la 
+microscopía térmica de barrido (SThM),145 la microscopía de conductancia iónica de barrido146 y 
+
+--- PAGE 84 ---
+84 
+ 
+la microscopía de nanoespin de barrido.147 Otras realizan el barrido de forma menos invasiva con 
+el uso el uso de pinzas ópticas, como la termometría biomolecular148 y la termometría de sonda 
+óptica de barrido.149 En nuestra revisión, se discuten sus limitaciones y los posibles escenarios 
+donde pueden ser mejorados. 
+ Experimentalmente, durante mi doctorado, me centré en la tercera categoría, en la 
+implementación de la nanotermometría por anti-Stokes para medir la temperatura interna de 
+las NPs metálicas.  
+4.2 Nanotermometría por anti-Stokes 
+ 
+Determinar la temperatura de una NP no es algo trivial. Un modo de hacerlo 
+ópticamente, para NPs fotoluminiscentes, es a través de su  señal anti-Stokes.150 En diversos 
+trabajos de la última década se ha demostrado que esta señal es dependiente de la temperatura 
+de la fuente emisora, y la han utilizado como nanotermómetro para medir las propiedades 
+fototérmicas de diversas nanoestructuras. En uno de los primeros trabajos que data del 2015, 
+Hugall et al.43 midieron la temperatura de arreglos de pirámides invertidas de Au. En el 2016, Xie 
+y Cahill151 caracterizaron nanodiscos individuales de Au. En el 2018 y 2019, Carattino et al.152 y 
+Cai et al.,36 estudiaron nanovarillas individuales de Au obtenidas mediante síntesis coloidal. En 
+el 2018, Jones et al.46 caracterizaron NPs de Au individuales soportadas en sílice. En el 2019, Wu 
+et al.153 investigaron nanocubos de Au soportados en una película de Au, obtenida por litografía, 
+y Pensa et al.154 en nanoesferas individuales de Au obtenidas por síntesis coloidal.  
+ A continuación, se introducirá el marco teórico de la señal  de fotoluminiscencia (PL) y 
+las distintas implementaciones de la nanotermometría por anti-Stokes. Luego, se introducirá una 
+novedosa implementación desarrollada en esta tesis que se basa en la adquisición de una 
+imagen hiperespectral de PL, y se utilizará para medir las propiedades ópticas y fototérmicas de 
+diversos sistemas de NPs individuales, metálicas, bimetálicas, en diversos sustratos y entornos 
+complejos. 
+ 
+4.2.1.  Modelo de la señal de fotoluminiscencia 
+ 
+ Para una NP excitada mediante un láser de energía Eexc (con Eexc = ħ νexc = ħ
+c
+λexc,  
+siendo λexc la longitud de onda del láser  de excitación), y para energías menores y mayores a 
+Eexc, se model an a la intensidad de emisión Stokes IS(E, Eexc) y de anti -Stokes 
+IAS(E, Eexc, T), respectivamente como: 
+ PL(E < Eexc) =  IS(E, Eexc) =  fI(Iexc) fPL(E, Eexc) Ecuación 4.3 
+ PL(E > Eexc) = IAS(E, Eexc, T) =  fI(Iexc) fPL(E, Eexc) n(E, Eexc, T) Ecuación 4.4 
+Donde Iexc es la irradiancia del láser, fI(Iexc) describe la dependencia con Iexc. La 
+linealidad de la intensidad de la señal Stokes con la irradiancia fI(Iexc) ∝ Iexc se ha observado 
+para diversos sitemas.155–158 Se trata de un régimen compatible con un proceso de un fotón.159 
+
+--- PAGE 85 ---
+85 
+ 
+ El término fPL(E, Eexc) es el espectro de PL intrínseco de la NP , independiente de la 
+temperatura. Para NPs metálicas, se ha observado que fPL sigue la forma del espectro de 
+dispersión,155–158 indicando una relación cercana de la PL con la LSPR. Se han identificado varios 
+factores experimentales que influyen en fPL, como la longitud de onda de excitación, 49 la 
+estructura electrónica de bandas del material,152 y la densidad fotónica de estados (PDOS).49 
+En el término n(E, Eexc, T) se encuentra codificada la temperatura T de la NP . La función 
+expresa la distribución de energía de los estados térmicamente disponibles que proporcionan la 
+energía extra para la emisión de anti -Stokes. La elección de una función de distribución 
+n(E, Eexc, T) es un requisito fundamental para la nanotermometría por anti-Stokes. La 
+comunidad la ha modelado tanto con una distribución de energía tipo Bose-Einstein (BE), como 
+también Fermi-Dirac (FD) o Bolztamn (Bz): 
+ 
+nBE(E, Eexc, T) = [e
+ (E−Eexc)
+kB T − 1]
+−1
+ Ecuación 4.5 
+ 
+nFD(E, Eexc, T) = [e
+ (E−Eexc)
+kB T + 1]
+−1
+ 
+nBz(E, Eexc, T) = [e
+ (E−Eexc)
+kB T ]
+−1
+ 
+ 
+Dónde kB es la constante de Boltzmann, y T se refiere indistintamente a la temperatura 
+de la red o del gas de electrones, ya que como se discutió en la sección 1.5. las diferencias entre 
+las dos temperaturas son insignificantes en las condiciones experimentales de este trabajo. 
+Diversos autores usaron con éxito a la función de distribución BE. 43,46,151,152 Además, se 
+encontró que describe correctamente la emisión anti -Stokes de nanocristales de Au 160 y Ag161. 
+Por otro lado Wu et al.153 utilizaron una función de ocupación que incluía una distribución de BE 
+más una distribución FD para estimar la contribución de los electrones calientes fuera de  
+equilibrio. Descubrieron que la contribución máxima de los electrones calientes es inferior al 3  
+% y que el término FD sólo es necesario para describir la emisión anti -Stokes con cambios de 
+energía superiores a 0,25 eV (2000 cm -1), que suele estar más allá del rango detectable de 
+emisión de NPs individuales (por debajo de 480 nm para excitación de 532 nm). Por último, en 
+el límite de altas temperaturas, se podría emplear una función de distribución de Boltzmann 
+(Bz), ya que el término ±1 en las expresiones anteriores se vuelve insignificante. 
+En este trabajo debido a los rangos de longitudes de onda y temperatura se consideró 
+que la n(E, Eexc, T) más representativa es la distribución BE (Ecuación 4.5).  
+ En resumen, el término n(E, Eexc, T) de la señal anti-Stokes guarda información de la 
+temperatura y fPL(E, Eexc) de las propiedades intrínsecas del sistema . Por lo que al medir la 
+respuesta de PL en función de la irradiancia del láser, es posible medir la respuesta fototérmica 
+y óptica del sistema. 
+ 
+
+--- PAGE 86 ---
+86 
+ 
+4.2.2. Propiedades fototérmicas y ópticas 
+ 
+Coeficiente fototérmico 
+La temperatura de la NP puede aumentarse de dos formas: i) por calentamiento térmico 
+del medio circundante, por ejemplo, en contacto con platinas calentadoras en equilibro térmico, 
+de manera que la temperatura es uniforme o ii) mediante calentamiento fototérmico. En ii) el 
+calor se genera en la NP y se establece un gradiente térmico en el medio (Figura 4.1.a.). Si la 
+absorción óptica de la NP y las propiedades  de conducción térmica de l medio circundante no 
+cambia significativamente con la temperatura, la temperatura de la NP aumenta linealmente con 
+la irradiancia: 
+ T = To + β I Ecuación 4.6 
+ Donde To es la temperatura del medio circundante, ΔT =  T − To es el incremento de 
+temperatura por calentamiento fototérmico con una irradiancia I del láser de longitud de onda 
+λ. En principio, en un experimento de termometría, este láser puede ser distinto al láser de 
+excitación de la PL.  
+ β está definido como el coeficiente fototérmico , y depende de las propiedades del 
+sistema, y en principio, independiente de la temperatura. Se obtiene más información sobre la 
+disipación de calor del sistema si β se descompone en sus contribuciones óptica y térmica: 
+ β(λ) =  σabs(λ)
+γ  Ecuación 4.7 
+Donde σabs es la sección eficaz de absorción en esa de la longitud de onda y γ un factor 
+de disipación del calor que depende de la geometría y las propiedades térmicas de la NP y del 
+entorno. Por ejemplo, para el modelo de una esfera en un medio homogéneo de la Figura 4.1.a., 
+evaluando la Ecuación 4.1 en la temperatura de superficie de la NP  (r = a), en ausencia de 
+resistencia de Kapitza, usando que el calor Q = σabsI, nos da que: 
+ γ = 4πaκ Ecuación 4.8 
+En este caso es posible desacoplar la contribución óptica y térmica e incluso obtener 
+parámetros térmicos relevantes como la conductividad térmica del medio. Sin embargo, no 
+siempre es posible modelar de forma sencilla a NP s con geometrías o entornos complejos, por 
+lo que medir directamente β nos otorga información de la respuesta fototérmica del sistema sin 
+necesidad de una caracterización previa. 
+ 
+Rendimiento cuántico de Stokes 
+Debido a que la emisión de PL puede proporcionar información sobre los procesos del 
+decaimiento del plasmón, es relevante investigar las propiedades de emisión de las NPs  en 
+estudio. P ara el análisis cuantitativo se calcula al rendimiento cuántico de Stokes ( QYStokes) 
+como el cociente entre el total de emisión Stokes y el total de fotones absorbidos: 
+
+--- PAGE 87 ---
+87 
+ 
+ 
+QYStokes =
+∫  IS(λ, λexc)dλ 
+λ
+λexc
+ Iexc σabs(λexc)  
+Ecuación 4.9 
+ 
+Experimentalmente para obtener QYStokes se mide la integral de Stokes en función de 
+Iexc  y el valor de σabs(λexc) se obtiene de mediciones, o bien de cálculos analíticos o numéricos.  
+ 
+Factor de calidad de la resonancia plasmónica 
+ Otro parámetro relevante es el factor de calidad de la LSPR de la NP (Qfactor ). El valor se 
+calcula a partir del espectro de dispersión, con la energía de resonancia (Eres) y el ancho total a 
+la mitad de altura del máximo del espectro (Γ): 
+ Qfactor =  Eres
+Γ  Ecuación 4.10 
+ Qfactor depende de la forma, tamaño, material, cristalinidad, impurezas y entorno de la 
+NP . Mientras más estrecho es el espectro, mayor es el factor de calidad. 
+ Link et al.36  han demostrado a través de experimentos y teorías que el corrimiento de la 
+señal de emisión Stokes de  las nanovarillas de Au respect o a la resonancia de plasmón es 
+consistente con una amplificación por el efecto Purcell de la recombinación de hot-carriers, 
+mediante transiciones inter e intrabandas. Considerando el efecto Purcell, los autores han 
+hallado que una mejora en el Qfactor de la NP , aumenta la densidad de estados fotónicos (PDOS) 
+y, por lo tanto, mejora el QYStokes y da forma al espectro de emisión. Es decir, hay una correlación 
+directa entre el Qfactor  y QYStokes de la NP . 
+ 
+4.2.3. Implementación de nanotermometría por anti-Stokes 
+ 
+Para obtener la temperatura mediante la señal  anti-Stokes, la comunidad ha 
+implementado diversas metodologías, donde se presentaron distintos  inconvenientes. Por 
+ejemplo, para extraer T directamente de la señal IAS de la Ecuación 4.4, se necesita conocer 
+previamente a la señal intrínseca fPL que es difícil de calcular a partir de primeros principios, ya 
+que requiere saber al detalle el mecanismo de fotoluminiscencia. Por estas razones, se han 
+utilizado varios enfoques experimentales para determinarla. Para el caso de nanovarillas de Au, 
+Carattino et al. 152 estimaron la señal de  fPL midiendo la emisión de Stokes, excitando  a una 
+longitud de onda menor a la de resonancia plasmónica para obtener el rango completo. 
+Recientemente, Cai et al. 36 aproximaron a fPL con la sección eficaz de dispersión medida de 
+nanovarillas de Au. Sin embargo, estos enfoques requieren caracterizaciones adicionales para 
+cada tipo de  NP y realizan aproximaciones que generalmente no son válidas para todas las 
+nanoestructuras. Por ejemplo, estas aproximaciones no son válidas para nanoesferas de Au, 
+donde las resonancias de plasmón suelen ser más a nchas y cercanas a las transiciones 
+
+--- PAGE 88 ---
+88 
+ 
+interbandas.162 Como resultado, el espectro de emisión depende en gran medida de la longitud 
+de onda de excitación y puede no coincidir con el espectro de dispersión.36  
+Otra metodología consiste en extraer T sin la necesidad de una expresión explícita 
+para fPL. Xie et al.151, de la misma manera que  Jones et al.46 y Pensa et al.154, presentaron una 
+estrategia, que consistió en tomar el cociente Qi,j
+AS =
+ Ii
+AS
+ Ij
+AS  entre dos espectros anti -Stokes 
+obtenidos a distintas temperaturas Ti y Tj. De esta forma, el factor fPL se cancela (ver Ecuación 
+4.4). Una segunda ventaja de hacer cocientes es que las mediciones se independizan de la 
+transmisión óptica del instrumento de adquisición. Esta metodología no requiere caracterización 
+previa de la NP , lo que la hace potencialmente aplicable a cualquier NP con  PL anti-Stokes 
+detectable. 
+Usando las Ecuaciones 4.3 y 4.4. los cocientes Stokes ( Qi,j
+S ) y anti -Stokes (Qi,j
+AS) de dos 
+señales a distintas temperaturas y distintas irradiancias queda: 
+ 
+Qi,j
+S =    Ii
+S
+ Ij
+S   =  f(Ii
+exc)
+f(Ij
+exc ) Ecuación 4.11 
+ 
+Qi,j
+AS =   Ii
+AS
+ Ij
+AS =  Qi,j
+S  
+[ e
+(E−Eexc)
+kB Tj − 1]
+[e
+(E−Eexc)
+kBTi − 1]
+ Ecuación 4.12 
+ A continuación, se presenta el marco teórico del método del cociente para dos tipos de 
+implementaciones. 
+ 
+ Calentamiento térmico 
+En este caso la temperatura del entorno Ti
+o puede variarse. La temperatura de la NP se 
+mide con un láser de excitación de PL a irradiancia constante (Iexc = cte). Usando la Ecuación 
+4.6, la temperatura de la NP es: 
+ Ti = Ti
+o + βexc Iexc  
+Luego para dos temperaturas distintas Ti
+o y Tj
+o del reservorio, las Ecuaciones 4.11 y 4.12 
+quedan como: 
+ Qi,j
+S = 1  
+ 
+Qi,j
+AS   =   e
+(E−Eexc)
+kB (Tj
+o+βexc Iexc) − 1
+e
+(E−Eexc)
+kB(Ti
+o+βexc Iexc) − 1
+ 
+ 
+
+--- PAGE 89 ---
+89 
+ 
+A partir del ajuste de Qi,j
+AS, conociendo βexc del sistema y Ti
+o previamente, es posible 
+utilizar a la NP como un termómetro del reservorio externo para medir Tj
+o. 
+ 
+Calentamiento fototérmico, usando 1 láser 
+En este caso, el reservorio externo se encuentra a temperatura To y el calentamiento es 
+generado por un láser. El mismo láser se utiliza para calentar a la NP y para excitar la PL a distintas 
+irradiancias Ii
+exc. Para garantizar una buena señal de PL, se requiere que la longitud de onda del 
+láser sea cercana a la resonancia plasmónica de la NP .   
+De acuerdo a la Ecuación 4.6 la temperatura de la NP queda como: 
+Ti = To + βexc Ii
+exc 
+Luego evaluando en las Ecuaciones 4.11 y 4.12, los cocientes quedan como: 
+ Qi,j
+S =   f(Ii
+exc)
+f(Ij
+exc)  
+ 
+Qi,j
+AS =    Qi,j
+S
+[e
+ (E−Eexc)
+kB (To+βexcIj
+exc) − 1]
+[e
+ (E−Eexc)
+kB (To+βexcIi
+exc) − 1]
+  
+A partir del ajuste de Qi,j
+AS  a distintas irradiancias del láser ( Iexc) y conociendo To, es 
+posible medir el coeficiente fototérmico βexc de la NP . 
+Finalmente, en el Apéndice A.1. se explica el caso particular para realizar calentamiento 
+fototérmico utilizando dos láseres de distinta longitud de onda, uno para calentar a la NP y el 
+otro para excitar a la PL. Por ejemplo, Jones et al., para medir la temperatura de NP de pirámides 
+enfrentadas de Au, con un láser de 1064 nm calentaron al sistema y con otro láser de 633 nm 
+excitaron la PL y midieron termometría.46  
+Aunque no fue implementado en la tesis, el método con dos láseres podría utilizarse 
+para medir la temperatura por calentamiento fototérmico causada por un láser fuera de la 
+resonancia plasmónica. 
+ 
+4.3 Nanotermometría por imágenes hiperespectrales de fotoluminiscencia  
+ 
+En esta sección se describe la implementación de  nanotermometría por anti-Stokes 
+desarrollada en el marco de esta tesis, utilizando un único láser tanto para calentar a la NP como 
+para excitar la PL. La innovación de esta implementación radica en el uso de un barrido 2D con 
+
+--- PAGE 90 ---
+90 
+ 
+el láser enfocado a potencia constante. Se demostrará que, a partir de una imagen hiperespectral 
+de PL de una NP, es posible obtener su coeficiente fototérmico (β), evaluado en la longitud de 
+onda del láser de excitación.27 
+La aplicación de nanotermometría por anti-Stokes por cocientes requiere de l a 
+adquisición de espectros PL a distintas irrandianc ias. Normalmente, esto  implica modificar la 
+potencia del láser, esperar que se estabilice, enfocar en el centro de la NP y medir.  Una 
+alternativa es la medición a través de imágenes hiperespectrales, como se muestra en el  
+esquema de la Figura 4.3. En este esquema, un láser enfocado realiza un barrido 2D sobre la NP , 
+y se registra el espectro de  PL para distintas posiciones relativas del haz con respecto a la NP 
+(pixeles de la imagen). De este modo, debido al perfil de intensidad del haz enfocado, se obtienen 
+espectros de PL para un amplio rango de irradiancias. Cada pixel de la imagen es el resultado de 
+integrar la señal Stokes. El tiempo de integración en cada posición debe ser significativamente 
+más largo que el tiempo transitorio requerido por la NP para alcanzar el estado estacionario, que 
+es del orden de ns a µs. Este requerimiento se suele cumplir ampliamente ya que los tiempos de 
+integración requeridos para medir adecuadamente un espectro de PL van de ms a segundos. La 
+medición en cada píxel corresponde a una temperatura constante en estado estacionario que 
+sigue la Ecuación 4.6. Es decir que de una única imagen hiperespectral PL de una NP , se obtiene 
+un barrido de temperaturas en función de la irradiancia que permite caracterizar su coeficiente 
+fototérmico β. 
+ 
+ 
+ 
+Figura 4.3.  Nanotermometría por anti -Stokes. Esquema de adquisición de una imagen 
+hiperespectral PL  de una NP obtenida a partir de un barrido 2D con el láser enfocado. En cada 
+pixel se adquiere un espectro de fotoluminiscencia para adquirir la señal anti-Stokes y Stokes. La 
+mayor señal y temperatura de la NP se alcanza cuando el láser se enfoca en su centro.  
+ 
+ 
+
+
+--- PAGE 91 ---
+91 
+ 
+ 
+Como plataforma de estudio s e generaron arreglos de NP s individuales de Au super-
+esféricas163,164 de 80 nm de diámetro mediante la técnica de impresión óptica sobre un sustrato 
+de vidrio. El calentamiento y la excitación de PL para cada NP se realizó simultáneamente con 
+un láser de onda continua de 532 nm, enfocado cerca de su límite de difracción (cintura del haz 
+ω0= (342 ± 5) nm). Todas las mediciones de PL se realizaron lejos de la saturación , a bajas 
+irradiancias para no dañar a las NPs y con la muestra sumergida en agua. 
+En la Figura 4. 4. se muestra  que, para el rango de irradiancias usadas en los 
+experimentos, la emisión de Stokes integrada aumenta linealmente con la irradiancia, es decir: 
+∫ IS(λ, λexc)dλ ∝  Iexc 
+λ
+λexc . Cada Iexc se calculó teniendo en cuenta la potencia del láser 
+incidente y la geometría del haz gaussiano con la Ecuación 3.2. 
+ 
+ 
+Figura 4. 4. Intensidad de la emisión de 
+Stokes promedio, excitada a 532 nm e 
+integrada entre 550 y 570 nm, en función 
+de la irradiancia para NPs esféricas de Au 
+de 80 nm de diámetro, soportada s sobre 
+vidrio y sumergida s en agua. Los valores 
+de la integral Stokes se calcularon entre 
+550 nm y 570 nm. 
+ 
+ 
+En las imágenes hiperespectrales, la irradiancia máxima del píxel central (Imaxexc ) se calcula 
+teniendo en cuenta la potencia del láser incidente  y la geometría del foco, típicamente 
+gaussiano. Luego, aprovechando la linealidad de la señal Stokes, la irradiancia de los otros píxeles 
+(Ii
+exc) se calcula proporcionalmente a la señal de Stokes integrada con el factor αi como: 
+αi =
+∫ Ii
+S(λ, λexc)dλ 
+λ
+λexc
+∫ Imax
+S (λ, λexc)dλ 
+λ
+λexc
+ 
+Ii
+exc = αi Imaxexc  
+La Figura 4.5.a. muestra la imagen de la integral Stokes codificada por colores junto con 
+los espectros PL correspondientes, restando la señal de fondo medida en el  sustrato. 
+Inicialmente, se adquirieron 100 espectros para una imagen de 10x10 pixeles. Sin embargo, para 
+su procesamiento, estos se suavizan y agrupan en promedios en N = 10 intervalos de irradiancia. 
+Esto mejora la calidad de la señal, especialmente para píxeles (periféricos) de baja irradiancia ya 
+que tienen una señal más baja, pero están pres entes en mayor número. Los colores de los 10 
+espectros promediados coinciden con los pixeles de la imagen. El espectro amarillo representa 
+a la señal en el centro de la NP , mientras que el espectro azul corresponde a la señal en el 
+sustrato.  
+Irradiancia (mW/µm2)
+Integral Stokes (u.a.)
+
+--- PAGE 92 ---
+92 
+ 
+ Luego la Figura 4.5.b. muestra los espectros de PL normalizados por la irradiancia de 
+excitación Ii
+exc asignada en cada caso . Después de la normalización, todos los espectros de 
+emisión de Stokes se superponen casi perfectamente, lo que garantiza nuevamente la linealidad 
+con la irradiancia e indica que fPL es independiente de la temperatura en el rango de irradiancias 
+utilizadas. Los espectros de PL anti-Stokes no se superponen porque corresponden a diferentes 
+temperaturas. 
+A partir de estas señales, se realizan los cocientes Qi,j
+AS entre cada par de espectros anti-
+Stokes. En las condiciones experimentales de este trabajo, una distribución BE es una 
+representación correcta de n(E, Eexc, T). Por la linealidad de Stokes con la irradiancia  Qi,j
+S =
+   
+Ii
+exc
+Ij
+exc, luego cada par de Qi,j
+AS se calcula y ajusta como: 
+ 
+Qi,j
+AS =    Ii
+exc
+Ij
+exc
+[e
+ (E−Eexc)
+kB (To+βIj
+exc) − 1]
+[e
+ (E−Eexc)
+kB (To+βIi
+exc) − 1]
+ Ecuación 4.13 
+Donde β es el coeficiente fototérmico de la NP a 532 nm, y To la temperatura del 
+entorno. Como es una expresión con dos parámetros libres, To y β, si uno se conoce, el otro se 
+puede calcular a partir de un ajuste de los datos.  
+En la Figura 4.5.c. se muestra todas las relaciones Qi,1
+AS usando la irradiancia j =1 (la más 
+baja) como referencia, junto con ajustes a la Ecuación 4.1 usando To=295 K, la temperatura del 
+laboratorio durante las mediciones. Para cada par de irradiancias {i, j} se extrae un valor de βi,j 
+de un ajuste a Qi,j
+AS. Luego, se puede determinar el valor promedio β, que permite determinar la 
+temperatura del NP en función de la irradiancia a través de la Ecuación 4.6. La reproducibilidad 
+del método se probó determinando β a partir de diez imágenes hiperespectrales de una misma 
+NP . La Figura 4.5.d. muestra los gráficos de la temperatura versus irradiancia correspondientes a 
+las diez mediciones individuales de β (líneas grises), junto con el correspondiente al valor medio 
+de 〈β〉=63 K μm2⁄mW (curva roja). La desviación estándar de las diez mediciones fue de 3 K 
+μm2⁄mW (4 %). 
+ 
+
+--- PAGE 93 ---
+93 
+ 
+ 
+Figura 4.5. Análisis de datos para obtener el coeficiente fototérmico β a partir de una única 
+imagen hiperespectral. a) Espectros de PL de NPs de Au de 80 nm en diez niveles de irradiancia 
+diferentes obtenidos a partir de una imagen confocal hiperespectral (recuadro). b) Espectros de 
+PL normalizados con su propia intensidad máxima de Stokes (proporcional a la irradiancia de 
+excitación). c) Líneas continuas de color: Qi,j
+AS de cada espectro anti -Stokes dividido por el 
+espectro del grupo 1 (0 .2 mW/μm2). Líneas negras discontinuas: Se ajusta usando la Ecuación 
+4.13. d) Temperatura calculada en función de la irradiancia de excitación. Línea roja sólida: 
+coeficiente fototérmico medio 〈β〉=63 K μm2⁄mW con desviación estándar de 3 K μm2⁄mW. 
+Líneas grises: diez mediciones β de una misma NP .  
+ 
+En la práctica experimental, se enfrenta un desafío crucial al obtener espectros con una 
+relación señal -ruido óptima, especialmente para la señal anti -Stokes. Este proceso implica 
+encontrar un equilibrio entre la irradiancia del láser, el tiempo de exposic ión, la ganancia, 
+número de pixeles y rango de la imagen a medir.  Como se analizó en la sección 3.6. la iluminación 
+a altas dosis de irradiación puede dañar a la NP y a su entorno. Adicionalmente, en el Apéndice 
+A.2., se analiza el impacto de la deriva mecánica en la adquisición de imágenes hiperespectrales 
+ya que se trata de mediciones de tiempos prolongados. El objetivo es asegurar una señal robusta 
+sin comprometer la integridad de la NP y evitar tiempos de adquisición excesivos.  
+Usualmente en los experimentos se emplea un tiempo de exposición de 2 a 4 s, se 
+capturan espectros de un arreglo de 10 x 10 píxeles en un área de 800 x 800 nm por NP con 
+temperaturas máximas del orden de 400 K. Además, se aplica una ganancia por electro-
+Longitud de onda (nm)
+Intensidad (u.a.)
+Longitud de onda (nm)
+Energía (eV) Irradiancia (mW/µm2)
+Temperatura (K)
+Irradiancia 
+(mW/µm2)
+Irradiancia 
+(mW/µm2)
+Intensidad norm. (u.a.)
+Irradiancia 
+(mW/µm2)
+
+--- PAGE 94 ---
+94 
+ 
+multiplicación elevada, entre 20 y 100. Aunque esta estrategia aumenta la intensidad de la señal, 
+también conlleva un incremento en el ruido, lo que puede complicar el procesamiento posterior 
+de los espectros. Es fundamental encontrar el punto óptimo que garantice una adquisición 
+eficiente y precisa de datos, considerando la naturaleza específica de la muestra y los requisitos 
+del experimento. 
+ 
+Conclusiones parciales 
+Se presentó una novedosa implementación de nanotermometría por anti-Stokes que 
+permite medir el coeficiente fototérmico β de NPs individuales a partir de una imagen 
+hiperespectral de PL, utilizando un único láser enfocado tanto para calentar la NP como para 
+excitar su PL. Además, obtener β permite calcular la temperatura de la NP para cualquier 
+irradiancia dada. Este método no requiere ninguna caracterización adicional ni conocimiento 
+previo sobre la dispersión de la NP , los espectros de PL, el índice de refr acción medio o la 
+geometría del sistema, lo que lo hace potencialmente aplicable a cualquier tipo de NP , siempre 
+que proporcione una emisión anti -Stokes detectable. Al medir varias veces en una NP esférica 
+de Au, el método recupera β con una precisión del 4 %.  
+ 
+4.4 Nanoesferas de Au como termómetros 
+ 
+ El mismo método de obtención de imágenes hiperespectrales de PL anti-Stokes puede 
+utilizarse para determinar la temperatura alrededor de una NP cuyo  β es conocido. Bajo estas 
+condiciones, los Qi,j
+AS pueden ajustarse con la Ecuación 4.13 para obtener T0, habilitando el uso 
+de las NPs como nanotermómetros.  
+Para demostrar esta modalidad, se prepararon arreglos de NPs de Au de 80 nm sobre un 
+sustrato de vidrio  por impresión óptica de la misma forma que para la sección anterior , 
+sumergidos en agua. Se adquirieron imágenes hiperespectrales a seis temperaturas diferentes 
+de la muestra, denominadas Tset, entre 22 y 70 °C. El calentamiento se llevó a cabo utilizando 
+dos calentadores (MP800, Caddock Electronics) en contacto con un portamuestras de acero 
+inoxidable. Se utilizó un sensor de temperatura (LM35, Texas Instruments) para monitorear la 
+temperatura en vivo. Se impleme ntó un controlador PID utilizando una placa Arduino Uno R3 
+para la adquisición y control de datos mediante un software basado en Python. Para cada valor 
+de temperatura Tset, se dejó un tiempo estabilización de 30 min para que el sistema alcance el 
+equilibro térmico. 
+ Las imágenes hiperespectrales obtenidas se analizaron de dos formas. Primero, de 
+manera equivalente a las secciones precedentes,  β se determinó ajustando Qi,j
+AS a la Ecuación 
+4.13, y usando que la temperatura del entorno To = Tset como parámetro fijo. Las curvas 
+resultantes de temperatura versus irradiancia correspondientes al 〈β〉  obtenido (10 imágenes 
+de una misma NP) se muestran en la Figura 4.6.a. Las pendientes de las curvas son ligeramente 
+distintas de acuerdo con la variabilidad observada a temperatura ambiente (Figura 4.5.d.). Esto 
+se ve mejor en la Figura 4.6.b, donde 〈β〉 se representa como una función de Tset. Esta 
+
+--- PAGE 95 ---
+95 
+ 
+variabilidad de 〈β〉 está contenida dentro de ± 1 desviación estándar alrededor del valor medio 
+obtenido a temperatura ambiente, lo que respalda la hipótesis de que β es independiente de la 
+temperatura, hasta temperaturas de la muestra de 70 °C. 
+ Luego, para demostrar el uso de NPs como nanotermómetros, se analizaron los datos 
+tomando β como parámetro conocido para extraer la temperatura circundante To. La Figura 
+4.6.c. muestra el 〈To〉 determinado frente al Tset, utilizando  〈β〉 obtenido a temperatura 
+ambiente para este tipo de NPs (62,5 μm2⁄mW.). La temperatura obtenida 〈To〉  sigue fielmente 
+a la temperatura seteada externamente, aunque resulta menos precisa a temperaturas más altas 
+debido a errores de medición asociados con el calentamiento de la muestra, por ejemplo, una 
+deriva en la posición de la muestra. 
+ 
+ 
+Figura 4.6. NPs de Au como nanotermómetros. a) Temperatura versus irradiancia para NPs de 
+Au de 80 nm sobre un sustrato de vidrio, sumergido en agua a diferentes temperaturas Tset. b) 
+Coeficiente fototérmico extraído versus Tset. La línea discontinua roja indica 〈β〉 a temperatura 
+ambiente (62 .5 K μm2⁄mW) y la banda gris corresponde a ±1 desviaciones estándar (4 .6 
+μm2⁄mW.). c) 〈To〉 determinado frente a Tset utilizando un coeficiente fototérmico fijo β =62.5 K 
+μm2⁄mW. Las barras de error en b) y c) representan el error estándar de la media. 
+ 
+Conclusiones parciales 
+Si se β se conoce o se determina previamente, el mismo método de imágenes 
+hiperespectrales puede utilizarse para emplear las NPs como nanotermómetros permitiendo 
+medir la temperatura del entorno con una resolución nanométrica, limitada por el tamaño de la 
+NP . 
+ 
+4.5 Coeficiente fototérmico en función del tamaño de las NPs 
+ 
+El coeficiente β describe la respuesta fototérmica de una NP en un dado entorno, la cual 
+depende de una serie de factores que incluyen el material, forma, tamaño, y química superficial 
+de la NP, como así también de las propiedades del medio circundante. Se aplicó el método de 
+nanotermometría por imágenes hiperespectrales de fotolumininiscencia para caracterizar la 
+Irradiancia (mW/µm2)
+Temperatura (K)

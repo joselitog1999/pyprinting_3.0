@@ -233,6 +233,39 @@ def run_tests():
     h5_valid = os.path.exists(tmp_h5_file) and os.path.exists(os.path.join(unpacked_diag, "NP_000.txt"))
     assert_test("Contenedor Científico HDF5 (.h5 & Desempaquetado 1-Click)", h5_valid)
 
+    # ── 9. Suite Raman Multi-Espectro & PSF Analyzer Modo Foto Única ─────────
+    print("\n9. Espectroscopía Multi-Espectro & Caracterización de PSF")
+    from core.raman_engine import (
+        interpolate_spectra_to_common_grid, normalize_spectrum_matrix,
+        compute_mean_std_spectrum, extract_band_kinetics, compute_spectral_pca
+    )
+    # Test matemático multi-espectro
+    x_test = np.linspace(500, 1800, 100)
+    Y_test = np.array([
+        100.0 + 2000.0 * np.exp(-0.5 * ((x_test - 1078.0) / 15.0)**2),
+        100.0 + 3500.0 * np.exp(-0.5 * ((x_test - 1078.0) / 15.0)**2)
+    ])
+    Y_norm_max = normalize_spectrum_matrix(x_test, Y_test, mode="max")
+    assert_test("Normalización Multi-Espectro (Max = 1.0)", np.isclose(np.max(Y_norm_max), 1.0))
+
+    mean_s, std_s, rsd_s = compute_mean_std_spectrum(Y_test)
+    assert_test("Espectro Promedio ± Desvío (μ ± σ & RSD%)", len(mean_s) == 100 and len(rsd_s) == 100)
+
+    pca_res = compute_spectral_pca(Y_test, n_components=2)
+    assert_test("PCA Quimiométrico Raman (SVD)", pca_res["scores"].shape == (2, 2))
+
+    # Test PSF Analyzer Single Image
+    from analysis.psf_analyzer import extract_arbitrary_line_profile, fit_1d_gaussian
+    Z_psf = np.zeros((60, 60))
+    x_grid = np.linspace(-1.5, 1.5, 60)
+    Xg, Yg = np.meshgrid(x_grid, x_grid)
+    Z_psf = 50.0 + 5000.0 * np.exp(-0.5 * (Xg**2 + Yg**2) / 0.35**2)
+    s_cut, p_cut = extract_arbitrary_line_profile(Z_psf, (0, 30), (59, 30), pixel_size_um=0.05, line_width_px=3)
+    fit_gauss = fit_1d_gaussian(s_cut, p_cut)
+    assert_test("Corte de Línea Arbitraria PSF con Espesor", len(s_cut) == 60)
+    assert_test("Ajuste Gaussiano 1D PSF & FWHM Analítico", fit_gauss is not None and fit_gauss["r_squared"] > 0.99)
+
+
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     print(f"RESULTADOS FINALES: {passed_count} / {total_count} pruebas superadas ({passed_count/total_count*100:.1f}%)")

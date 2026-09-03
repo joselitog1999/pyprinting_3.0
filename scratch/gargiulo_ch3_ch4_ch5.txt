@@ -1,0 +1,2112 @@
+=== JULIAN GARGIULO (2017) - CHAPTERS 3, 4, 5, 6 ===
+
+
+--- PAGE 36 ---
+2.3. Photodynamic Assembly 35
+rounded by a methyl terminated hydrophobic surface. A drop o f colloidal solution
+of 800 nm polystyrene spheres is allowed to dry on top of the su bstrate. As the
+drop recedes, spontaneous dewetting from hydrophobic doma ins and ﬂow to hy-
+drophilic regions occurs, carrying the suspended particle s, which deposit there
+as the ﬂuid evaporates. With this method, square regions cove red with colloids
+were obtained, as shown in ﬁgure 2.7.d. Also, single particle d epositions in small
+wet regions is possible, although, as shown in ﬁgure 2.7.c, t he regulation of the
+number of particles is not fully controlled.
+2.3 Photodynamic Assembly
+In self-assembly methods, NPs organize according to their ther modynamically
+most stable conﬁgurations and therefore their versatility t o form arbitrary arrays
+is limited. Template-assisted assembly adds ﬂexibility of pattern design, but
+requires additional steps than lengthen and complicate the fabrication procedure.
+Combination of multiple types of particles is also diﬃcult.
+Photodynamic aseembly methods oﬀers the possibility to ove rcome all of these
+drawbacks. [ 43] With the help of optical forces, NPs can be trapped, delivered and
+ﬁxed at any desired position on a surface. In this way, arbitra ry arrays of particles
+can be created without the need of any substrate patterning, previous or after
+the assembly process. One of the ﬁrst reports of such an appro ach was published
+in 2002 by van Blaaderen et.al.[ 44]. There, they built optical tweezers with a
+continuous wave infrared beam ( λ = 1064 nm) focused to a diﬀraction-limited
+spot. The tweezers were used to pick up 700 nm silica particle s from a reservoir,
+drag them in position and then ﬁx them by shifting the focus of the tweezers
+toward the surface, where opposite surface charges are used to immobilize the
+particles. In this way patterns like the one shown in ﬁgure 2.8a were created.
+The same year, Ito et.al[ 45] also employed a ( λ = 1064nm) continuous wave
+beam to trap single 80nm gold NPs and bring them close to a subst rate. There, a
+nanosecond pulse of ultraviolet laser ﬁxes the particle to t he surface, by partially
+funding it and therefore enlarging the contact area with the surface. Figure 2.8.b
+shows a AFM image of a pattern with eight ﬁxed particles. In 2009 , in a work by
+Lee et.al.[ 46], controlled deposition of optically trapped high aspect- ratio In 2O3
+nanowires was realized by fast-scanning the trapping beam t o rotate the nanowires
+and connect two branches of a circuit, as shown in 2.8c. A subs equent annealing
+
+--- PAGE 37 ---
+36 2. Assembly of 2D patterns of colloidal nanoparticles onto surfaces
+step provided electrical contact between the nanowire and t he electrodes.
+(a) (b)
+1 0µm
+P osition of focused laser beam
+and trapped nanowire
+1 0µm
+(c)
+5µm
+Figure 2.8: (a) Optical image of a pattern of 700nm radius sili ca particles arranged
+on a hcp lattice by optical printing. The arrows indicate two s maller particles that
+have been deliveratly incorporated as defects in the patter n. Adapted from [ 44].
+(b) AFM image of ﬁxed and patterned gold nanoparticles. Adapted f rom [ 45].
+(c) Optical manipulation of a In 2O3 nanowire (left) and placement to connect
+two branches of a circuit (right).Adapted from [ 46].
+In 2010, Scherer et.al.[ 47] presented an all-optical method to deposit single
+Au NPs with a size of 40 nm on glass substrates directly out of sol ution. The
+substrates were functionalized with a positive polyelectr olyte, which provided a
+repulsive interaction with the positively charged NPs, prev enting their sponta-
+neous deposition. The patterning method consisted on trapp ing a particle with
+a λ = 817 nm wavelength optical tweezers, at some distance away ( typically 10
+µm) of the substrate, as depicted in ﬁgure 2.9a. Then, by manua lly changing the
+ﬁne focus on the microscope, the trapped particle could be br ought in contact
+and ﬁxed to the surface due to strong van der Waals forces, as d epicted in ﬁgure
+(2.9b). After that, a piezoelectric stage was used to move the sample to a given
+
+--- PAGE 38 ---
+2.3. Photodynamic Assembly 37
+position in the lateral (XY) plane, where the next particle wou ld be ﬁxed. In this
+way, patterns were created, as shown in ﬁgures 2.9c and 2.9d.
+Figure 2.9: Schematic of single nanoparticle trapping (a) an d deposition (b). (c)
+Dark-ﬁeld image of typical pattern used for the determinati on of the precision
+of deposition (scale bar 2 µm). (d) “U of C” pattern created from 37 single
+nanoparticles (scale bar 5 µm). Figure reproduced from[ 47].
+Simultaneously to Scherer’s paper, Urban et.al.[48] demonstrated the pattern-
+ing of surfaces with 80 nm Au NPs. The method is similar, but they employed
+a laser beam tuned to the particle localized surface plasmon resonance (LSPR).
+In this way, particles where ﬁxed directly out of the solutio n using the radiation
+pressure of light, without any previous stable trapping ste p. This technique is
+called optical printing and is extensively reviewed in chapte r 3.
+Employing optical forces is not the only way that far-ﬁeld ra diation can allow
+patterning of surfaces with colloidal NPs and ﬂexibility of d esign. For exam-
+ple, in 2015, Lin et.al.[ 49] employed a laser beam to generate microbubbles at
+the interface of a colloidal suspension and a plasmonic subst rate, in a technique
+called Bubble-pen lithography. The bubble captures and imm obilizes the parti-
+cles on the surface through coordinated actions of Marangoni convection, surface
+tension, gas pressure, and substrate adhesion. Moving the be am, they created
+particle assemblies and single-particle patterns, as show n in ﬁgures 2.10a and
+2.10b. Another family of techniques are known as Optoelectro nic Tweezers[ 50]
+
+--- PAGE 39 ---
+38 2. Assembly of 2D patterns of colloidal nanoparticles onto surfaces
+m
+1 0
+a.c.
+ITO glass
+ITO glass DMD microdisplay
+Nitride
+n+ a-S i:H
+Undoped
+a-S i:H
+P rojected
+image
+E lectric f eld
+Light-emitting
+diode
+×1 0
+(a) (b)
+µ
+(c) (d)
+Figure 2.10: (a) SEM image of patterned 540 nm PS beads at diﬀer ent laser pow-
+ers using Bubble-pen lithography Inset: Magniﬁcation of one of the fabricated
+arrays. (b) Patterning of 940 nm PS beads with single-partic le resolution using
+bubble-pen lithography. Adapted from[ 49]. (c) Outilne of optoelectronic tweez-
+ers. A liquid containing particles is sandwiched between a t ransparent electrode
+and a photoconductive electrode. Light patterns from a digi tal projector are im-
+aged by an objetive onto the devide. The image, together with an a.c. electrical
+bias, generates dielectrophoretic traps in the illuminate d areas. (d) A 4x5 array
+of dielectrophoretic traps, each one containing a 20 µm polystyrene particle.
+and are outlined in ﬁgure 2.10c. These techniques make use of b oth light and an
+electric bias to sculpt a potenial landscape on a photosensi tive substrate. Light
+then creates virtual electrodes. The resulting non-unifor m electric ﬁeld exerts
+dielectrophoretic forces on particles, that are used to cre ate potential wells. In
+this way, particles are trapped on the illuminated areas. Fig ure 2.10d shows an
+array of 20 µmpolystyrene beads fabricated through this method.
+
+--- PAGE 40 ---
+3
+Optical Printing
+The aim of this chapter is to present the state of the art of opt ical printing. In sec-
+tion 3.1 the ﬁrst paper on optical printing is described, and t herefore the working
+principles of the technique are introduced. Then, a summary of relevant progress
+during the last years is presented in section 3.2. Finally the open questions and
+current challenges of optical printing are discussed in sec tion 3.3.
+3.1 Fundamentals of Optical Printing
+Optical printing is a simple and versatile method to ﬁx collo idal NPs from suspen-
+sion into speciﬁc locations of a substrate using optical for ces, as outlined in ﬁgure
+3.1a. It was introduced by a paper by Urban et. al.[ 48] in 2010. Unlike other
+approaches, in this work NPs were ﬁxed directly out of a colloi dal suspension
+without previous stable 3D trapping. A colloidal suspensio n of NPs, stabilized
+by electrostatic repulsion between NPs, was put in contact wi th a substrate.
+Spontaneous adsorption of the NPs onto the substrate was avoi ded by preparing
+the substrate to be charged with the same sign as the NPs. The fu nctionalization
+of the substrate was achieved trough the layer-by-layer ass embly of a monolayer
+of a charged polyelectrolyte[ 51].
+In addition to the electrostatic repulsion Felect(z), an attractive Lifshitz-van
+der Waals force FLvdW (z) acts at short separation distances between the NP
+and the substrate. The total interaction FDLV O (z) = Felect(z) + FLvdW (z) is
+given by the Derjaguin-Landau-Verwey-Overbeek (DL VO)[52] formalism, by dif-
+ferentiation of the interaction energies between a charged sphere and a charged
+39
+
+--- PAGE 41 ---
+40 3. Optical Printing
+(a) (b)
+(c)
+Figure 3.1: (a) Schematic representation of the optical forc es acting on a NP
+during the printing process. (b) Calculated dependence on d istance of the elec-
+trostatic, van der Waals, and total forces acting on a positi vely charged Au NP in
+the vicinity of the positively charged surface (c) Dark-ﬁel d image of two patterns
+made by optical printing single 80nm Au nanoparticles (NPs) . B right spots out
+of focus around the pattern are individual NPs freely ﬂoating in the colloidal
+suspension. Adapted from [ 48], where details of the calculations are provided.
+surface[53].
+Felect(z) = πǫmaκ
+(
+ζ 2
+s +ζ 2
+p− 2ζpζseκz)
+(coth (κz)− 1)
+FLvdW (z) = 2Aa3
+3z2 (z + 2a)2
+(3.1)
+where z is the distance of the particle to the surface, a is the particle radius, ζs
+andζp are the zeta potential of the surface and the particle respec tively,A is the
+
+--- PAGE 42 ---
+3.2. Review of Optical Printing 41
+Hamaker constant and k−1 is the thickness of the electric double layer. Figure
+3.1b shows the calculation of both forces and the total force . As can be seen, there
+is a barrier that prevents deposition of the NPs on the substra te. The basis of
+optical printing is overcoming this barrier on speciﬁc loca tions of the substrate by
+applying optical forces on the NPs . For this aim, a laser beam i s highly focused
+onto the sample plane, generating a small region where axial optical forces are
+stronger than the repulsion. There, the NPs can pass the barrier and be so close
+to the surface that they get ﬁxed by the attractive van der Waa ls force. When
+this happens, it is said that a NPs is printed.
+Since optical forces decrease rapidly with the distance to t he focal plane, only
+those particles that are close to the focal volume experienc e a force strong enough
+to overcome Brownian motion and be guided to the surface. Thi s means that NPs
+are free to diﬀuse in the solution until they reach the focal v olume and get printed.
+Urban et al. monitored this stchocastic process live using da rk ﬁeld microscopy.
+When a NP was printed, they y moved the substrate to another posi tion, where
+the following particle should be printed.In this way, surfa ces were patterned with
+arbitrary arrays, as shown in ﬁgure 3.1c. Interestingly, no ne of the reddish and
+therefore diﬀerent particles present on the NPs solution is p rinted on the arrays,
+showing the selectivity of the optical printing.
+3.2 Review of Optical Printing
+In sections 2.3 and 3.1, two fundamental papers demonstrati ng optical patterning
+of surfaces with Au particles were introduced. Urban et.al pap er[48] was from the
+Photonics and Optoelectronics group, directed by Prof. Joch en Feldmann in Mu-
+nich. Guﬀey et.al.[ 47] paper was from Prof. Norbert Scherer Group in Chicago.
+They were both published in the same volume of the journal NanoLetters. Af-
+ter these fundamental papers from 2010, the same two groups w ere responsible
+for almost all the published papers on the subject, which are described in this
+section.
+Although the magnitude of optical forces is usually very smal l for sub-micron
+particles, the plasmonic properties of metallic nanoparticl es (MNPs) were used to
+enhance their interaction with light. On the other hand, the strong dependence
+of optical forces on the particle nature can be exploited for sorting and selective
+printing of a single type of MNPs out of a mixture.[ 54]. This was already observed
+
+--- PAGE 43 ---
+42 3. Optical Printing
+on Urban et. al. ﬁrst paper, and then exploited by Huergo et. al. to separate
+and study the diﬀerent outputs of a chemical MNPs synthesis. [ 55] For that,
+they employed several lasers with wavelengths tuned to local ized surface plasmon
+resonance (LSPR) of each type of nanoparticle.
+Simultaneos optical printing of multiple NPs in an ordered fas hion is also pos-
+sible using spatially modulated light ﬁelds. In the work by Ne dev et.al[56], a laser
+beam is split into several beams, creating an optical patter n which allowed the
+parallel printing of up to 64 Au NPS, as shown in Figures 3.2.a and 3 .2.b. In an-
+other work by Bao et.al.[ 57] ring-shaped and line optical traps were implemented
+in order to print Ag NPs, as shown in Figures 3.2.c and 3.2.d. Thes e approaches
+have the advantage of being faster. Typically the required ti me for printing the
+hole pattern is similar to the characteristic time of printi ng a single particle with
+a convectional beam. The pattern can be shifted, allowing th e fast assembly
+over larger areas, or it can be modiﬁed at high speed enabling the formation of
+complex patterns.
+(a) (b) (c) (d)
+Figure 3.2: Multiplexed optical printing. (a) Scheme of Opti cal Printing with
+multiple laser beams. Adapted from [ 56] (b) ) A dark-ﬁeld image of a square
+pattern of 80 nm Au NPs printed with multiple beams (c) Scheme of Optical
+Printing with a line trap. Adapted from [ 57]. (d) Optical transmission image of
+printed 200 nm Ag NPs array formed using a line trap.
+Angular control in the optical printing of Au nanorods was demo nstrated
+using a two-color approach.[ 58, 59] A laser beam, not being resonant to the plas-
+mon resonances of the nanorods is used for stable trapping of an individual rod.
+Optical torque in the trap aligns the rod with the direction o f polarization of
+the beam. After that, a second resonant beam is used to print th e rod on the
+subtrate, maintaining the orientation. Figure 3.3 shows ori ented arrays of 41 x
+114 nm Au rods. Optical printing is not limited to the fabricat ion of devices
+based only on colloidal particles. It can also be used to inco rporate a particle
+into a speciﬁc position of a complex surface. In the work by Do et.al.[60], optical
+
+--- PAGE 44 ---
+3.2. Review of Optical Printing 43
+(a) (b) (c)
+1µm 1 µm
+Figure 3.3: (a) Scheme of two focused beams superimposed for t he printing of
+oriented nanorods. (b) and (c) SEM images of an “OX” pattern of printed gold
+nanorods with angular control. The orientation of the nanor ods in the two letters
+is perpendicular. Figure adapted from [ 59]
+(a)
+(b)
+Figure 3.4: Optical printing on complex surfaces. (a) SEM ima ges of a series of
+photonic crystal nanocavities containing optically-prin ted 150 nm gold nanopar-
+ticles in controlled positions. Figure adapted from [ 60] (b) Printing and injection
+of gold nanoparticles into living CHO cells. Adapted from [ 61]
+printing was used to position a 150 nm Au glsNP onto a sub microm eter linear
+three-hole defect of a photonic crystal, as shown in ﬁgure 3.4 a. This allowed the
+ﬁne tuning of the electromagnetic interaction between the g lsNP and the cavity
+mode. In another work by Li et.al.[ 61], Au particles were patterned on the mem-
+brane of living CHO cells and, in a former step, injected into th e cell through a
+combination of plasmonic heating and optical forces (Figure 3.4b). The survival
+rate of the cells was above 70%.
+
+--- PAGE 45 ---
+44 3. Optical Printing
+3.3 Open challenges
+One of the open questions of optical printing concerns its pos itional accuracy.
+Despite being an optical method, the positional accuracy of optical printing is
+not limited by diﬀraction of light, and individual NPs can be po sitioned with a
+precision of several tens of nanometers. In the ﬁrst report b y Urban et.al[ 48], they
+measured the precision by printing 80nm Au NPs along a line and d etermining
+the position through a Gaussian ﬁt of the dark ﬁeld images, as sh own in ﬁgures
+3.5a and 3.5b. They found the average deviation from the line t o be ∼ 50nm.
+They also comment that increasing the laser power lead to lar ger deviations.
+On the other hand, in the paper by Guﬀey et.al.[ 47] used light out of resonance
+(λ = 817nm) to ﬁrst trap and then print 40nm Au particles. The accur acy
+of the deposition was found to be around ∼ 100nm, which is larger than the
+standard deviation of particle’s position ﬂuctuations withi n the trap∼ 30nm. On
+the contrary to Urban paper, they comment that the best precis ion is obtained
+for high powers. It remains unclear whether these precision values constitute a
+(a)
+(b)
+Figure 3.5: (a) Dark ﬁeld image of a line of printed Au NPs used to e stimate
+printing accuracy. White line is the target line. (b) Detail o f the area marked by
+the rectangle in (a) including the results of the 2D Gaussian ﬁt of each particles
+used to determine NPs position. Figure adapted from[ 48]
+fundamental limit, or they respond to a particular set of exp erimental parameters.
+The interaction of NPs with light depends not only on the beam w avelenght,
+power and shape but also on the particle composition, size and s hape. Also,
+Brownian ﬂuctuations, enhanced by (wavelenght dependent) p lasmonic heating
+were proposed as a source of error[ 47, 56]. Understanding the printing mechanism
+
+--- PAGE 46 ---
+3.3. Open challenges 45
+by unravelling the role of each parameter in the ﬁnal precisi on is the key to achieve
+super precise optical printing. In chapter 5 this subject is a ddress.
+The other main challenge of Optical Printing concerns its la teral resolution,
+understood as the minimum distance at which two particles ca n be printed in a
+controlled manner. In diﬀerent experiments the minimum int erparticle distance
+for controllably printing has been found to be restricted to a bout 300 nm.[ 62, 63]
+This has obstructed the use of optical printing to the fabric ation of plasmoni-
+cally coupled structures and circuits of connected NPs. About this subject, in
+a paper from 2014, Scherer et. al.[ 57] stated: most reports so far are limited
+to relatively large interparticle separation, typically > 1 µm. The same year, in
+another work, Feldmann et. al.[ 62] wrote: One of the problems existing for all of
+these techniques is an apparently fundamental limitation of the minimal distance
+between controllably printed nanoparticles, which could not be reduced much below
+300 nm.
+In a workaround to this limitation, NPs printed on glass were t ransferred into
+a thermoresponsive polymer ﬁlm. Then, the ﬁlm was heated abov e 165 ◦ causing
+its contraction and bringing particles closer together.[ 63] The process is depicted
+in Figure 3.6a and examples are shown Figure 3.6b. The distance between printed
+80nm Au particles was reduced by a factor of 2 . 3. Still after this procedure, the
+interparticle distance was limited to about 120 nm.
+(a)
+(b) (c)
+Figure 3.6: Shrink to bring closer. (a) Scheme of the method. Fi rst, Au NPs are
+printed on glass, then transferred to a thermoresponsive po lymer ﬁlm by. After
+that, the ﬁlm was heated and shrunk, reducing the distance be tween particles.
+Dark ﬁeld images of a Au dimer (b) and trimer (c) whose separati on is reduced
+from 280 to 120 nm. Insets: SEM images of the shrunk arrays. Figu re adapted
+from [ 63]
+
+--- PAGE 47 ---
+46 3. Optical Printing
+In 2014, Scherer et.al. published the ﬁrst paper where the lat eral resolution
+was systematically studied.[ 57] They used the line traps schematized in ﬁgure
+3.2c to print the chain patterns of 200 nm Ag NPs shown in ﬁgure 3. 2d, us-
+ing a wavelenght of 800 nm. They measured the interparticle se paration inside
+the line. The distrubution of separations is shown in 3.7a. Th e interparticle
+separation shows a dominant sharp peak at (580 ± 84) nm, which suggest the
+presence of a strong repulsive interaction. In the same work t hey studied the
+inﬂuence of a previously deposited nanoparticle chain on th e printing of a sub-
+sequent parallel chain, as a function of the distance betwee n chains ∆ x. Three
+regimes with distinct printing behaviors were observed, as s hown in Figure 3.7.b
+. A noninteracting (green shaded) regime, with ∆ x> 600 nm where the printing
+is independent of the previous chain. An interacting (yellow ) regime is charac-
+terized by deviations of the particles being printed toward distances larger than
+expected, for 600 nm > ∆x >300 nm. Last, an unstable regime (pink) occurs
+for δx< 300 nm, resulting in the loss of control of the printing proce ss. Some of
+the incoming particles are printed onto the existing chain, f orming aggregates.
+These results were explained and understood ”in terms of optical binding in-
+teractions.” Upon illumination, printed NPs scatter light, which can exert optical
+forces on the particles being printed. This mutual interact ion between particles
+through light scattering are usually referred to as Optical Binding .[65]. An ex-
+tensive review on optical binding can be found in Zemanek et.a l.[66]. Typically,
+optical binding forces are long ranged and are both attracti ve and repulsive.
+In order to explain their experimental observations, Scher er et.al. calculated
+the optical binding forces produced by a pair of illuminated 2 00nm Ag ﬁxed
+spheres on a third particle, as shown in ﬁgure 3.7c. The forces lead to a stable
+equilibrium position, at a distance of about one wavelength of the ﬁxed particles.
+In the same line of thought, in a review from 2014 about optica l printing by the
+Feldmann group[62], it is stated that the limitations in the lateral resolutio n of
+the technique are ”most likely due to the scattered light from an already printed
+nanoparticle interfering with the incident light ﬁeld and creating energetically
+favourable positions at large distances from the aﬃxed nanoparticle” .
+An alternative explanation of the limited lateral resolutio n was given in 2013
+by Urban et.al. Where they wrote that ”because the already printed nanoparticle
+is still illuminated by the laser, it can heat up and create convective currents,
+disrupting the path of the second nanoparticle.” [63]
+
+--- PAGE 48 ---
+3.3. Open challenges 47
+(a) (b)
+(c)
+Figure 3.7: (a) Distance distribution of adjacent Ag NPs inside a chain. The black
+curve is a two-peak Gaussian ﬁt to the distribution with mean s and standard de-
+viations of (580± 84) nm and (1125± 91) nm for the two peaks, respectively. (b)
+Nanoparticle inter chain achieved separation vs set separat ion ∆ x. Inset: repre-
+sentative optical images of the deposited arrays. (c) Map of t he force exerted by
+the central pair of 200 nm Ag NPs (the gray spheres) on a new 200 nm Ag glsNP
+in water illuminated by a plane wave ( λm = 800nm vacuum wavelength). The
+polarization is along the x-axis. The direction of each arro w denotes the direction
+of the optical force when the third nanoparticle is located a t the midpoint of the
+arrow. The colours of the arrows represent the value of elect rodynamic forces as
+shown by the scale bar. The dashed circle represents the equi librium position of
+the newly added NP. Figure adapted from [ 64]
+In chapter 6, the diﬀerent proposed mechanisms are systemat ically studied
+and discussed. Understanding the underlying physics is the k ey to design strate-
+gies to overcome this impediment and allow the optical print ing of particles at
+any arbitrary given inter-particle distance. This would dr amatically expand the
+versatility and complexity of devices that can be fabricate d with optical printing.
+
+--- PAGE 49 ---
+4
+Experimental set-up for
+automated multi-color optical
+printing
+The scope of this section is to describe the experimental set- up that was specif-
+ically designed and developed for the experiments in this thes is. The set-up
+is detailed in section 4.1. Also, a custom software was develop to control and
+automate the measurements, as described in section 4.2
+4.1 The set-up
+The setup is schematically depicted in Figure 4.1. It consist s of a home-built up-
+right optical microscope that combines three diﬀerent tech niques: i) Dark-ﬁeld
+imaging in wide ﬁeld. ii) Multicolour sample scanning confo cal microscopy. iii)
+Scattering and micro-Raman spectroscopy.
+Sample scanning is performed with an XYZ piezoelectric stage (PI P-545) with
+nanometer precision and a range of 200 µm in the three axes. Three continuous
+wave lasers of 405nm (Cobolt), 532nm (Laser Ventus) and 640n m (MPB) are used
+for both printing and as illumination sources for confocal im aging and micro-
+spectroscopy. The polarization of each beam is controlled i ndependently using
+corresponding λ/ 2 and λ/ 4 waveplates. Beams are spatially ﬁltered using single-
+mode optical ﬁbers. They are combined into a common optical p ath towards
+the sample using suitable dichroic beam splitters. Each lase r path includes a
+mechanic shutter and a neutral density ﬁlter mounted on a mot orized ﬂipper,
+48
+
+--- PAGE 50 ---
+4.1. The set-up 49
+both controlled from the computer. This way the beam can be bl ocked, or its
+intensity switched between two values by including or removin g the ﬁlter from the
+path. This is useful when the same laser is used for both printi ng and scanning
+but diﬀerent intensities are needed for each application. S ince the ﬁlter is placed
+before the ﬁber coupling, the beam does not move in the sample plane when the
+ﬁlter is included.
+Figure 4.1: Scheme of the experimental set-up. M:Mirror, DBS :Dichroic Beam
+Splitter, BS:Beam Splitter, NF:Notch Filter, S: Shutter, MNDF: Mo torized Neu-
+tral Density Filter. PC:Polarization control, consisting i n a λ/ 2 and a λ/ 4 wave-
+plate. Confocal detection boxes are explained in ﬁgure4.2a
+
+--- PAGE 51 ---
+50 4. Experimental set-up for automated multi-color optical printing
+Dark Field Microscopy
+Dark Field microscopy is an imaging technique were the illumi nation is engineered
+to enhance image contrast based on scattering. Using an oil-i mmersion dark-ﬁeld
+condenser with a numerical aperture NA=1.2-1.4, light from an halogen white
+lamp is shaped into a hollow cone and directed towards the samp le. Imaging of
+the sample plane was performed using an water-immersion obj ective of NA=1,
+and therefore the oblique rays illuminating the sample are no t collected by the
+objective and do not contribute to the image. Only light scat tered by objects in
+the sample is collected and sent to a camera. This is the reason why images ac-
+quired with this technique have usually a dark background wi th bright objects on
+it. The microscope has two cameras: A CMOS colour camera (Can on EOS-500D)
+and a EM-CCD (Andor Ixon3), both connected to a PC. With these cam eras it is
+possible to acquire wide ﬁeld images and videos, as shown in Fi gure 4.3b. Notch
+ﬁlters are used to ﬁlter light from the laser beams and avoid da maging of the
+cameras.
+Confocal scanning imaging of metallic nanoparticles (MNPs)
+The conﬁguration for confocal detection is depicted in Figure 4.2.a. A small
+circular aperture called pinhole is included in the conjuga ted plane of the sample
+plane. Light from the sample plane crosses through the pinho le and is detected
+by the photodiode. On the other hand, most of the light coming from an object
+in a diﬀerent plane does not cross the pin hole and is blocked. For illumination,
+the beam size of the three lasers is chosen to overﬁll the pupi l of the objetive, and
+its collimation lens are adjusted to assure that the three bea ms are focused to
+its diﬀraction limit on the sample plane. Using notch ﬁlters, elastically scattered
+light is separated and sent to respective ampliﬁed photodio des through confocal
+detection. The advantage of using notch ﬁlters on this conﬁg uration is two-fold
+i) They ﬁlter light from the laser beam, avoiding damage of th e cameras and
+ii) Dark ﬁeld detection is barely aﬀected and can be perform s imultaneously to
+confocal scanning, because only a small portion of the optic al spectrum is ﬁltered
+A computer routine was programmed for synchronously scannin g the sample
+and measuring the signal in the photodiode, (see section4.2 ). This way images
+can be acquired, using the elastically scattered light of th e laser beams by the
+sample. When scanning a MNPs, it is important to note that the co nfocal images
+have two contributions: i) Light scattered by the MNP and ii) Li ght reﬂected at
+
+--- PAGE 52 ---
+4.1. The set-up 51
+Figure 4.2: Confocal Detection. (a) Scheme of the confocal ﬁl tering of the out of
+plane light. Light from an object (star) in the Sample Plane ( SP) is collected by
+the objective (O) and focused by a convective lens (L) on the c onjugated plane
+(CP), where it crosses a pin hole (PH) and is detected by the photo diode (PD).
+Light from an object out of plane (circle) is blocked by the PH. (b) Phase θ of
+the polarizability as a function of wavelenght, for Ag and Au 60 nm shperes,
+calculated using equation 1.8. Confocal images of (c) Ag and ( d) Au 60 nm
+spherical nanoparticles (NPs) on glass at λ = 532 nm. Lighter colours indicate
+higher intensity.
+the water/glass interface. Since the illumination laser is a coherent source, these
+two signals can interfere (constructively or destructivel y) at the detector. Let
+Ei denote the electric ﬁeld of the illumination beam focused ont o the sample.
+Reﬂected light will contribute to the ﬁeld in the detector wi th an amplitude of
+Er =rEie−i( π
+2 +φ0) withr the eﬀective reﬂection coeﬃcient, −i π
+2 the phase shift in
+the reﬂection and φ0 a phase associated with optical path from the sample to the
+
+--- PAGE 53 ---
+52 4. Experimental set-up for automated multi-color optical printing
+detector. Scattered light can be thought as the far ﬁeld radi ation of the induced
+dipole at the MNP, therefore proportional to its polarizabil ity α =|α|eiθ. The
+scattered ﬁeld at the detector can be written as Esca =sEi =|s|eiφEi, with the
+modulus|s|∝| α| and the phase φ = θ +φ0. The intensity measured at the
+detector is then given by
+Idet =|Er +Esca|2 =E2
+i
+(
+r2 +s2 + 2r|s|cosφrs
+)
+(4.1)
+With φrs = θ− π
+2 the relative phase between reﬂected and scattered ﬁeld. It i s
+interesting to note that while the ﬁrst (reﬂection) and seco nd (pure scattering)
+terms are always positive, the third term (interfence) can b e negative. In certain
+conditions, the interference term dominates and MNPs appear dark in confocal
+images, with a minimum of intensity in its centre. Recalling equation 1.5, |s|∝
+|α| ∝a3 and s2 ∝ a6. This means that for large MNPs the pure scattering
+dominates and particles appear bright in the images, while f or smaller particles
+the interference term dominates and particles appear dark. The transition size
+between bright to dark depends on the value of the reﬂection c oeﬃcient r and
+the phase of polarizability θ.
+These properties of MNPs can be exploited to detect and locali ze particles
+with a weak pure scattering signal: even if |s| is too small, the interference term
+is still proportional to |r| and thus comparable to the background.[ 67] For a
+given MNP size, transition from bright to dark can also occurs if the wavelength
+is changed. Figure 4.2.b shows the phase θ of the polarizability as a function
+of wavelenght, for Ag and Au 60 nm shperes, calculated using Kuw ata model
+(equation 1.8). Figure 4.2c shows a confocal image of a Ag 60 nm s phere on glass
+at λ = 532nm. At this wavelength the phase of the MNP polarizability is close
+to zero and therefore destructive interference produces a m inimum of intensity
+in the detector and the sphere is visualized as a dark spot on t he image. On the
+other hand, if a Au shpere is scanned at the same wavelength, th e phase of the
+polarizability is close to π
+2 , causing constructive interference in the detector and
+the particle is seen as a bright spotin the image, as shown in ﬁ gure 4.2d.
+Polarization-resolved scattering spectroscopy
+A scheme of the optical set-up for spectrally resolved measu rements is shown in
+Figure 4.3a. Light from a white light lamp that is scattered by the sample is col-
+
+--- PAGE 54 ---
+4.1. The set-up 53
+Figure 4.3: Spectroscopic measurements. (a) Scheme of the ex perimental set-up
+O: objective lens. TL:Tube lens. M:Mirror. CM: Convex mirro r. T:Torrete that
+allows choosing between two diﬀerent diﬀraction gratings o r a mirror. Π, Π
+′
+and
+Π
+′′
+are conjugated planes. (b) Dark ﬁeld image of an array of singl e Au nanorods
+on glass, taken with the colour camera. (c) If the mirror is ch osen in the torrete,
+dark ﬁeld imaging with the black and white camera is possible. The entrance slit
+is closed to select a row of particles to be measured. (d) Scat tering spectra of a
+single nanorod for diﬀerent polarization angles.
+lected with the objective and sent to an spectrometer (Shamr ock 500i-Andor) in
+the Czerny-Turner conﬁguration. The spectrometer has a ver y sensitive EMCCD-
+camera (Ixon3-Andor) and a motorized torrete that allows cho osing between two
+diﬀerent diﬀraction gratings (150 and 1200 lines/mm) and a m irror. If the mir-
+ror is chosen, the system is used for imaging. The sample, the e ntrance slit and
+the sensor of the camera are in conjugated planes of the optic al system. The
+entrance slit is motorized and can be closed to select a regio n of the sample for
+the spectroscopic measurement. This is illustrated in ﬁgur e 4.3c. A polarization
+control module can be included in the optical path, when pola rization-resolved
+measurements are intended. It consists on three optical ele ments: an uncoated
+Glan-Thompson polarizer in a rotating mount, a λ
+2 achromatic waveplate and a
+
+--- PAGE 55 ---
+54 4. Experimental set-up for automated multi-color optical printing
+ﬁxed polarizer. The ﬁrst polarizer is employed to select the po larization compo-
+nent of the light be measured and ﬁlter out the other componen t. The purpose of
+the waveplate and the ﬁxed polarizer is to eliminate artefac ts in the measurement.
+Diﬀraction gratings usually have polarization-dependant reﬂection spectra. The
+waveplate is used to rotate the polarization of light in such a way that the inci-
+dent polarization on the grating is always parallel to its gro oves. This condition
+is guaranteed by the last polarizer. It is important to note t hat notch ﬁlters (see
+ﬁgure 4.1) are removed from the optical path before measurin g spectra. Figure
+4.3.c shows an example of polarization-resolved scatterin g spectra of a single Au
+nanorod, with a nominal size of 70x20nm.
+Alternatively, the spectrometer can be used to measure inela stic scattering
+spectra, such as Raman or ﬂuorescence. To that end, narrow ban d lasers are
+used for illumination instead of the white light lamp and sui table notch ﬁlters are
+used to avoid reﬂections of the excitation laser from reachi ng the detectors.
+4.2 Computer Automation
+A custom software was developed in Labview for integrating t he control of in-
+struments of the microscope through a common graphical user i nterface. A mul-
+tifunction data acquisition device DAQ (National Instrumen t PCIe-6353 ) is used
+for acquiring, sending and synchronizing the signals of diﬀ erent instruments. It
+is connected to the computer through a PCI-express port and co ntrolled by the
+Labview software. The control of the colour Canon camera and the Shamrock
+spectrometer was performed independently using software pr ovided by their man-
+ufacturers, called EOS Digital SDK and Andor Solis, respecti vely.
+The main window of the graphical interface is shown in ﬁgure 4. 4. In the
+following, its diﬀerent functionalities are described.
+Nanopositioning
+The front-screen of the nanopositioning module is shown in ﬁ gure 4.4b. It has
+buttons that allow setting and reading the position of the pi ozelectric stage.
+The stage has a control driver (PI E-517) that communicates di gitally with the
+computer through an USB cable. Motion control is achieved wit h nanometric
+resolution and the range of 200 µmon each (X, Y, and Z) axis. Also, it is
+possible to read the current position of the stage though cap acitive sensors. The
+
+--- PAGE 56 ---
+4.2. Computer Automation 55
+(a)
+(b) (e)
+(d)
+(c)
+(f)
+(g)
+Figure 4.4: Graphical interface of the control program. (a) I mage Navigation (b)
+Nanopositioning (c) Printing Routine (d) 2D scanning and Time trace (e) Focus
+Lock (f) Laser Shutters and ﬁlters (g) Dimers Routine
+manufacturer provides a library of Labview programs to cont rol the stage.
+Laser Shutters and Filters
+The front-screen of the illumination control is shown in Figu re 4.4f. It has but-
+tons to control the shutters and motorized ﬂippers. Each las er has a shutter, that
+is driven through TTL signals sent by the DAQ and controlled by the program.
+Also, neutral density ﬁlters mounted on a motorized ﬂipper ar e included in the
+path of the beam. This enables switching the intensity of the l aser beams be-
+tween two levels, which is useful to rapidly change between pr inting and scanning
+applications.
+Timetrace
+Timetrace routine is called by the buttons from the main graph ical interface
+shown in ﬁgure 4.4d. In order to initialize it, a laser has to be chosen. After
+that, an independent control graphical interface is opened, as shown in ﬁgure
+
+--- PAGE 57 ---
+56 4. Experimental set-up for automated multi-color optical printing
+4.5. The program opens the shutter of the chosen laser and mea sures the signal
+on the corresponding photodiode as a function of time (see ﬁg ures4.1 and 4.2a).
+The detected signal is proportional to the light reﬂected an d scattered by the
+sample, as described by equation 4.1, and is shown online. Th e program has
+three stopping options: It can be set to run for a pre-determi ned period of time,
+it can be set to run continuously until manually stopped by pr essing a button,
+or it can be programmed to stop according to a given condition obtained from
+the live analysis of the signal (i.e. change in slope, increme ntation above certain
+threshold, etc.). These routines works smoothly for acquisi tion rates up to 1
+kHz. Faster acquisitions are possible without live visualiza tion on screen or the
+possibility of automated stopping. Due to the slow communica tion speed between
+the computer and the DAQ, the response time for automated sto pping is about
+10ms.
+After the acquisition stops, a ﬁle with the measured data is cr eated. Relevant
+additional information such as the acquisition frequency or the date are also
+included in the ﬁle.
+Figure 4.5: Graphical interface of the Timetrace program.
+1D Scanning
+This program measures the signal in the photodiode as a funct ion of the position,
+while the stage performs a one dimensional back and forth mov ement in one of
+
+--- PAGE 58 ---
+4.2. Computer Automation 57
+its three axes (x,y or z). A laser beam, an axis, the number of p ixels, the range
+of motion and a timebin has to be speciﬁed. According to these p arameters, a
+ﬁle with the coordinates of the movement is created and loaded in the driver
+of the PI. To ensure linear motion between two positions xstart and xend, the
+range of movement is extended ( xmin and xmax) and acceleration ramps with no
+acquisition are included in the extended region. The stage h as capacitive sensors
+that measure its current position. Using that information th e stage driver has the
+capability to send trigger signals when the stage crosses a ch osen position. Those
+signals are received by the DAQ, that only acquires data from the photodiode if
+the stage is inside the range between xstart and xend.
+2D and 3D Scanning
+The scanning program user interface is shown in 4.6. It can be used independently
+or called from a panel on the main interface as shown in Figure 4 .4d. It is based on
+the 1D scanning program. One dimensional back and forth acqu isition is repeated
+in one axis, while shifting the position of a second axis betw een consecutive lines.
+Two-dimensional images can be acquired, in any combination o f axis (xy, xz or
+yz), It also allows the acquisition of a stack of 2D images, fo r example several
+xy scans at diﬀerent z positions. Figure 4.6 shows the confoca l measurement of
+a single MNP. Left image correspond to data acquired when the s tage is moving
+forward, ant right image correspond to the return.
+This program also allows the on-line computing of the centre of mass of the
+image (as shown in the left-bottom panel). After the acquisit ion stops, a ﬁle with
+the measured data and additional relevant information is cr eated.
+Image Navigation
+In the viewer of Figure 4.4a, the last performed 2D scan is show n. The centre of
+the image marks the centre of the objective. It has cursors to choose a position
+on the image. A routine permits to move the stage in order to cen tre the beam
+at the selected position. In addition, another routine allo ws the computation of
+the centre of mass of the image, and subsequent centring of th e beam with that
+point. This can be used, per example, to centre a NP with a laser beam.
+
+--- PAGE 59 ---
+58 4. Experimental set-up for automated multi-color optical printing
+Figure 4.6: Graphical interface of the 2D scanning program.
+Focus Lock
+This program uses the 1D scan in the z axis. It can be called to s ave a z position or
+to return to a previously saved position, using the buttons sh own in Figure 4.4e.
+In order to save a certain position, a one dimensional z-scan centred is performed,
+with 8 µm range. The resulting intensity proﬁle is saved in a ﬁle. To re turn to
+the saved position in a later moment, another z-scan is measu red and the result
+is compared with the saved proﬁle through an autocorrelatio n algorithm. That
+algorithm provides the z displacement that has to be implemen ted in order to
+maximize the correlation between both z-scans. Another poss ibility is to use this
+program to measure a one dimensional z-scan intensity proﬁl e and then move to
+the position of maximum intensity.
+Routines for optical printing individual nanoparticles and dimers
+The Printing Routines combines several of the above describ ed programs in or-
+der to achieve versatile and automated optical printing and characterization of
+individual NPs and dimers of two NPs .
+Optical printing of individual NPs is controlled by the butto ns in Figure 4.4.c.
+First, a ﬁle with a 3xN matrix including the three coordinates ( x,y,z) of the N
+
+--- PAGE 60 ---
+4.2. Computer Automation 59
+particles to be printed is loaded. Second, the focus lock pro gram is used to
+save the z position. Then, the program moves the stage to the ta rget positions,
+automatically prints particles and includes focus correct ion or confocal scans when
+required. During the focusing and the scanning steps, the int ensity of the beam is
+kept low using the computer-controlled neutral density ﬁlt er, to avoid the printing
+of particles. All shutters are closed between steps. The wave length of the beams
+employed for printing, focusing or scanning can be independe ntly chosen. Using
+these routines it was possible to fabricate patterns of Ag and Au NPs as shown
+in ﬁgure 4.7.
+Dimers routines are intended to be used after a Printing Routi ne. They are
+controlled by the buttons in Figure 4.4.g. Each particle on a p rinted array is
+located using the same ﬁle of coordinates, and a second parti cle is printed close
+to it, at a ﬁxed distance (∆ x,∆y). This routines includes confocal scans to ﬁnd
+the centre of a printed particle, compensation of any focus d rift and additional
+confocal scans to characterize the fabricated dimers.
+
+--- PAGE 61 ---
+60 4. Experimental set-up for automated multi-color optical printing
+Figure 4.7: Patterns of Au and Ag NPs fabricated by optical printi ng on glass
+substrates.
+
+--- PAGE 62 ---
+5
+Optical printing accuracy of
+isolated Ag and Au nanoparticles
+The strength and direction of the optical forces depend on ma ny parameters: the
+particle size, shape and material and the shape and waveleng th of the optical ﬁeld.
+To illustrate this, ﬁgure 5.1a shows, as a function of wavelen gth, the maximal axial
+and radial forces exerted on Ag and Au nanoparticles (NPs) of the s ame diameter
+(60 nm), placed at the centre of a diﬀraction limited focus (NA = 1.0). As can
+be seen, the magnitude of optical forces is many times strong er for wavelengths
+close to the plasmon resonance of the particle. Also, the rati o between radial
+an axial forces dramatically changes with the wavelength. O n resonance, axial
+forces dominate, being approximately ten-fold stronger tha n radial forces. On the
+contrary, out of the plasmon resonance towards the red regio n, both axial and
+radial forces have similar magnitudes. Figures 5.1b-e show r epresentative force
+maps for Ag and Au at laser wavelengths on and oﬀ resonance.
+Optical printing of gold and silver NPs was proven to be possib le using a
+printing wavelength either at plasmon resonance[ 56] or oﬀ-resonance[ 60, 64], but
+no detailed study comparing the precision in each case has be en reported. Based
+on the ﬁrst measurement by Urban et.al.[ 48] (described in section 3), it has been
+accepted as a ‘rule of thumb’ that the printing accuracy of a si ngle particle was
+around 50 nm. However, there are still many open questions: Is that accuracy the
+best achievable? If so, which is the limiting phenomenon? Is there any inﬂuence
+of the wavelength or power of the printing beam? What is the bes t deﬁnition
+of precision? The aim of this chapter is to provide a deeper und erstanding of
+the subject including a detailed physical description of th e printing process. The
+61
+
+--- PAGE 63 ---
+62 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+employed substrates and particles are described in section 5.1. Section 5.2 deﬁnes
+the method to quantify the precision. Then, accuracy limits are tested for Au
+and Ag NPs on-resonance (section 5.3) and oﬀ-resonance (sectio n 5.4). Finally,
+(in section5.5) a theoretical framework and simulations are used to rationalize
+the experimental results.
+5.1 Sample preparation
+In all the experiments presented in this chapter, Au and Ag NPs we re printed
+on glass substrates. Both NPs were citrate coated, and negati vely charged at
+neutral pH. In order to avoid spontaneous binding of the metal lic nanoparti-
+cles (MNPs), the substrates were surface functionalized with negative charges
+employing a layer-by-layer deposition of polyelectrolyte s[51, 68, 69], with Polydi-
+allyldimethylammonium chloride (PDDA) Mw = 400000− 500000 as polycation
+and sodium polystyrene sulfonate (PSS) as polyanion Mw = 70000 (both from
+Sigma-Aldrich). First, glass coverslips were cleaned throug h the folowing steps:
+1. Sonication for 10 minutes in Hellmanex (2% v/v)
+2. Thorough rinse with MilliQ water.
+3. Acetone rinse.
+4. Dry in a laboratory oven at 80 ◦C.
+5. Plasma cleaning for 3 minutes.
+Then, substrate was surface modiﬁed by:
+1. Immersion in PDDA solution (1 mg/ml in 0.5M NaCl).
+2. Rinsing with MilliQ water.
+3. Immersion in PSS solution (1mg/ml in 0.5M NaCl).
+4. Rinsing and stored in MilliQ
+Citrate-capped gold NPs were purchased from Nanopartz (speci ﬁed diameter
+62± 2nm; average diameter determined by FE-SEM 63 nm ± 3 nm). Citrate-
+capped silver NPs (speciﬁed diameter 60nm ± 8nm; average diameter determined
+
+--- PAGE 64 ---
+5.1. Sample preparation 63
+(a)
+r [ nm ]
+0
+250
+500
+-250
+-500
+z [ nm ]
+500
+250
+0
+750
+1000
+0
+0.01
+0.02
+F [ pN]
+r [ nm ]
+0
+250
+500
+-250
+-500
+z [ nm ]
+500
+250
+0
+750
+1000
+0
+0.02
+0.04
+F [ pN]
+(b) Ag 405nm
+r [ nm ]
+0
+250
+500
+-250
+-500
+500
+250
+0
+750
+1000
+0.05
+0.15
+0.25
+F [ pN]
+z [ nm ]
+r [ nm ]
+0
+250
+500
+-250
+-500
+z [ nm ]
+500
+250
+0
+750
+1000
+0
+0.5
+1
+F [ pN]
+(c) Au 532n m
+(d) Ag 532nm (e) Au 640n m
+400 450 500 550 600 650
+0,005
+0,01
+0,1
+1
+2
+Optical Force [pN]
+Wavelenght [nm]
+Au |Fz|
+Ag |Fz|
+Ag |Fr|
+Au |Fr|
+Figure 5.1: (a) Absolute value of the maximum axial and radial f orce vs wave-
+length for 60 nm Ag and Au NPs placed at the centre of a diﬀraction l imited
+Gaussian focus with NA = 1.0, and a of P = 1 mW. The three vertical dashed
+lines correspond to the printing wavelength used in the expe riments, 405 nm,
+532 nm and 640 nm. (b-e) Force maps at P = 1 mW for 60 nm particles. The
+arrows denote the direction of the force and its magnitude is c olour coded. All
+forces were calculated using equations 1.30 and 1.31.
+by FE-SEM 57nm±5nm) were purchased from Sigma-Aldrich. For simplicity, and
+because the small diﬀerence in size is practically irreleva nt for these experiments,
+60 nm is used along this chapter as nominal size for both NPs. Or iginal colloids
+
+--- PAGE 65 ---
+64 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+are diluted to a concentration of C≈ 2. 109 particles
+ml using a solution of 1,5 mM
+NaCl.
+5.2 Determination of printing time and printing
+accuracy
+The process of optical printing includes Brownian motion an d is therefore stochas-
+tic. Consequently, in order to characterize the precision a nd the average printing
+time it is necessary to perform the experiment a large number of times with
+individual NPs to obtain the representative statistics. To t hat end, the follow-
+ing procedure was performed. First, the stage was moved to the target position
+(x0,y 0) for the optical printing of a NP. The laser beam was unblocked a nd a the
+time-trace of the confocal scattering signal was monitored and analysed on-line
+in order to detect the when a NP was printed, as shown in ﬁgure 5. 2e. Printing
+events were detected as a step in the scattering signal. The “w aiting time” is
+deﬁned as the time interval between the moment the beam was un blocked and
+the moment when a printing event was detected. This waiting ti me for optical
+printing varies stochastically from one attempt to the othe r, and a characteristic
+distribution is shown in 5.2f. As can be seen, is a non-symmetri cal fat-tailed dis-
+tribution, i.e. there are events with much longer times than the average, unlike
+in a Gaussian distribution. Upon the detection of a printing e vent, the beam is
+immediately blocked. Right after that, a confocal scatteri ng image is acquired,
+using a lower laser intensity in order to prevent further pri nting events during
+scanning. The centre of the image is the target position ( x0,y 0). The centre of
+mass of the image was computed and assigned to the position of t he printed par-
+ticle (x,y ). The diﬀerence ( δx,δy ) = (x0,y 0)− (x,y ) is the printing error. Using
+this approach, errors due to mechanical drift of the microsc ope are negligible,
+because acquiring an image takes less than ten seconds and th e microscope drift
+is about 5nm/min.
+As discussed in section 4.1, the detection of MNPs is interfero metric. Depend-
+ing on the scanning wavelength, the particles can appear as b right or dark spots
+in the images. For localization purposes, the scanning wave length was always
+λ = 405 nm for Ag NPs and λ = 532 nm for Au NPs, independently from the
+wavelength used for printing it. In this way, the NPs are detec ted as bright spots
+in all cases.
+
+--- PAGE 66 ---
+5.2. Determination of printing time and printing accuracy 65
+200nm
+(a) (b)
+(c) (d)
+x
+y
+r
+−100 −50 0 50 100−100
+−50
+0
+50
+100
+9 0 %
+6 6 %
+3 3 %
+(e)
+Waiting t im e
+0 1 2 3 4
+0,0
+0,5
+1,0
+1,5Scattering [a.u]
+Time [s]
+0 25 50 75 100
+0
+20
+40
+60
+80
+100
+120Counts
+Waiting time [seg]
+(f)
+x / y / r [nm]
+Figure 5.2: (a) Dark ﬁeld image of two square array of optically printed 60 nm Au
+NPs (b) Example of a ccattering confocal scan used to determina te the printing
+error. (c) Scatter 2D plot where the coordinates of each dot i s the printing error
+of a particle. (d) Unidimensional (x and y) and radial (r) cumu lative distribution
+functions Φ (e) Timetrace: Elastic scattering signal durin g optical printing of
+a NP. The step in the signal correspond to a printing event. (f) Histogram of
+waiting times. The median is tm = 4. 7 s
+Figure 5.2a show a dark ﬁeld image of an example with 200 NPs print ed in
+two square grids for accuracy determination. There are some r eddish NPs which
+correspond to non-sphperical or larger particles. After eac h particle was printed,
+the error ( δx,δy ) was computed, using a confocal scan as shown in ﬁgure 5.2b.
+Particles that were evidently diﬀerent in the dark ﬁeld imag e were removed from
+
+--- PAGE 67 ---
+66 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+the analysis. An example result of such a measurement is shown in ﬁgure 5.2c,
+where the coordinates of all printing errors are included in a 2D scatter plot. The
+grey circles represent the areas containing the 33%, 66% and 90% of the particles.
+The radius containing the 90% is called R90. An alternative way of visualizing
+the same information is through the cumulative distributio n function Φ, as shown
+in ﬁgure 5.2d. This function, represents the probability th at a random particle
+will be printed within a range from the target coordinate. As a n example, ﬁgure
+5.2d shows the unidimensional cumulative distributions fu nctions along the x and
+y directions ( φ(x) and φ(y)), obtained from the analysis of the optical printing
+of 200 NPs. Both function are similar indicating that the pri nting error is fairly
+isotropic. Furthermore, since NPs were printed with linearl y polarized light along
+the x axis, printing error is independent of the polarization of t he beam.
+The standard deviations, calculated using Sx =
+√
+1
+N
+∑ N
+i=1(xi−x)2 withx the
+mean value and N the number of particles, are Sx = 38. 8 nm and Sy = 37. 6 nm.
+In the following sections the precision is characterized us ing the cumulative
+distribution function (CDF) for the modulus of the error δr =
+√
+δx2 +δy 2, as
+shown in ﬁgure 5.2.d in the light blue curve. The Root mean squ are error (RMSE)
+is deﬁned as
+eRM S =
+/radicaltp/radicalvertex/radicalvertex√ 1
+N
+N∑
+i=1
+(xi−x)2 + (yi−y)2 (5.1)
+In the present example, eRM S = 53. 9nm.
+5.3 On-resonance Optical Printing
+The inﬂuence of laser power on the accuracy of optical printi ng near plasmon
+resonance was investigated for Au and Ag 60nm NPs . For this purpo se, the
+procedure described in 5.2 was carried out for a range of lase r power levels, using
+wavelengths of 405 nm for Ag and 532 nm for Au with a beam waist w0 of
+(226± 7) nm and (265 ± 5) nm respectively. Example grids are shown in ﬁgure
+5.3a and 5.3b. The results were similar for both materials. At lower powers,
+printing events become rare; the optical forces are too weak to overcome the
+electrostatic repulsion. A maximum waiting time of two minu tes before moving
+to the next position was set, and that is the reason why there a re holes in the grids
+at the lowest powers. If the laser power is decreased below a c ertain threshold, no
+particle is printed. The threshold power Pth was deﬁned as the minimum power
+
+--- PAGE 68 ---
+5.3. On-resonance Optical Printing 67
+Figure 5.3: On-resonance printing: Example arrays of (a) Au an d (b) Ag 60nm
+NPs fabricated through on-resonance optical printing at diﬀe rent laser powers.
+Figure 5.4: On-resonance printing: (a) Radial CDF for Ag NPs at d iﬀerent
+powers. (b) Radial CDF for Au NPs at diﬀerent powers.
+
+--- PAGE 69 ---
+68 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+for which there is at least one printing event in ten minutes. It was found to be
+Pth = (0. 55± 0. 05) mW for Ag and Pth = (1± 0. 05) mW for Au.
+On the other hand, at high powers the number of defective NPs increases.
+Those are the particles appearing with diﬀerent colours in t he dark-ﬁeld images
+of the example grids. This could be caused by the lost of selec tivity as the optical
+forces became strong enough to print other types of NPs from th e suspension.
+Other possibility is that the particles can be reshaped or mo diﬁed by the high
+temperatures and electric ﬁelds reached[ 70] (further discussion on controlled re-
+shaping is presented in chapter 7). The power was increased u ntil the defective
+NPs outnumbered the regular NPs .
+0,0 0,5 1,0 1,5 2,0 2,5 3,0 3,5 4,0 4,5 5,0
+0
+50
+100
+150
+200
+250
+Laser Power [mW]
+eRMS [nm]
+Ag@405nm
+Au@532nm
+0,5 1,0 1,5 2,0 2,5 3,0 3,5 4,0 4,5 5,0
+0,5
+1
+5
+10
+20
+Median waiting time [s]
+Laser Power [mW]
+(a) (b)
+Ag@405nm
+Au@532nm
+Figure 5.5: (a) On-resonance waiting time (log scale) as func tion of laser power.
+(b) eRM SE as a function of laser power for both materials. Pink: Ag at λ =
+405 nm. Blue: Au at λ = 532 nm.
+Figures 5.4a and 5.4b show the Φ for six diﬀerent laser powers. Clearly, the
+precision of optical printing gets worse as the laser power i ncreases, for both
+NPs when the light used is tuned to their respective localized surface plasmon
+resonance (LSPR). Figure 5.5b summarizes this observation d isplaying theeRM SE
+as a function of the power for both materials. The precision i mprove as the laser
+powers is decreased, reaching values of around 50 nm, well be low the beam waist
+size. However, a slightly larger error eRM SE is found for the laser power closes to
+the minimum threshold.
+It is also interesting to investigate whether the waiting ti mes for printing
+depend on laser power. 5.5a shows the median waiting times for the printing of
+Ag and Au NPs as a function of laser power. In both cases the waitin g time
+increases as the laser power reduces, and they become drasti cally longer as the
+
+--- PAGE 70 ---
+5.4. Oﬀ-resonance Optical Printing 69
+threshold approaches.
+5.4 Oﬀ-resonance Optical Printing
+(c) Ag
+0 50 100 150 200 250 300
+0,00
+0,25
+0,50
+0,75
+1,00
+CDF Φ
+r [nm]
+3.5 mW
+4.5 mW
+7.0 mW
+9.4 mW
+20.0 mW
+23.5 mW
+(d) Au
+0 50 100 150 200 250 300
+0,00
+0,25
+0,50
+0,75
+1,00
+CDF Φ
+r [nm]
+5.2 mW
+6.1 mW
+8,3 mW
+10,9 mW
+λ= 532nm λ= 640nm
+Figure 5.6: Oﬀ-resonance printing: (a) Radial CDF for Ag NPs at λ = 532 nm
+and diﬀerent powers. (c) Radial CDF for Au NPs at λ = 640 nm and diﬀerent
+powers.
+Median waiting time [s]
+0 5 10 15 20 25
+1
+10
+100
+Ag@532nm
+Au@640nm
+0 5 10 15 20 25
+0
+50
+100
+150
+200
+250
+eRMS [nm]
+Laser Power [mW] Laser Power [mW]
+(a) (b)
+Ag@532nm
+Au@640nm
+Figure 5.7: (a) Oﬀ-resonance waiting time (log scale) as func tion of laser power.
+Black:Ag at λ = 405 nm. Red: Au at λ = 532 nm.
+In order to print NPs out of resonance, lasers of 532 nm for Ag and 640nm for
+Au were used, with a beam waist w0 of (265±5)nm and (319±6)nm respectively.
+As expected from the smaller absorption and scattering cross sections involved,
+higher laser powers are required for optical printing. The t hreshold powers were
+Pth = 3. 5 mW for Ag and Pth = (5± 0. 5) mW for Au.
+
+--- PAGE 71 ---
+70 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+On resonance, the automatic detection of printing events is done with the
+printing beam itself. This can be diﬃcult when working oﬀ-res onance, due to
+destructive interference that occurs at the detector (disc ussed in section4.1). For
+this reason, a detection laser was superimposed to the printi ng beam, resonant
+with plasmon of the particle. The intensity of the detection laser was kept as
+low as possible, and in all cases the force exerted by this bea m was below 10%
+of the force exerted by the printing beam. An additional diﬃcu lty for automated
+detection is that, due to the high radial to axial force ratio present when using
+oﬀ-resonance light, particles can be trapped in the confoca l volume and raise the
+detection signal, but without being printed on the surface. For this reason an
+additional conﬁrmation step was included. After a NP was detec ted, both the
+printing and the detection beams were blocked for a time inte rval of one second.
+Then, the presence of the NP was interrogated with the detect ion beam alone,
+in order to check whether the particle was ﬁxed on the surface . If the NP was
+not ﬁxed, the printing beam was unblocked and the process was repeated until a
+NP was eﬀectively printed. Once the printing was conﬁrmed, the position of the
+printed NP and the printing error were determined.
+Figure 5.6 shows the Φ( r) obtained from the oﬀ-resonance printing of 200
+NPs at diﬀerent laser powers. Remarkably, the precision of op tical printing oﬀ-
+resonance is practically independent of the laser power used. Although the preci-
+sion in this case is a little worse than the best precision att ained in resonance, it
+remains well below the diﬀraction limit. The value of erms in each case is roughly
+2.75 times smaller than the beam waist, namely 90 nm for Ag and 1 15 nm for
+Au NPs (Figure 5.7).
+The waiting times are shown in ﬁgure 5.7a. They are in general larger than
+ones observed on resonance, but follow the same decreasing t endency with in-
+creasing power.
+5.5 Discussion of the Optical Printing mecha-
+nism
+In this section a physical description of the process of opti cal printing of NPs
+is provided, aiming to explain the experimental observatio ns described in the
+previous sections. First, the measured waiting times are di scussed in subsection
+5.5.1. Then, the printing precision is addressed in subsect ion 5.5.2. Part of
+
+--- PAGE 72 ---
+5.5. Discussion of the Optical Printing mechanism 71
+the results presented here emerged from fruitful discussio ns with Luk´ aˇ s Chv´ atal
+and Pavel Zem´ anek from the Group of Optical Micro-manipulat ion Techniques
+(OMITEC) at the Institute of Scientiﬁc Instruments of the Cze ch Academy of
+Sciences (Brno, Czech Republic). Subsection 5.5.1 include calculations performed
+by Lukas Chvatal, as indicated.
+5.5.1 Waiting time for optical printing
+During the optical printing process, the NPs may experience tw o kinds of mo-
+tion: i) Deterministic motion driven by the external optica l ﬁeld or ii) Diﬀusive
+or Brownian motion. Below, the two types of motion are descri bed and their
+contribution to the observed waiting times is discussed.
+Deterministic motion: Fluid ﬂows can be classiﬁed according to the Reynolds
+number[71]
+Re = ρ ˜V ˜L
+µ (5.2)
+where ˜V is a characteristic velocity, ˜L a characteristic length, µ the dynamic
+viscosity and ρ the ﬂuid density. The Reynolds number estimates the ratio be-
+tween inertial and viscous forces. If Re≪ 1, viscous forces dominate. In the
+present system, using ˜L = 60nm for the sphere diameter, µ = 10 −3Pa s and
+ρ = 10 −3 kg
+m3 for the water viscosity and density, respectively, one obtai ns a value
+of Re≈ ˜V 6. 10−2 s
+m which is ≪ 1 for any physically meaningful velocity of the
+NPs during the optical printing process. The movement of a part icle in a ﬂow
+with such a small Reynolds number is overdamped. This means that the velocity
+of the particle is proportional to the applied force, accord ing to Stokes equation
+V (⃗ r) = F (⃗ r)γ (5.3)
+withγ = 1
+6πµa the Stokes mobility and a the particle radius. For the NPs moving
+in water driven by an external optical ﬁeld Fop(r) we can assign to each point a
+characteristic time for deterministic motion given by
+˜τd (⃗ r) =
+˜L
+|V (⃗ r)| =
+˜L
+γ|Fop (⃗ r)| (5.4)
+
+--- PAGE 73 ---
+72 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+Equation 5.3 states the proportionality between the force a nd the velocity. This
+means that the force ﬁeld lines can be interpreted as velocit y lines or trajectories.
+Given an initial position ⃗ r, the trajectory toward the surface is determined by
+the optical forces. This enables the calculation of a “time o f ﬂight” τ (⃗ r), given
+by the path integral on the trajectory from that position ⃗ rto the substrate
+τ (⃗ r) =
+∫ z=0
+⃗ r
+dl
+γ|Fop(r)| (5.5)
+Figure 5.8 shows the time of ﬂight τ for Au particles near the Gaussian focus of
+a beam of λ = 532 nm, with a waist of w0 = 265 nm a power of P = 1 mW,
+typical parameters of optical printing on resonance. Since t he beam has axial
+symmetry, it is shown in polar coordinates. The motion of the Au NPs under
+0
+r [ nm ]
+400 800
+2000
+1500
+1000
+500
+0 −4
+−3.5
+−3
+−2.5
+−2
+−1.5
+−1
+−0.5
+0
+0.5
+1
+1.5
+2
+-400-800
+Tim e of flight to surface. (log 10[ s] )
+Au λ= 532nm  P= 1m W
+z[ nm ]
+Figure 5.8: Time of ﬂight for deterministic motion calculate d using equation 5.5
+for Au NPs with a laser beam of λ = 532 nm, a waist w0 = 265 nm and power
+of P = 1 mW. Values on this ﬁgure were calculated by Lukas Chvatal fr om
+OMITEC.
+these conditions is much faster than the observed waiting ti mes. For example,
+a particle starting 2 µm away from the surface at the center of the beam has a
+time of ﬂy of ≈ 10ms, while the observed waiting times are typically in the or der
+of the seconds. Therefore, the optical printing process can n ot be explained only
+
+--- PAGE 74 ---
+5.5. Discussion of the Optical Printing mechanism 73
+in terms of deterministic motion and Brownian motion must be involved as well.
+Free diﬀusive Brownian motion: The mean square displacement of a
+freely diﬀusing particle three dimensions in a time t is [ 72]
+∆r2 = 6Dt = 6γkBTt (5.6)
+With D = γkBT the diﬀusion coeﬃcient, γ = 1
+6πµa the Stokes mobility, kB the
+Boltzmann constant and T the temperature. Let denote ˜ τf the characteristic
+time for which a particle diﬀuses over some characteristic d istance ˜L.
+˜τf =
+˜L2
+6kBTγ (5.7)
+Considering a NP with diameter of 60 nm, in water and at 25 ◦C, the time needed
+by the NP to diﬀuse over a length equal to its own radius is ˜ τf≈ 6. 10−5s. If this
+time is much shorter than its deterministic counterpart, the n the motion of the
+NP is dominated by free diﬀusion (pure Brownian motion). One wa y to analyse
+these kind of situations is by means of the adimensional Pecl et number:
+Pe (⃗ r) = τf
+τd (⃗ r) =
+˜L|Fop (⃗ r)|
+2kBT (5.8)
+If the P´ eclet number is much lower (higher) than unity, diﬀusion is dominant (neg-
+ligible). It will be assumned that the characteristic time f or Brownian motion
+˜τf is uniform in space; i.e. there is no inﬂuence of the surface or high temper-
+ature increases induced by the laser on the diﬀusion. The char acteristic time
+for directed motion τd depends on position according to the optical force ﬁeld.
+Using the P´ eclet number, a “capture volume” Vc can be deﬁned, understood as
+the region of space where the optical forces are stronger tha n Brownian motion.
+This volume and its boundary surface Sc are deﬁned as
+Vc ={⃗ r:P (⃗ r)> 1}
+Sc ={⃗ r:P (⃗ r) = 1}
+(5.9)
+Figure 5.9 shows the surfaces Sc for Au NPs on-resonance and for Ag NPs oﬀ-
+resonance for diﬀerent power levels. In both cases a Gaussia n beam of λ =
+532 nm with a waist of w0 = 265 nm was used. The capture volume increases
+
+--- PAGE 75 ---
+74 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+−300 0 300
+2500
+2000
+1500
+1000
+500
+0
+2 mW
+1.2m W
+1.5m W
+2 mW
+3 mW
+4 mW
+5 mW
+6 mW
+7 mW
+8 mW
+9 m w
+10 m w
+6 mW
+8 mW
+10 mW
+15 mW
+20 mW
+30 mW
+35 mW
+40 mW
+45 mW
+50 mW
+0
+(a) Au (b) Ag
+z [ nm ]
+z [ nm ]
+600−600
+2500
+2000
+1500
+1000
+500
+−300 0 300 600−600
+r [ nm ]r [ nm ]
+λ= 532nm
+25 mW
+λ= 532nm
+Figure 5.9: Capture surfaces Sc ofPe = 1 for diﬀerent powers levels, calculated at
+λ = 532 nm for (a) on-resonance Au and (b) oﬀ-resonance Ag 60 nm sph eres. This
+surfaces can be understood as the transition between Browni an and deterministic
+motion. A beam waist of w0 = 265 nm was used. Values on this ﬁgure were
+calculated by Lukas Chvatal from OMITEC.
+for higher powers. If a particle is inside this volume, it is dr iven towards the
+substrate by the optical force ﬁeld. This motion is fast. For example, a Au NP
+illuminated at λ = 532 nm and P = 1, 5 mW that enters the capture volume
+from the axial axis (r=0), will require ≃ 1ms to reach the surface. This time is
+negligible compared to observed waiting times, that are typ ically of a few seconds.
+Therefore, it can be concluded that the main contribution to t he waiting time
+is given by the Brownian motion of the particles outside the c apture volume,
+i.e. the waiting times shown in ﬁgures 5.5a and 5.5b correspo nd to the time
+that the closest particle to Vc requires to reach Sc by diﬀusive motion. Since it
+depends on the initial position of the particle and its rando m motion, the waiting
+time is a stochastic variable with values varying from one ev ent to an other.
+The fact that the capture volume increases with the power exp lains why the
+waiting time decreases. It is important to note that the parti cle concentration
+is C ≈ 2. 109 N P s
+ml , which correspond to approximately 5 . 10−4 particles in the
+
+--- PAGE 76 ---
+5.5. Discussion of the Optical Printing mechanism 75
+capture volume Vc(1. 2 mW ) for Au in resonance. This means that when the
+printing beam is turned on, the most likely situation is the c apture volume to be
+empty.
+This conclusion is further supported by estimating the orde r of magnitude of
+diﬀusive times. The concentration of particles is C ≃ 2. 109 N P s
+ml which means
+that, on average, there is a particle every ≃ 500 µm3. This value is typically
+much larger than the capture volumes. For example, the captu re volume for Au
+NPs at P = 1. 5 mW is Vc(1. 5 mW )≃ 0. 05µm3. The average distance between
+a particle and the capture volume is can then be estimated by ≃ 8 µm. The
+required time for a particle of 60 nm to diﬀuse over that dista nce is, according to
+equation 5.7, τ≃ 1, 4s, which is of the same order of magnitude of the observed
+waiting times.
+5.5.2 Printing error
+The width of the capture volume is comparable to the beam wais t w0, i.e. a few
+hundreds of nanometers, as can be seen from ﬁgure 5.9. However , the observed
+printing error or mean square error of the printed NPs are smal ler, and particles
+can be printed with a position accuracy of up to ≃ 50nm. In order to explain this,
+it is important to recall that there is an electrostatic barr ier close to the surface,
+as introduced in section 3.1. Therefore, the necessary cond ition for printing a
+particle in a position r on the surface, is that the axial optical force F z
+op(r,z )
+fulﬁls the condition
+|F z
+op| (r,z = 0) >F th (5.10)
+WhereFth =max{FDLV O} is the threshold force, deﬁned as the maximum of the
+surface repulsion, given by DL VO theory. According to this th eory, the range of
+action of the repulsion is limited to distances between the s urface and the particle
+of just a few nanometers. Considering that this distances are s hort compared to
+the typical variation lengths of the optical ﬁelds, Fop in 5.10 was evaluated at the
+surface plane z = 0 with negligible error.
+The existence of a threshold force is consistent with the exp erimental observa-
+tion of a threshold laser power Pth, below which it is impossible to print a particle.
+In fact, the value of the electrostatic threshold force Fth can be estimated from
+
+--- PAGE 77 ---
+76 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+the experimentally observed Pth though
+Fth =max
+[
+F z
+op (Pth)
+]
+(5.11)
+If a the laser power is above the threshold power, it is capabl e of generating op-
+tical forces stronger than the surface repulsion Fth. Hovewer, since optical forces
+decrease rapidly for increasing distance from their maxima , the region where they
+are stronger than the repulsion is limited. For each laser po wer, a “printing ra-
+dius” Rp (P ) is deﬁned, as the radius of the region in the focal plane wher e the
+axial optical force is above the threshold, i.e. the radius w ithin the axial optical
+force fulﬁls condition 5.10. Figure 5.10 shows the axial optic al force F z
+op (r,z = 0)
+-400 -300 -200 -100 0 100 200 300 400
+0,0
+0,5
+1,0
+1,5
+2,0
+F
+z
+op [pN]
+r [nm]
+1.2m W
+2 mW
+3 mW
+4 mW
+5 mW
+Rp(2m W)
+Au λ= 532nm
+Figure 5.10: Axial optical force F z
+op at the substrate plane (z=0) as a function
+of the radial position, for Au NPs at λ = 532nm and diﬀerent beam powers.
+The blue horizontal line indicates the threshold repulsive electostatic barrier Fth.
+The printing radius Rp is depicted at P = 2mW . The threshold force Fth was
+calculated using equations 5.11, 1.30 and 1.31 and the exper imental value of Pth.
+for diﬀerent beam powers, only for the region within the prin ting radius Rp (P ),
+calculated for Au NPs at λ = 532 nm. The value for Rp (P = 2 mW) is depicted.
+Figure 5.11 shows Rp (solid lines) as a function of the laser power, for 60 nm Au
+and Ag NPs at the wavelengths experimentally tested in previou s sections. Rp
+increases steeply close to the threshold power and diminish es its growth rate as
+
+--- PAGE 78 ---
+5.5. Discussion of the Optical Printing mechanism 77
+the laser power increases..
+It is interesting to compare the calculated printing radius Rp with the experi-
+mental observations of previous sections. For that, we incl uded in ﬁgure 5.11 the
+observed R90 for each condition. This is, the radius containing the 90% of the
+localizations of printed particles, as deﬁned in section 5.2 . The general agreement
+between Rp and R90 for the on-resonance case is remarkable, specially conside r-
+ing that the calculations included no free parameter, which is a strong indication
+that the proposed physical picture is correct in essence. Th ere is a systematic
+deviation at the highest laser powers, where the observed pr inting error R90 is
+larger than Rp. This can be due to the considerable temperature increase th at
+the particles experience at those high powers, which can be a s large as hundreds
+of degrees, distorting (reducing) the repulsion.
+At this point, it becomes clear why is not possible to increas e the optical
+printing precision simply by reducing the laser power.
+In theory, one could set the laser power just above the thresh old in order to set
+a small printing radius Rp and thus highly accurate printing. However, it must be
+noted that close to the threshold, the dependence of Rp with the printing power
+is extremely sharp. For example, dRp
+dP (Pth) = 2 nm
+µW for Au at λ = 532 nm, which
+means that a power sweep with at least 10 µm of resolution is needed to ﬁnd
+such a power. Also, ﬂuctuations of the power should be kept smal ler than≈ 10
+umW or equivalently≈ 1%. Even though such stability levels are experimentally
+possible, the value of the threshold Pth would also be aﬀected by other factors
+like: i) Small variations in the particle size can change the exact value of the
+optical force. ii) Inhomogeneities in the surface charge of the particles and/or the
+substrate can change the exact value of the electrostatic ba rrier from one printing
+event to another.In practice, using laser powers very close to the threshold seems
+to lead to worse accuracy, as shown in ﬁgure 5.11. At this leve ls of laser power,
+printing events become rare, and it is possible that the expe riment ends up biased
+by printing events on surface regions where the charge densi ty is slightly smaller.
+A more detailed discussion is open by considering the traject ories of the NPs
+. As discussed is subsection 5.5.1, once a particle enters the capture volume, it
+is dragged to the substrate by the optical force, following a deterministic trajec-
+tory. If the end position of the trajectory is inside the prin ting radius Rp, the
+electrostatic barrier can be overcame and the particle is pr inted. However, there
+are trajectories for which the end position on the substrate i s outside the printing
+
+--- PAGE 79 ---
+78 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+0 5 10 15 20 25
+0
+50
+100
+150
+200
+250
+300
+Laser Power [mW]
+0 1 2 3 4 5
+0
+50
+100
+150
+200
+250
+300
+Laser Power [mW]
+(a) On-resonance
+Printing Radius Rp [nm]
+Printing Radius Rp [nm]
+Ag@405nm
+Au@532nm
+Ag@532nm
+Au@640nm
+(b) Off-resonance
+Figure 5.11: Solid lines: Theoretical printing radius lmax as a function of printing
+power for 60 nm Au and Ag NPs on-resonance (a) and oﬀ-resonance (b ). Squares:
+Experimental root mean square error eRM S. Pink: Ag at λ = 405 nm. Blue: Au
+at λ = 532 nm. Black: Ag at λ = 532 nm. Red: Au at λ = 640 nm.
+radius. Those NPs cannot reach the substrate. Their faith may be determined
+by radial forces that tend to direct them towards the beam cen ter. In this case
+they may cross Rp and be printed. Alternatively, Brownian motion may lead
+them outside the capture volume. In all cases, the ﬁnal posit ion of the printed
+particle is in the region inside Rp. Figure 5.12 show trajectories calculated for
+Au 60 nm NPs at diﬀerent powers and wavelengths, but only those tr ajectories
+that end inside the printing radius Rp are plotted.
+Figure 5.12a shows the situation for particles on-resonance and a printing
+power just above the threshold. Since radial forces on-reso nance are weak, tra-
+jectories are mainly axial. The black box at the substrate le vel correspond to the
+printing radius Rp. Since it is small, there are not many trajectories that lead s to
+printing. If the power is increased, the printing radius is l arger and more trajec-
+tories become available, painted in pink in ﬁgure 5.12b. Par ticles with an initial
+position inside the black trajectories will continue to be p rinted inside the black
+box. On the other hand, a particle with an initial position in the pink region or
+outside any trajectory will eventually be printed in the pink box. The amount of
+particles on each box, i.e. the ﬁnal distribution of printin g errors, will depend on
+the spatial distribution of probability for the initial pos ition of particles. Further
+increasing the printing power will provide more printing tr ajectories, as shown in
+light blue in ﬁgure 5.12c.
+
+--- PAGE 80 ---
+5.5. Discussion of the Optical Printing mechanism 79
+Figure 5.12: Calculated trajectories for 60nm Au NPs at diﬀeren t powers and
+wavelengths. Only the trajectories that end inside the prin ting radius Rp are
+shown. Pink and light blue lines are those trajectories that become available
+when increasing the power with respect to the lower value. Co loured boxed at
+z = 0 depict the ﬁnal position of the trajectories. The added si ze of the boxes
+correspond to Rp.
+A diﬀerent scenario takes place when optical printing is perf ormed with light
+oﬀ-resonance. First, Rp is no longer a good representation of the printing accu-
+racy, as can be seen in ﬁgure 5.11b. Second, completely diﬀer ent NP trajctories
+are involved because radial and axial forces are comparable i n this case. Figure
+5.12d shows the printing trajectories for oﬀ-resonant prin ting at a beam power
+above the threshold. Therefore, when the printing conditio n is fulﬁlled (equation
+5.10), the radial forces are strong enough to drive NPs towards the substrate
+
+--- PAGE 81 ---
+80 5. Optical printing accuracy of isolated Ag and Au nanoparticles
+from a large portion of the 2 Π solid angle. The probability th at a NP will diﬀuse
+into a position from which can be printed is high. The printin g radius is again
+depicted with a black box. If the power is increased, new print ing trajectories
+become available, as shown in pink in 5.12e. However, those tr ajectories cover a
+very small region of space and the probability that particle w ill diﬀuse into such
+an initial position is relatively small. Therefore, even th oughRp is increased, the
+ﬁnal distribution of printed NPs will not be modiﬁed, i.e. R90 will not increase.
+This explains the independence of the printing error with la ser power observed
+oﬀ resonance.
+
+--- PAGE 82 ---
+6
+Connecting Metallic
+Nanoparticles by Optical
+Printing
+“Ya las vamos a hacer brillar pibe”
+– Emiliano Cort´ es,2014
+One of the most important open questions of Optical Printing c oncerns its
+resolution, understood as the minimum distance at which two particles can be
+printed in a controlled manner. As discussed in section 3.3, it has been shown in
+diﬀerent experiments that nanoparticles (NPs) cannot be pri nted closer to each
+other than 300 nm. This apparently fundamental limitation h as obstructed the
+use of optical printing for the fabrication of plasmonicall y coupled structures and
+circuits of connected NPs. In this chapter, the optical print ing of nearby NPs
+is systematically studied. The aim is to understand the under lying physics in
+order to ﬁnd strategies to overcome these impediments and al low the printing of
+arbitrary particles at any given inter-particle distance.
+6.1 Fabrication and characterization of dimers
+Optical printing resolution was systematically studied by fabricating dimers of
+two identical or diﬀerent NPs and a wide range of target interp article distances.
+First, an extended grid of well separated NPs (at least 2 µm from each other) was
+fabricated by optical printing. Then, each NP on the array is l ocalized and optical
+81
+
+--- PAGE 83 ---
+82 6. Connecting Metallic Nanoparticles by Optical Printing
+Figure 6.1: (a) Dark ﬁeld image of an array of Au 60nm NPs printed a t λ =
+532 nm and P = 1. 2 mW (b) Dark ﬁeld image of the same array after a second
+particle was printed. (c) Deﬁnition of the set point d and the achieved dexp. (d)
+Confocal scan of the particle marked with a white box, acquir ed at λ = 532 nm
+and P = 0, 4 mW before the printing of the second particle. Inset show th e
+dark ﬁeld image of the particle. (e) Image of the second parti cle built from the
+subtraction of images f and d. (f) Confocal scan of the dimer m arked with a
+white box. Inset shown dark ﬁeld image of the same dimer. (g) Me asured values
+of dexp. The mean value is ¯dexp = 501 nm± 10 nm.
+printing of a second NP was attempted in a position with a given separation
+distance from the already printed NP. The fabrication proces s consisted of the
+following steps:
+1. The stage was moved so as to center the laser focus onto one o f the NPs of
+the grid.
+
+--- PAGE 84 ---
+6.1. Fabrication and characterization of dimers 83
+2. (Optional) The focus lock routine was performed to compen sate any focus
+drift. This routine consists of moving the stage to an empty r egion of
+the substrate, ﬁnd the set-point of the focus, and returning t o the original
+position.
+3. A 2D confocal image of the NP was adquired from which its preci se location
+was obtained by computing the center of mass. The stage is mov ed to assure
+that the particle was centred with the printing beam.
+4. Additional confocal scans were performed, which were subs equently used to
+determine the separation distance between the two NPs of the d imer.
+5. The stage was then shifted to place the laser focus at the tar get position for
+the second NP d. Then the printing beam was unblocked until the second
+NP was detected, or a previously set maximum time of seconds pa ssed
+without detection of a second NP.
+6. Confocal scans of the fabricated dimer were acquired.
+The wavelength of the beams can be chosen independently for e ach scan or print-
+ing procedure. The intensity was kept below the optical prin ting threshold during
+scanning and focusing steps. Unless stated otherwise, light polarized perpendic-
+ularly to the dimer axis was used, in order to avoid a scatteri ng signal from
+electromagnetically coupled NPs.
+The dimer fabrication process is schematically shown in ﬁgur e 6.1a. It shows
+an array of isolated 60 nm Au NPs printed at λ = 532 nm and a laser power of
+P = 1, 2 mW. Figure 6.1b. shows the same array after a second particle wa s
+printed, with a set point of d = 500 nm. Confocal scans before (e.g. ﬁgure 6.1d)
+and after (e.g. ﬁgure 6.1f) printing the second NP were acquir ed at λ = 532 nm
+and P = 400 µW .
+The production of dimers was characterized through the compa rison of two
+magnitudes: i) The set-point d, deﬁned as the distance from the center of the ﬁrst
+NP to the center of the laser focus, i.e., the target position to print the second
+NP, and ii) The achieved interparticle distance dexp. This two magnitudes are
+depicted on ﬁgure 6.1c.
+For large separations, the interparticle distance dexp can be obtained directly
+from the confocal scan of the fabricated dimer. However, for s eparations below the
+diﬀraction limit, this is no longer possible. In that case, an image of the isolated
+
+--- PAGE 85 ---
+84 6. Connecting Metallic Nanoparticles by Optical Printing
+second particle is created (see ﬁgure 6.1e), by subtracting the contribution of the
+ﬁrst particle (acquired in step 4, ﬁgure 6.1d) to the image of the dimer (acquired
+in step 6, ﬁgure 6.1f). With this procedure, the position of ea ch individual particle
+NP can be retrieved and the interparticle distance dexp can be computed.
+Figure 6.1g shows the measured values of dexp for each of the dimers shown
+in ﬁgure 6.1b. Events where the second particle was not print ed or looked sig-
+niﬁcantly diﬀerent (e.g. the reddish particle marked with a c ircle) were excluded
+from the analysis. In this example, the average achieved int erparticle distance
+was ¯dexp = 501 nm. The standard deviation was Sdexp = 41 nm, which is con-
+sistent with the precision accuracy as described in chapter 5 . The error in the
+determination of the mean value was ∆ dexp = Sd√
+N = 10 nm.
+In the following sections, this method or variations of this method are applied
+to test the optical printing resolution for diﬀerent conﬁgu rations.
+6.2 Limited lateral resolution in Au-Au homod-
+imers
+The ﬁrst step wards identifying the physical mechanism of th e repulsion causing
+the limited resolution is to determine its range of action. F or that, dimers of 60
+nm Au NPs were fabricated by optical printing at λ = 532 nm and a printing
+power of P = 1, 2 mW, on top of a charged glass substrate prepared as described
+in section 5.1. The choice of the power was based on results fr om section 5.3
+because is the power for which optical printing provides the highest precision.
+Various set-pointsd of interparticle separation distances were used, ranging f rom
+800 to 60 nm. Figure 6.2a show example dark ﬁeld images of the fa bricated
+dimers. Figure 6.2b shows the average achieved interparticl e distance dexp versus
+the set-point d. For large separation distances ( > 300nm) the printing process
+takes place smoothly, and the dimers can be fabricated accord ing to design. For
+d< 300nm, a deviation from the set-point toward larger separat ions is observed,
+concomitantly with a dramatic increase in the average waiti ng time for printing
+(6.2c). Clearly, a repulsive interaction is preventing the second NP from being
+printed correctly. For separations smaller than 250 nm the r epulsion is strong
+enough to completely prevent the printing of the second part icle, and dimers
+cannot be fabricated. At this condition no printing event wa s observed even for
+waiting times 20-fold longer than the time needed to print at larger set-points.
+
+--- PAGE 86 ---
+6.2. Limited lateral resolution in Au-Au homodimers 85
+500 400 300 250
+d [ nm ]
+5μm
+Au-Au
+0 100 200 300 400 500 600 700 800
+0
+2
+4
+6
+8
+10
+12
+14Median Printing Time [seg]
+d [nm]
+0 100 200 300 400 500 600 700 800
+0
+100
+200
+300
+400
+500
+600
+700
+800
+dexp [nm]
+d [nm]
+(a)
+(b) (c)
+Figure 6.2: (a) Dark ﬁeld images of Au-Au dimers fabricated at di ﬀerent inter-
+particle distances d. (b) Measured interparticle distances dexp vs set point d for
+Au-Au dimers. The ideal behavior is shown as a line with slope = 1 ( c) Median
+waiting time for the printing of the second particle in the di mer, as a function of
+the distance to the ﬁrst particle d.
+The three diﬀerent behaviors observed: no interaction, int eraction with print-
+ing, and interaction without printing, are consistent with previous observations
+with 200 nm Ag NPs by the group of Scherer[ 57], as discussed in section 3.3. The
+value of 300 nm as a limit for controllably printing is also co nsistent with the
+reported by the group of Feldmann.[ 63]
+It is interesting to note that these limit distance values ar e comparable to
+the laser beam waist at the focal plane w0 = (266± 3) nm. The parameter w0,
+also called the Gaussian beam radius, represents the radius a t which the ﬁeld has
+decreased to 1/e of its maximum, and the intensity has decreased to 1 /e 2. This
+could indicate that the repulsion is light-induced and appea rs when the already
+
+--- PAGE 87 ---
+86 6. Connecting Metallic Nanoparticles by Optical Printing
+printed particle is illuminated, as will be further discuss ed in next section.
+6.3 Fabrication of Ag-Au heterodimers
+Figure 6.3: (a) Extinction cross sections as a function of wave length calculated
+using Mie theory for 60 nm Au (blue) and Ag (pink) NPs in water. Ver tical
+lines show the printing wavelengths, at 405 nm and 532 nm. (b) Sc hematic of
+the process for dimers fabrication: ﬁrst Ag NPs were optically printed with the
+405 nm laser. Then the colloidal suspension is replaced by Au NP s, which are
+subsequently printed using the 532 nm laser.
+The results shown in section 6.2 make plausible that the repu lsive interaction
+that prevents the fabrication of dimer at close separation is produced by light
+interaction with the already printed NP. In this section expe riments designed to
+test this hypothesis are presented, applying a printing str ategy that minimizes
+light interaction with the NPs already present on the substrat e. The strategy
+consist of fabricating heterodimers, printing ﬁrst a Ag NP, a nd then a Au NP
+using light of 532 nm, as depicted in ﬁgure 6.3b. Figure 6.3a sh ow the extinction
+
+--- PAGE 88 ---
+6.3. Fabrication of Ag-Au heterodimers 87
+cross section of 60 nm Au and Ag NPs , calculated using Mie theory. As can be
+seen, Ag NPs are practically transparent at λ = 532 nm.
+The protocol for fabrication and characterization of Ag-Au di mers was anal-
+ogous to the one used for Au-Au dimers and described in section 6 .1. First a
+grid of 60 nm Ag NPs was printed using the 405 nm laser. Then the co lloidal
+suspension was exchanged for one of 60 nm Au NPs . Ag NPs were locali zed by
+confocal scattering imaging at 405 nm and the Au NPs were printe d and detected
+using the 532 nm laser.
+λ= 532nm
+ λ= 532nm
+(a) (b)
+(c) (d)
+(e) (f)= (d) - (e)
+dexp
+λ= 405nm
+Figure 6.4: Dark ﬁeld images of (a) Ag 60 nm NP and (b) Ag-Au dimer at
+d = 200 nm with Ag NP on top. Confocal scattering images of (c) Ag NP
+scanned with 532 nm laser. (d) heterodimer scanned with 532 n m laser (e) Ag
+NP scanned with 405 nm laser (f) image obtained after subtract ing the signal
+received by a single Ag NP (image (c)) to the dimer confocal scat tering at 532
+nm (image (d)).
+Determination of the achieved interparticle distance dexp is explained in ﬁgure
+6.4. First, two confocal scattering images of the single Ag NP we re acquired, one
+at 405 nm (ﬁgure 6.4e) and the other at 532 nm (ﬁgure 6.4c). The image at 405
+
+--- PAGE 89 ---
+88 6. Connecting Metallic Nanoparticles by Optical Printing
+nm was used to locate the Ag particle. Then, after the Au NP was pri nted, a
+confocal scattering image of the Ag-Au dimer was acquired at 53 2nm (ﬁgure 6.4d).
+Both the Ag and Au NPs contributes to the signal. Subtracting the scattering
+image of the Ag NP at 532 nm allows to obtain the image of the isola ted Au NP
+(ﬁgure 6.4f). Comparison of images 6.4f and 6.4e provides th e measured dexp.
+To justify this procedure, it must be remembered that, as disc ussed in section
+4.1, elastic scattering from independent sources can inter fere at the detector. In
+this way, intensity of the image 6.4c of the single Ag particle is proportional to
+IAg∝|r +sAg|2 =|r|2 +|sAg|2 + 2|r||sAg|cosφAg (6.1)
+whereφAg is the phase diﬀerence between the reﬂected |r| and the scattered|sAg|
+light.
+Then, the intensity of image 6.4d is proportional to
+IAg−Au∝|r +sAg +sAu|2 =|r|2 +|sAg|2 + 2|r||sAg|cosφAg
++|sAu|2 + 2|r||sAu|cosφAu
++ 2|sAu||sAg|cos (kd +φAu−φAg)
+(6.2)
+Substracting 6.1 to 6.2
+IF∝|sAu|2 + 2|r||sAu|cosφAu + 2|sAu||sAg|cos (kd +φAu−φAg) (6.3)
+which gives the image shown in 6.4f. The ﬁrst two terms have a m aximum
+at the Au NP position. The last term can be considered as an estim ation of
+the error for the optical caracterization. In this case it ca n be neglected since
+|sAg(532nm)|≪| sAu(532nm)|.
+Ag-Au heterodimers were fabricated with various interparticl e separation dis-
+tances, with at least 20 dimers for each distance. Figure 6.5a shows example
+dark ﬁeld images of several Ag-Au dimers, when the separation i s smaller than
+the diﬀraction limit ( < 300 nm) the heterodimers appear as a single object in
+the dark-ﬁeld images. Nevertheless, the achieved interparti cle distance dexp could
+be determined using the above described method. The average dexp is shown in
+ﬁgure 6.5b, as a function of the target separation d. Remarkab ly, in this case
+optical printing is possible for interparticle distances d all the way down to 60
+nm for Ag-Au heterodimers, i.e. until the NPs are in contact.
+
+--- PAGE 90 ---
+6.3. Fabrication of Ag-Au heterodimers 89
+(a) (b)
+600 400 300 200 60
+5μm Ag-Au
+d [ nm ] 0 100 200 300 400 500 600
+0
+100
+200
+300
+400
+500
+600 Au-Ag
+Ag-Au
+Y=X
+dexp [nm]
+d [nm]
+Figure 6.5: (a) Dark ﬁeld images of Ag-Au dimers fabricated at di ﬀerent inter-
+particle distances d. (b) Measured interparticle distances dexp vs set point d for
+Ag-Au dimers (pink) and Au-Ag dimers (blue). The ideal behavior i s shown as
+a line with slope = 1
+In order to further characterize the fabricated heterodimer s and to corrobo-
+rate the optical measurements of dexp, the dimers were visualized using a ﬁeld-
+emission scanning electron microscopy (FE-SEM). The achiev ed interparticle dis-
+tance dSEM
+exp measured with the (FE-SEM) was compared with its optical doptical
+exp
+counterpart through the calculus of Sdexp(d) =
+√
+⟨
+(
+dSEM
+exp −doptical
+exp
+) 2
+⟩ where the
+average is over many dimers at the same set point d. For large set points, the
+diﬀerence between two methods is small ( Sdexp(500 nm) = 20 nm) and increases
+for closer set points (Sdexp(60 nm) = 50 nm). 15% of the fabricated Ag-Au dimers
+were compared, and the average over all dimers and set points w asSdexp = 34 nm,
+which is comparable to the radius of the particle. This means that the optical
+measurement of dexp is an accurate method. Also, it indicates that particles are
+strongly ﬁxed to the surface and do not move during rinsing of the sample with
+water and drying in vacuum for SEM measurements.
+For the fabrication of structures and circuits of NPs, is not o nly important
+to control the interparticle distance and to be able to conne ct NPs, but also
+to control the relative orientation of the printed NPs with r espect to the sub-
+strate/device frame of reference. We interrogated the poss ibilities of optical
+printing to fabricate Ag-Au dimers with controlled orientati on. For this, the
+angleθ between the vertical axis (x) of the substrate and the vector deﬁned from
+the centre of Ag NP to the centre of Au NP was analysed, as outlined i n the inset
+
+--- PAGE 91 ---
+90 6. Connecting Metallic Nanoparticles by Optical Printing
+(a) (b) (c)
+Figure 6.6: (a) Angle θ between the vertical axis (x) of the substrate and the
+vector deﬁned from the center of Ag NP to the center of Au NP. The opt ical
+measurement of θ corresponds to the mean values obtained from analysis of con -
+focal scattering images of at least 20 dimers for each value o fd. Several values of
+θ obtained from the analysis of FE-SEM images are shown for d = 500, 100, and
+0 nm. (b,c) Dark ﬁeld (left) and FE-SEM (right) images of Ag-Au het erodimers
+fabricated at d = 60 nm (b) and d = 0 nm (c). In (b) the Ag NPs is always the
+one on the top.
+of ﬁgure 6.6a. The same ﬁgure shows the mean values of θ for dimers fabricated
+at various interparticle distances d ranging from 600 to 60 nm, obtained from
+the analysis of confocal scattering images. As can be seen, th e optical printing is
+accurate in terms of directionality within an error smaller t han 8 ◦ for all values
+of d from 600 nm down to 100 nm. For the connected NPs ( d = 60 nm), the
+variability takes a slightly higher value of 20 ◦. There are two possible reasons
+for this increment. First, due to the limited printing accurac y, a larger variation
+in θ is expected as d becomes shorter. Second, a contribution due to contact
+interactions between the NPs is also likely.
+As an example, Figure 6.6b shows dark-ﬁeld and FE-SEM images of ﬁve
+connected Ag-Au NP dimers fabricated by setting the interparti cle distance to
+60 nm. On the dark ﬁeld images the dimers appear as single diﬀra ction limited
+scatterers. On the FE-SEM images the orientational control i s evident. Ag-Au
+NP dimers can be fabricated as well if the interparticle dista nce is set to zero,
+but the orientational control is completely lost (Figure 6.6 c).
+
+--- PAGE 92 ---
+6.4. Evaluation of scattering 91
+An additional interesting experiment to test if the repulsio ns are light-induced
+is to invert the order of fabrication of heterodimers. We print ed ﬁrst a Au NP at
+532 nm and then a Ag NP at 405 nm. Following this order, the alrea dy printed
+Au particle is not longer transparent to the printing wavelen gth of the second
+particle, because Au extinction is not negligible at 405 nm (s ee ﬁgure 6.3). At
+least 20 Au-Ag dimers were fabricated at each interparticle di stance d, and the
+mean achieved distance dexp is shown in ﬁgure 6.5b (blue data). It is not possible
+to connect the NPs with this printnig strategy. The minimum va lue of dexp was
+250 nm, which is slightly smaller than for the Au-Au case.
+Based on these results, and recalling that aside from their o ptical properties,
+the Ag and Au NPs have practically identical physicochemical pr operties, such
+as size, charge and surface capping molecules, it is reasona ble to conclude that
+the repulsive interaction that prevents the fabrication of Au- Au and Au-Ag NP
+dimers with separations smaller than 250 nm is light-induced . The experiments
+also show that optical printing is capable of placing NPs at arb itrary separation
+distances and also to connect them with controlled orientat ion, if the interaction
+of the already printed NPs with the light used for printing is a voided. However,
+nothing has been said about the causes of the light-induced re pulsion yet. In the
+following sections, several mechanisms are proposed and ex perimentally tested.
+6.4 Evaluation of scattering
+Upon illumination, light scattered by the already printed NP may lead to disor-
+tions of the optical force ﬁeld. It may shift the position of m aximum axial force
+from the target position or may induce optical forces on othe r NPs in solution as
+it happens in optical binding[ 73, 74, 65, 75]. During the optical printing process,
+both the ﬁxed and the approaching particle polarizes, with a n induced dipole par-
+allel to the electric ﬁeld. Considering than not only the far- ﬁeld but also the near
+and intermediate ﬁelds produced by a radiating dipole depen d on the orientation
+of the dipole, it is reasonable to expect that the interactio n between particles
+varies with the polarization of light.
+It is then interesting to calculate the optical force ﬁeld in t he presence of a
+ﬁxed particle. This was done by a collaborator, Luk´ aˇ s Chv´ a tal, the Group of
+Optical Micro-manipulation Techniques (OMITEC) at the Inst itute of Scientiﬁc
+Instruments of the Czech Academy of Sciences (Brno, Czech Rep ublic), using
+
+--- PAGE 93 ---
+92 6. Connecting Metallic Nanoparticles by Optical Printing
+F [ pN]
+0.05
+0.1
+0.15
+0.2
+0.25
+0.3
+0.35
+y [nm]
+−300 −200 −100 0 100 200 300
+800
+700
+600
+500
+400
+300
+200
+100
+0
+z [nm]
+(a)
+(c)
+z [nm]
+y [nm]
+−300 −200 −100 0 100 200 300
+800
+700
+600
+500
+400
+300
+200
+100
+0 0.05
+0.1
+0.15
+0.2
+0.25
+0.3
+0.35
+F [ pN]
+E
+0.005
+0.01
+0.015
+0.02
+0.025
+0.03
+0.035
+y [nm]
+−300 −200 −100 0 100 200 300
+800
+700
+600
+500
+400
+300
+200
+100
+0
+z [nm]
+F [ pN]
+E
+y [nm]
+−300 −200 −100 0 100 200 300
+800
+700
+600
+500
+400
+300
+200
+100
+0
+z [nm]
+0.005
+0.01
+0.015
+0.02
+0.025
+0.03
+0.035
+F [ pN]
+E
+y [nm]
+−300 −200 −100 0 100 200 300
+800
+700
+600
+500
+400
+300
+200
+100
+0
+z [nm]
+0.05
+0.1
+0.15
+0.2
+0.25
+0.3
+0.35
+F [ pN]
+E
+(b)
+(d) = (b) - (a) (f) = (c) - (a)
+Figure 6.7: Optical force maps. (a) Total Force in the absence of any ﬁxed
+particle. (b) Total force in the presence of a ﬁxed particle 200 nm away from the
+beam centre, and a polarization perpendicular and (c) paral lel to the y axis. (d)
+Estimation of the forces caused by the ﬁxed particle in a perp endicular polarized
+beam, obtained by subtracting (b)-(a). (f) Estimation of th e forces caused by
+the ﬁxed particle in a parallel polarized beam, obtained by s ubtracting (c)-(a).
+In all cases, linearly polarized Gaussian beam of λ = 532 nm, with a waist of
+w0 = 265 nm and power of P = 1, 2 mW was used, as in the experiments. White
+areas correspond to inter-penetrated particles and were ex clueded from the map.
+Calculus made by using Generalized Lorenz–Mie theory. Grey lines are ﬁeld lines.
+The modulus of the force is colour coded. Data on this ﬁgure we re computed by
+Luk´ aˇ s Chv´ atal from OMITEC.
+their own code based on the Generalized Lorenz–Mie theory wit h an extension to
+multiple spherical particles, as explained in reference [ 76]. First, the force map in
+the absence of any ﬁxed particle was calculated for Au 60 nm NPs . Figure 6.7a
+shows the total optical force ﬁeld for a Gaussian beam of λ = 532 nm, with
+a waist of w0 = 265 nm and power of P = 1, 2 mW exerted on a Au 60 nm
+NP. Grey lines indicate force ﬁeld lines, which according to t he discussion of
+section 5.5.1 can be interpreted as trajectories for the par ticle being printed. The
+
+--- PAGE 94 ---
+6.4. Evaluation of scattering 93
+force map is consistent with the obtained with the Rayleight a pproximation with
+Kuwata polarizability (equations 1.30 and 1.31). For exampl e, the maximum
+calculated forces are F = 0. 36 pN with Lorenz–Mie theory and F = 0. 31 pN
+with Rayleight-Kuwata model. Then, the optical force ﬁelds in the presence of
+a ﬁxed particle 200 nm away from the centre of the beam were cal culated for
+both polarizations, corresponding to an experimental conﬁ guration where it was
+impossible to print a second particle. Figure 6.7b and 6.7c sh ow the calculated
+force ﬁeld for perpendicular and parallel polarizations, re spectively. In both cases,
+there are many ﬁeld lines (trajectories) that end in the subs trate. For parallel
+polarization there are lines that end close to the ﬁxed parti cle, indicating an
+attractive interaction between particles. The inﬂuence of the ﬁxed particle in the
+optical ﬁeld is therefore not strong enough to prevent the se cond particle from
+reaching the surface. In order to better visualize it, the di ﬀerence between the
+force ﬁelds in the presence and in the absence of a ﬁxed sphere is calculated.
+The resulting subtraction can be interpreted as the distort ion of the force ﬁeld
+produced by the ﬁxed sphere. This is shown in ﬁgure 6.7d for per pendicular and
+6.7f for parallel polarization. Oscillations in the sign of the force are typical of
+optical binding interactions. For both polarizations, the interaction force is at
+least one order of magnitude weaker than the optical force exe rted by the laser
+beam.
+The eﬀect of the polarization of the printing beam in the fabr ication of Au
+homodimers was also experimentally studied. The fabricati on procedure of sec-
+tion 6.2 was repeated, for dimers oriented both parallel and perpendicular to the
+electric ﬁeld of the printing beam and diﬀerent interpartic le distances d. Exam-
+ple dark ﬁeld images of the dimers are shown in ﬁgure 6.8a. Figu re 6.8b shows
+the average achieved interparticle distance dexp versus the set-point d. Remark-
+ably, the results are independent of the orientation of the d imer. The distance d
+for which printing becames impossible is the same in both cas es, as well as the
+minimum achieved interparticle distance. Figure 6.8c shows the median waiting
+time for the printing of the second particle, versus the set-p oint d. Again, similar
+behaviours are obtained for both orientations. These resul ts indicate that the po-
+larization of the beam does not have a major role in the light- induced repulsion.
+The calculus of optical binding forces, together with the ex perimental obser-
+vation that the optical printing process and its limitations a re independent of the
+
+--- PAGE 95 ---
+94 6. Connecting Metallic Nanoparticles by Optical Printing
+Perpendicular Parallel
+5μm
+500 400 300 250
+d [ nm ]
+ d [ nm ]
+500 400 300 250
+E
+(a)
+(b) (c)
+0 100 200 300 400 500 600 700 800
+0
+5
+10
+15
+20
+Perpendicular
+Parallel
+Median Printing Time [seg]
+d [nm]
+dexp [nm]
+Perpendicular
+Y=X
+Parallel
+0 100 200 300 400 500 600 700 800
+0
+100
+200
+300
+400
+500
+600
+700
+800
+d [nm]
+Figure 6.8: (a) Dark ﬁeld images of Au-Au dimers fabricated at di ﬀerent inter-
+particle distances d and two orientations with respect to the polarization of the
+printing beam. (b) Measured interparticle distances dexp vs set point d for Au-Au
+dimers Parallel to the polarization (pink) and Perpendicul ar (blue). The ideal
+behavior is shown as a line with slope = 1 (c) Median waiting tim e for the print-
+ing of the second particle in the dimer, as a function of the di stance to the ﬁrst
+particle d, for both orientations.
+polarization of the beam, indicate that the light-induced r epulsions are not due
+to optical binding interactions, or any other mechanism cau sed by scattering of
+light by the printed particle. Therefore, other mechanisms based on absorption
+of light must be studied, as discussed in the following secti on.

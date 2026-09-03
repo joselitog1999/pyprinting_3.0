@@ -17,12 +17,10 @@ from pathlib import Path
 from datetime import datetime
 
 import numpy as np
-from tkinter import filedialog
-import tkinter as tk
 
 from PyQt6.QtCore    import QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
-                              QGridLayout, QMessageBox)
+                              QGridLayout, QMessageBox, QFileDialog)
 from PyQt6.QtGui     import QAction, QKeySequence
 from pyqtgraph.dockarea import DockArea, Dock
 
@@ -43,11 +41,11 @@ from psf_analyzer    import PSFAnalyzerWidget, PSFAnalyzerWindow
 # ══════════════════════════════════════════════════════════════════════════════
 class Frontend(QMainWindow):
 
-    selectDirSignal    = pyqtSignal()
-    createDirSignal    = pyqtSignal()
+    selectDirSignal    = pyqtSignal(str)
+    createDirSignal    = pyqtSignal(str)
     openDirSignal      = pyqtSignal()
     loadPositionSignal = pyqtSignal()
-    loadGridSignal     = pyqtSignal()
+    loadGridSignal     = pyqtSignal(str)
     closeSignal        = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
@@ -144,11 +142,25 @@ class Frontend(QMainWindow):
 
         # Nota: El menú Measurements está desbloqueado tanto en MODO REAL como en MODO MOCK/SAFE_MODE para depuración.
 
-    def get_selectDir(self):        self.selectDirSignal.emit()
-    def get_createDir(self):        self.createDirSignal.emit()
+    def get_selectDir(self):
+        path = QFileDialog.getExistingDirectory(self, "Seleccionar directorio de datos", "")
+        if path:
+            self.selectDirSignal.emit(path)
+
+    def get_createDir(self):
+        path = QFileDialog.getExistingDirectory(self, "Seleccionar directorio base", "")
+        if path:
+            self.createDirSignal.emit(path)
+
     def get_openDir(self):          self.openDirSignal.emit()
     def load_last_position(self):   self.loadPositionSignal.emit()
-    def load_grid(self):            self.loadGridSignal.emit()
+
+    def load_grid(self):
+        name, _ = QFileDialog.getOpenFileName(
+            self, "Cargar Grilla de Coordenadas", "", "Archivos (*.txt *.csv *.dat);;Todos (*.*)"
+        )
+        if name:
+            self.loadGridSignal.emit(name)
     def measurement_printing(self): self.printingWidget.show()
     def measurement_dimers(self):   self.dimersWidget.show()
     def tools_camera(self):         self.cameraWindow.show(); self.cameraWindow.raise_()
@@ -359,10 +371,8 @@ class Backend(QObject):
         elif mode == "dimers":
             self.dimersWorker.grid_trace_detect(payload)
 
-    @pyqtSlot()
-    def selectDir(self):
-        root = tk.Tk(); root.withdraw()
-        path = filedialog.askdirectory()
+    @pyqtSlot(str)
+    def selectDir(self, path: str):
         if path:
             self.file_path = path; self.fileSignal.emit(path)
 
@@ -370,10 +380,8 @@ class Backend(QObject):
     def openDir(self):
         os.startfile(self.file_path)
 
-    @pyqtSlot()
-    def create_daily_directory(self):
-        root = tk.Tk(); root.withdraw()
-        path = filedialog.askdirectory()
+    @pyqtSlot(str)
+    def create_daily_directory(self, path: str):
         if path:
             newpath = str(Path(path) / time.strftime("%Y-%m-%d"))
             Path(newpath).mkdir(parents=True, exist_ok=True)
@@ -389,13 +397,15 @@ class Backend(QObject):
         except Exception as e:
             print(f"[App] Error cargando posición: {e}")
 
-    @pyqtSlot()
-    def load_grid(self):
-        root = tk.Tk(); root.withdraw()
-        name = filedialog.askopenfilename()
-        if name:
-            datos = np.loadtxt(name, unpack=True)
-            self.gridSignal.emit("Load_grid", datos)
+    @pyqtSlot(str)
+    def load_grid(self, name: str):
+        if name and os.path.exists(name):
+            try:
+                datos = np.loadtxt(name, unpack=True)
+                grid_name = os.path.splitext(os.path.basename(name))[0] or "Load_grid"
+                self.gridSignal.emit(grid_name, datos)
+            except Exception as e:
+                print(f"[App] Error cargando grilla: {e}")
 
     @pyqtSlot()
     def close_all(self):
