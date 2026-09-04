@@ -38,13 +38,17 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 │  Láser: [532 nm ▼]   Modo: [2D Fast ▼]  Rango: [ 5.0 ] µm  N: [ 50 ] │  Láser: [532 nm ▼]  Freq: [ 10000 ] Hz    │
 │  [ ▶ Start Scan ]  [ ⏹ Stop ]  [ 🎯 Go to Max ]  [ 📊 Fit PSF ]       │  [ ▶ Live Trace ]  [ 💾 Save Trace ]       │
 ├───────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
-│  DOCK: FOCUS Z (Autofoco Axial)                                       │  DOCK: NANOPOSITIONING & SHUTTERS        │
-│  ┌─────────────────────────────────────────────────────────────────┐ │  Eje X: [ 25.400 ] µm  [ ◄ ] [ ► ] Step: 1.0│
-│  │  Curva Axial I(z):              Pico: z = +14.250 µm            │ │  Eje Y: [ 30.120 ] µm  [ ▲ ] [ ▼ ] Step: 1.0│
-│  │  4.0|        /\                                                 │ │  Eje Z: [ 15.000 ] µm  [ ▲ ] [ ▼ ] Step: 0.1│
-│  │  0.0└───────/──\──────────────── z (µm)                         │ │  [ 📍 Set Reference (X0,Y0,Z0) ]         │
-│  └─────────────────────────────────────────────────────────────────┘ │  Shutters: [ 532 ON/OFF ] [ 637 ON/OFF ]  │
-│  Rango Z: [ 2.0 ] µm  Puntos: [ 40 ]  [ 🔍 Autofoco Z ] [ 🔒 Lock ]   │  Flipper:  [ ⬆ Baja Pot. ] [ ⬇ Alta Pot. ]│
+│  DOCK: FOCUS Z (Autofoco Axial)                                       │  DOCK: SHUTTERS / FLIPPER (Watchdog)     │
+│  ┌─────────────────────────────────────────────────────────────────┐ │  Láseres: [ 532 ON ] [ 637 ] [ 592 ] [ 808]│
+│  │  Curva Axial I(z):              Pico: z = +14.250 µm            │ │  Flippers: [ Low/High ] [ Notch Mirror ]  │
+│  │  4.0|        /\                                                 │ │  [X] Auto-cierre: [ 30s ▼ ] [🚨 Cerrar]   │
+│  │  0.0└───────/──\──────────────── z (µm)                         │ │  Estado: [ 🛡️ ACTIVO (28s) ]              │
+│  └─────────────────────────────────────────────────────────────────┘ ├──────────────────────────────────────────┤
+│  Rango Z: [ 2.0 ] µm  Puntos: [ 40 ]  [ 🔍 Autofoco Z ] [ 🔒 Lock ]   │  DOCK: NANOPOSITIONING (Platina PI)      │
+│                                                                       │  X: [ 25.400 ] µm  [ ◄ ] [ ► ] Step: 1.0 │
+│                                                                       │  Y: [ 30.120 ] µm  [ ▲ ] [ ▼ ] Step: 1.0 │
+│                                                                       │  Z: [ 15.000 ] µm  [ ▲ ] [ ▼ ] Step: 0.1 │
+│                                                                       │  [ 📍 Set Ref P0 ]  [ 🔌 Reconectar ]     │
 ├───────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
 │  🟢 PyPrinting listo | Ejes PI: X=25.400 µm, Y=30.120 µm, Z=15.000 µm | DAQ: Dev1 Conectado | FPS: 30 Hz        │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -65,6 +69,7 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 | **Tools** | Cámara Live View | — | Abre la ventana de Live View EDSDK de la Canon EOS 500D. |
 | **Tools** | Analizador de Imágenes | — | Abre la herramienta de deconvolución y análisis estático ([`image_analyzer.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/image_analyzer.py)). |
 | **Tools** | PSF Analyzer | `Ctrl+P` | Abre la ventana de ajuste 2D Gaussiano y Donut ([`psf_analyzer.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf_analyzer.py)). |
+| **Tools** | Láser 532 nm | — | Abre la ventana flotante de control analógico de potencia DAC ([`modules/camera.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/camera.py) `Laser532Window`). |
 | **Measurements** | Printing / Dimers | `Ctrl+M` | Abre la estación de nanofabricación y criterios de parada ([`measurements.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/measurements.py)). |
 
 ### Dock Confocal (Mapeo 2D/3D)
@@ -77,6 +82,32 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 | `Start Scan` | `QPushButton` | — | Inicia la generación de rampa `pi.WAV_LIN` y adquisición por `Dev1/ai0:3`. |
 | `Stop Scan` | `QPushButton` | — | Detiene inmediatamente el escaneo y cierra los obturadores por seguridad. |
 | `Go to Max` | `QPushButton` | — | Calcula el baricentro 2D o píxel máximo y desplaza la platina al centro óptico. |
+
+### Dock Trace & FFT (Trazas a 10 kHz & Alineación Continua)
+| Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
+|---|---|---|---|
+| `Live Trace (F1)` | `QPushButton` | Iniciar | Inicia lectura de fotodiodo y renueva periódicamente el latido `heartbeat_shutter(30.0)` en la NI-DAQmx para alineación ininterrumpida. |
+| `Save Trace (F2)` | `QPushButton` | Detener | Concluye la adquisición, almacena la traza en disco y cierra inmediatamente los obturadores desarmando el watchdog. |
+| `Power BS Calib` | `QPushButton` | Diálogo | Abre la ventana de calibración del fotodiodo de referencia en mW/V. |
+
+### Dock Shutters / Flipper (Seguridad Óptica & Modo Alineación)
+| Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
+|---|---|---|---|
+| `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line0:3`. |
+| `Power Flipper` | `QPushButton` | `Low / High` | Actuador biestable que conmuta el atenuador de densidad óptica. |
+| `Notch 532 Flipper` | `QPushButton` | `Mirror Up / Down`| Inserta o retira el espejo de rechazo Notch de 532 nm. |
+| `Auto-cierre Check` | `QCheckBox` | `True / False` | Habilita o inhabilita el temporizador de auto-apagado de seguridad. |
+| `Selector Timeout` | `QComboBox` | `30s`, `60s`, `5m`, `10m`, `Sin límite` | Define el tiempo de radiación máxima continua antes de cierre automático. |
+| `Estado Seguridad` | `QLabel` | Dinámico | Visualiza cuenta regresiva (`⚠️ CIERRA EN: Xs`), modo seguro o modo alineación continua. |
+| `🚨 Cerrar Todos` | `QPushButton` | Corte | Fuerza el apagado inmediato de los 4 obturadores y pone las líneas digitales a nivel bajo. |
+
+### Dock Nanopositioning (Platina Piezoeléctrica PI)
+| Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
+|---|---|---|---|
+| `Ejes X, Y, Z` | `QDoubleSpinBox` | $0.000 - 100.000\ \mu\text{m}$ | Visualización y comando de coordenadas piezoeléctricas en bucle cerrado. |
+| `Botones de Paso` | `QPushButton` | $\pm 0.1$, $\pm 1.0$, $\pm 10.0\ \mu\text{m}$ | Incrementos relativos sobre los ejes principales. |
+| `Set Reference` | `QPushButton` | Origen $P_0$ | Fija las coordenadas actuales como origen de referencia experimental. |
+| `🔌 Reconectar` | `QPushButton` | Hot-plug | Restablece en caliente el socket de comunicación con la controladora E-517/E-736. |
 
 ---
 

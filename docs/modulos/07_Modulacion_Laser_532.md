@@ -1,14 +1,17 @@
 # 🔬 Módulo 07: Modulación Láser 532 nm (`Laser532Window`)
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
-**Archivo Fuente**: [`modules/camera.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/camera.py) (`Laser532Window`) / [`core/shutters.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py)  
-**Lanzador Rápido**: Botón 6 en [`main.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/main.py) o `Tools -> Láser 532` desde `app.py`
+**Archivo Fuente**: [`modules/camera.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/camera.py) (`Laser532Window`, `Laser532Backend`)  
+**Lanzador Rápido**: Tarjeta 5 en [`main.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/main.py) o `Tools -> Láser 532` desde `app.py` / `camera.py`
 
 ---
 
 ## 1. 🏷️ Resumen y Rol en el Sistema
 
-El módulo **Modulación Láser 532 nm** proporciona el control analógico y digital sobre la fuente láser principal de bombeo óptico y termometría fototérmica ($\lambda = 532\ \text{nm}$, verde).
+El módulo **Modulación Láser 532 nm** proporciona el control analógico y digital sobre la fuente láser principal de bombeo óptico y termometría fototérmica ($\lambda = 532\ \text{nm}$, verde). 
+
+> [!NOTE]
+> **Desacoplamiento de Interfaz**: A fin de mantener una arquitectura limpia y evitar controles redundantes, el control analógico de tensión ($V_{\text{AO2}}$) reside exclusivamente en esta ventana flotante dedicada (`Laser532Window`). El dock `Shutters / Flipper` en la ventana principal de PyPrinting se enfoca exclusivamente en la conmutación digital rápida por relés TTL y en las políticas de seguridad del Watchdog.
 
 Funciones principales:
 - **Control Analógico de Potencia (AO2 NI-DAQmx)**: Ajuste fino de la tensión de modulación en el canal `Dev1/ao2` en el rango de $0.00\ \text{V}$ a $5.00\ \text{V}$.

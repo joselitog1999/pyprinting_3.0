@@ -31,7 +31,7 @@
    - [3.2 Dock: Confocal (Mapeo 2D/3D & Algoritmos de Centrado)](#32-dock-confocal-mapeo-2d3d--algoritmos-de-centrado)
    - [3.3 Dock: Trace (Trazas Temporales & Calibración Power BS)](#33-dock-trace-trazas-temporales--calibración-power-bs)
    - [3.4 Dock: Focus z (Autofoco Axial Dinámico)](#34-dock-focus-z-autofoco-axial-dinámico)
-   - [3.5 Dock: Shutters / Flipper / Láser 532](#35-dock-shutters--flipper--láser-532)
+   - [3.5 Dock: Shutters / Flipper (Seguridad Óptica & Modo Alineación)](#35-dock-shutters--flipper-seguridad-óptica--modo-alineación)
    - [3.6 Dock: Nanopositioning (Platina Piezoeléctrica PI)](#36-dock-nanopositioning-platina-piezoeléctrica-pi)
    - [3.7 Ventana de Mediciones (Printing Automatizado de Grillas & Dímeros)](#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
 4. [Módulo 2: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)](#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
@@ -314,6 +314,7 @@ donde $\bar{t}_{\text{raw}}$ es la media móvil del tiempo de tránsito/fijació
   - Graficado temporal continuo de intensidad en Volts ($V$) emitidos por los fotodiodos.
   - Tecla **F1**: Inicia la adquisición continua (*Play*).
   - Tecla **F2**: Detiene la adquisición y guarda la traza en disco (*Stop & Save*).
+  - **Renovación Activa de Heartbeat (Watchdog-Aware)**: Al presionar *Play*, el bucle de actualización gráfica emite periódicamente cada segundo la señal de latido `heartbeat_shutter(30.0)` al daemon de seguridad de la NI-DAQmx. Esto garantiza que durante las tareas de alineación manual con el fotodiodo el obturador permanezca abierto de manera ininterrumpida sin sufrir cortes prematuros a los 30 s. Al pulsar *Stop & Save*, el obturador se cierra de forma inmediata y se desarma el temporizador de seguridad.
 * **Ventana `PowerBSWindow`**:
   - Monitoreo continuo de la potencia reflejada en el fotodiodo divisor (*Beam Splitter*).
   - Permite ingresar lecturas de potencia comercial (`High power`, `Low power`) y ejecutar **`Set Calibration`** para obtener la constante de conversión en $\text{mW/V}$.
@@ -329,13 +330,29 @@ donde $\bar{t}_{\text{raw}}$ es la media móvil del tiempo de tránsito/fijació
 
 ---
 
-### 3.5 Dock: Shutters / Flipper / Láser 532
-* **`Shutter 532 nm`**: Abre/Cierra el obturador del láser verde.
-* **`Shutter 637 nm`**: Abre/Cierra el obturador del láser rojo.
-* **`Shutter 592 nm`**: Abre/Cierra el obturador del láser amarillo.
-* **`Low power`**: Activa el atenuador óptico de baja potencia.
-* **`Mirror up / down`**: Sube o baja el espejo del filtro Notch de 532 nm (*Flipper*).
-* **`Láser 532 Voltage`**: Ajusta el voltaje analógico DAC ($1.0 - 5.0\ \text{V}$).
+### 3.5 Dock: Shutters / Flipper (Seguridad Óptica & Modo Alineación)
+El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y líneas TTL de las fuentes láser y elementos móviles de la trayectoria óptica:
+
+* **Obturadores Digitales de Excitación (Líneas TTL NI-DAQmx `port0/line0:3`)**:
+  - **`Shutter 532 nm`**: Conmuta el obturador del láser verde ($\lambda = 532\ \text{nm}$, bomba fototérmica).
+  - **`Shutter 637 nm`**: Conmuta el obturador del láser rojo ($\lambda = 637\ \text{nm}$, excitación confocal/Raman).
+  - **`Shutter 592 nm`**: Conmuta el obturador del láser amarillo ($\lambda = 592\ \text{nm}$).
+  - **`Shutter 808 nm`**: Conmuta el obturador del láser infrarrojo ($\lambda = 808\ \text{nm}$, pinzas ópticas/termometría).
+* **Flippers Motorizados (Actuadores Biestables `port0/line4:5`)**:
+  - **`Power Flipper (Low/High power)`**: Intercala o retira el atenuador óptico calibrado para reducir la irradiancia sobre la muestra durante el centrado.
+  - **`Notch 532 Flipper (Mirror up/down)`**: Sube o baja el espejo de desviación hacia el filtro Notch de 532 nm para conmutar entre detección de fluorescencia y dispersión elástica/Raman.
+* **Sistema de Auto-Cierre de Seguridad & Watchdog**:
+  - **Casilla `Auto-cierre de seguridad`**: Activa o desactiva la protección contra radiación desatendida.
+  - **Selector de Tiempo Máximo**: Menú desplegable con tiempos límite de radiación continua:
+    - `30s (Estándar)`: Protección estricta contra evaporación y foto-daño.
+    - `60s (1 min)`: Procedimientos de inspección rápida.
+    - `300s (5 min)`: Ajustes ópticos intermedios.
+    - `600s (10 min)`: Búsqueda exploratoria extensa.
+    - `Sin límite (Modo Alineación)`: Desactiva el corte por tiempo para sesiones de alineación óptica manual y colimación de cavidades.
+  - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⚠️ CIERRA EN: Xs`), el modo seguro activo (`🛡️ ACTIVO (Xs)`), el estado de alineación (`🔓 ALINEACIÓN CONTINUA`) o el corte forzado (`⚠️ CERRADO POR SEGURIDAD`).
+  - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores y pone a cero las tareas digitales.
+  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
+* **Modulación Analógica de Potencia**: El control de voltaje analógico DAC ($0.0 - 5.0\ \text{V}$, canal `ao2`) para el láser verde se encuentra desacoplado de este panel y se opera desde su ventana especializada **`Laser532Window`** (disponible desde el Lanzador Principal y menú **`Tools → Láser 532`**).
 
 ---
 

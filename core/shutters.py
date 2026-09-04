@@ -113,19 +113,6 @@ class Frontend(QFrame):
         self.flipper_notch532_signal.emit(checked)
         self.notch532button.setText("Mirror down" if checked else "Mirror up")
 
-    def _on_laser_slider(self, value: int):
-        v = value / 100.0
-        self._laser_spin.blockSignals(True)
-        self._laser_spin.setValue(v)
-        self._laser_spin.blockSignals(False)
-        self.laser532_signal.emit(v)
-
-    def _on_laser_spin(self, v: float):
-        self._laser_slider.blockSignals(True)
-        self._laser_slider.setValue(int(v * 100))
-        self._laser_slider.blockSignals(False)
-        self.laser532_signal.emit(v)
-
     def get_selected_timeout(self) -> float | None:
         if not self.chk_autoclose.isChecked():
             return None
@@ -281,57 +268,6 @@ class Frontend(QFrame):
         sec_layout.addWidget(self.lbl_security_status)
 
         main_layout.addWidget(sec_box)
-
-        # ── Láser 532 nm (Potencia analógica) ─────────────────────────────────
-        laser_box = QGroupBox("Láser 532 nm (ao2)")
-        laser_box.setStyleSheet("""
-            QGroupBox {
-                font-size: 8.5pt;
-                font-weight: bold;
-                color: #a6e3a1;
-                border: 1px solid #45475a;
-                border-radius: 5px;
-                margin-top: 6px;
-                padding-top: 8px;
-                background-color: rgba(30, 30, 46, 0.4);
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 3px;
-            }
-        """)
-        laser_layout = QVBoxLayout(laser_box)
-        laser_layout.setContentsMargins(6, 6, 6, 6)
-        laser_layout.setSpacing(4)
-
-        self._laser_slider = QSlider(Qt.Orientation.Horizontal)
-        self._laser_slider.setMinimum(int(LASER_532_V_MIN * 100))
-        self._laser_slider.setMaximum(int(LASER_532_V_MAX * 100))
-        self._laser_slider.setValue(int(LASER_532_V_MIN * 100))
-        self._laser_slider.setTickInterval(50)
-        self._laser_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self._laser_slider.valueChanged.connect(self._on_laser_slider)
-
-        self._laser_spin = QDoubleSpinBox()
-        self._laser_spin.setRange(LASER_532_V_MIN, LASER_532_V_MAX)
-        self._laser_spin.setSingleStep(0.05)
-        self._laser_spin.setDecimals(3)
-        self._laser_spin.setSuffix(" V")
-        self._laser_spin.setValue(LASER_532_V_MIN)
-        self._laser_spin.valueChanged.connect(self._on_laser_spin)
-
-        btn_off = QPushButton(f"Apagar ({LASER_532_V_MIN:.1f} V)")
-        btn_off.setStyleSheet("color: #cc4444; font-size: 8pt; padding: 2px;")
-        btn_off.clicked.connect(lambda: self._laser_spin.setValue(LASER_532_V_MIN))
-
-        laser_h = QHBoxLayout()
-        laser_h.addWidget(self._laser_slider, stretch=1)
-        laser_h.addWidget(self._laser_spin)
-        laser_h.addWidget(btn_off)
-        laser_layout.addLayout(laser_h)
-
-        main_layout.addWidget(laser_box)
 
     def closeEvent(self, event):
         if hasattr(self, '_status_timer') and self._status_timer.isActive():

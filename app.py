@@ -111,8 +111,8 @@ class Frontend(QMainWindow):
         focusDock.addWidget(self.focusWidget)
         self.dockArea.addDock(focusDock, "bottom", confocalDock)
 
-        # 3. Shutters / Flipper / Láser 532 — a la derecha de focus
-        shuttersDock = Dock("Shutters / Flipper / Láser 532", size=(360, 180))
+        # 3. Shutters / Flipper — a la derecha de focus
+        shuttersDock = Dock("Shutters / Flipper", size=(360, 180))
         self.shuttersWidget = ShuttersFrontend()
         shuttersDock.addWidget(self.shuttersWidget)
         self.dockArea.addDock(shuttersDock, "right", focusDock)
