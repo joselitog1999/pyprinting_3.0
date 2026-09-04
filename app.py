@@ -261,6 +261,8 @@ class Backend(QObject):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        from core.hardware_manager import hardware_manager
+        hardware_manager.set_profile("pyprinting", rescan=False)
         pi.connect()
 
         self.nanoWorker      = NanoBackend()

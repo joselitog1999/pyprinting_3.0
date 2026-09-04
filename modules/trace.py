@@ -29,8 +29,12 @@ from config import (SHUTTERS, DEFAULT_DATA_PATH,
                     DEFAULT_POWER_BS_HIGH_MW, DEFAULT_POWER_BS_LOW_MW,
                     DEFAULT_POWER_BS_INTERCEPT, DEFAULT_POWER_BS_SLOPE,
                     PD_CHANNELS, PD_CHANS_LIST)
-from nidaq  import (open_shutter, close_shutter,
-                    channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
+try:
+    from nidaq import (open_shutter, close_shutter, heartbeat_shutter,
+                        channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
+except ImportError:
+    from core.nidaq import (open_shutter, close_shutter, heartbeat_shutter,
+                             channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
 
 SHUTTERS_LASER2 = ["None", "BS"] + list(SHUTTERS)
 
@@ -566,6 +570,7 @@ class Backend(QObject):
             open_shutter(self.laser1)
         if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
             open_shutter(self.laser2)
+        heartbeat_shutter(30.0)
 
         self._n           = 0
         self.timer_inicio = time.time()
@@ -613,6 +618,8 @@ class Backend(QObject):
 
     def _trace_update(self):
         self._n += 1
+        if self._n % 30 == 0:  # Cada ~1 segundo a 30 FPS: renueva el heartbeat del watchdog para alinear sin corte
+            heartbeat_shutter(30.0)
 
         active_l1_name = getattr(self, 'laser1', SHUTTERS[0])
         active_l2_name = getattr(self, 'laser2', "None")

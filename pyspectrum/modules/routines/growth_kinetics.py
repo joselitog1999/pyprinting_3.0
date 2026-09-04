@@ -11,7 +11,7 @@ from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer
 import pyqtgraph as pg
 
 from config import SHUTTERS
-from core.nidaq import open_shutter, close_shutter
+from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
@@ -187,6 +187,8 @@ class GrowthKineticsBackend(QtCore.QObject):
         if self.curr_frame >= self.total_frames:
             self.stop_growth()
             return
+
+        heartbeat_shutter(30.0)
 
         frame = self.camera.get_most_recent_image()
         spec = np.mean(frame, axis=0)

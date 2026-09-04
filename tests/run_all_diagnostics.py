@@ -265,6 +265,31 @@ def run_tests():
     assert_test("Corte de Línea Arbitraria PSF con Espesor", len(s_cut) == 60)
     assert_test("Ajuste Gaussiano 1D PSF & FWHM Analítico", fit_gauss is not None and fit_gauss["r_squared"] > 0.99)
 
+    # ── 10. Telemetría de Hardware & Aislamiento de Instrumentos ──────────────
+    print("\n10. Telemetría de Hardware & Aislamiento de Instrumentos")
+    from core.hardware_manager import HardwareManager
+    from pyspectrum.drivers.shamrock_driver import _MockShamrock, get_shamrock
+    from pyspectrum.drivers.andor_ccd_driver import _MockAndorCCD, get_andor_ccd
+    from core.nanopositioning import Frontend as NanoFE, Backend as NanoBE
+
+    mock_sh = _MockShamrock()
+    mock_ccd = _MockAndorCCD()
+    assert_test("Detección de Mock Espectrógrafo y Cámara (is_mock=True)", mock_sh.is_mock and mock_ccd.is_mock)
+
+    hw_diag = HardwareManager()
+    hw_diag.connect_device("Espectrógrafo Andor Shamrock")
+    hw_diag.connect_device("Cámara Andor CCD (Espectros)")
+    no_false_connected = (hw_diag.device_states.get("Espectrógrafo Andor Shamrock") != "connected") and \
+                         (hw_diag.device_states.get("Cámara Andor CCD (Espectros)") != "connected")
+    assert_test("Protección Contra Falso Positivo Conectado en Espectroscopía", no_false_connected)
+
+    nano_fe = NanoFE()
+    nano_be = NanoBE()
+    nano_fe.make_connection(nano_be)
+    nano_ok = nano_fe.conn_status_label.text() != "⚪ Verificando..." and hasattr(nano_be, "reconnect")
+    nano_fe.close()
+    assert_test("Telemetría y Reconexión en Nanopositioning Dock", nano_ok)
+
 
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)

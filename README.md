@@ -50,7 +50,9 @@ Si eres una Inteligencia Artificial o un desarrollador modificando, auditando o 
   - **Retorno Seguro**: Re-posicionamiento capacitivo cerrado automático a la coordenada inicial al concluir o cancelar la medición.
 * **Trazos Temporales & FFT en Tiempo Real (`modules/trace.py` / `modules/power_spectrum_window.py`)**: Adquisición continua a $10\text{ kHz}$, monitor de potencia en divisor de haz (Power BS) y espectro de potencia FFT con marcador visual de ruido de red a $50\text{ Hz}$.
 * **Control Completo de Voltaje Láser 532 nm (`modules/laser_532.py` / `instruments/laser532.py`)**: Control analógico de salida $0.0-5.0\text{ V}$ (mapeado a potencia de emisión) vía canal analógico `ao2` de la NI-DAQmx y shutter digital.
-* **Caracterización Avanzada de PSF (`psf_analyzer.py`)**: Caracterización analítica 2D (Gaussiana de 7 parámetros y Donut $LG_{01}$), residuales, perfiles 1D y desalineación sub-nanométrica ($\Delta r_{\text{nm}}$).
+* **Caracterización Avanzada de PSF (`psf_analyzer.py` / `analysis/psf_analyzer.py`)**: Arquitectura bi-modal: Pestaña 1 (Foto única independiente con líneas de corte 2D interactivas, atajos ortogonales/radiales, espesor de línea, ajuste Gaussiano 1D, $\text{FWHM}$ y comparación de difracción de Abbe) y Pestaña 2 (Co-alineación dual confocal con ajuste 2D de 7 parámetros).
+* **Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)**: Procesamiento avanzado para espectroscopía Raman/SERS con importador inteligente Andor Solis, conversión a Raman Shift ($\text{cm}^{-1}$) y $\text{eV}$, recorte Rayleigh/bordes, sustracción de línea base (AsLS, AirPLS, ModPoly, Rolling Ball), filtros (Savitzky-Golay, FFT, Despiking), reglas duales A/B con integración, suite multi-espectro con normalizaciones (máximo, pico referencia, área, SNV), cinéticas de banda y descomposición PCA (SVD).
+* **Gestor de Perfiles de Hardware y Telemetría Resiliente (`core/hardware_manager.py` / `modules/hardware_dashboard.py`)**: Perfiles por defecto para evitar colisión de puertos USB (`pyprinting`: solo PI + NI-DAQ; `camera`: solo Canon EOS; `pyspectrum`: PI + NI-DAQ + Shamrock + CCD; `all`: escaneo total), conexión bajo demanda en caliente (*Hot-Plug*), eliminación estricta de falsos positivos en espectrómetros y badge interactivo de platina física vs. virtual con botón `🔌 Reconectar`.
 * **Visión por Computadora en Tiempo Real (`modules/camera.py` / `core/canon_edsdk.py`)**: Control nativo de cámaras réflex Canon EOS 500D (EDSDK 64-bit) y cámaras USB OpenCV con Live View a 25.0 FPS, transferencia por RAM (`EdsCreateMemoryStream`), paletas LUT y tracking dinámico (`trackpy`).
 * **Protección de Exclusión Mutua en Hardware Real (`main.py`)**: Bloqueo automático en `main.py` para evitar que el Microscopio Derecho y el Contrapropagante compitan simultáneamente por la platina PI E-517 o la tarjeta NI-DAQmx.
 * **Modelo de Incertidumbre Metrológica (Norma ISO/GUM)**: Documentado en `reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`, respaldando la resolución sub-píxel ($\approx 0.35\ \text{nm}$) con objetivo de agua $60\times$ $\text{NA}=1.0$, pinhole de $50\ \mu\text{m}$ y tamaño de píxel óptimo ($\Delta x \in [15, 25]\ \text{nm/px}$).
@@ -64,6 +66,11 @@ printing3/
 ├── main.py               # 🏠 LANZADOR PRINCIPAL "Bienvenidos al printing" (Grilla 3x3, Exclusión Mutua & Créditos).
 ├── app.py                # 🚀 MICROSCOPIO DERECHO (PyPrinting 3.0 completo). Orquestador PyQt6 y QThreads.
 ├── contrapropagante.py   # 🔍 MICROSCOPIO CONTRAPROPAGANTE (Excitación dual TOP/BOT, confocales síncronas).
+├── camera.py             # 📷 APLICACIÓN DE CÁMARA AUTÓNOMA (Canon EOS 500D EDSDK / USB).
+├── pyspectrum.py         # 🌈 SUITE DE ESPECTROSCOPÍA (Andor Shamrock SR-303i & CCD Newton).
+├── raman_analyzer.py     # 🔬 ANALIZADOR DE ESPECTROS RAMAN & SERS (Modo individual y multi-espectro).
+├── psf_analyzer.py       # 🎯 ANALIZADOR DE PSF 2D / 1D (Foto única y alineación dual).
+├── grid_generator.py     # 🕸️ GENERADOR DE REDES 2D & CRISTALOGRAFÍA ÓPTICA.
 ├── config.py             # ⚙️ Configuración global, constantes de hardware, límites 0-100µm PI y MOCKs (SAFE_MODE).
 ├── requirements.txt      # 📦 Lista de dependencias de Python para producción y desarrollo.
 │
@@ -75,21 +82,23 @@ printing3/
 │   ├── power_spectrum_window.py # Ventana desplegable con gráfico espectral FFT de densidad de potencia.
 │   ├── laser_532.py      # Panel de control de voltaje analógico (0-5V AO2) y shutter para el láser verde de 532 nm.
 │   ├── camera.py         # Control de cámara réflex Canon EOS 500D (EDSDK Live View + Trackpy).
-│   ├── hardware_dashboard.py # Tablero gráfico de seguridad, matriz de LEDs y aislamiento por software.
+│   ├── hardware_dashboard.py # Tablero gráfico de seguridad, selector de perfiles, matriz de LEDs y aislamiento por software.
 │   └── preset_wizard.py  # Asistente guiado de 5 pasos (QWizard) para creación de presets experimentales.
 │
 ├── 🔌 Capa de Abstracción de Hardware y Núcleo (`core/`)
-│   ├── hardware_manager.py# Singleton de telemetría, ping de dispositivos y Soft Isolation.
+│   ├── hardware_manager.py# Singleton de telemetría, perfiles de inicio ('pyprinting', 'pyspectrum', 'camera', 'all') y Soft Isolation.
 │   ├── preset_manager.py  # Gestor de lectura/escritura de presets experimentales en archivos .txt.
+│   ├── raman_engine.py    # Motor numérico puro para espectroscopía Raman (AsLS, AirPLS, ModPoly, SavGol, FFT, SVD/PCA).
+│   ├── lattice_generator.py# Motor cristalográfico de generación de redes 2D periódicas y cuasicristales.
 │   ├── nanopositioning.py# Control capacitivo cerrado de la platina piezoeléctrica PI E-517 (0.0 a 100.0 µm XYZ).
 │   ├── shutters.py       # Control de obturadores digitales (532, 637, 592 nm), flippers y láser 532 nm.
 │   ├── nidaq.py          # Abstracción unificada de tarjetas NI-DAQmx (canales analógicos y digitales).
 │   └── canon_edsdk.py    # Wrapper nativo C/Python para la API Canon EDSDK (Live View 25 FPS & 15 MP).
 │
-├── 🔬 Módulo Espectrométrico en Standby (`pyspectrum/`)
-│   ├── window.py         # Ventana principal del espectrómetro (standby).
+├── 🔬 Módulo Espectrométrico (`pyspectrum/`)
+│   ├── window.py         # Ventana principal del espectrómetro PySpectrum 3.0.
 │   ├── modules/          # Cámaras CCD Andor y drivers de monocromador Shamrock.
-│   └── routines/         # Rutinas cinéticas y espectrales.
+│   └── calibration/      # Cosido Step & Glue, perfiles de lámpara halógena y calibraciones.
 │
 ├── 📁 Archivos de Configuración de Presets (`presets/`)
 │   ├── AuNP_60nm_ImpresionRapida.txt
@@ -97,11 +106,13 @@ printing3/
 │   ├── AgNP_80nm_Nanodimeros.txt
 │   └── Grilla_Extensa_10x10.txt
 │
-├── 📐 Librerías Matemáticas y Analizadores (`analysis/` & raíz)
+├── 📐 Librerías Matemáticas y Analizadores (`analysis/`)
 │   ├── psf.py            # Ajuste Gaussiano 2D (7 parámetros), Centro de Masa y resolución multi-partícula.
-│   ├── spiral.py         # Generación de matrices de escaneo helicoidal para búsqueda rápida (`to_spiral`, `from_spiral`).
+│   ├── psf_analyzer.py   # Herramienta de caracterización bi-modal de PSF (Foto única con cortes 1D y dual confocal).
+│   ├── raman_analyzer.py # Ventana principal de análisis de espectros Raman y reglas interactivas.
+│   ├── multi_spectrum_widget.py # Suite multi-espectro, series temporales, cinéticas y PCA.
 │   ├── image_analyzer.py # Analizador gráfico de imágenes estáticas con reglas en µm/px y tracking.
-│   └── psf_analyzer.py   # Herramienta de caracterización y ajuste de PSF ópticas (Gaussiana / Donut).
+│   └── spiral.py         # Generación de matrices de escaneo helicoidal para búsqueda rápida (`to_spiral`, `from_spiral`).
 │
 └── 📋 Documentación y Reportes Metrológicos
     ├── README.md         # 📖 Documentación maestro de contexto y arquitectura.

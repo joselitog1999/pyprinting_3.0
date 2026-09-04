@@ -10,10 +10,12 @@
 
 Este subsistema combina dos herramientas críticas para la confiabilidad y reproducibilidad experimental de **PyPrinting 3.0**:
 
-1. **Tablero de Seguridad de Hardware (`hardware_dashboard.py`)**:
-   - Monitoreo en vivo del estado de los 5 dispositivos físicos: Platina PI E-517/E-736, Placa NI-DAQmx PCIe-6323/USB-6343 (`Dev1`), Cámara Canon EOS 500D (EDSDK), Relés de Obturadores TTL y Flipper Motorizado.
-   - **Aislamiento por Software (*Soft Isolation*)**: Permite desconectar o simular individualmente cualquier subsistema sin reiniciar la aplicación ni afectar a los demás dispositivos.
-   - **Re-escaneo en Caliente (*Hot Re-scan*)**: Restablece la comunicación USB/PCIe tras reconectar un cable o encender un controlador.
+1. **Tablero de Seguridad y Conexiones de Hardware (`hardware_dashboard.py` / `core/hardware_manager.py`)**:
+   - Monitoreo en vivo del estado de los dispositivos físicos: Platina PI E-517/E-727, Placa NI-DAQmx PCIe-6323/USB-6343 (`Dev1`), Cámara Canon EOS 500D (EDSDK), Espectrógrafo Andor Shamrock SR-303i, Cámara Andor CCD (Espectroscopía), Relés de Obturadores TTL y Flipper Motorizado.
+   - **Perfiles de Inicialización por Defecto**: Aislamiento selectivo de hardware por aplicación para evitar sobrecarga de bus USB y bloqueos de puertos.
+   - **Aislamiento por Software (*Soft Mock Isolation*)**: Permite aislar o simular individualmente cualquier subsistema sin reiniciar la aplicación ni afectar a los demás dispositivos.
+   - **Detección Rigurosa de Hardware vs. Mocks**: Eliminación total de falsos positivos `Conectado` mediante re-inspección forzada en el bus y liberación de handles DLL colgados.
+   - **Detección de Bloqueo Exclusivo de Puerto USB**: Advierte si la platina PI o la cámara están tomadas por otro proceso o ventana activa de PyPrinting.
 2. **Asistente Guiado de Presets Experimentales (`preset_wizard.py`)**:
    - Cuadro de diálogo multipaso (`QWizard`) que guía al investigador a través de 5 etapas para configurar, validar y guardar recetas experimentales en formato de texto plano `.txt`.
 
@@ -23,28 +25,33 @@ Este subsistema combina dos herramientas críticas para la confiabilidad y repro
 
 ### A. Tablero de Seguridad de Hardware
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│  PyPrinting 3.0 — Tablero de Conexiones y Seguridad de Hardware-  □  × │
-├────────────────────────────────────────────────────────────────────────┤
-│  ESTADO DE CONECTIVIDAD Y TELEMETRÍA EN VIVO                           │
-│                                                                        │
-│  [🟢 ONLINE]  Platina Piezoeléctrica PI E-517 / E-736                  │
-│               Puerto: COM3 / USB  |  Pos: (+25.400, +30.120, +15.000) µm│
-│               [ 🔌 Desconectar (Soft) ]  [ 🔄 Re-conectar ]            │
-│                                                                        │
-│  [🟢 ONLINE]  Tarjeta NI-DAQmx PCIe-6323 / USB-6343 (Dev1)             │
-│               Canales AI: 0,1,2,3  |  AO: 0,1,2  |  DO: port0/line0:7  │
-│               [ 🔌 Desconectar (Soft) ]  [ 🔄 Re-conectar ]            │
-│                                                                        │
-│  [🟢 ONLINE]  Cámara Réflex Canon EOS 500D (EDSDK 64-bit)              │
-│               Sensor: APS-C 15.1 MP  |  Batería: 85%  |  Live View: 28fps│
-│               [ 🔌 Desconectar (Soft) ]  [ 🔄 Re-conectar ]            │
-│                                                                        │
-│  [🟢 ONLINE]  Obturadores Láser TTL y Flipper Motorizado               │
-│               Relés activos: 532 nm Cerrado, 637 nm Cerrado, Fl: ABAJO  │
-│                                                                        │
-│  [ 🔄 RE-ESCANEAR TODO EL HARDWARE ]       [ 🧪 MODO SEGURO GLOBAL ]   │
-└────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│  PyPrinting 3.0 — Tablero de Conexiones y Seguridad de Hardware              -  □  ×   │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│  [ Perfil: PyPrinting ▼]  │  [ 🟢 3 Conectados | 🟡 0 Simulados | 🔴 3 Desconectados ] │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│  ESTADO DE CONECTIVIDAD, TELEMETRÍA Y ACCIONES EN CALIENTE                             │
+│                                                                                        │
+│  [🟢 ONLINE]  Platina Piezoeléctrica PI E-517 (USB '0119048050')                      │
+│               Posición: (+25.400, +30.120, +15.000) µm  |  [X] Aislar  [ 🔌 Desconectar]│
+│                                                                                        │
+│  [🟢 ONLINE]  Tarjeta NI-DAQmx PCIe-6323 / USB-6343 (Dev1)                             │
+│               Canales AI: 0..3  |  AO: 0..2  |  DO: port0/line0:7  |  [X] Aislar       │
+│                                                                                        │
+│  [🔴 OFFLINE] Cámara Réflex Canon EOS 500D (EDSDK)                                     │
+│               Detalle: Desconectado por perfil por defecto (Disponible bajo demanda)    │
+│               [ 🔌 Conectar ]  [ ] Aislar                                              │
+│                                                                                        │
+│  [🔴 OFFLINE] Espectrógrafo Andor Shamrock SR-303i                                     │
+│               Detalle: Desconectado por perfil por defecto (Disponible bajo demanda)    │
+│               [ 🔌 Conectar ]  [ ] Aislar                                              │
+│                                                                                        │
+│  [🔴 OFFLINE] Cámara Andor CCD (Espectroscopía)                                        │
+│               Detalle: Desconectado por perfil por defecto (Disponible bajo demanda)    │
+│               [ 🔌 Conectar ]  [ ] Aislar                                              │
+│                                                                                        │
+│  [ 🔄 RE-ESCANEAR TODO ]      [ 🔌 RECONECTAR TODO ]      [ 🧪 MODO SEGURO GLOBAL ]    │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### B. Asistente Guiado de Presets (`QWizard`)
@@ -76,16 +83,54 @@ Este subsistema combina dos herramientas críticas para la confiabilidad y repro
 
 | Control / Botón | Tipo de Widget | Función Técnica |
 |---|---|---|
+| `Selector de Perfil` | `QComboBox` | Conmuta entre `PyPrinting`, `PySpectrum`, `Cámara` y `Completo (All)`, aplicando la política de aislamiento instantáneo. |
 | `Soft Disconnect` | `QPushButton` | Suspende las llamadas a la DLL/controlador y conmuta a mock/simulación sin cerrar la aplicación. |
-| `Re-conectar` | `QPushButton` | Inicializa nuevamente la conexión USB/PCIe del dispositivo específico. |
-| `Re-escanear Todo` | `QPushButton` | Ejecuta un ciclo completo de descubrimiento de periféricos físicos. |
+| `Re-conectar / Conectar` | `QPushButton` | Inicializa bajo demanda la conexión USB/PCIe del dispositivo específico en caliente. |
+| `Aislar (Soft Mock)` | `QCheckBox` | Bloquea el acceso físico al driver y suministra telemetría virtual para pruebas sin apagar el equipo. |
+| `Re-escanear Todo` | `QPushButton` | Ejecuta un ciclo completo de descubrimiento de periféricos físicos liberando handles colgados. |
 | `Modo Seguro Global`| `QPushButton` | Fuerza a toda la aplicación a operar en modo simulado para desarrollo o docencia. |
 | `Wizard Siguiente` | `QPushButton` | Avanza a la siguiente etapa del asistente validando tipos numéricos y rangos físicos. |
 | `Wizard Finalizar` | `QPushButton` | Escribe el archivo `.txt` en la carpeta `presets/` y lo selecciona en la GUI. |
 
 ---
 
-## 4. 📥 Archivos de Entrada que Solicita
+## 4. 🚀 Perfiles de Inicialización de Hardware por Defecto
+
+Para evitar la contienda por puertos serie/USB compartidos y acelerar el tiempo de arranque de cada herramienta, el sistema define cuatro perfiles predeterminados en [`core/hardware_manager.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/hardware_manager.py):
+
+| Perfil | Aplicación Destino | Dispositivos Conectados por Defecto | Dispositivos Desconectados (Bajo Demanda) |
+|---|---|---|---|
+| **`pyprinting`** | [`app.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/app.py) | • Tarjeta NI-DAQmx (Dev1)<br>• Platina PI Piezo (E-517)<br>• Láser 532 nm (AO2) | • Cámara Réflex Canon EOS (EDSDK)<br>• Espectrógrafo Andor Shamrock<br>• Cámara Andor CCD |
+| **`camera`** | [`camera.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/camera.py) | • Cámara Réflex Canon EOS (EDSDK) | • Platina PI Piezo<br>• Tarjeta NI-DAQmx<br>• Espectrógrafo Shamrock<br>• Cámara Andor CCD |
+| **`pyspectrum`**| [`pyspectrum.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum.py) | • Platina PI Piezo (E-517)<br>• Tarjeta NI-DAQmx (Dev1)<br>• Espectrógrafo Shamrock<br>• Cámara Andor CCD | • Cámara Réflex Canon EOS (EDSDK) |
+| **`all`** | Diagnósticos / Laboratorio Completo | • **Todos los dispositivos físicos** | Ninguno (Inspección total) |
+
+> [!NOTE]
+> **Conexión en Caliente (*Hot-Plug*)**: Si el usuario está trabajando en `PyPrinting` y necesita encender la cámara Canon o adquirir un espectro con Shamrock, no requiere reiniciar la app ni cambiar de perfil: basta pulsar el botón **`🔌 Conectar`** correspondiente en el Tablero o el botón de inicio de cámara para inicializar la conexión en caliente inmediatamente.
+
+---
+
+## 5. 🛡️ Diagnóstico de Conectividad y Telemetría de la Platina PI
+
+### 5.1 Modo Virtual Transparente en Nanoposicionamiento
+Históricamente, al encender la aplicación con la platina apagada o con cable USB desconectado, el controlador pasaba a modo virtual silencioso. La interfaz seguía mostrando números cambiando al pulsar las flechas de desplazamiento (`x ►`), creando la falsa impresión de que la platina física respondía.
+
+A partir de la versión 3.0:
+1. **Badge en Tiempo Real en el Dock de Nanoposicionamiento**:
+   - `🟢 PI Física (SN: 0119048050)`: La platina responde a comandos GCS y verifica comunicación continua mediante consulta `qIDN()`.
+   - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente que no hay movimiento mecánico real.
+2. **Botón `🔌 Reconectar` Integrado**:
+   - Permite encender la controladora E-517 en la mesa óptica y pulsar **`Reconectar`** directamente desde el panel de nanoposicionamiento, sin recargar la aplicación ni perder la calibración de la muestra.
+3. **Consola Explicativa**:
+   - Todo intento de movimiento en modo virtual imprime: `[PI VIRTUAL] MOV {'1': 50.0} (Platina física desconectada)`.
+
+### 5.2 Prevención de Colisión de Puertos USB
+El driver FTDI de Physik Instrumente y el SDK de Canon requieren acceso exclusivo al bus USB. Si el usuario intenta abrir el Tablero de Hardware o una segunda herramienta mientras la platina está tomada por la ventana principal de `PyPrinting`, el sistema detecta el error de contienda y despliega un diagnóstico claro:
+`🔴 Desconectada — Puerto USB ocupado por otra ventana activa de PyPrinting` en lugar de reportar genéricamente que el dispositivo no existe.
+
+---
+
+## 6. 📥 Archivos de Entrada que Solicita
 
 1. **Archivos de Preset Existentes (`presets/*.txt`)**:
    - Permite editar o clonar recetas experimentales previas.

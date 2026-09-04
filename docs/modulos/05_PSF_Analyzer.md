@@ -57,17 +57,53 @@ Capacidades destacadas:
 
 ---
 
-## 3. 🎛️ Catálogo de Botones y Controles
+## 3. 🎛️ Arquitectura Bi-Modal y Catálogo de Controles
 
-| Control / Botón | Tipo de Widget | Valores / Opciones | Descripción Técnica |
-|---|---|---|---|
-| `Cargar Imagen / Scan` | `QPushButton` | Archivos `.tiff, .npy, .csv, .jpg, .png` | Importa una matriz 2D de intensidad confocal o imagen óptica de cámara. |
-| `Modelo de Ajuste` | `QComboBox` | `Gaussiano 2D`, `Donut LG01`, `Gaussiano 1D` | Selecciona la función analítica que optimizará el solver. |
-| `Tamaño Campo` | `QLineEdit` | $0.1 - 100.0\ \mu\text{m}$ | Dimensión física del lado de la imagen para calibrar el eje métrico. |
-| `Píxel Scale` | `QLineEdit` | $\mu\text{m}/\text{px}$ | Factor de conversión métrico obtenido automáticamente o fijado manualmente. |
-| `Invertir Intensidad` | `QCheckBox` | `ON / OFF` | Invierte la señal ($I_{\text{inv}} = \max(I) - I$) para analizar valles/dips de scattering. |
-| `Ajustar Automático` | `QPushButton` | Algoritmo LM | Ejecuta la estimación inicial por momentos y optimiza los parámetros por Levenberg-Marquardt. |
-| `Exportar Reporte` | `QPushButton` | Texto / PNG | Genera un informe metrológico estructurado con gráficos y métricas. |
+A partir de la versión 3.0, la ventana principal **`PSFAnalyzerWindow`** adopta una estructura de navegación por pestañas:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  [ 📸 Foto Única & Líneas de Corte ]       [ 🔬 Co-Alineación Dual Confocal ]                   │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.1 Pestaña 1: Foto Única & Líneas de Corte 1D (`SingleImageProfileWidget`)
+Especialmente concebida para la caracterización rápida de imágenes microscópicas independientes (campo claro, fluorescencia, scattering de nanopartículas, perfiles de haz láser de cámara o barridos confocales individuales):
+
+- **Líneas de Corte 2D Interactivas**:
+  - **Línea Libre de 2 Puntos (Arrastrable)**: Manipulación manual de los extremos de corte directamente sobre el visor bidimensional utilizando `pyqtgraph.LineSegmentROI`.
+  - **Atajos Ortogonales de 1-Clic**:
+    - **Corte Horizontal**: Pasa a través del centroide o máximo de intensidad.
+    - **Corte Vertical**: Pasa a través del centroide o máximo de intensidad.
+    - **Diagonales a 45° y 135°**: Para evaluación de astigmatismo óptico.
+    - **Perfil Radial Promediado 360°**: Muestrea circunferencias concéntricas alrededor del centro para evaluar simetría azimutal.
+  - **Espesor de Corte Transversal Promediado (1 a 31 píxeles)**:
+    - Promedia $N$ franjas perpendiculares a lo largo del segmento de corte, reduciendo drásticamente el ruido Poisson/shot noise sin deformar la función de dispersión.
+
+- **Metrología y Ajuste Gaussiano 1D**:
+  - Ajusta los datos experimentales del corte $I(s)$ a la función analítica:
+    $$I(s) = I_0 + A \cdot \exp\left( -\frac{(s - s_0)^2}{2\sigma^2} \right)$$
+  - **Parámetros Reportados en Tiempo Real**:
+    - **$\text{FWHM}$ Experimental**: En micrómetros ($\mu\text{m}$) y en píxeles: $\text{FWHM} = 2\sqrt{2\ln 2}\,\sigma \approx 2.35482\,\sigma$.
+    - **Posición Central ($s_0$)**: Centroide del haz a lo largo de la línea de corte.
+    - **Amplitud Neta ($A$) y Fondo ($I_0$)**: Altura de pico y nivel base de offset.
+    - **Relación Señal/Fondo (SBR)**: $A / I_0$.
+    - **Bondad de Ajuste ($R^2$)**: Coeficiente de determinación.
+    - **Comparación Difractiva de Abbe**:
+      $$\text{FWHM}_{\text{teórico}} = \frac{0.51 \lambda}{\text{NA}}$$
+      Al ingresar la longitud de onda ($\lambda$ en nm) y la apertura numérica del objetivo ($\text{NA}$), el software calcula instantáneamente el porcentaje de ensanchamiento respecto al límite teórico de difracción.
+
+- **Reglas Verticales Duales (Cursores A y B)**:
+  - Posicionamiento arrastrable para medir distancias locales $\Delta X$, diferencia de cuentas $\Delta Y$ e integral de área bajo la curva entre ambos cursores.
+
+- **Exportación 1-Clic**:
+  - **Copiar TSV al Portapapeles**: Listo para pegar directamente en **OriginLab**, **Excel** o **Prism**.
+  - **Exportar CSV**: Guarda la tabla de corte $(s[\mu\text{m}], I(s))$ con encabezados metrológicos.
+
+---
+
+### 3.2 Pestaña 2: Co-Alineación Dual Confocal (`PSFAnalyzerWidget`)
+Conserva todas las capacidades de análisis comparativo entre los dos canales confocales del sistema ($Z_1$ y $Z_2$), ajustando simultáneamente los modelos gaussianos 2D elípticos de 7 parámetros y generando el mapa de residuales y la distancia de separación entre centroides.
 
 ---
 

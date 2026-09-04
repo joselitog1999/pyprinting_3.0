@@ -40,35 +40,45 @@ READ_MODE_IMAGE = 4       # Imagen 2D
 
 
 class _MockAndorCCD:
-    """Simulador transparente de Cámara Andor Newton / iDus EMCCD."""
+    """Simulador transparente de Cámara Andor Newton / iDus / iXon3 EMCCD."""
+    is_mock = True
 
-    def __init__(self, temperature: float = -10.0, fan_mode: str = "low"):
+    def __init__(self, temperature: float = -65.0, fan_mode: str = "low"):
         self.width = 1002
         self.height = 1002
         self._target_temp = float(temperature)
         self._current_temp = 18.5
         self._cooler_on = True
+        self._cooler_mode = 0  # 0: temp returns to ambient on shutdown, 1: maintain
         self._fan_mode = fan_mode
         self._exposure_time = 0.05  # 50 ms
         self._emccd_gain = 0
+        self._output_amplifier = 0  # 0: EMCCD, 1: Convencional
         self._read_mode = READ_MODE_IMAGE
         self._acquiring = False
         self._frame_count = 0
-        print("[Andor CCD SIM] Cámara Andor virtual inicializada (1002x1002).")
+        print("[Andor CCD SIM] Cámara Andor virtual inicializada (1002x1002, iXon3 EMCCD).")
+
+    def is_hardware_alive(self) -> bool:
+        return False
 
     def initialize(self) -> int:
+        self._cooler_on = True
         return DRV_SUCCESS
 
     def close(self) -> int:
         self._acquiring = False
+        if self._cooler_mode == 0:
+            self._cooler_on = False
         return DRV_SUCCESS
 
     def set_temperature(self, temp: float) -> int:
-        self._target_temp = float(temp)
+        self._target_temp = max(-100.0, min(25.0, float(temp)))
+        self.cooler_on()
         return DRV_SUCCESS
 
     def get_temperature(self) -> Tuple[int, float]:
-        # Simula enfriamiento suave hacia el setpoint
+        # Simula enfriamiento suave hacia el setpoint (-65 °C típico de iXon3)
         if self._cooler_on:
             diff = self._target_temp - self._current_temp
             self._current_temp += diff * 0.15
@@ -86,6 +96,18 @@ class _MockAndorCCD:
         self._cooler_on = False
         return DRV_SUCCESS
 
+    def set_cooler_mode(self, mode: int) -> int:
+        self._cooler_mode = int(mode)
+        return DRV_SUCCESS
+
+    def set_output_amplifier(self, typ: int) -> int:
+        # 0: EMCCD (High Gain), 1: Conventional CCD (Ultra-low noise)
+        self._output_amplifier = 0 if int(typ) == 0 else 1
+        return DRV_SUCCESS
+
+    def get_output_amplifier(self) -> int:
+        return self._output_amplifier
+
     def set_exposure_time(self, t_sec: float) -> int:
         self._exposure_time = max(0.001, min(60.0, float(t_sec)))
         return DRV_SUCCESS
@@ -96,6 +118,9 @@ class _MockAndorCCD:
     def set_emccd_gain(self, gain: int) -> int:
         self._emccd_gain = max(0, min(1000, int(gain)))
         return DRV_SUCCESS
+
+    def get_emccd_gain(self) -> int:
+        return self._emccd_gain
 
     def set_read_mode(self, mode: int) -> int:
         self._read_mode = int(mode)
@@ -129,7 +154,8 @@ class _MockAndorCCD:
         signal = slit_profile * (spr_peak + laser_peak + 150.0)
 
         frame = (dark_counts + signal).astype(np.float32)
-        if self._emccd_gain > 0:
+        # En modo EMCCD (0), aplicar ganancia de multiplicación de electrones
+        if self._output_amplifier == 0 and self._emccd_gain > 0:
             frame *= (1.0 + self._emccd_gain * 0.02)
 
         return frame
@@ -142,11 +168,22 @@ class _MockAndorCCD:
 
 class AndorCCDDriver:
     """Controlador Ctypes para la cámara física Andor CCD mediante atmcd64d.dll."""
+    is_mock = False
 
     def __init__(self):
         self._dll = None
         self._connected = False
         self._init_dll()
+
+    def is_hardware_alive(self) -> bool:
+        if not self._connected or self._dll is None:
+            return False
+        try:
+            ret, _ = self.get_temperature()
+            valid_statuses = (DRV_SUCCESS, DRV_TEMP_STABILIZED, DRV_TEMP_NOT_REACHED, DRV_TEMP_DRIFT, DRV_TEMP_NOT_STABILIZED)
+            return ret in valid_statuses
+        except Exception:
+            return False
 
     def _init_dll(self):
         curr_dir = Path(__file__).resolve().parent
@@ -171,6 +208,10 @@ class AndorCCDDriver:
             ret = self._dll.Initialize(dir_path.encode("ascii") if dir_path else b"")
             if ret == DRV_SUCCESS:
                 self._connected = True
+                try:
+                    self._dll.SetCoolerMode(c_int(0))  # 0: vuelve a ambiente al apagar (seguro)
+                except Exception:
+                    pass
                 return True
             print(f"[Andor CCD] Initialize retorno código: {ret}")
             return False
@@ -189,7 +230,10 @@ class AndorCCDDriver:
     def set_temperature(self, temp: float) -> int:
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        return self._dll.SetTemperature(c_int(int(temp)))
+        ret = self._dll.SetTemperature(c_int(int(temp)))
+        # Asegurar que el enfriador Peltier esté activado al definir temperatura
+        self.cooler_on()
+        return ret
 
     def get_temperature(self) -> Tuple[int, float]:
         if not self._connected or self._dll is None:
@@ -207,6 +251,45 @@ class AndorCCDDriver:
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
         return self._dll.CoolerOFF()
+
+    def set_cooler_mode(self, mode: int) -> int:
+        """0: Retorna a temperatura ambiente al cerrar; 1: Mantiene temperatura."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            return self._dll.SetCoolerMode(c_int(int(mode)))
+        except Exception:
+            return DRV_SUCCESS
+
+    def set_output_amplifier(self, typ: int) -> int:
+        """0: Multiplicador de electrones EMCCD; 1: Convencional bajo ruido CCD."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            return self._dll.SetOutputAmplifier(c_int(int(typ)))
+        except Exception as e:
+            print(f"[Andor CCD] Error SetOutputAmplifier: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def set_emccd_gain(self, gain: int) -> int:
+        """Fija la ganancia EM (0 a 1000)."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            return self._dll.SetEMCCDGain(c_int(int(gain)))
+        except Exception as e:
+            print(f"[Andor CCD] Error SetEMCCDGain: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def get_emccd_gain(self) -> Tuple[int, int]:
+        if not self._connected or self._dll is None:
+            return (DRV_NOT_INITIALIZED, 0)
+        try:
+            c_gain = c_int()
+            ret = self._dll.GetEMCCDGain(byref(c_gain))
+            return (ret, c_gain.value)
+        except Exception:
+            return (DRV_NOT_INITIALIZED, 0)
 
     def set_exposure_time(self, t_sec: float) -> int:
         if not self._connected or self._dll is None:
@@ -241,8 +324,16 @@ class AndorCCDDriver:
 # ── Instancia Singleton y Fábrica ─────────────────────────────────────────────
 _andor_instance = None
 
-def get_andor_ccd(force_mock: bool = False) -> _MockAndorCCD | AndorCCDDriver:
+def get_andor_ccd(force_mock: bool = False, reset: bool = False) -> _MockAndorCCD | AndorCCDDriver:
     global _andor_instance
+    if reset:
+        if _andor_instance is not None:
+            try:
+                _andor_instance.close()
+            except Exception:
+                pass
+            _andor_instance = None
+
     if force_mock or SAFE_MODE:
         return _MockAndorCCD()
     if _andor_instance is None:

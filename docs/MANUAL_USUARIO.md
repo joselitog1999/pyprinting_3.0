@@ -41,9 +41,10 @@
 8. [Módulo 6: Modulación Láser 532 nm (`Laser532Window`)](#8-módulo-6-modulación-láser-532-nm-laser532window)
 9. [Módulo 7: PSF Analyzer (`psf_analyzer.py`)](#9-módulo-7-psf-analyzer-psf_analyzerpy)
 10. [Módulo 8: Analizador de Imágenes Estáticas (`image_analyzer.py`)](#10-módulo-8-analizador-de-imágenes-estáticas-image_analyzerpy)
-11. [Módulo 9: Documentación y Créditos del Autor](#11-módulo-9-documentación-y-créditos-del-autor)
-12. [Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)](#12-módulo-11-diseñador-universal-de-redes-cristalinas-2d-grid_generatorpy)
-13. [Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso](#13-módulo-12-procedimientos-operativos-estandarizados-sop-y-protocolos-paso-a-paso)
+11. [Módulo 13: Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)](#11-módulo-13-suite-de-análisis-espectral-y-quimiometría-raman-raman_analyzerpy)
+12. [Módulo 9: Documentación y Créditos del Autor](#12-módulo-9-documentación-y-créditos-del-autor)
+13. [Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)](#13-módulo-11-diseñador-universal-de-redes-cristalinas-2d-grid_generatorpy)
+14. [Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso](#14-módulo-12-procedimientos-operativos-estandarizados-sop-y-protocolos-paso-a-paso)
 14. [Tabla Completa de Parámetros Globales (`config.py`)](#14-tabla-completa-de-parámetros-globales-configpy)
 15. [Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)](#15-modelo-metrológico-de-incertidumbre-y-criterios-sub-píxel-norma-isogum)
 16. [Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)](#16-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
@@ -339,8 +340,14 @@ donde $\bar{t}_{\text{raw}}$ es la media móvil del tiempo de tránsito/fijació
 ---
 
 ### 3.6 Dock: Nanopositioning (Platina Piezoeléctrica PI)
-* Muestra la lectura continua en micrómetros ($X, Y, Z$) de los sensores capacitivos en bucle cerrado de la platina PI E-517/E-736.
+* Muestra la lectura continua en micrómetros ($X, Y, Z$) de los sensores capacitivos en bucle cerrado de la platina PI E-517/E-727.
 * Botones de incremento relativo ($\pm 0.1\ \mu\text{m}$, $\pm 1.0\ \mu\text{m}$, $\pm 10.0\ \mu\text{m}$).
+* **Telemetría y Estado Físico en Tiempo Real**:
+  - `🟢 PI Física (SN: 0119048050)`: La controladora física responde activamente mediante health-check periódico `qIDN()`.
+  - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente si el hardware está apagado o desconectado, imprimiendo en consola `[PI VIRTUAL] MOV ...` para no confundir desplazamientos numéricos de GUI con movimiento mecánico real.
+  - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas.
+* **Perfil de Conexión de Inicio (`pyprinting`)**:
+  - Al abrir `PyPrinting 3.0` (`app.py`), el sistema aísla el bus USB activando únicamente la **Platina PI** y la **Tarjeta NI-DAQmx**. Los periféricos pesados (cámara réflex Canon y espectrómetros Andor) se mantienen desconectados por defecto y en espera de activación bajo demanda, garantizando un arranque ultrarrápido y previniendo colisiones de puertos USB.
 
 ---
 
@@ -643,24 +650,33 @@ El botón **`⚡ Iniciar Control Láser 532`** (Fila 2, Columna 3 del lanzador `
 
 ## 9. Módulo 7: PSF Analyzer (`psf_analyzer.py`)
 
-El botón **`📊 Iniciar PSF Analyzer`** (Fila 3, Columna 1 del lanzador `main.py`) o el comando `python psf_analyzer.py` abren la herramienta de caracterización 2D:
+El botón **`📊 Iniciar PSF Analyzer`** (Fila 3, Columna 1 del lanzador `main.py`) o el comando `python psf_analyzer.py` abren la estación de metrología óptica de haces y nanopartículas. A partir de la versión 3.0, incorpora una **arquitectura bi-modal de dos pestañas**:
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ Canal 1 (Excitación Verde)  │  Original / Filtrada   │  Modelo Fit 2D  │  Residuales   │
-├─────────────────────────────┼────────────────────────┼─────────────────┼───────────────┤
-│ Canal 2 (Donut STED Rojo)   │  Original / Filtrada   │  Modelo Fit 2D  │  Residuales   │
-└─────────────────────────────┴────────────────────────┴─────────────────┴───────────────┘
-```
+### 9.1 Pestaña 1: 📸 Foto Única & Líneas de Corte 1D (`SingleImageProfileWidget`)
+Especialmente desarrollada para evaluar fotos microscópicas individuales (campo claro, fluorescencia, scattering de nanopartículas, perfiles de haz sobre cámara o escaneos confocales simples en formatos `.tiff, .png, .jpg, .bmp, .npy, .txt, .asc`):
 
-* **Visualización Tri-Panel por Canal con Barras Z Dinámicas**:
-  - Despliega por cada canal tres visores gráficos con barras de escala de intensidad Z dinámicas (`ColorBarItem`): **Imagen Original/Filtrada**, **Modelo Ajustado (Fit 2D)** y **Mapa de Residuales ($|Z_n - Z_{\text{fit}}|$)**.
-* **Actualización Dinámica del Filtro de Ruido (`Filtro (%)`)**:
-  - Al modificar el casillero `Filtro (%)` y presionar **`Enter`** o hacer clic en **`Aplicar`**, el sistema recalcula en tiempo real la matriz filtrada $Z_f$, el ajuste gaussiano/donut 2D, el mapa de residuales y los perfiles 1D.
-* **Perfiles 1D Interactivas y Falso Color RGB**:
-  - Permite seleccionar la fuente de perfiles (`Confocal 1`, `Confocal 2`, `Ambas superpuestas`) y la orientación del corte pasante por el centro $(x_0, y_0)$: `Horizontal`, `Vertical`, `Diagonal 45°` o `Diagonal 135°`.
-* **Informe Completo de Métricas Sub-nanométricas**:
-  - Tabla de resultados con $x_0, y_0$, radio $r_0$, elipticidad $a/b$, ángulo de orientación $\theta$, calidad del cero $I_{\min}/I_{\max}$, uniformidad angular $\sigma_{\theta}/\bar{I}$, FWHM promedio, Error RMS, $\chi^2_{\text{red}}$, $R^2$ y desalineación dual $\Delta r_{\text{nm}}$.
+- **Línea de Corte 2D Interactiva**:
+  - **Línea Libre de 2 Puntos (Arrastrable)**: Extremos manipulables con el cursor del mouse (`pyqtgraph.LineSegmentROI`) para muestrear perfiles en cualquier orientación arbitraria.
+  - **Atajos Ortogonales de 1 Clic**: Botones dedicados para cortes directos **Horizontal**, **Vertical**, **Diagonal 45°**, **Diagonal 135°** y **Perfil Radial Promediado 360°**.
+  - **Espesor de Corte Transversal Promediado (1 a 31 px)**: Promedia bandas transversales para atenuar ruido shot/Poisson sin alterar el ancho del perfil.
+- **Ajuste Gaussiano Analítico 1D**:
+  - Ajusta el perfil $I(s)$ a:
+    $$I(s) = I_0 + A \cdot \exp\left( -\frac{(s - s_0)^2}{2\sigma^2} \right)$$
+  - **Parámetros Reportados**: $\text{FWHM}$ experimental en micrómetros ($\mu\text{m}$) y en píxeles ($\text{FWHM} \approx 2.35482\,\sigma$), centro $s_0$, amplitud $A$, fondo $I_0$, relación señal/fondo ($\text{SBR}$) y coeficiente $R^2$.
+  - **Comparación con el Límite de Difracción de Abbe**:
+    $$\text{FWHM}_{\text{difr}} = \frac{0.51 \lambda}{\text{NA}}$$
+    Permite ingresar la longitud de onda ($\lambda$ en nm) y la apertura numérica ($\text{NA}$) para evaluar la calidad óptica del microscopio frente a la difracción ideal.
+- **Reglas Verticales Duales (Cursores A y B)**:
+  - Posicionamiento manual para medir distancias $\Delta X$, diferencia de cuentas $\Delta Y$ e integral de área bajo la curva.
+- **Exportación Rápida**:
+  - **Copiar TSV al Portapapeles**: Formateado en columnas tabulares listo para pegar directamente en **OriginLab**, **Excel** o **Prism**.
+  - **Exportar CSV**: Guarda los datos del corte con metadatos metrológicos.
+
+### 9.2 Pestaña 2: 🔬 Co-Alineación Dual Confocal (`PSFAnalyzerWidget`)
+Permite la comparación síncrona entre los dos canales confocales del microscopio ($Z_1$ y $Z_2$):
+- **Visualización Tri-Panel por Canal con Barras Z Dinámicas**: Imagen Original/Filtrada, Modelo Ajustado (Fit 2D Gaussiano o Donut $LG_{01}$) y Mapa de Residuales ($|Z_n - Z_{\text{fit}}|$).
+- **Actualización Dinámica del Filtro de Ruido (`Filtro (%)`)**: Recalcula instantáneamente la matriz filtrada, el ajuste no lineal 2D y los residuales.
+- **Informe Completo de Métricas Sub-nanométricas**: Centroides $(x_0, y_0)$, elipticidad, calidad del cero en donuts ($I_{\min}/I_{\max}$), $R^2$ y vector de desalineación dual $\Delta r_{\text{nm}}$.
 
 ---
 
@@ -669,6 +685,39 @@ El botón **`📊 Iniciar PSF Analyzer`** (Fila 3, Columna 1 del lanzador `main.
 El botón **`📐 Iniciar Analizador de Imágenes`** (Fila 3, Columna 2 del lanzador `main.py`) abre la herramienta de inspección gráfica sobre archivos en disco:
 * **Calibración µm/píxel**: Carga imágenes `.tif`, `.png`, `.jpg` y permite definir la escala fotónica.
 * **Reglas Tri-Estado & Tracking**: Incorpora las reglas dinámicas H/V, la medición de distancias y el tracking de partículas coloidales por `trackpy`.
+* **Deconvolución Richardson-Lucy en Tiempo Real**: Algoritmo iterativo basado en FFT con regularización para reconstrucción de super-resolución.
+
+---
+
+## 11. Módulo 13: Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)
+
+El módulo **Raman Analyzer** es la estación analítica integral para espectroscopía Raman y dispersión Raman amplificada por superficie (SERS). Se ejecuta mediante el botón dedicado en `main.py` o directamente con `python raman_analyzer.py`:
+
+### 11.1 Modo Espectro Individual
+- **Importador Inteligente Andor Solis**: Salta automáticamente las ~50 líneas iniciales de condiciones experimentales de Andor Solis y detecta delimitadores (tabs, comas, espacios).
+- **Conversión Fotónica de Unidades en Vivo**:
+  - Longitud de onda ($\text{nm}$).
+  - Desplazamiento Raman ($\text{cm}^{-1}$): $\Delta\tilde{\nu} = (1/\lambda_{\text{laser}} - 1/\lambda) \times 10^7$ con $\lambda_{\text{laser}}$ configurable (532 nm, 632.8 nm, 785 nm o libre).
+  - Energía fotónica ($\text{eV}$).
+- **Herramientas de Recorte de Bordes (Trimming)**: Recorte interactivo arrastrando los cursores A y B, y atajo de 1 clic *"Recortar Rayleigh"* ($<150\text{ cm}^{-1}$).
+- **5 Algoritmos de Corrección de Línea Base y Fluorescencia**:
+  1. **AsLS (*Asymmetric Least Squares*)**: Suavizado asimétrico penalizado con $\lambda$ y $p$.
+  2. **AirPLS (*Adaptive Iteratively Reweighted Penalized Least Squares*)**: Ponderación adaptativa libre de parámetros arbitrarios.
+  3. **ModPoly (*Polinomio Modificado de Lieber*)**: Ajuste polinomial iterativo sin influencia de picos Raman.
+  4. **Rolling Ball (*Esfera Rodante*)**: Morfología matemática para fondos con ondulaciones complejas.
+  5. **Tercera Derivada & Splines Cúbicos**: Extracción de nodos de fondo libre de picos.
+- **Filtros de De-noising y Rayos Cósmicos**: Savitzky-Golay, Fourier Pasa-Bajos FFT y extirpador estadístico de rayos cósmicos (*Cosmic Ray Despiking* por derivada y MAD).
+- **Reglas Duales A/B & Deconvolución Multi-Pico**: Detección automática de picos (*Find Peaks*), medición de altura y área integrada entre reglas, y ajuste no lineal con perfiles Gaussianos, Lorentzianos y Pseudo-Voigt.
+
+### 11.2 Suite Multi-Espectro & Series Temporales (`MultiSpectrumWidget`)
+Diseñada para cinéticas químicas, series temporales SERS y comparaciones de lotes:
+- **Visualización en Superposición, Cascada (*Waterfall*) y Mapas de Calor 2D (*Heatmaps*)**.
+- **Normalizaciones Espectroscópicas en Lote**: Al máximo ($0-1$), a un pico de referencia analítico, por área unitaria o centrado/escalado por varianza (SNV).
+- **Herramientas Cuantitativas**:
+  - **Espectro Promedio $\mu \pm \sigma$ & $\text{RSD}\%$**: Traza la curva promedio y banda de dispersión, reportando el porcentaje de desviación estándar relativa ($\text{RSD}\%$) para metrología lote a lote.
+  - **Cinética de Banda**: Evolución temporal de la intensidad y área de una banda en el rango $[A, B]$.
+  - **Quimiometría PCA (*Principal Component Analysis*)**: Descomposición por valores singulares (SVD) con gráficos interactivos de **Scores** ($\text{PC1}$ vs $\text{PC2}$) y **Loadings** (cargas espectrales).
+- **Exportación Tabular**: Copiado al portapapeles en formato TSV (listo para OriginLab/Excel) y guardado en matrices CSV.
 
 ---
 
@@ -808,9 +857,13 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 
 ## 19. Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)
 
-### 19.1 La platina PI no responde o arroja error de comunicación
-* **Causa**: La controladora PI E-517/E-736 no está encendida o los controladores USB/GPIB están ocupados.
-* **Solución**: Verifique los cables físicamente, encienda la controladora y asegúrese de que no haya otra sesión de software abierta (como PyPrinting 2 o PI Terminal). Active el **Modo Seguro** en `main.py` para continuar trabajando en simulación.
+### 19.1 La platina PI no responde, aparece desconectada o los números se mueven pero la platina física no se desplaza
+* **Causa 1 (Modo Virtual Fantasma)**: Si el software se abrió con la controladora E-517 apagada o el cable USB desconectado, el driver entra en modo virtual interno. El badge en el dock de Nanoposicionamiento mostrará `🟡 Modo Virtual (Desconectada)` y la consola imprimirá `[PI VIRTUAL] MOV ...`.
+  * **Solución**: Encienda la controladora física en la mesa óptica y presione el botón **`🔌 Reconectar`** directamente en el dock de Nanoposicionamiento (o en el Tablero de Hardware `Ctrl+H`). El badge cambiará inmediatamente a `🟢 PI Física (SN: 0119048050)`.
+* **Causa 2 (Colisión por Puerto USB Ocupado)**: El driver FTDI/GCS requiere acceso exclusivo al puerto USB. Si intenta abrir el Tablero de Hardware o una segunda instancia mientras la ventana principal de `PyPrinting` tiene tomada la platina, el Tablero mostrará: `🔴 Desconectada — Puerto USB ocupado por otra ventana activa de PyPrinting`.
+  * **Solución**: No intente reconectar desde dos procesos simultáneos. La platina ya está controlada y operativa en la ventana principal.
+* **Causa 3 (Aislamiento por Perfil)**: Si abrió la app de Cámara (`camera.py`), la platina está desconectada por el perfil por defecto `camera`.
+  * **Solución**: Si necesita la platina mientras usa la cámara, pulse **`Ctrl+H`** para abrir el Tablero de Hardware y presione el botón **`🔌 Conectar`** de la Platina PI para vincularla en caliente.
 
 ### 19.2 La cámara réflex Canon no inicia Live View o arroja error de sesión
 * **Causa**: La cámara se apaga automáticamente por ahorro de energía o la sesión USB EDSDK se cerró incorrectamente.

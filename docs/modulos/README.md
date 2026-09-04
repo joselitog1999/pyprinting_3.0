@@ -38,6 +38,7 @@ Cada documento incluye de forma estandarizada:
 | **10** | **PyPrinting 2 Legacy (`PyPrinting_UNSAM.py`)** | Suite histórica para compatibilidad con secuencias previas. | 🔵 Legacy | [10_PyPrinting2_Legacy.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/10_PyPrinting2_Legacy.md) |
 | **11** | **Diseñador de Redes 2D (`grid_generator.py`)** | Síntesis cristalográfica (15 redes 2D), bases fraccionales $(u, v)$, exclusión $d_{\text{min}}$, Partícula Ancla $P_0$ y recetas multi-paso. | 🟢 Operativo | [11_Disenador_Redes_2D_Grid_Generator.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/11_Disenador_Redes_2D_Grid_Generator.md) |
 | **12** | **Protocolos y SOP de Laboratorio** | Procedimientos Operativos Estandarizados paso a paso: pre-vuelo, montaje de celda, impresión y mantenimiento. | 🟢 Protocolo | [12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md) |
+| **13** | **Raman Analyzer Suite (`raman_analyzer.py`)** | Procesamiento Raman & SERS: importador Andor Solis, AsLS/AirPLS/ModPoly, Savitzky-Golay/FFT, multi-espectro, cinéticas, PCA y FWHM. | 🟢 Operativo | [13_Raman_Analyzer_Suite.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/13_Raman_Analyzer_Suite.md) |
 
 ---
 

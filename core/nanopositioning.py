@@ -21,7 +21,7 @@ import numpy as np
 
 from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
-                              QHBoxLayout, QLabel, QLineEdit, QPushButton)
+                              QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton)
 from PyQt6.QtGui     import QFont
 from pyqtgraph.dockarea import DockArea, Dock
 
@@ -37,12 +37,30 @@ class Frontend(QFrame):
     move_signal            = pyqtSignal(str, float)
     go_to_pos_signal       = pyqtSignal(list)
     set_reference_signal   = pyqtSignal()
+    reconnect_signal       = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._setup_gui()
 
     # ── Slots de actualización de UI ──────────────────────────────────────────
+
+    @pyqtSlot(bool, str)
+    def update_connection_status(self, is_physical: bool, status_text: str):
+        if is_physical:
+            self.conn_status_label.setText(f"🟢 {status_text}")
+            self.conn_status_label.setStyleSheet(
+                "color: #a6e3a1; background-color: #181825; border: 1px solid #a6e3a1; "
+                "border-radius: 4px; padding: 2px 8px; font-weight: bold; font-size: 8pt;"
+            )
+            self.conn_status_label.setToolTip("Platina física conectada y calibrada.")
+        else:
+            self.conn_status_label.setText(f"🟡 {status_text}")
+            self.conn_status_label.setStyleSheet(
+                "color: #f9e2af; background-color: #181825; border: 1px solid #f9e2af; "
+                "border-radius: 4px; padding: 2px 8px; font-weight: bold; font-size: 8pt;"
+            )
+            self.conn_status_label.setToolTip("Modo Virtual: sin movimiento físico real. Pulse 'Reconectar' para reintentar.")
 
     @pyqtSlot(list)
     def read_pos_list(self, positions: list):
@@ -189,12 +207,44 @@ class Frontend(QFrame):
         lo2.addWidget(self.ygotoLabel,    2, 2)
         lo2.addWidget(self.zgotoLabel,    3, 2)
 
+        # ── Barra de Estado de Conexión y Reconexión ─────────────────────────
+        self.conn_status_label = QLabel("⚪ Verificando...")
+        self.conn_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.conn_status_label.setStyleSheet(
+            "color: #a6adc8; background-color: #181825; border: 1px solid #45475a; "
+            "border-radius: 4px; padding: 2px 8px; font-size: 8pt; font-weight: bold;"
+        )
+
+        self.reconnect_button = QPushButton("🔌 Reconectar")
+        self.reconnect_button.setToolTip("Reintenta conectar la platina física si fue encendida o reconectada por USB.")
+        self.reconnect_button.setStyleSheet("""
+            QPushButton {
+                background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
+                border-radius: 4px; padding: 2px 8px; font-size: 8pt; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #45475a; color: #89b4fa; }
+            QPushButton:pressed { background-color: #89b4fa; color: #11111b; }
+        """)
+        self.reconnect_button.clicked.connect(self.reconnect_signal.emit)
+
+        status_bar = QHBoxLayout()
+        status_bar.setSpacing(6)
+        status_bar.addWidget(self.conn_status_label, stretch=1)
+        status_bar.addWidget(self.reconnect_button)
+
+        pos_container = QWidget()
+        pos_vlo = QVBoxLayout(pos_container)
+        pos_vlo.setContentsMargins(2, 2, 2, 2)
+        pos_vlo.setSpacing(6)
+        pos_vlo.addLayout(status_bar)
+        pos_vlo.addWidget(positioner)
+
         # ── Docks ─────────────────────────────────────────────────────────────
         hbox = QHBoxLayout(self)
         dock_area = DockArea()
 
         posDock = Dock("Positioners", size=(1, 1))
-        posDock.addWidget(positioner)
+        posDock.addWidget(pos_container)
         dock_area.addDock(posDock)
 
         gotoDock = Dock("Go to", size=(1, 1))
@@ -207,17 +257,34 @@ class Frontend(QFrame):
     def make_connection(self, backend: Backend):
         backend.read_pos_signal.connect(self.read_pos_list)
         backend.reference_signal.connect(self.get_go_to_reference)
+        backend.connection_status_signal.connect(self.update_connection_status)
+        self.reconnect_signal.connect(backend.reconnect)
+        is_phys = hasattr(pi, "is_physically_connected") and pi.is_physically_connected()
+        txt = f"PI Física ({pi.qIDN().strip().split()[0]})" if is_phys else "Modo Virtual (Desconectada)"
+        self.update_connection_status(is_phys, txt)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 class Backend(QObject):
 
-    read_pos_signal  = pyqtSignal(list)    # → [x_um, y_um, z_um]
-    reference_signal = pyqtSignal(list)    # → [x_um, y_um, z_um] al set_reference
+    read_pos_signal          = pyqtSignal(list)       # → [x_um, y_um, z_um]
+    reference_signal         = pyqtSignal(list)       # → [x_um, y_um, z_um] al set_reference
+    connection_status_signal = pyqtSignal(bool, str)  # → (is_physical, status_text)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        pi.connect()
+        self.reconnect()
+
+    @pyqtSlot()
+    def reconnect(self):
+        from config import PI_SERIAL
+        ok = pi.connect(PI_SERIAL)
+        is_phys = hasattr(pi, "is_physically_connected") and pi.is_physically_connected()
+        if is_phys:
+            txt = f"PI Física ({pi.qIDN().strip().split()[0]})"
+        else:
+            txt = "Modo Virtual (Desconectada)"
+        self.connection_status_signal.emit(is_phys, txt)
         self.read_pos()
 
     @pyqtSlot()
@@ -227,6 +294,9 @@ class Backend(QObject):
         y_pos = round(pos["2"], 3)
         z_pos = round(pos["3"], 3)
         self.read_pos_signal.emit([x_pos, y_pos, z_pos])
+        is_phys = hasattr(pi, "is_physically_connected") and pi.is_physically_connected()
+        txt = f"PI Física ({pi.qIDN().strip().split()[0]})" if is_phys else "Modo Virtual (Desconectada)"
+        self.connection_status_signal.emit(is_phys, txt)
         return x_pos, y_pos, z_pos
 
     @pyqtSlot()
@@ -271,8 +341,13 @@ class Backend(QObject):
         frontend.move_signal.connect(self.move)
         frontend.set_reference_signal.connect(self.set_reference)
         frontend.go_to_pos_signal.connect(self.goto)
+        frontend.reconnect_signal.connect(self.reconnect)
         self.read_pos_signal.connect(frontend.read_pos_list)
         self.reference_signal.connect(frontend.get_go_to_reference)
+        self.connection_status_signal.connect(frontend.update_connection_status)
+        is_phys = hasattr(pi, "is_physically_connected") and pi.is_physically_connected()
+        txt = f"PI Física ({pi.qIDN().strip().split()[0]})" if is_phys else "Modo Virtual (Desconectada)"
+        frontend.update_connection_status(is_phys, txt)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

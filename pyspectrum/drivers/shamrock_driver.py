@@ -32,7 +32,7 @@ PIXEL_WIDTH_UM = 8.0
 
 NAME_PORTS_IN = ['Port 0: Fibra Óptica', 'Port 1: Ranura (Slit)']
 NAME_PORTS_OUT = ['Port 0: Cámara Andor', 'Port 1: No Usado']
-NAME_GRATINGS = ['150 líneas/mm', '1200 líneas/mm', 'Espejo (Mirror)']
+NAME_GRATINGS = ['150 líneas/mm (Blaze 800 nm)', '1200 líneas/mm (Blaze 500 nm)', 'Espejo (Mirror)']
 
 # Códigos de retorno Andor Shamrock
 SHAMROCK_COMMUNICATION_ERROR = 20201
@@ -46,6 +46,7 @@ SHAMROCK_NOT_AVAILABLE = 20292
 
 class _MockShamrock:
     """Simulador transparente de Espectrógrafo Andor Shamrock para Modo Seguro."""
+    is_mock = True
 
     def __init__(self):
         self._connected = True
@@ -57,6 +58,9 @@ class _MockShamrock:
         self._flipper_out = SHAMROCK_DIRECT_PORT
         self._serial = "SR-303i-SIM-UNSAM"
         print("[Shamrock SIM] Inicializado controlador virtual de espectrógrafo.")
+
+    def is_hardware_alive(self, device: int = DEVICE) -> bool:
+        return False
 
     def ShamrockInitialize(self, inipath: str = "") -> int:
         return SHAMROCK_SUCCESS
@@ -80,7 +84,7 @@ class _MockShamrock:
 
     def ShamrockGetGratingInfo(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, float, str, int, int]:
         lines_map = {1: 150.0, 2: 1200.0, 3: 0.0}
-        blaze_map = {1: "500nm", 2: "500nm", 3: "N/A"}
+        blaze_map = {1: "800nm", 2: "500nm", 3: "N/A"}
         return (SHAMROCK_SUCCESS, lines_map.get(grating, 150.0), blaze_map.get(grating, "500nm"), 0, 0)
 
     def ShamrockGetWavelength(self, device: int = DEVICE) -> Tuple[int, float]:
@@ -117,8 +121,10 @@ class _MockShamrock:
         return SHAMROCK_SUCCESS
 
     def ShamrockGetCalibration(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
-        # Dispersión sintética realista
-        dispersion = 0.35 if self._grating == 1 else (0.044 if self._grating == 2 else 0.0)
+        # Dispersión física para Shamrock SR-500i (f = 500 mm)
+        # 150 l/mm -> ~13.33 nm/mm (~0.175 nm/px con pixel de 13µm)
+        # 1200 l/mm -> ~1.67 nm/mm (~0.022 nm/px con pixel de 13µm)
+        dispersion = 0.175 if self._grating == 1 else (0.022 if self._grating == 2 else 0.0)
         half_span = (num_pixels / 2.0) * dispersion
         wl_axis = np.linspace(self._wavelength - half_span, self._wavelength + half_span, num_pixels)
         return (SHAMROCK_SUCCESS, wl_axis)
@@ -126,11 +132,21 @@ class _MockShamrock:
 
 class ShamrockDriver:
     """Controlador real Ctypes para el espectrógrafo Andor Shamrock."""
+    is_mock = False
 
     def __init__(self):
         self._dll = None
         self._connected = False
         self._init_dll()
+
+    def is_hardware_alive(self, device: int = DEVICE) -> bool:
+        if not self._connected or self._dll is None:
+            return False
+        try:
+            ret, sn = self.get_serial_number(device)
+            return (ret == SHAMROCK_SUCCESS) and bool(sn) and (sn != "N/A")
+        except Exception:
+            return False
 
     def _init_dll(self):
         curr_dir = Path(__file__).resolve().parent
@@ -311,8 +327,16 @@ class ShamrockDriver:
 # ── Instancia Singleton y Fábrica ─────────────────────────────────────────────
 _shamrock_instance = None
 
-def get_shamrock(force_mock: bool = False) -> _MockShamrock | ShamrockDriver:
+def get_shamrock(force_mock: bool = False, reset: bool = False) -> _MockShamrock | ShamrockDriver:
     global _shamrock_instance
+    if reset:
+        if _shamrock_instance is not None:
+            try:
+                _shamrock_instance.close()
+            except Exception:
+                pass
+            _shamrock_instance = None
+
     if force_mock or SAFE_MODE:
         return _MockShamrock()
     if _shamrock_instance is None:

@@ -38,20 +38,58 @@ class HardwareManager(QObject):
         "Cámara Andor CCD (Espectros)"
     ]
 
+    PROFILES = {
+        "all": [
+            "PI Piezo (E-517/E-727)",
+            "NI-DAQmx (Dev1)",
+            "Láser 532 nm (AO2)",
+            "Cámara USB/Thorlabs",
+            "Espectrógrafo Andor Shamrock",
+            "Cámara Andor CCD (Espectros)"
+        ],
+        "pyprinting": [
+            "PI Piezo (E-517/E-727)",
+            "NI-DAQmx (Dev1)",
+            "Láser 532 nm (AO2)"
+        ],
+        "pyspectrum": [
+            "PI Piezo (E-517/E-727)",
+            "NI-DAQmx (Dev1)",
+            "Espectrógrafo Andor Shamrock",
+            "Cámara Andor CCD (Espectros)"
+        ],
+        "camera": [
+            "Cámara USB/Thorlabs"
+        ]
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.active_profile = "all"
         self.device_states: Dict[str, str] = {}
         self.device_details: Dict[str, str] = {}
         self.device_isolated: Dict[str, bool] = {}
 
         self._init_defaults()
 
+    def set_profile(self, profile_name: str, rescan: bool = True):
+        """Configura el perfil de hardware activo ('pyprinting', 'pyspectrum', 'camera', 'all')."""
+        if profile_name in self.PROFILES:
+            self.active_profile = profile_name
+            self.log("INFO", f"Perfil de hardware configurado: '{profile_name}'.")
+            if rescan:
+                self.rescan_hardware()
+
     def _init_defaults(self):
+        target_devs = set(self.PROFILES.get(self.active_profile, self.DEVICES))
         for dev in self.DEVICES:
             self.device_isolated[dev] = False
             if SAFE_MODE:
                 self.device_states[dev] = "mock"
                 self.device_details[dev] = "Simulación activa (SAFE_MODE)"
+            elif dev not in target_devs:
+                self.device_states[dev] = "disconnected"
+                self.device_details[dev] = "Desconectado por perfil por defecto (Disponible bajo demanda)"
             else:
                 self.device_states[dev] = "disconnected"
                 self.device_details[dev] = "Sin verificar"
@@ -85,16 +123,29 @@ class HardwareManager(QObject):
             if "PI Piezo" in dev:
                 from config import pi
                 ok = pi.connect(PI_SERIAL)
-                if ok or pi.connected:
-                    self.device_states[dev] = "connected"
-                    self.device_details[dev] = f"Conectada ({pi.qIDN().strip()})"
-                    self.log("SUCCESS", f"[{dev}] Platina PI conectada y calibrada exitosamente.")
-                    self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                is_mock_pi = getattr(pi, 'is_mock', False)
+                if (ok or pi.connected) and not is_mock_pi:
+                    if hasattr(pi, "is_physically_connected") and pi.is_physically_connected():
+                        self.device_states[dev] = "connected"
+                        self.device_details[dev] = f"Conectada ({pi.qIDN().strip()})"
+                        self.log("SUCCESS", f"[{dev}] Platina PI física conectada y calibrada exitosamente.")
+                        self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                        return True
+
+                if is_mock_pi:
+                    self.device_states[dev] = "mock"
+                    self.device_details[dev] = "Simulación activa (SAFE_MODE)"
+                    self.deviceStatusSignal.emit(dev, "mock", self.device_details[dev])
                     return True
                 else:
                     self.device_states[dev] = "disconnected"
-                    self.device_details[dev] = "No detectada (verifique alimentación o cable USB)"
-                    self.log("ERROR", f"[{dev}] Fallo al conectar. La platina no responde.")
+                    err_msg = getattr(pi, "last_error", "")
+                    if any(w in err_msg.lower() for w in ("already", "busy", "open", "in use", "access")):
+                        self.device_details[dev] = "Puerto USB ocupado por otra ventana activa de PyPrinting"
+                        self.log("WARNING", f"[{dev}] Platina física detectada pero el puerto USB está ocupado por otra sesión de PyPrinting ({err_msg}).")
+                    else:
+                        self.device_details[dev] = "No detectada o apagada (USB) — Modo virtual activo"
+                        self.log("ERROR", f"[{dev}] Fallo al conectar. La platina física no responde (Modo virtual activo).")
                     self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
                     return False
 
@@ -117,11 +168,36 @@ class HardwareManager(QObject):
                     return False
 
             elif "Cámara USB" in dev:
-                self.device_states[dev] = "connected"
-                self.device_details[dev] = "Cámara lista a 30 FPS"
-                self.log("SUCCESS", f"[{dev}] Módulo de cámara vinculado y listo.")
-                self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
-                return True
+                from config import CAMERA_INDEX
+                import cv2
+                cap = cv2.VideoCapture(CAMERA_INDEX)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    cap.release()
+                    if ret:
+                        self.device_states[dev] = "connected"
+                        self.device_details[dev] = f"Cámara USB lista (Índice {CAMERA_INDEX})"
+                        self.log("SUCCESS", f"[{dev}] Cámara USB conectada (Índice {CAMERA_INDEX}).")
+                        self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                        return True
+                try:
+                    from canon_edsdk import CanonCamera
+                    cc = CanonCamera()
+                    cams = cc.get_camera_list()
+                    if cams:
+                        self.device_states[dev] = "connected"
+                        self.device_details[dev] = f"Canon EDSDK detectada ({len(cams)} cuerpo/s)"
+                        self.log("SUCCESS", f"[{dev}] Cámara réflex Canon EOS lista.")
+                        self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                        return True
+                except Exception:
+                    pass
+
+                self.device_states[dev] = "disconnected"
+                self.device_details[dev] = f"No detectada en índice {CAMERA_INDEX} ni Canon EDSDK"
+                self.log("WARNING", f"[{dev}] Cámara no detectada.")
+                self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
+                return False
 
             elif "Láser" in dev:
                 if self.device_states.get("NI-DAQmx (Dev1)") == "connected":
@@ -135,24 +211,52 @@ class HardwareManager(QObject):
                 return self.device_states[dev] == "connected"
 
             elif "Shamrock" in dev:
-                from pyspectrum.drivers.shamrock_driver import get_shamrock, DEVICE
-                sh = get_shamrock()
-                ret, sn = sh.ShamrockGetSerialNumber(DEVICE)
-                self.device_states[dev] = "connected"
-                self.device_details[dev] = f"Espectrógrafo detectado (SN: {sn})"
-                self.log("SUCCESS", f"[{dev}] Andor Shamrock conectado: {sn}")
-                self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
-                return True
+                from pyspectrum.drivers.shamrock_driver import get_shamrock, DEVICE, SHAMROCK_SUCCESS
+                sh = get_shamrock(reset=True)
+                if getattr(sh, "is_mock", False):
+                    self.device_states[dev] = "disconnected"
+                    self.device_details[dev] = "No detectado en USB (DLL o hardware ausente)"
+                    self.log("WARNING", f"[{dev}] Espectrógrafo físico ausente en bus USB.")
+                    self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
+                    return False
+
+                if hasattr(sh, "is_hardware_alive") and sh.is_hardware_alive(DEVICE):
+                    ret, sn = sh.ShamrockGetSerialNumber(DEVICE)
+                    self.device_states[dev] = "connected"
+                    self.device_details[dev] = f"Espectrógrafo Andor listo (SN: {sn})"
+                    self.log("SUCCESS", f"[{dev}] Andor Shamrock conectado: {sn}")
+                    self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                    return True
+                else:
+                    self.device_states[dev] = "disconnected"
+                    self.device_details[dev] = "Fallo de comunicación con hardware Shamrock"
+                    self.log("ERROR", f"[{dev}] Shamrock no responde a comandos de telemetría.")
+                    self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
+                    return False
 
             elif "Andor CCD" in dev:
                 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
-                cam = get_andor_ccd()
-                status, temp = cam.get_temperature()
-                self.device_states[dev] = "connected"
-                self.device_details[dev] = f"Sensor CCD listo ({temp:.1f} °C)"
-                self.log("SUCCESS", f"[{dev}] Cámara Andor CCD conectada.")
-                self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
-                return True
+                cam = get_andor_ccd(reset=True)
+                if getattr(cam, "is_mock", False):
+                    self.device_states[dev] = "disconnected"
+                    self.device_details[dev] = "No detectada en USB (SDK o cámara ausente)"
+                    self.log("WARNING", f"[{dev}] Cámara Andor CCD física ausente en bus USB.")
+                    self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
+                    return False
+
+                if hasattr(cam, "is_hardware_alive") and cam.is_hardware_alive():
+                    status, temp = cam.get_temperature()
+                    self.device_states[dev] = "connected"
+                    self.device_details[dev] = f"Sensor CCD listo ({temp:.1f} °C)"
+                    self.log("SUCCESS", f"[{dev}] Cámara Andor CCD conectada y respondiendo.")
+                    self.deviceStatusSignal.emit(dev, "connected", self.device_details[dev])
+                    return True
+                else:
+                    self.device_states[dev] = "disconnected"
+                    self.device_details[dev] = "Cámara Andor no responde a consultas de temperatura"
+                    self.log("ERROR", f"[{dev}] Cámara Andor CCD no responde a comandos SDK.")
+                    self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
+                    return False
 
         except Exception as e:
             self.device_states[dev] = "disconnected"
@@ -174,6 +278,30 @@ class HardwareManager(QObject):
             self.device_states[dev] = "disconnected"
             self.device_details[dev] = "Desconectada por el usuario (Modo virtual)"
             self.log("INFO", f"[{dev}] Platina PI desconectada de forma segura.")
+        elif "Shamrock" in dev:
+            try:
+                from pyspectrum.drivers.shamrock_driver import get_shamrock
+                sh = get_shamrock()
+                if hasattr(sh, "close"):
+                    sh.close()
+                get_shamrock(reset=True)
+            except Exception as e:
+                self.log("WARNING", f"[{dev}] Aviso al cerrar Shamrock: {e}")
+            self.device_states[dev] = "disconnected"
+            self.device_details[dev] = "Desconectado por el usuario"
+            self.log("INFO", f"[{dev}] Espectrógrafo Shamrock cerrado y liberado.")
+        elif "Andor CCD" in dev:
+            try:
+                from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+                cam = get_andor_ccd()
+                if hasattr(cam, "close"):
+                    cam.close()
+                get_andor_ccd(reset=True)
+            except Exception as e:
+                self.log("WARNING", f"[{dev}] Aviso al cerrar Andor CCD: {e}")
+            self.device_states[dev] = "disconnected"
+            self.device_details[dev] = "Desconectado por el usuario"
+            self.log("INFO", f"[{dev}] Cámara Andor CCD cerrada y liberada.")
         else:
             self.device_states[dev] = "disconnected"
             self.device_details[dev] = "Desconectado por el usuario"
@@ -182,9 +310,15 @@ class HardwareManager(QObject):
         self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
         return True
 
-    def rescan_hardware(self):
-        """Re-escanea en caliente la presencia de todos los instrumentos."""
-        self.log("INFO", "Iniciando re-escaneo en caliente de instrumentos...")
+    def rescan_hardware(self, profile: Optional[str] = None):
+        """
+        Re-escanea en caliente según el perfil especificado o activo.
+        Los dispositivos excluidos del perfil quedan desconectados pero disponibles bajo demanda.
+        """
+        prof_name = profile if profile is not None else self.active_profile
+        target_devs = set(self.PROFILES.get(prof_name, self.DEVICES))
+        self.log("INFO", f"Iniciando escaneo de hardware (Perfil: '{prof_name}')...")
+
         for dev in self.DEVICES:
             if dev == "Espectrómetro USB (PySpectrum)":
                 self.device_states[dev] = "inactive"
@@ -198,9 +332,14 @@ class HardwareManager(QObject):
                 self.deviceStatusSignal.emit(dev, "mock", self.device_details[dev])
                 continue
 
-            self.connect_device(dev)
+            if dev in target_devs:
+                self.connect_device(dev)
+            else:
+                self.device_states[dev] = "disconnected"
+                self.device_details[dev] = "Desconectado por perfil por defecto (Disponible bajo demanda)"
+                self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
 
-        self.log("SUCCESS", "Re-escaneo de hardware finalizado.")
+        self.log("SUCCESS", f"Escaneo de hardware finalizado (Perfil: '{prof_name}').")
 
     @pyqtSlot(str, bool)
     def toggle_isolation(self, dev: str, isolate: bool):

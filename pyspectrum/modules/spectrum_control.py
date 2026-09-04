@@ -84,9 +84,15 @@ class Frontend(QtWidgets.QFrame):
         self.edit_wavelength.returnPressed.connect(self._on_wavelength_changed)
         grid.addWidget(self.edit_wavelength, 1, 1)
 
-        # 3. Ancho de Ranura (Slit en µm)
-        grid.addWidget(QtWidgets.QLabel("Ancho de Ranura Entrada (µm):"), 2, 0)
+        # 3. Ancho de Ranura (Slit en µm: 10 a 2500 µm)
+        grid.addWidget(QtWidgets.QLabel("Ancho Ranura (10–2500 µm):"), 2, 0)
         self.edit_slit = QtWidgets.QLineEdit("50.0")
+        self.edit_slit.setToolTip(
+            "Ancho motorizado de la ranura de entrada (10 µm a 2500 µm).\n"
+            "• 40–50 µm: Raman confocal óptimo (1 Airy Disk).\n"
+            "• 100–500 µm: Alto flujo / cinética de crecimiento.\n"
+            "• 2500 µm: Apertura máxima (90 µm en muestra / imagen directa)."
+        )
         self.edit_slit.returnPressed.connect(self._on_slit_changed)
         grid.addWidget(self.edit_slit, 2, 1)
 
@@ -142,7 +148,17 @@ class Frontend(QtWidgets.QFrame):
 
     @pyqtSlot(float, float, float)
     def update_calibration_display(self, wl_center: float, wl_min: float, wl_max: float):
-        self.lbl_info.setText(f"Centro: {wl_center:.2f} nm | Rango CCD: {wl_min:.1f} nm — {wl_max:.1f} nm")
+        span = wl_max - wl_min
+        disp_nm_px = span / 1002.0 if span > 0 else 0.0
+        # Dispersión en número de onda cm^-1 por pixel a la longitud de onda central
+        if wl_center > 0 and disp_nm_px > 0:
+            disp_cm1_px = (1e7 / wl_center**2) * disp_nm_px
+        else:
+            disp_cm1_px = 0.0
+        self.lbl_info.setText(
+            f"Centro: <b>{wl_center:.2f} nm</b> | Ventana CCD: <b>{wl_min:.1f} — {wl_max:.1f} nm</b> (Δλ: {span:.1f} nm)<br>"
+            f"Dispersión lineal: <b>{disp_nm_px:.3f} nm/px</b> (≈ <b>{disp_cm1_px:.2f} cm⁻¹/px</b> a {wl_center:.0f} nm)"
+        )
 
 
 class Backend(QtCore.QObject):

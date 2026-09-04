@@ -12,7 +12,7 @@ import os
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout,
                                QLabel, QPushButton, QCheckBox, QTextEdit, QGroupBox,
-                               QHeaderView, QTableWidget, QTableWidgetItem)
+                               QHeaderView, QTableWidget, QTableWidgetItem, QComboBox)
 from PyQt6.QtGui import QColor, QFont
 
 from core.hardware_manager import hardware_manager, HardwareManager
@@ -97,7 +97,17 @@ class HardwareDashboardWidget(QFrame):
         lbl_title = QLabel("🛡️ <b>Tablero de Conexiones & Seguridad de Hardware</b>")
         lbl_title.setStyleSheet("font-size: 11pt; color: #89b4fa;")
 
-        self.btn_rescan = QPushButton("🔄 Re-scan Todo")
+        self.lbl_summary = QLabel("")
+        self.lbl_summary.setStyleSheet("font-size: 9pt; font-weight: bold; color: #cdd6f4; background-color: #313244; border-radius: 4px; padding: 2px 8px;")
+
+        self.combo_profile = QComboBox()
+        self.combo_profile.addItems(["Perfil: PyPrinting", "Perfil: PySpectrum", "Perfil: Cámara", "Perfil: Completo (All)"])
+        self.combo_profile.setStyleSheet("background-color: #313244; color: #89b4fa; font-weight: bold; border-radius: 4px; padding: 2px 6px;")
+        prof_map = {"pyprinting": 0, "pyspectrum": 1, "camera": 2, "all": 3}
+        self.combo_profile.setCurrentIndex(prof_map.get(hardware_manager.active_profile, 3))
+        self.combo_profile.currentIndexChanged.connect(self._on_profile_changed)
+
+        self.btn_rescan = QPushButton("🔄 Re-scan")
         self.btn_rescan.setToolTip("Re-escanea y reconecta en caliente todos los instrumentos físicos detectados.")
         self.btn_rescan.clicked.connect(lambda: hardware_manager.rescan_hardware())
 
@@ -106,6 +116,10 @@ class HardwareDashboardWidget(QFrame):
         self.btn_clear_log.clicked.connect(self._clear_log)
 
         header_hlo.addWidget(lbl_title)
+        header_hlo.addSpacing(10)
+        header_hlo.addWidget(self.lbl_summary)
+        header_hlo.addSpacing(10)
+        header_hlo.addWidget(self.combo_profile)
         header_hlo.addStretch()
         header_hlo.addWidget(self.btn_rescan)
         header_hlo.addWidget(self.btn_clear_log)
@@ -182,6 +196,11 @@ class HardwareDashboardWidget(QFrame):
         hardware_manager.deviceStatusSignal.connect(self._on_device_status_update)
         hardware_manager.hardwareLogSignal.connect(self._on_hardware_log)
 
+    def _on_profile_changed(self, idx: int):
+        profiles = ["pyprinting", "pyspectrum", "camera", "all"]
+        if 0 <= idx < len(profiles):
+            hardware_manager.set_profile(profiles[idx], rescan=True)
+
     def _handle_action_button(self, dev_name: str):
         state = hardware_manager.device_states.get(dev_name, "disconnected")
         if state == "connected":
@@ -201,6 +220,11 @@ class HardwareDashboardWidget(QFrame):
             )
             w["detail"].setText(detail_msg)
 
+            # Sincronizar checkbox de aislamiento
+            w["isolate"].blockSignals(True)
+            w["isolate"].setChecked(hardware_manager.device_isolated.get(dev_name, False))
+            w["isolate"].blockSignals(False)
+
             # Actualizar botón de acción dinámica
             if dev_name != "Espectrómetro USB (PySpectrum)":
                 if status_str == "connected":
@@ -209,6 +233,12 @@ class HardwareDashboardWidget(QFrame):
                 else:
                     w["action_btn"].setText("🔌 Conectar")
                     w["action_btn"].setStyleSheet("background-color: #a6e3a1; color: #111; font-weight: bold;")
+
+            # Actualizar contador global
+            n_conn = sum(1 for s in hardware_manager.device_states.values() if s == "connected")
+            n_mock = sum(1 for s in hardware_manager.device_states.values() if s == "mock")
+            n_disc = sum(1 for s in hardware_manager.device_states.values() if s == "disconnected")
+            self.lbl_summary.setText(f"[ 🟢 {n_conn} Conectados | 🟡 {n_mock} Simulados | 🔴 {n_disc} Desconectados ]")
 
     @pyqtSlot(str, str, str)
     def _on_hardware_log(self, ts: str, level: str, msg: str):

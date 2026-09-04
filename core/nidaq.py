@@ -11,7 +11,14 @@ import time
 import sys
 import atexit
 import threading
+from typing import Callable
 import numpy as np
+
+# Unificar 'nidaq' y 'core.nidaq' en sys.modules para evitar instancias duplicadas
+if __name__ == "core.nidaq":
+    sys.modules["nidaq"] = sys.modules[__name__]
+elif __name__ == "nidaq":
+    sys.modules["core.nidaq"] = sys.modules[__name__]
 
 from config import (
     SAFE_MODE, NIDAQ_DEVICE, SHUTTERS, SHUTTER_CHANNELS, SHUTTER_POLARITY,
@@ -84,6 +91,7 @@ _nidaq_lock                       = threading.RLock()
 _watchdog_active: bool            = True
 _watchdog_deadline: float | None  = None
 _watchdog_lock                    = threading.Lock()
+_watchdog_callbacks: list[Callable[[], None]] = []
 
 
 def _watchdog_loop():
@@ -105,16 +113,53 @@ def _watchdog_loop():
                 print("[WATCHDOG WARNING] Heartbeat expirado: forzando CIERRE INMEDIATO de obturadores por seguridad!")
             except Exception:
                 pass
+            for cb in list(_watchdog_callbacks):
+                try:
+                    cb()
+                except Exception as cb_err:
+                    try: print(f"[WATCHDOG Callback Error] {cb_err}")
+                    except Exception: pass
 
 _watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True, name="ShutterWatchdog")
 _watchdog_thread.start()
 
 
-def heartbeat_shutter(timeout_s: float = 30.0) -> None:
-    """Renueva el temporizador de vida del obturador para proteger la muestra."""
+def heartbeat_shutter(timeout_s: float | None = 30.0) -> None:
+    """Renueva el temporizador de vida del obturador para proteger la muestra.
+    Si timeout_s es None o <= 0, desactiva la fecha límite (Modo Alineación continua)."""
     global _watchdog_deadline
     with _watchdog_lock:
-        _watchdog_deadline = time.time() + max(0.1, float(timeout_s))
+        if timeout_s is None or timeout_s <= 0:
+            _watchdog_deadline = None
+        else:
+            _watchdog_deadline = time.time() + max(0.1, float(timeout_s))
+
+
+def get_watchdog_remaining_time() -> float | None:
+    """Retorna los segundos restantes antes del auto-cierre, o None si no está armado."""
+    with _watchdog_lock:
+        if _watchdog_deadline is None:
+            return None
+        rem = _watchdog_deadline - time.time()
+        return max(0.0, rem)
+
+
+def is_watchdog_armed() -> bool:
+    """Indica si el temporizador de auto-cierre tiene una fecha límite activa."""
+    with _watchdog_lock:
+        return _watchdog_deadline is not None
+
+
+def register_watchdog_callback(fn: Callable[[], None]) -> None:
+    """Registra una función a invocar cuando el watchdog fuerce el cierre de obturadores."""
+    if fn not in _watchdog_callbacks:
+        _watchdog_callbacks.append(fn)
+
+
+def unregister_watchdog_callback(fn: Callable[[], None]) -> None:
+    """Desregistra una función del watchdog."""
+    if fn in _watchdog_callbacks:
+        _watchdog_callbacks.remove(fn)
 
 
 def _emergency_shutdown():
@@ -199,7 +244,7 @@ def _get_flipper532_task():
 #  API PÚBLICA  — misma en ambos modos
 # ══════════════════════════════════════════════════════════════════════════════
 
-def open_shutter(name: str, timeout_s: float = 30.0) -> None:
+def open_shutter(name: str, timeout_s: float | None = 30.0) -> None:
     if name not in SHUTTERS:
         raise ValueError(f"Shutter desconocido: {name}")
     with _nidaq_lock:

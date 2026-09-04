@@ -22,6 +22,7 @@ from pyspectrum.modules.spectrum_control import Frontend as SpectrumFrontend, Ba
 from pyspectrum.modules.camera_andor import Frontend as CameraFrontend, Backend as CameraBackend
 from pyspectrum.modules.step_and_glue import Frontend as StepGlueFrontend, Backend as StepGlueBackend
 from pyspectrum.modules.hyperspectral_confocal import Frontend as ConfocalFrontend, Backend as ConfocalBackend
+from pyspectrum.modules.static_raman import StaticRamanWidget, StaticRamanBackend
 
 from pyspectrum.modules.routines.luminescence import LuminescenceWidget, LuminescenceBackend
 from pyspectrum.modules.routines.growth_kinetics import GrowthKineticsWidget, GrowthKineticsBackend
@@ -119,6 +120,12 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         # ── Menú Rutinas Especializadas ───────────────────────────────────────
         routines_menu = menubar.addMenu("🧪 Rutinas")
 
+        act_static_raman = QtGui.QAction("🔬 Espectroscopía Raman Estática & Termometría", self)
+        act_static_raman.triggered.connect(lambda: self.dock_raman.raise_())
+        routines_menu.addAction(act_static_raman)
+
+        routines_menu.addSeparator()
+
         act_lumin = QtGui.QAction("Luminiscencia & Anti-Stokes", self)
         act_lumin.triggered.connect(self._open_luminescence)
         routines_menu.addAction(act_lumin)
@@ -151,6 +158,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.dock_sandg.addWidget(self.sandg_widget)
         self.dock_area.addDock(self.dock_sandg, 'right')
 
+        self.dock_raman = Dock("🔬 Espectroscopía Raman Estática & Termometría", size=(650, 400))
+        self.raman_widget = StaticRamanWidget()
+        self.dock_raman.addWidget(self.raman_widget)
+        self.dock_area.addDock(self.dock_raman, 'above', self.dock_sandg)
+
         self.dock_confocal = Dock("🧬 Mapeo Confocal Hiperespectral (X, Y, λ)", size=(650, 360))
         self.confocal_widget = ConfocalFrontend()
         self.dock_confocal.addWidget(self.confocal_widget)
@@ -159,6 +171,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"PySpectrum 3.0 Listo. Carpeta de trabajo: {self.work_dir}")
 
     def _setup_threads_and_backends(self):
+        from core.hardware_manager import hardware_manager
+        from config import pi
+        hardware_manager.set_profile("pyspectrum", rescan=False)
+        pi.connect()
+
         self.spectrometer = get_shamrock()
         self.camera = get_andor_ccd()
 
@@ -170,6 +187,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         self.sandg_backend = StepGlueBackend(self.camera, self.spectrometer)
         self.sandg_backend.make_connection(self.sandg_widget)
+
+        self.raman_backend = StaticRamanBackend(self.camera, self.spectrometer)
+        self.raman_backend.make_connection(self.raman_widget)
+        self.raman_backend.statusMessageSignal.connect(lambda msg: self.statusBar().showMessage(msg, 4000))
 
         self.confocal_backend = ConfocalBackend(self.camera, self.spectrometer)
         self.confocal_backend.make_connection(self.confocal_widget)
@@ -252,6 +273,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         )
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
             self.cam_backend.toggle_live(False)
+            self.raman_backend.toggle_live(False)
             self.confocal_backend.stop_scan()
             self.lumin_backend.stop_luminescence()
             self.growth_backend.stop_growth()

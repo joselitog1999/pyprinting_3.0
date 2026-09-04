@@ -99,7 +99,53 @@ Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
 
 ---
 
-## 6. ⚠️ Límites de Validez y Modos de Falla
+## 6. 🔬 Espectroscopía Raman Estática & Termometría Fototérmica (`static_raman.py`)
+
+El módulo de **Raman Estático** permite la captura instantánea (Single-Shot y Live Raman continuo) sin necesidad de traslación mecánica de la red durante la medición, maximizando la relación señal/ruido y la velocidad temporal.
+
+### 6.1. Especificaciones de Redes y Dispersión Física (Shamrock 500i, $f = 500\ \text{mm}$)
+- **Red 1: 150 líneas/mm (Blaze 800 nm)** *(Por defecto - Exploratoria)*:
+  - Dispersión recíproca lineal: $\approx 13.33\ \text{nm/mm} \implies \mathbf{0.175\ \text{nm/px}}$ (detector Andor iXon3 de $1002\ \text{px}$, paso $13\ \mu\text{m}$).
+  - Ventana espectral abarcada en una única toma: $\mathbf{\Delta\lambda \approx 175\ \text{nm}}$.
+  - A excitación de $532\ \text{nm}$: cubre simultáneamente desde $-3700\ \text{cm}^{-1}$ (Anti-Stokes) hasta $+2650\ \text{cm}^{-1}$ (Stokes).
+- **Red 2: 1200 líneas/mm (Blaze 500 nm)** *(Alta Resolución)*:
+  - Dispersión recíproca lineal: $\approx 1.67\ \text{nm/mm} \implies \mathbf{0.022\ \text{nm/px}}$.
+  - Ventana espectral abarcada en una toma: $\mathbf{\Delta\lambda \approx 22\ \text{nm}}$.
+  - A excitación de $532\ \text{nm}$ en modo simétrico: cubre $-400\ \text{cm}^{-1}$ a $+380\ \text{cm}^{-1}$ con resolución ultra-fina para fonones acústicos y termometría Anti-Stokes de baja energía.
+
+### 6.2. Modos de Ventana Espectral Preconfigurados
+1. **Huella Dactilar Raman (Stokes)**: Centra automáticamente el espectrógrafo en $\approx 565\ \text{nm}$ (a $532\ \text{nm}$) para cubrir óptimamente el rango vibracional orgánico e inorgánico ($+500$ a $+2500\ \text{cm}^{-1}$).
+2. **Stokes + Anti-Stokes Simétrico (Termometría)**: Centra exactamente en la longitud de onda de la línea láser ($\lambda_{laser}$), permitiendo registrar en simultáneo las ramas Stokes y Anti-Stokes con idéntica transmitancia instrumental.
+3. **Manual**: El operador define arbitrariamente el centro espectral en nanómetros o $\text{cm}^{-1}$.
+
+### 6.3. Procesamiento en Vivo (`core/raman_engine.py`)
+- **Despiking de Rayos Cósmicos**: Algoritmo por gradiente espacial y filtrado de mediana deslizante sobre ventana de 5 píxeles.
+- **Sustracción de Línea Base**:
+  - *AsLS* (Asymmetric Least Squares): $\lambda = 10^5$, $p = 0.001$.
+  - *AirPLS* (Adaptive Iteratively Reweighted Penalized Least Squares): $\lambda = 10^5$.
+  - *ModPoly* (Polynomial Modified): Orden 4.
+- **Suavizado Savitzky-Golay**: Ajuste polinomial local de orden 3 con ventana seleccionable (5 a 51 puntos).
+- **Telemetría y Termometría Anti-Stokes / Stokes**: Cursores interactivos A y B calculan en tiempo real la relación de intensidades y la temperatura local absoluta según la distribución de Boltzmann:
+  $$T = \frac{h c |\Delta\tilde{\nu}|}{k_B \ln\left[ \frac{I_S}{I_{AS}} \left(\frac{\nu_0 - \Delta\tilde{\nu}}{\nu_0 + \Delta\tilde{\nu}}\right)^4 \right]}$$
+
+---
+
+## 7. ❄️ Control Térmico y Ganancia EMCCD de la Cámara Andor iXon3
+
+- **Refrigeración Termoeléctrica Automática**: Al ingresar un setpoint térmico (típico: $-65\ ^\circ\text{C}$ o $-80\ ^\circ\text{C}$), el controlador invoca automáticamente `CoolerON()` en la biblioteca `atmcd64d.dll`, eliminando el riesgo de que el refrigerador Peltier permanezca inactivo.
+- **Selector de Amplificador de Salida**:
+  - *Modo Convencional (Bajo Ruido CCD)*: Desactiva el registro de ganancia EM para mediciones con alta señal donde prima el mínimo ruido de lectura.
+  - *Modo EMCCD (Multiplicador de Electrones)*: Habilita el control interactivo de ganancia.
+- **Control Dual de EM Gain**:
+  - Slider horizontal acoplado a casilla numérica (`QSpinBox`) al lado para ingreso numérico directo.
+  - Código de color de seguridad:
+    - 🟢 **Verde** ($0 - 100\times$): Régimen seguro de rutina.
+    - 🟡 **Amarillo** ($101 - 300\times$): Alta sensibilidad, precaución con saturación.
+    - 🔴 **Rojo** ($> 300\times$): Alerta de envejecimiento acelerado del sensor por fotocorriente excesiva.
+
+---
+
+## 8. ⚠️ Límites de Validez y Modos de Falla
 
 | Condición de Borde (Fallo Espectroscópico / Hardware) | Firma Experimental (Espectro 1D / Imagen CCD) | Acción Correctiva Física (Procedimiento en Laboratorio) |
 | :--- | :--- | :--- |
@@ -110,8 +156,10 @@ Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
 
 ---
 
-## 7. 🔗 Referencias Cruzadas
+## 9. 🔗 Referencias Cruzadas
+- [📘 Reporte de Sistema Shamrock 500i, iXon3 y Óptica Confocal](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md)
 - [📘 Manual de Usuario Principal — Sección 4: PySpectrum 3.0](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
 - [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
 - [📋 Protocolos y SOP de Laboratorio (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md)
+
 

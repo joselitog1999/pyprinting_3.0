@@ -154,6 +154,7 @@ class _MockPI:
     Todos los métodos de wave generator (WAV_LIN, WGO, etc.) son no-op.
     """
     _lock = threading.RLock()
+    is_mock = True
 
     def __init__(self):
         with self._lock:
@@ -162,15 +163,19 @@ class _MockPI:
                                3: PI_HOME_POS[2]}
             self._connected = False
 
-    def connect(self, serial: str = PI_SERIAL) -> None:
+    def connect(self, serial: str = PI_SERIAL) -> bool:
         with self._lock:
             self._connected = True
             print(f"[PI MOCK] Conectada (serial ignorado: {serial})")
+            return True
 
     def disconnect(self) -> None:
         with self._lock:
             self._connected = False
             print("[PI MOCK] Desconectada.")
+
+    def is_physically_connected(self) -> bool:
+        return False
 
     @property
     def connected(self) -> bool:
@@ -245,11 +250,13 @@ class _PIController:
     Permite conexión y desconexión segura en caliente (Hot-Plug).
     """
     _lock = threading.RLock()
+    is_mock = False
 
     def __init__(self):
         self._dev = None
         self._connected = False
         self._isolated = False
+        self._last_error = ""
         self._pos = {1: float(PI_HOME_POS[0]),
                      2: float(PI_HOME_POS[1]),
                      3: float(PI_HOME_POS[2])}
@@ -260,11 +267,32 @@ class _PIController:
             print(f"[PI] pipython no disponible: {e}")
             self._dev = None
 
+    def is_physically_connected(self) -> bool:
+        """Comprueba si la platina física está verdaderamente en línea y respondiendo."""
+        with self._lock:
+            if not self._connected or self._isolated or self._dev is None:
+                return False
+            try:
+                idn = self._dev.qIDN().strip()
+                return bool(idn) and ("Virtual" not in idn) and ("MOCK" not in idn)
+            except Exception:
+                self._connected = False
+                return False
+
     def connect(self, serial: str = PI_SERIAL) -> bool:
         import time
         with self._lock:
-            if self._connected:
-                return True
+            # 1. Si ya figuraba conectada, verificar salud con consulta real a la controladora
+            if self._connected and not self._isolated and self._dev is not None:
+                try:
+                    idn = self._dev.qIDN().strip()
+                    if idn and "Virtual" not in idn:
+                        return True
+                except Exception:
+                    print("[PI] Conexión física previa interrumpida. Reintentando...")
+                    self._connected = False
+
+            # 2. Inicializar o limpiar instancia GCSDevice
             if self._dev is None:
                 try:
                     from pipython import GCSDevice
@@ -272,8 +300,14 @@ class _PIController:
                 except Exception as e:
                     print(f"[PI] No se puede conectar: pipython no disponible ({e}).")
                     return False
+            else:
+                try:
+                    self._dev.CloseConnection()
+                except Exception:
+                    pass
+
             try:
-                # 1. Auto-enumerar controladores USB PI conectados si están disponibles
+                # 3. Auto-enumerar controladores USB PI conectados si están disponibles
                 conn_target = serial
                 try:
                     devices = self._dev.EnumerateUSB()
@@ -288,7 +322,7 @@ class _PIController:
                 except Exception as enum_err:
                     print(f"[PI] Aviso al enumerar USB PI: {enum_err}")
 
-                # 2. Conectar al controlador seleccionado
+                # 4. Conectar al controlador seleccionado
                 self._dev.ConnectUSB(conn_target)
                 self._dev.SVO(PI_AXES, [True] * 3)
                 self._dev.VCO(PI_AXES, [False] * 3)
@@ -310,11 +344,18 @@ class _PIController:
                 except Exception:
                     pass
                 print(f"[PI] Conectada exitosamente: {self._dev.qIDN().strip()}")
+                self._last_error = ""
                 return True
             except Exception as e:
+                self._last_error = str(e)
                 print(f"[PI] Platina no conectada o apagada (USB '{serial}'): {e}. Modo virtual activo.")
                 self._connected = False
                 return False
+
+    @property
+    def last_error(self) -> str:
+        with self._lock:
+            return getattr(self, "_last_error", "")
 
     def disconnect(self) -> None:
         import time
@@ -352,7 +393,8 @@ class _PIController:
                             self._pos[k] = float(real[k])
                     return real
                 except Exception as e:
-                    print(f"[PI] Error en lectura real qPOS ({e}) — usando posición virtual.")
+                    print(f"[PI] Error en lectura real qPOS ({e}) — Platina desconectada, usando posición virtual.")
+                    self._connected = False
             return {"1": self._pos[1], "2": self._pos[2], "3": self._pos[3]}
 
     def qONT(self, axes=None):
@@ -361,7 +403,7 @@ class _PIController:
                 try:
                     return self._dev.qONT(axes)
                 except Exception:
-                    pass
+                    self._connected = False
             if isinstance(axes, int):
                 return {axes: True}
             axes = axes or PI_AXES
@@ -384,9 +426,19 @@ class _PIController:
                 try:
                     return self._dev.MOV(axes, targets)
                 except Exception as e:
-                    print(f"[PI] Error en comando real MOV ({e}) — registrado en posición virtual.")
+                    print(f"[PI] Error en comando real MOV ({e}) — Platina desconectada, guardado en posición virtual.")
+                    self._connected = False
             else:
-                print(f"[PI VIRTUAL] MOV {dict(zip(axes_list, targets_list))}")
+                print(f"[PI VIRTUAL] MOV {dict(zip(axes_list, targets_list))} (Platina física desconectada)")
+
+    def qIDN(self):
+        with self._lock:
+            if self._connected and not self._isolated and self._dev is not None:
+                try:
+                    return self._dev.qIDN()
+                except Exception:
+                    self._connected = False
+            return "PI E-517 [Virtual/Desconectado]"
 
     def __getattr__(self, name: str):
         if name.startswith("_"):
