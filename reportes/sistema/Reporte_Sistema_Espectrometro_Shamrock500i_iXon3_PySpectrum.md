@@ -9,7 +9,14 @@
 
 ## 1. 🔬 Arquitectura Óptica Completa del Montaje Experimental
 
-El banco óptico de espectroscopía de alta sensibilidad y caracterización de nanoestructuras integra una cadena óptica optimizada para combinar **resolución espacial confocal sub-micrométrica** con **resolución espectral vibra                               ESPECTRÓMETRO ANDOR SHAMROCK SR-500i (Czerny-Turner f = 500 mm)
+El banco óptico de espectroscopía de alta sensibilidad y caracterización de nanoestructuras integra una cadena óptica optimizada para combinar **resolución espacial confocal sub-micrométrica** con **resolución espectral vibracional (< 2 cm⁻¹)**.
+
+> [!NOTE]
+> Para consultar el modelo analítico completo de los 5 objetivos, el telescopio relé de lentes ($f_1 = 250\,\text{mm} \to f_2 = 200\,\text{mm}$), los tres canales confocales y la cámara réflex Canon, remítase al informe maestro:  
+> [Reporte Maestro de Arquitectura Óptica (`reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md).
+
+```
+                                ESPECTRÓMETRO ANDOR SHAMROCK SR-500i (Czerny-Turner f = 500 mm)
                                 ┌────────────────────────────────────────────────────────────┐
 Muestra (Sustrato)              │                                                            │
       │                         │     M1 (Colimador Esférico)      Torrecilla de Redes       │

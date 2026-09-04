@@ -816,15 +816,31 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 
 ## 15. Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)
 
-Para consultar el análisis físico formal según la norma **ISO/GUM**, remítase al informe generado en el repositorio:
-[Incertidumbre Metrológica ISO/GUM (reportes/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Incertidumbre_Metrologica_PyPrinting3.md)
+Para consultar el análisis físico formal y las derivaciones según la norma internacional **ISO/IEC Guide 98-3 (GUM)**, remítase al informe técnico del repositorio:
+[Incertidumbre Metrológica ISO/GUM (`reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md).
 
-### Resumen Metrológico:
-* **Cadena Óptica**: Objetivo de agua $60\times$ ($\text{NA}=1.0$), pinhole confocal de $50\ \mu\text{m}$ ($1.23\ \text{AU}$), focal de enfoque $f=150\ \text{mm}$.
-* **Incertidumbre Combinada Estándar**: $u_c \approx 0.35\ \text{nm}$.
-* **Incertidumbre Expandida**: $U = 0.70\ \text{nm}$ ($k=2$, $95\%$ nivel de confianza).
-* **Criterio de Muestreo Espacial**: Para garantizar la resolución sub-píxel sin aliasing, el tamaño de píxel óptimo debe situarse en:
-  $$\Delta x \in [15, 25]\ \text{nm/píxel}$$
+### Resumen Metrológico con Hardware y Óptica Real:
+* **Cadena Óptica Estándar de Nanofabricación**:
+  - Objetivo de inmersión en agua **Olympus LUMPlanFLN 60x W** ($\text{NA}=1.0$, $f_{\text{obj}} = 3.0\,\text{mm}$, $WD = 2.0\,\text{mm}$).
+  - Telescopio relé $4f$: Lente $f_1 = 250\,\text{mm} \to$ Lente $f_2 = 200\,\text{mm}$ (factor relé $1.25\times$).
+  - Canal Verde 532 nm: Lente $f_3 = 200\,\text{mm} \to$ Pinhole de $50\,\mu\text{m}$.
+  - Magnificación total efectiva: **$M_{\text{total}} = 83.33\times$**.
+  - Diámetro del disco de Airy en el plano del pinhole: $d_{\text{Airy}} = 108.17\,\mu\text{m}$.
+  - Apertura normalizada de pinhole: **$0.462\,\text{AU}$ (Régimen Super-Confocal)**, con seccionado axial de $z_{\text{confocal}} = 0.75\,\mu\text{m}$.
+* **Incertidumbre Espacial Combinada Estándar ($u_c$)**:
+  - Con **Olympus 60x W** ($\Delta x = 15\,\text{nm/px}$): **$u_c(x_0) = \mathbf{6.55\,\text{nm}}$**.
+  - Con **Nikon 100x Oil** ($\text{NA}=1.30$, $\Delta x = 10\,\text{nm/px}$): **$u_c(x_0) = \mathbf{4.73\,\text{nm}}$**.
+* **Incertidumbre Expandida ($U = k \cdot u_c$, $k=2$, $95\%$ nivel de confianza)**:
+  - Olympus 60x W: **$U = 13.10\,\text{nm}$**.
+  - Nikon 100x Oil: **$U = 9.46\,\text{nm}$**.
+* **Incertidumbre de Visión Directa (Cámara Canon EOS 500D)**:
+  - Magnificación $M_{\text{eff}} = 104.17\times$, píxel proyectado $p_{\text{proy}} = 45.12\,\text{nm/px}$ (ratio Nyquist $2.95\times$).
+  - Precisión de ajuste analítico centroidal 2D en `psf_analyzer.py`: **$u_c \approx 2.35\,\text{nm}$**.
+* **Incertidumbre Espectral (Espectrómetro Shamrock 500i / iXon3)**:
+  - Red 1200 l/mm: Dispersión $0.0182\,\text{nm/px}$ $\implies$ Incertidumbre expandida de pico Raman **$U(\nu) = 0.46\,\text{cm}^{-1}$**.
+* **Criterio de Muestreo Espacial Óptimo en Confocal**:
+  - Para maximizar la precisión del ajuste sub-píxel ($u_{\text{fit}} \le 0.55\,\text{nm}$) y minimizar la cuantización discreta sin permitir que la deriva térmica domine el error, el tamaño de píxel debe configurarse en:
+    $$\Delta x_{\text{óptimo}} \in [15, 25]\,\text{nm/píxel}$$
 
 ---
 

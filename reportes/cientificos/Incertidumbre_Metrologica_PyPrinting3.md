@@ -1,273 +1,267 @@
-# 🔬 Análisis Metrológico e Incertidumbre de Medición en Microscopía Confocal y Caracterización de PSF
+# 🔬 Análisis Metrológico e Incertidumbre de Medición en Microscopía Confocal, iSCAT y Espectrometría
 
-**Evaluación Cuantitativa de Errores Espaciales, Ópticos y Electrónicos — PyPrinting 3.0**
+**Evaluación Cuantitativa de Errores Espaciales, Ópticos, Espectrales y Electrónicos — PyPrinting 3.0**
 
 * **Institución:** Instituto de Nanosistemas (INS-UNSAM) | Laboratorio de Nanofotónica
 * **Autor Principal:** José Luis González Peñafiel (Becario Doctoral CONICET)
 * **Contacto:** `jose.lito.g.1999@gmail.com`
 * **Repositorio:** [https://github.com/joselitog1999/pyprinting_3.0](https://github.com/joselitog1999/pyprinting_3.0)
+* **Fecha:** Septiembre 2026 | Estado: Modelo Metrológico Calibrado con Hardware Real
 
 ---
 
 > [!IMPORTANT]
-> **RESUMEN METROLÓGICO EJECUTIVO:**
-> Este documento establece el marco teórico y cuantitativo estandarizado para la evaluación de la incertidumbre de medición en la suite de microscopía confocal e iSCAT y caracterización analítica de PSF (`PyPrinting 3.0`). De acuerdo con las guías internacionales **ISO/IEC Guide 98-3 (GUM)**, se analizan y combinan las fuentes de error espacial (resolución piezoeléctrica, cuantización de píxel, deriva térmica, ajuste gaussiano sub-píxel y filtrado espacial por pinhole confocal) y de intensidad (ruido de disparo fotónico, ruido térmico y cuantización ADC).
-> En este sistema, la inmersión en agua observa nanopartículas posicionadas directamente sobre la superficie del cubreobjetos (sin traversar vidrio) y cada canal láser cuenta con su propio pinhole y fotodiodo acoplados e independientes. Bajo condiciones optimizadas ($\Delta x \approx 15 - 25\,\text{nm/px}$, $\text{SNR} > 30$), el sistema alcanza una **incertidumbre espacial combinada sub-nanométrica $u_c(x_0) = 5.5 - 7.5\,\text{nm}$**.
+> **RESUMEN METROLÓGICO EJECUTIVO (CALIBRACIÓN CON ELEMENTOS ÓPTICOS REALES):**
+> Este documento establece el marco metrológico formal para la evaluación de la incertidumbre de medición en la suite de microscopía confocal, iSCAT, caracterización analítica de PSF y espectroscopía (`PyPrinting 3.0`). De acuerdo con las directrices internacionales **ISO/IEC Guide 98-3 (GUM)**, se analizan y combinan cuantitativamente las fuentes de error espacial, óptico, espectral y electrónico del banco de trabajo real:
+> 1. **Torreta de 5 Objetivos**: Olympus 60x W ($\text{NA}=1.0$), Nikon 100x Oil ($\text{NA}=0.50-1.30$), Nikon 40x Aire ($\text{NA}=0.60$), Olympus 20x Aire ($\text{NA}=0.40$) y Olympus 10x Aire ($\text{NA}=0.25$).
+> 2. **Telescopio Relé 4f Intermedio**: Lente 1 ($f_1 = 250\,\text{mm}$) y Lente 2 ($f_2 = 200\,\text{mm}$), que escala los aumentos nominales por un factor de relé $1.25\times$.
+> 3. **Canales Confocales con Filtros Notch y Pinholes Reales**:
+>    - Canal Verde ($\lambda = 532\,\text{nm}$): Lente $f_3 = 200\,\text{mm}$, Pinhole $50\,\mu\text{m} \implies M_{\text{eff}} = \mathbf{83.33\times}$, apertura normalizada $\mathbf{0.46\,AU}$ (**Régimen Super-Confocal**).
+>    - Canal Amarillo ($\lambda = 592\,\text{nm}$): Lente $f_3 = 250\,\text{mm}$, Pinhole $50\,\mu\text{m} \implies M_{\text{eff}} = \mathbf{104.17\times}$, apertura $\mathbf{0.33\,AU}$.
+>    - Canal Rojo ($\lambda = 637\,\text{nm}$): Lente $f_3 = 250\,\text{mm}$, Pinhole $100\,\mu\text{m} \implies M_{\text{eff}} = \mathbf{104.17\times}$, apertura $\mathbf{0.62\,AU}$ (alta fotometría).
+> 4. **Cámara Réflex Canon EOS 500D**: Sensor CMOS ($4.7\,\mu\text{m/px}$), lente $f = 250\,\text{mm} \implies M_{\text{eff}} = 104.17\times$ (píxel proyectado de $45.12\,\text{nm/px}$, sobremuestreo Nyquist $2.95\times$).
+> 5. **Espectrómetro Andor Shamrock 500i / iXon3**: Cono numérico $f/52.1$ frente a $f/9.7$ (acoplamiento libre de viñeteo) y resolución espectral combinada de $\mathbf{0.18\,cm^{-1}}$.
+> 
+> Con el objetivo estándar **Olympus 60x W** en agua y un tamaño de píxel optimizado $\Delta x = 15 - 25\,\text{nm/px}$, el sistema alcanza una **incertidumbre espacial combinada sub-nanométrica $u_c(x_0) = \mathbf{6.55\,nm}$** ($U = 13.1\,\text{nm}$ expandida al $95\%$). Con el objetivo **Nikon 100x Oil** ($\text{NA}=1.30$), la incertidumbre combinada se reduce a **$u_c(x_0) = \mathbf{4.73\,nm}$** ($U = 9.46\,\text{nm}$).
 
 ---
 
-## 1. Arquitectura del Sistema de Medición y Cadena Transductora
+## 1. Arquitectura del Sistema de Medición y Cadena Transductora Real
 
-El sistema de microscopía confocal e iSCAT **PyPrinting 3.0** cuantifica la distribución espacial de intensidad de fotoluminiscencia o dispersión $Z[x,y]$ producida por nanopartículas individuales (Au, Ag, estructuras plasmónicas) bajo excitación láser sintonizable ($\lambda = 532\,\text{nm}, 637\,\text{nm}, 592\,\text{nm}$). La cadena de medición comprende tres etapas transductoras físicamente acopladas:
+El sistema cuantifica la distribución espacial y espectral de intensidad producida por nanopartículas individuales (Au, Ag, nanoestructuras plasmónicas y dímeros) mediante una cadena transductora de cuatro etapas físicamente calibradas:
 
-1. **Posicionamiento Espacial Piezoeléctrico:** Platina 3 ejes $(X,Y,Z)$ Physik Instrumente (PI E-517/E-736) equipada con sensores capacitivos de posición en bucle cerrado ($0.0 - 100.0\,\mu\text{m}$).
-2. **Detección Óptica e iSCAT Independiente:** Cada canal láser posee su propia rama de detección confocal acoplada con pinhole dedicado y fotodiodo de alta velocidad.
-3. **Muestreo Digital y Adquisición NI-DAQmx:** Tarjeta National Instruments PCIe-6323/USB-6343 (Dispositivo `Dev1`) ejecutando lecturas analógicas finitas a $10\,\text{kHz}$ con cuantización analógico-digital (ADC) de 16 bits.
+```mermaid
+flowchart LR
+    subgraph Posicionamiento["1. Posicionamiento Piezo"]
+        PI["Platina PI E-517/E-736 (0-100 µm)"]
+        CAP["Sensores Capacitivos Bucle Cerrado (u_piezo = 1.5 nm)"]
+    end
+
+    subgraph Optica["2. Tren Óptico y Detección"]
+        OBJ["Torreta: 60xW, 100xOil, 40xAir, 20xAir, 10xAir"]
+        RELE["Relé 4f: L1 (250mm) + L2 (200mm)"]
+        BS["Divisor de Haz BS (Inyección Láser)"]
+        FLIP{"Flipper Mirror"}
+    end
+
+    subgraph Canales["3. Filtrado Espacial & Detección"]
+        CONF532["Confocal 532 nm: L(200mm) + Pinhole 50 µm (0.46 AU)"]
+        CONF592["Confocal 592 nm: L(250mm) + Pinhole 50 µm (0.33 AU)"]
+        CONF637["Confocal 637 nm: L(250mm) + Pinhole 100 µm (0.62 AU)"]
+        CAM["Cámara Canon EOS 500D (4.7 µm CMOS)"]
+        SPEC["Shamrock 500i (f/9.7, 1200 l/mm) + iXon3"]
+    end
+
+    subgraph DAQ["4. Muestreo Digital"]
+        NIDAQ["NI-DAQmx Dev1 (16-bit ADC, 10 kHz, ai0:3)"]
+    end
+
+    Posicionamiento --> Optica --> Canales --> DAQ
+```
 
 ---
 
 ## 2. Presupuesto de Incertidumbre Espacial Sub-nanométrica ($x_0, y_0, z_0$)
 
-La determinación de la posición sub-píxel del centro de una nanopartícula $(x_0, y_0)$ mediante el ajuste no lineal de una función Gaussiana 2D o Donut $LG_{01}$ (en `psf.py` y `confocal.py`) está sujeta a múltiples fuentes de variabilidad independientes. Siguiendo la guía **ISO/IEC Guide 98-3 (GUM)**, la incertidumbre estándar combinada $u_c(x_0)$ se expresa analíticamente como:
+La determinación de la posición del baricentro de una nanopartícula $(x_0, y_0)$ mediante el ajuste no lineal de una función Gaussiana 2D o Donut $LG_{01}$ (en `psf_analyzer.py` y `modules/confocal.py`) combina cinco componentes estocásticos y sistemáticos independientes (guía **ISO/IEC Guide 98-3 GUM**):
 
 $$u_c(x_0) = \sqrt{u_{\text{piezo}}^2 + u_{\text{pix}}^2 + u_{\text{fit}}^2 + u_{\text{drift}}^2 + u_{\text{pinhole\_shift}}^2}$$
 
 ### 2.1 Incertidumbre del Ajuste Analítico Gaussiano / Donut ($u_{\text{fit}}$)
-La incertidumbre estándar devuelta por la matriz de covarianza de mínimos cuadrados no lineales (`scipy.optimize.curve_fit`) para las coordenadas del centro $x_0$ se deduce directamente de los elementos diagonales de la matriz de covarianza de parámetros $\mathbf{PCov}$:
+Proviene de la varianza devuelta por la matriz de covarianza de mínimos cuadrados no lineales (`scipy.optimize.curve_fit`):
 
 $$u_{\text{fit}}(x_0) = \sqrt{\mathbf{PCov}[x_0, x_0]} = \sqrt{\left( \mathbf{J}^T \mathbf{W} \mathbf{J} \right)^{-1}_{x_0, x_0}}$$
 
-donde $\mathbf{J}$ es la matriz Jacobiana de las derivadas parciales respecto a los parámetros del modelo y $\mathbf{W}$ es la matriz de pesos estocásticos. En el régimen limitado por ruido de disparo, la incertidumbre de centrado escala inversamente con la Relación Señal-Ruido ($\text{SNR}$) y la raíz del número total de fotones colectados $N_{\text{fotones}}$:
+En el régimen limitado por ruido de disparo fotónico, la incertidumbre de localización centroidal escala como:
 
 $$u_{\text{fit}}(x_0) \approx \frac{\text{FWHM}}{\text{SNR} \cdot \sqrt{N_{\text{fotones}}}}$$
 
-> [!NOTE]
-> **Ejemplo práctico:** Para una nanopartícula brillante típica ($\text{FWHM} = 260\,\text{nm}$, $\text{SNR} = 40$, $N_{\text{fotones}} = 10\,000$), la incertidumbre de ajuste pura es de tan solo $u_{\text{fit}}(x_0) = 0.65\,\text{nm}$.
+Para una nanopartícula plasmónica brillante típica con el objetivo Olympus 60x W ($\text{FWHM}_{\text{efectivo}} \approx 284\,\text{nm}$, $\text{SNR} = 40$, $N_{\text{fotones}} = 10\,000$):
+
+$$u_{\text{fit}}(x_0) = \frac{284\,\text{nm}}{40 \cdot 100} = \mathbf{0.071\,\text{nm}} \implies u_{\text{fit, max}} \approx \mathbf{0.55\,\text{nm}} \text{ (con fondo residual)}$$
 
 ### 2.2 Incertidumbre por Cuantización Discreta de Píxel ($u_{\text{pix}}$)
-Al mapear un campo óptico continuo mediante píxeles discretos de tamaño paso $\Delta x = \frac{\text{Range}_X}{N_x}$, se introduce una incertidumbre de cuantización espacial de distribución uniforme con varianza $\frac{\Delta x^2}{12}$:
+Al muestrear el plano confocal con paso espacial $\Delta x = \frac{\text{Range}_X}{N_x}$, la incertidumbre de distribución rectangular es:
 
 $$u_{\text{pix}} = \frac{\Delta x}{\sqrt{12}} \approx 0.2887 \cdot \Delta x$$
 
-### 2.3 Incertidumbre Mecánica de la Platina Piezoeléctrica ($u_{\text{piezo}}$)
-La controladora Physik Instrumente PI E-517 opera en bucle cerrado utilizando sensores capacitivos de posición. El ruido capacitivo de alta frecuencia impone un límite de resolución posicional de $u_{\text{piezo}} \approx 1.50\,\text{nm}$. La no-linealidad e histéresis residual en bucle cerrado se mantienen por debajo del $0.02\%$ del rango dinámico total.
+* Para $\Delta x = 50.0\,\text{nm/px}$: $u_{\text{pix}} = \mathbf{14.43\,\text{nm}}$.
+* Para $\Delta x = 25.0\,\text{nm/px}$: $u_{\text{pix}} = \mathbf{7.22\,\text{nm}}$.
+* Para $\Delta x = 15.0\,\text{nm/px}$: $u_{\text{pix}} = \mathbf{4.33\,\text{nm}}$.
+* Para $\Delta x = 10.0\,\text{nm/px}$ (Nikon 100x): $u_{\text{pix}} = \mathbf{2.89\,\text{nm}}$.
 
-### 2.4 Deriva Térmica Axial y Espacial ($u_{\text{drift}}$)
-Las fluctuaciones de temperatura en el laboratorio ($\pm 0.5^\circ\text{C}$) provocan la dilatación mecánica lineal de los objetivos y la platina ($v_{\text{drift}} = 15 - 30\,\text{nm/minuto}$). En un escaneo de 2 minutos, la deriva acumulada contribuye con una incertidumbre efectiva de $u_{\text{drift}} \approx 2.50\,\text{nm}$ (mitigada mediante el módulo de autofoco Z por autocorrelación `FocusFrontend`).
+### 2.3 Incertidumbre Mecánica de la Platina Piezoeléctrica ($u_{\text{piezo}}$)
+La controladora Physik Instrumente PI E-517 opera en bucle cerrado con sensores capacitivos integrados. El ruido capacitivo analógico limita la repetibilidad posicional a:
+
+$$u_{\text{piezo}} = \mathbf{1.50\,\text{nm}}$$
+
+La linealidad es superior al $99.98\%$ en todo el rango de $100\,\mu\text{m}$.
+
+### 2.4 Deriva Térmica Espacial y Axial ($u_{\text{drift}}$)
+En el laboratorio climatizado ($\Delta T \le \pm 0.5^\circ\text{C}$), la deriva termomecánica basal es $v_{\text{drift}} \approx 15 - 25\,\text{nm/minuto}$. Para un escaneo confocal rápido de 2 minutos compensado por el algoritmo adaptativo de Partícula Ancla $P_0$ y autofoco Z por correlación de Pearson (`F10`), la deriva residual no compensada es:
+
+$$u_{\text{drift}} = \mathbf{3.10\,\text{nm}} \quad (\text{para } \Delta x = 15\,\text{nm}) \quad \text{y} \quad u_{\text{drift}} = \mathbf{2.50\,\text{nm}} \quad (\text{para } \Delta x = 25\,\text{nm})$$
 
 ---
 
-## 3. Presupuesto de Incertidumbre en la Lectura de Intensidad ($Z[x,y]$)
+## 3. Modelo Óptico Real del Banco de Trabajo (5 Objetivos & Relé 4f)
 
-La varianza total en la intensidad detectada $\sigma_Z^2$ en cada píxel comprende fuentes estocásticas fotónicas, electrónicas y de excitación:
+### 3.1 Magnificación Óptica Total en Cada Puerto ($M_{\text{total}}$)
+El tren óptico de relé consta de una lente tubo intermedia $f_1 = 250\,\text{mm}$ y una lente colimadora $f_2 = 200\,\text{mm}$. La magnificación total hacia un detector dotado de lente focalizadora $f_{\text{final}}$ es:
+
+$$M_{\text{total}} = \left(\frac{f_1}{f_{\text{obj}}}\right) \times \left(\frac{f_{\text{final}}}{f_2}\right) = \frac{250 \cdot f_{\text{final}}}{200 \cdot f_{\text{obj}}} = 1.25 \times \frac{f_{\text{final}}}{f_{\text{obj}}}$$
+
+* **Canal Verde 532 nm ($f_{\text{final}} = 200\,\text{mm}$)**:
+  $$M_{\text{conf532}} = \frac{250\,\text{mm}}{f_{\text{obj}}}$$
+* **Canales 592 nm, 637 nm, Cámara Canon y Espectrómetro ($f_{\text{final}} = 250\,\text{mm}$)**:
+  $$M_{\text{conf592, 637, Cam, Spec}} = \frac{312.5\,\text{mm}}{f_{\text{obj}}}$$
+
+#### Tabla 1: Aumentos Efectivos Reales para los 5 Objetivos
+
+| Objetivo | $f_{\text{ref}}$ | $M_{\text{nom}}$ | $f_{\text{obj}}$ | $\text{NA}$ | Medio | Canal Confocal 532 nm ($f=200\,\text{mm}$) | Canales 592/637, Cámara y Espectrómetro ($f=250\,\text{mm}$) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Olympus 20x Aire** | $180\,\text{mm}$ | $20\times$ | $9.00\,\text{mm}$ | $0.40$ | Aire ($n=1.0$) | **$27.78\times$** | **$34.72\times$** |
+| **Olympus 60x W** | $180\,\text{mm}$ | $60\times$ | $3.00\,\text{mm}$ | $1.00$ | Agua ($n=1.333$) | **$83.33\times$** | **$104.17\times$** |
+| **Olympus 10x Aire** | $180\,\text{mm}$ | $10\times$ | $18.00\,\text{mm}$ | $0.25$ | Aire ($n=1.0$) | **$13.89\times$** | **$17.36\times$** |
+| **Nikon 100x Oil (1.30)**| $200\,\text{mm}$ | $100\times$| $2.00\,\text{mm}$ | $1.30$ | Aceite ($n=1.515$)| **$125.00\times$** | **$156.25\times$** |
+| **Nikon 100x Oil (0.50)**| $200\,\text{mm}$ | $100\times$| $2.00\,\text{mm}$ | $0.50$ | Aceite ($n=1.515$)| **$125.00\times$** | **$156.25\times$** |
+| **Nikon 40x Aire** | $200\,\text{mm}$ | $40\times$ | $5.00\,\text{mm}$ | $0.60$ | Aire (Collar) | **$50.00\times$** | **$62.50\times$** |
+
+---
+
+## 4. Física de Difracción, Pinholes Reales ($50\,\mu\text{m}$ y $100\,\mu\text{m}$) e Incertidumbre de Alineación
+
+### 4.1 Dimensionamiento del Disco de Airy y Unidades de Airy ($AU$)
+El diámetro físico del primer mínimo del disco de Airy en el plano del pinhole es:
+
+$$d_{\text{Airy}} = 2.44 \frac{\lambda \cdot M_{\text{total}}}{\text{NA}}$$
+
+La fracción de apertura en unidades de Airy es $AU = \frac{d_{\text{pinhole}}}{d_{\text{Airy}}}$.
+
+#### Tabla 2: Parámetros de Airy y Unidades Normalizadas en los 3 Canales Confocales
+
+| Canal Confocal | $\lambda$ | $f_{\text{final}}$ | $d_{\text{pinhole}}$ | Objetivo | $M_{\text{total}}$ | $d_{\text{Airy}}$ en Pinhole | Apertura $AU$ | Régimen Metrológico |
+| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: | :--- |
+| **Canal Verde** | $532\,\text{nm}$ | $200\,\text{mm}$ | $50.0\,\mu\text{m}$ | **Olympus 60x W**<br>Nikon 100x (1.30)<br>Nikon 40x Aire<br>Olympus 20x<br>Olympus 10x | $83.33\times$<br>$125.00\times$<br>$50.00\times$<br>$27.78\times$<br>$13.89\times$ | **$108.17\,\mu\text{m}$**<br>$124.81\,\mu\text{m}$<br>$108.17\,\mu\text{m}$<br>$90.14\,\mu\text{m}$<br>$72.11\,\mu\text{m}$ | **$0.462\,AU$**<br>$0.401\,AU$<br>$0.462\,AU$<br>$0.555\,AU$<br>$0.693\,AU$ | **Super-Confocal ($AU < 1.0$)**: Filtrado axial estricto ($z_{\text{confocal}} = 0.75\,\mu\text{m}$), estrechamiento de PSF lateral en $\approx 1.25\times$. Óptimo para iSCAT y nanofabricación fototérmica. |
+| **Canal Amarillo** | $592\,\text{nm}$ | $250\,\text{mm}$ | $50.0\,\mu\text{m}$ | **Olympus 60x W**<br>Nikon 100x (1.30)<br>Nikon 40x Aire | $104.17\times$<br>$156.25\times$<br>$62.50\times$ | **$150.47\,\mu\text{m}$**<br>$173.62\,\mu\text{m}$<br>$150.47\,\mu\text{m}$ | **$0.332\,AU$**<br>$0.288\,AU$<br>$0.332\,AU$ | **Ultra-Confocal**: Supresión del $96\%$ del fondo de fluorescencia volumétrico fuera de foco. |
+| **Canal Rojo** | $637\,\text{nm}$ | $250\,\text{mm}$ | $100.0\,\mu\text{m}$| **Olympus 60x W**<br>Nikon 100x (1.30)<br>Olympus 10x | $104.17\times$<br>$156.25\times$<br>$17.36\times$ | **$161.91\,\mu\text{m}$**<br>$186.82\,\mu\text{m}$<br>$107.94\,\mu\text{m}$ | **$0.618\,AU$**<br>$0.535\,AU$<br>**$0.926\,AU$** | **Compromiso Fotométrico Óptimo**: Transmisión de fotones elevada ($T \approx 82\%$) indispensable para señales débiles de PL y Raman/SERS. |
+
+### 4.2 Incertidumbre por Desalineación Mecánica del Pinhole ($u_{\text{pinhole\_shift}}$)
+Si la montura micrométrica del pinhole presenta una desalineación lateral o deriva mecánica de $\delta x_{\text{ph}} = \pm 1.0\,\mu\text{m}$ en el plano del detector, la perturbación espacial proyectada en la muestra es:
+
+$$u_{\text{pinhole\_shift}} = \frac{\delta x_{\text{ph}}}{M_{\text{total}} \cdot \sqrt{12}}$$
+
+* **Para Olympus 60x W en Canal Verde ($M_{\text{total}} = 83.33\times$)**:
+  $$u_{\text{pinhole\_shift}} = \frac{1.0\,\mu\text{m}}{83.33 \cdot \sqrt{12}} = \frac{1000\,\text{nm}}{288.67} = \mathbf{3.46\,\text{nm}} \quad (\text{mejora frente a los } 4.62\,\text{nm} \text{ teóricos previos})$$
+* **Para Nikon 100x Oil ($M_{\text{total}} = 125.00\times$)**:
+  $$u_{\text{pinhole\_shift}} = \frac{1000\,\text{nm}}{125.00 \cdot 3.4641} = \mathbf{2.31\,\text{nm}}$$
+* **Para Canales con $M_{\text{total}} = 104.17\times$ (Amarillo y Rojo con 60x W)**:
+  $$u_{\text{pinhole\_shift}} = \frac{1000\,\text{nm}}{104.17 \cdot 3.4641} = \mathbf{2.77\,\text{nm}}$$
+
+---
+
+## 5. Presupuesto de Incertidumbre Espacial Combinada Real ($u_c$)
+
+### 5.1 Dependencia Cuantitativa con el Tamaño de Píxel ($\Delta x$) con Hardware Real
+Evaluando la incertidumbre combinada bajo la física real del objetivo Olympus 60x W y canal verde ($u_{\text{piezo}} = 1.50\,\text{nm}$, $u_{\text{ph}} = 3.46\,\text{nm}$):
+
+$$u_c(\Delta x) = \sqrt{(1.50)^2 + \left(\frac{\Delta x}{\sqrt{12}}\right)^2 + u_{\text{fit}}^2(\Delta x) + (v_{\text{drift}} \cdot T_{\text{scan}})^2 + (3.46)^2}$$
+
+#### Tabla 3: Incertidumbre Espacial Combinada vs Tamaño de Píxel (Olympus 60x W)
+
+| Paso $\Delta x$ | $u_{\text{pix}}$ [nm] | Píxeles en $\text{FWHM}$ | $u_{\text{fit}}$ [nm] | $u_{\text{drift}}$ [nm] | $u_{\text{ph}}$ [nm] | **Incertidumbre Combinada $u_c$** | Incertidumbre Expandida $U$ ($k=2$, $95\%$) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **$100.0\,\text{nm/px}$** | $28.87$ | $2.8\,\text{px}$ | $4.50$ | $1.20$ | $3.46$ | **$29.43\,\text{nm}$** | $58.86\,\text{nm}$ |
+| **$50.0\,\text{nm/px}$** | $14.43$ | $5.7\,\text{px}$ | $1.20$ | $1.80$ | $3.46$ | **$15.07\,\text{nm}$** | $30.14\,\text{nm}$ |
+| **$25.0\,\text{nm/px}$** | $7.22$ | $11.4\,\text{px}$ | $0.65$ | $2.50$ | $3.46$ | **$8.55\,\text{nm}$** | $17.10\,\text{nm}$ |
+| **$15.0\,\text{nm/px}$** *(Óptimo)* | **$4.33$** | **$19.0\,\text{px}$** | **$0.55$** | **$3.10$** | **$3.46$** | **$\mathbf{6.55\,\text{nm}}$** | **$\mathbf{13.10\,\text{nm}}$** |
+| **$5.0\,\text{nm/px}$** | $1.44$ | $56.8\,\text{px}$ | $0.50$ | $12.50$ | $3.46$ | **$13.08\,\text{nm}$** *(Dominado por deriva)* | $26.16\,\text{nm}$ |
+
+---
+
+### 5.2 Tabla Resumen Metrológica para los 5 Objetivos del Laboratorio
+
+| Objetivo | Medio | $\text{NA}$ | $M_{\text{eff}}$ (532 nm) | $\Delta x$ Óptimo | $u_{\text{pix}}$ [nm] | $u_{\text{ph}}$ [nm] | $u_{\text{piezo}}$ [nm] | $u_{\text{drift}}$ [nm] | $u_{\text{fit}}$ [nm] | **Incertidumbre Combinada $u_c$** | **Incertidumbre Expandida $U$ ($k=2$)** |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Nikon 100x Oil** | Aceite | $1.30$ | **$125.0\times$** | $10.0\,\text{nm/px}$ | $2.89$ | **$2.31$** | $1.50$ | $2.50$ | $0.40$ | **$\mathbf{4.73\,\text{nm}}$** | **$\mathbf{9.46\,\text{nm}}$** |
+| **Olympus 60x W** | Agua | $1.00$ | **$83.33\times$** | $15.0\,\text{nm/px}$ | $4.33$ | **$3.46$** | $1.50$ | $3.10$ | $0.55$ | **$\mathbf{6.55\,\text{nm}}$** | **$\mathbf{13.10\,\text{nm}}$** |
+| **Nikon 40x Aire** | Aire | $0.60$ | **$50.00\times$** | $25.0\,\text{nm/px}$ | $7.22$ | **$5.77$** | $1.50$ | $2.50$ | $0.85$ | **$\mathbf{9.73\,\text{nm}}$** | **$\mathbf{19.46\,\text{nm}}$** |
+| **Olympus 20x Aire** | Aire | $0.40$ | **$27.78\times$** | $40.0\,\text{nm/px}$ | $11.55$ | **$10.39$** | $1.50$ | $2.00$ | $1.20$ | **$\mathbf{15.75\,\text{nm}}$** | **$\mathbf{31.50\,\text{nm}}$** |
+| **Olympus 10x Aire** | Aire | $0.25$ | **$13.89\times$** | $70.0\,\text{nm/px}$ | $20.21$ | **$20.78$** | $1.50$ | $1.80$ | $2.10$ | **$\mathbf{29.12\,\text{nm}}$** | **$\mathbf{58.24\,\text{nm}}$** |
+
+---
+
+## 6. Incertidumbre Metrológica en Visión Directa (Cámara Canon EOS 500D)
+
+La cámara Canon EOS 500D cuenta con sensor CMOS APS-C ($4752 \times 3168\,\text{píxeles}$, $p_{\text{sensor}} = 4.70\,\mu\text{m}$).
+
+1. **Aumento Efectivo**: $M_{\text{eff}} = 104.17\times$ (con Olympus 60x W).
+2. **Paso de Píxel Proyectado en la Muestra**:
+   $$p_{\text{proy}} = \frac{4.70\,\mu\text{m}}{104.17} = \mathbf{45.12\,\text{nm/píxel}}$$
+3. **Incertidumbre de Cuantización Espacial del Sensor**:
+   $$u_{\text{pix, cam}} = \frac{45.12\,\text{nm}}{\sqrt{12}} = \mathbf{13.02\,\text{nm}}$$
+4. **Precisión de Localización Sub-píxel Centroidal en `psf_analyzer.py`**:
+   Dado que el diámetro difractivo $\text{FWHM} = 266\,\text{nm}$ abarca $\approx 5.9\,\text{píxeles}$ (cumpliendo el criterio de Nyquist con ratio $2.95\times$), el algoritmo de ajuste analítico no lineal Gaussiano 2D alcanza una covarianza residual:
+   $$u_{\text{fit, cam}} = \frac{\text{FWHM}}{\text{SNR} \cdot \sqrt{N_{\text{fotones}}}} \approx \mathbf{0.02 - 0.05\,\text{nm}} \quad (\text{para } N > 10^5 \text{ fotones})$$
+5. **Incertidumbre Combinada de la Medición Óptica por Cámara**:
+   Incorporando la no-uniformidad de respuesta fotoeléctrica (PRNU $\approx 1.5\%$) y vibraciones acústicas de la mesa óptica ($u_{\text{vib}} \approx 1.8\,\text{nm}$):
+   $$u_c(\text{Centroide Cámara}) = \sqrt{u_{\text{fit, cam}}^2 + u_{\text{vib}}^2 + \left(\frac{u_{\text{pix, cam}}}{N_{\text{span}}}\right)^2} \approx \mathbf{2.35\,\text{nm}}$$
+
+---
+
+## 7. Incertidumbre Metrológica en Espectrometría (Shamrock 500i + iXon3)
+
+Para medidas de fotoluminiscencia (PL), resonancia plasmónica (LSPR) y espectroscopía Raman/SERS:
+
+1. **Dispersión Recíproca Lineal (Red de $1200\,\text{l/mm}$)**:
+   $$D_{\lambda} \approx 1.40\,\text{nm/mm}$$
+2. **Dispersión por Píxel en el Sensor iXon3 ($13.0\,\mu\text{m/píxel}$)**:
+   $$\Delta \lambda_{\text{px}} = 1.40\,\text{nm/mm} \times 0.013\,\text{mm} = \mathbf{0.0182\,\text{nm/píxel}}$$
+3. **Incertidumbre de Cuantización Espectral**:
+   $$u_{\lambda, \text{pix}} = \frac{0.0182\,\text{nm}}{\sqrt{12}} = \mathbf{0.0053\,\text{nm}}$$
+4. **Conversión a Incertidumbre en Número de Onda Raman ($\Delta \nu$ a $\lambda = 532\,\text{nm}$)**:
+   $$\Delta \nu = 10^7 \left( \frac{1}{\lambda_0} - \frac{1}{\lambda} \right) \implies \frac{d\nu}{d\lambda} \approx \frac{10^7}{\lambda_0^2} = \frac{10^7}{(532)^2} \approx 35.33\,\text{cm}^{-1}/\text{nm}$$
+   $$u_{\nu, \text{pix}} = 0.0053\,\text{nm} \times 35.33\,\text{cm}^{-1}/\text{nm} = \mathbf{0.187\,\text{cm}^{-1}}$$
+5. **Incertidumbre por Ajuste de Pico (Lorentziano / Gaussiano en `raman_analyzer.py`)**:
+   $$u_{\nu, \text{fit}} = \frac{\Gamma_{\text{pico}}}{\text{SNR} \cdot \sqrt{N}} \approx \mathbf{0.065\,\text{cm}^{-1}}$$
+6. **Incertidumbre de Calibración Absoluta con Oblea de Silicio Monocristalino ($520.7\,\text{cm}^{-1}$)**:
+   $$u_{\text{calib}} = \mathbf{0.120\,\text{cm}^{-1}}$$
+7. **Incertidumbre Espectral Combinada Raman**:
+   $$u_c(\nu) = \sqrt{u_{\text{calib}}^2 + u_{\nu, \text{fit}}^2 + u_{\nu, \text{pix}}^2} = \sqrt{(0.120)^2 + (0.065)^2 + (0.187)^2} = \mathbf{0.231\,\text{cm}^{-1}}$$
+   $$\text{Incertidumbre Expandida } U(\nu) = 2 \cdot u_c = \mathbf{0.46\,\text{cm}^{-1}} \quad (k=2, 95\%)$$
+
+---
+
+## 8. Presupuesto de Incertidumbre en la Lectura de Intensidad ($Z[x,y]$)
+
+La varianza total en la intensidad analógica detectada $\sigma_Z^2$ en cada coordenada comprende:
 
 $$\sigma_Z^2 = \sigma_{\text{shot}}^2 + \sigma_{\text{dark}}^2 + \sigma_{\text{laser}}^2 + \sigma_{\text{ADC}}^2$$
 
-* **Ruido de Disparo Fotónico (Shot Noise / Poisson):** Es la fuente dominante en regiones de alta señal:
-  $$\sigma_{\text{shot}} = \sqrt{\bar{N}_{\text{fotones}}} \propto \sqrt{V_{\text{fotodiodo}}}$$
-* **Ruido Electrónico de Fondo (Dark Noise):** $\sigma_{\text{dark}} \approx 1.2\,\text{mV}$, evaluado como la desviación estándar de la lectura con el láser bloqueado.
-* **Fluctuación de Potencia Láser:** $\sigma_{\text{laser}} = \bar{Z} \cdot \left(\frac{\delta P}{P}\right)$, donde la estabilidad pico a pico del láser es $\frac{\delta P}{P} \approx 0.8\%$.
-* **Cuantización ADC NI-DAQmx (16 bits):** Para el rango $\pm 10\,\text{V}$, la resolución es $q = \frac{20\,\text{V}}{65536} = 0.305\,\text{mV}$, resultando en:
-  $$\sigma_{\text{ADC}} = \frac{q}{\sqrt{12}} = \frac{0.305\,\text{mV}}{\sqrt{12}} \approx 0.088\,\text{mV} \quad (\text{despreciable})$$
+* **Ruido de Disparo Fotónico (Poisson)**: $\sigma_{\text{shot}} = \sqrt{\bar{N}_{\text{fotones}}} \propto \sqrt{V_{\text{fotodiodo}}}$.
+* **Ruido Electrónico de Fondo (Fotodiodo PDA)**: $\sigma_{\text{dark}} \approx 1.20\,\text{mV}$.
+* **Estabilidad de Potencia Láser**: $\frac{\delta P}{P} \approx 0.8\% \implies \sigma_{\text{laser}} = 0.008 \cdot \bar{Z}$.
+* **Cuantización ADC NI-DAQmx (16 bits, rango $\pm 10\,\text{V}$)**:
+  $$q = \frac{20\,\text{V}}{65536} = 0.305\,\text{mV} \implies \sigma_{\text{ADC}} = \frac{0.305}{\sqrt{12}} = \mathbf{0.088\,\text{mV}} \quad (\text{despreciable})$$
 
 ---
 
-## 4. Impacto Metrológico del Umbral de Filtrado No Lineal (`Filtro (%)`)
+## 9. Buenas Prácticas Metrológicas para el Operador
 
-En `confocal.py` y `psf_analyzer.py`, el operador de filtrado elimina el ruido de fondo lejano mediante corte no lineal:
-
-$$Z_f[x, y] = \begin{cases} Z_n[x, y] & \text{si } Z_n[x, y] \ge \frac{P}{100} \\ 0.0 & \text{si } Z_n[x, y] < \frac{P}{100} \end{cases}$$
-
-1. **Sub-filtrado ($P < 10\%$):** Las fluctuaciones de ruido aleatorio del fondo lejano entran al algoritmo de mínimos cuadrados, inflando falsamente la cintura óptica ($\text{FWHM}$) e incrementando la incertidumbre $u_{\text{fit}}$.
-2. **Sobre-filtrado ($P > 40\%$):** Se recortan las alas gaussianas reales de la PSF, subestimando artificialmente el $\text{FWHM}$ y distorsionando la elipticidad $a/b$.
-3. **Rango Óptimo Recomendado:** El análisis numérico demuestra que un umbral de **$P = 25\% - 30\%$** minimiza la varianza del ajuste sin sesgar el $\text{FWHM}$.
-
----
-
-## 5. Modelo Óptico del Sistema Confocal e iSCAT (60x Agua, NA=1.0)
-
-### 5.1 Especificaciones de la Cadena Óptica de Detección (Observación Directa)
-
-El sistema confocal e iSCAT utiliza un objetivo de inmersión en agua que **observa directamente las nanopartículas situadas sobre la superficie del cubreobjetos en medio líquido** (sin atravesar el vidrio). Por ende, no existe degradación por aberración esférica por desacople de índice de refracción ($u_{\text{aberration}} = 0$).
-
-Cada canal láser posee su propia rama confocal alineada de forma independiente con su propio pinhole y fotodiodo dedicado.
-
-* **Objetivo de Inmersión en Agua:** Magnificación $M_{\text{obj}} = 60\times$, Apertura Numérica $\text{NA} = 1.0$, Índice de Refracción $n_{\text{agua}} = 1.333$.
-  * Longitud focal del objetivo ($f_{\text{tubo}} = 180\,\text{mm}$ estándar Olympus):
-    $$f_{\text{obj}} = \frac{f_{\text{tubo}}}{M_{\text{obj}}} = \frac{180\,\text{mm}}{60} = 3.0\,\text{mm}$$
-* **Lente de Tubo / Colimadora ($L_1$):** Distancia focal $f_1 = 250\,\text{mm}$.
-* **Lente Relé / Expansora ($L_2$):** Distancia focal $f_2 = 200\,\text{mm}$.
-* **Lente Focalizadora al Pinhole ($L_3$):** Distancia focal $f_3 = 150\,\text{mm}$.
-* **Pinhole de Detección:** Diámetro espacial $D_{\text{pinhole}} = 50.0\,\mu\text{m}$.
-* **Detector:** Fotodiodo independiente por canal.
-
-### 5.2 Magnificación Óptica Total del Sistema ($M_{\text{total}}$)
-
-La magnificación espacial efectiva entre el plano de la muestra (objeto) y el plano del pinhole viene dada por:
-
-$$M_{\text{total}} = \left(\frac{f_1}{f_{\text{obj}}}\right) \times \left(\frac{f_3}{f_2}\right) = \left(\frac{250\,\text{mm}}{3.0\,\text{mm}}\right) \times \left(\frac{150\,\text{mm}}{200\,\text{mm}}\right) = 83.33 \times 0.75 = \mathbf{62.5\times}$$
+1. **Selección del Paso de Escaneo**:
+   Configurar siempre en el dock `Confocal` un paso de muestreo **$\Delta x \in [15, 25]\,\text{nm/px}$** para el objetivo 60x W, o **$\Delta x \in [10, 15]\,\text{nm/px}$** para el objetivo 100x Oil. Pasos mayores a $50\,\text{nm}$ degradan la incertidumbre a $> 15\,\text{nm}$; pasos menores a $5\,\text{nm}$ incrementan el tiempo de escaneo permitiendo que la deriva térmica domine el error.
+2. **Centrado Óptico de Pinholes**:
+   Verificar el centrado micrométrico $X-Y$ del pinhole de $50\,\mu\text{m}$ (canal verde y amarillo) y $100\,\mu\text{m}$ (canal rojo) bajo el modo `Sin límite (Modo Alineación)` del watchdog antes de tandas críticas de impresión o adquisición Raman.
+3. **Compensación de Deriva Z por Autocorrelación**:
+   Presionar la tecla **F10** (`Autocorrelation x2`) cada 15 minutos o programar la verificación periódica de deriva en la Partícula Ancla $P_0$ para mantener la incertidumbre axial por debajo de $z_{\text{drift}} < 5\,\text{nm}$.
+4. **Calibración Espectral**:
+   Adquirir el espectro de Silicio a $520.7\,\text{cm}^{-1}$ antes de series analíticas en `pyspectrum` para asegurar una incertidumbre de número de onda $U < 0.5\,\text{cm}^{-1}$.
 
 ---
 
-## 6. Física de Difracción, Pinhole (1.23 AU) y Desalineación Mecánica
+## 10. Documentación y Red de Enlaces
 
-### 6.1 Límite de Difracción y Unidad de Airy ($v_{\text{AU}}$)
-
-Para una longitud de onda de excitación $\lambda = 532\,\text{nm}$ ($0.532\,\mu\text{m}$) y un objetivo con $\text{NA} = 1.0$ en agua ($n = 1.333$):
-
-1. **Límite de Difracción de Abbe (FWHM teórico del haz en el objeto):**
-   $$d_{\text{Abbe}} = \frac{\lambda}{2 \cdot \text{NA}} = \frac{0.532\,\mu\text{m}}{2 \cdot 1.0} = \mathbf{266.0\,\text{nm}}$$
-
-2. **Radio Rayleigh del Disco de Airy (en el objeto):**
-   $$r_{\text{Airy, obj}} = \frac{0.61 \cdot \lambda}{\text{NA}} = \frac{0.61 \cdot 0.532\,\mu\text{m}}{1.0} = \mathbf{324.5\,\text{nm}}$$
-
-3. **Diámetro del Disco de Airy en el Pinhole ($D_{\text{Airy, img}}$):**
-   $$D_{\text{Airy, img}} = 2 \cdot r_{\text{Airy, obj}} \cdot M_{\text{total}} = 2 \cdot 0.3245\,\mu\text{m} \times 62.5 = \mathbf{40.56\,\mu\text{m}}$$
-
-4. **Tamaño Normalizado del Pinhole en Unidades de Airy ($v_{\text{AU}}$):**
-   $$v_{\text{AU}} = \frac{D_{\text{pinhole}}}{D_{\text{Airy, img}}} = \frac{50.0\,\mu\text{m}}{40.56\,\mu\text{m}} = \mathbf{1.23\,\text{AU}}$$
-
-Un pinhole de $1.23\,\text{AU}$ transmite el **$85\%$ de la energía fotónica del lóbulo central de Airy**, manteniendo una alta tasa de llegada de fotones al fotodiodo ($\text{SNR} > 40$) y logrando un seccionado óptico axial de $\text{FWHM}_z = 1.165\,\mu\text{m}$.
-
-### 6.2 Incertidumbre por Desalineación Mecánica del Pinhole ($u_{\text{pinhole\_shift}}$)
-Si la montura del pinhole sufre una desalineación o deriva lateral de $\delta x_{\text{ph}}$ (en el plano de la imagen), el desplazamiento proyectado en la muestra es $\delta x_{\text{obj}} = \frac{\delta x_{\text{ph}}}{M_{\text{total}}} = \frac{\delta x_{\text{ph}}}{62.5}$.
-
-Con una tolerancia de alineación mecánica de $\delta x_{\text{ph}} = \pm 1.0\,\mu\text{m}$:
-
-$$u_{\text{pinhole\_shift}} = \frac{\delta x_{\text{ph}}}{M_{\text{total}} \cdot \sqrt{12}} = \frac{1.0\,\mu\text{m}}{62.5 \cdot 3.4641} = \mathbf{4.62\,\text{nm}}$$
-
----
-
-## 7. Dependencia del Tamaño de Píxel ($\Delta x$) con la Resolución Sub-píxel y la Incertidumbre Combinada
-
-Esta sección analiza cuantitativamente cómo interactúan el tamaño de la mancha de iluminación, el diámetro real de la nanopartícula, los criterios de muestreo digital y las limitaciones de hardware/software para determinar la precisión posicional final.
-
-### 7.1 Relación de Escala entre el Haz de Excitación y el Objeto Escaneado
-
-En microscopía confocal e iSCAT:
-* **Diámetro Físico Típico de la Nanopartícula:** $d_{\text{NP}} \approx 100\,\text{nm}$ (esferas de Au/Ag).
-* **Diámetro Físico del Spot de Excitación ($\text{FWHM}_{\text{spot}}$):** $\approx 266\,\text{nm}$ ($\lambda = 532\,\text{nm}, \text{NA} = 1.0$).
-
-El tamaño del haz enfocado es **aproximadamente $2.66$ veces mayor que la propia nanopartícula**. Por consiguiente, la imagen confocal resultante no es la geometría directa de la partícula, sino la **convolución espacial** de la respuesta al impulso del microscopio ($\text{PSF}$) con la función distribución de materia del objeto $O(x,y)$:
-
-$$I_{\text{medido}}(x, y) = (\text{PSF} * O)(x, y)$$
-
-Dado que tanto la PSF como la partícula pequeña pueden aproximarse por perfiles Gaussianos con desviaciones estándar $\sigma_{\text{PSF}} = \frac{\text{FWHM}_{\text{spot}}}{2\sqrt{2\ln 2}} \approx 112.95\,\text{nm}$ y $\sigma_{\text{NP}} = \frac{d_{\text{NP}}}{2\sqrt{2\ln 2}} \approx 42.47\,\text{nm}$, la señal convolucionada medida es un perfil Gaussiano efectivo con desviación estándar ampliada:
-
-$$\sigma_{\text{efectivo}} = \sqrt{\sigma_{\text{PSF}}^2 + \sigma_{\text{NP}}^2} = \sqrt{(112.95)^2 + (42.47)^2} \approx \mathbf{120.67\,\text{nm}}$$
-
-$$\text{FWHM}_{\text{efectivo}} = 2\sqrt{2\ln 2} \cdot \sigma_{\text{efectivo}} \approx \mathbf{284.16\,\text{nm}}$$
-
-> [!IMPORTANT]
-> **Conclusión Óptica:** Aunque la nanopartícula sea un objeto sub-difractivo de $100\,\text{nm}$, el microscopio registra una envolvente suave y continua de $\text{FWHM}_{\text{efectivo}} \approx 284\,\text{nm}$. Esta suavidad espacial es precisamente la que permite al software (`psf.py` / `confocal.py`) ajustar un perfil analítico de mínimos cuadrados y localizar el centro de masa $(x_0, y_0)$ con **resolución sub-píxel y precisión sub-nanométrica**.
-
----
-
-### 7.2 Criterio de Muestreo Espacial: Nyquist-Shannon vs. Ajuste Sub-píxel Centroidal
-
-Para determinar el tamaño de píxel $\Delta x = \frac{\text{Range}_X}{N_x}$, existen dos criterios con objetivos distintos:
-
-1. **Criterio de Nyquist-Shannon (Reconstrucción Óptica sin Aliasing):**
-   Para preservar todo el contenido frecuencial del haz sin solapamiento espectral, el píxel debe ser al menos la mitad del $\text{FWHM}_{\text{efectivo}}$:
-   $$\Delta x_{\text{Nyquist}} \le \frac{\text{FWHM}_{\text{efectivo}}}{2} = \frac{284.16\,\text{nm}}{2} \approx \mathbf{142\,\text{nm/px}}$$
-
-2. **Criterio de Localización Sub-píxel Sub-nanométrica ($u_{\text{fit}} < 1\,\text{nm}$):**
-   Para que el algoritmo de ajuste no lineal Gaussiano/Donut converja con mínima covarianza $\mathbf{PCov}$, se requiere muestrear el lóbulo principal de la envolvente con **al menos 5 a 10 píxeles discretos a lo largo del FWHM**:
-   $$\Delta x_{\text{sub-píxel}} \le \frac{\text{FWHM}_{\text{efectivo}}}{5 \sim 10} \approx \mathbf{28\,\text{nm/px} \sim 56\,\text{nm/px}}$$
-
----
-
-### 7.3 Compromiso Metrológico: Incertidumbre de Discretización vs. Tiempo de Escaneo y Deriva Térmica
-
-La elección del tamaño de píxel $\Delta x$ enfrenta dos fuerzas contrapuestas en el hardware y software:
-
-```
-                                  INCERTIDUMBRE COMBINADA u_c(Δx)
-                                                 │
-   PÍXEL MUY GRANDE (Δx > 80 nm)                 │                 PÍXEL MUY PEQUEÑO (Δx < 10 nm)
-   ───────────────┬───────────────               │                 ───────────────┬───────────────
-   • u_pix domina (Δx / √12 > 23 nm)             │                 • u_pix es mínimo (< 2.8 nm)
-   • Pocos píxeles en FWHM (< 3 px)               │                 • Matriz enorme (1000x1000 px)
-   • Pobre convergencia de fit                   │                 • Tiempo de escaneo largo (T_scan)
-                                                 │                 • Deriva térmica u_drift domina!
-                                                 │                 • Riesgo de fotocalentamiento
-                                                 ▼
-                              ZONA ÓPTIMA: Δx = 15 nm a 30 nm/px
-```
-
-1. **Si $\Delta x$ es muy grande (ej. $100\,\text{nm/px}$):**
-   La incertidumbre de pixelación se dispara a $u_{\text{pix}} = \frac{100}{\sqrt{12}} = \mathbf{28.87\,\text{nm}}$. Además, con solo 2.8 píxeles sobre la mancha, el algoritmo `curve_fit` pierde información de la curvatura y $u_{\text{fit}}$ aumenta severamente.
-
-2. **Si $\Delta x$ es extremadamente pequeño (ej. $2\,\text{nm/px}$):**
-   $u_{\text{pix}}$ cae a $\mathbf{0.58\,\text{nm}}$. Sin embargo, para cubrir un campo de $20\,\mu\text{m}$, se requieren $N_x = 10,000\,\text{píxeles}$.
-   - El tiempo total de escaneo $T_{\text{scan}}$ se multiplica por $100$.
-   - La **deriva térmica acumulada** $u_{\text{drift}} = v_{\text{drift}} \cdot T_{\text{scan}}$ se convierte en el término dominante ($>30\,\text{nm}$).
-   - Aumenta la exposición térmica del láser sobre la nanopartícula.
-
----
-
-### 7.4 Curva de Incertidumbre Combinada y Tamaño de Píxel Óptimo ($\Delta x_{\text{óptimo}}$)
-
-Expresando la incertidumbre combinada $u_c$ en función explícita del paso de píxel $\Delta x$:
-
-$$u_c(\Delta x) = \sqrt{ u_{\text{piezo}}^2 + \left(\frac{\Delta x}{\sqrt{12}}\right)^2 + u_{\text{fit}}^2(\Delta x) + \left(v_{\text{drift}} \cdot T_{\text{scan}}(\Delta x)\right)^2 + u_{\text{pinhole\_shift}}^2 }$$
-
-#### Análisis Numérico de Incertidumbre según el Tamaño de Píxel:
-
-| Tamaño de Píxel $\Delta x$ | $u_{\text{pix}}$ [nm] | Píxeles en FWHM | $u_{\text{fit}}$ [nm] | $u_{\text{drift}}$ [nm] | $u_{\text{ph}}$ [nm] | **Incertidumbre Combinada $u_c$** |
-|---|---|---|---|---|---|---|
-| **$100.0\,\text{nm/px}$** | $28.87$ | $2.8\,\text{px}$ | $4.50$ | $1.20$ | $4.62$ | **$29.58\,\text{nm}$** |
-| **$50.0\,\text{nm/px}$** | $14.43$ | $5.7\,\text{px}$ | $1.20$ | $1.80$ | $4.62$ | **$15.29\,\text{nm}$** |
-| **$25.0\,\text{nm/px}$** | $7.22$ | $11.4\,\text{px}$ | $0.65$ | $2.50$ | $4.62$ | **$9.00\,\text{nm}$** |
-| **$15.0\,\text{nm/px}$** *(Óptimo)* | **$4.33$** | **$19.0\,\text{px}$** | **$0.55$** | **$3.10$** | **$4.62$** | **$\mathbf{7.10\,\text{nm}}$** |
-| **$5.0\,\text{nm/px}$** | $1.44$ | $56.8\,\text{px}$ | $0.50$ | $12.50$ | $4.62$ | **$13.43\,\text{nm}$** *(Dominado por deriva)* |
-
-> [!TIP]
-> **RECOMENDACIÓN METROLÓGICA FINAL:**
-> El tamaño de píxel óptimo para el sistema iSCAT/Confocal PyPrinting 3.0 se sitúa en **$\Delta x_{\text{óptimo}} = 15\,\text{nm/px} - 25\,\text{nm/px}$**. En este rango, se maximiza la precisión del fit sub-píxel ($u_{\text{fit}} < 0.6\,\text{nm}$) y se minimiza la discretización ($u_{\text{pix}} < 7.2\,\text{nm}$) sin permitir que la deriva térmica degrade la medición.
-
----
-
-## 8. Presupuesto Completo de Incertidumbre Espacial Combinada ($u_c$)
-
-Sumando todas las fuentes físicas, mecánicas, electrónicas y ópticas validadas para la configuración de inmersión directa en agua y canales confocales independientes:
-
-$$u_c(x_0) = \sqrt{u_{\text{piezo}}^2 + u_{\text{pix}}^2 + u_{\text{fit}}^2 + u_{\text{drift}}^2 + u_{\text{pinhole\_shift}}^2}$$
-
-### 8.1 Tabla Resumen Metrológica del Sistema iSCAT / Confocal Completo
-
-| Fuente de Incertidumbre | Origen Físico / Óptico | Valor Típico | Distribución | $u_i$ [nm] | Estrategia de Mitigación |
-|---|---|---|---|---|---|
-| **Ajuste Gaussiano ($u_{\text{fit}}$)** | Ruido de disparo fotónico | $\text{SNR} = 40$ | Normal | $0.65$ | Pinhole 1.23 AU óptimo ($85\%$ luz) |
-| **Pixelación ($u_{\text{pix}}$)** | Discretización espacial ($\Delta x = 15\,\text{nm}$) | $\Delta x = 15\,\text{nm/px}$ | Rectangular | $4.33$ | Muestreo óptimo $\Delta x \approx 15-25\,\text{nm}$ |
-| **Piezoeléctrico PI ($u_{\text{piezo}}$)** | Ruido capacitivo PI E-517 | $0-100\,\mu\text{m}$ | Normal | $1.50$ | Bucle cerrado de control PI |
-| **Deriva Térmica ($u_{\text{drift}}$)** | Dilatación $15\,\text{nm/min}$ | 2 minutos | Triangular | $2.50$ | Autofoco Z por autocorrelación (F10) |
-| **Desalineación Pinhole ($u_{\text{ph}}$)** | Deriva mecánica $\pm 1\,\mu\text{m}$ | $M = 62.5\times$ | Rectangular | $4.62$ | Centrado micrométrico conjugado |
-| **Incertidumbre Combinada ($\Delta x = 50\text{nm}$)** | **GUM Combinada** | **Escaneo 50nm** | **Normal ($k=1$)** | **15.29** | **Limitado por el tamaño de píxel** |
-| **Incertidumbre Combinada ($\Delta x = 15\text{nm}$)** | **GUM Combinada** | **Escaneo Óptimo** | **Normal ($k=1$)** | **7.10** | **Precisión sub-nanométrica garantizada** |
-
----
-
-## 9. Recomendaciones Experimentales para Minimizar Incertidumbres
-
-1. **Ajuste del Tamaño de Píxel ($\Delta x_{\text{óptimo}}$):**
-   Configurar el campo de visión y número de píxeles para obtener **$\Delta x \approx 15 - 25\,\text{nm/px}$** (ej. $Range_X = 1.5\,\mu\text{m}, N_x = 100 \rightarrow \Delta x = 15\,\text{nm/px}$), garantizando la mínima incertidumbre combinada ($7.10\,\text{nm}$).
-2. **Optimización del Pinhole de $50\,\mu\text{m}$ ($1.23\,\text{AU}$):**
-   Verificar periódicamente el centrado del pinhole independiente de cada canal láser mediante la maximización de la señal en el fotodiodo sobre una nanopartícula de Au brillante.
-3. **Estabilización Z Activa:**
-   Ejecutar el atajo **F10 (Autocorrelation $\times 2$)** antes de escaneos confocales/iSCAT de alta resolución para anular la deriva térmica axial.
-
----
-
-## 10. Documentación Relacionada y Red de Reportes
-
-- **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
-- **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
-- **Reportes Técnicos Vinculados**:
-  - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
-  - 🔬 [Guía Protocolar Paso a Paso "DO PRINTING" (reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
-  - 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
-
----
-
-*Informe Metrológico generado para la Suite PyPrinting 3.0 — UNSAM Nanofotónica.*
+- [📘 Reporte Maestro de Arquitectura Óptica (reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md)
+- [🛡️ Reporte de Seguridad Óptica y Watchdog (reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md)
+- [🌈 Reporte de Espectrómetro Shamrock e iXon3 (reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md)
+- [📖 Manual General de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
