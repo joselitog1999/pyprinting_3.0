@@ -27,12 +27,16 @@ try:
                             flipper_notch532, set_laser532_voltage, close_all_tasks,
                             heartbeat_shutter, get_watchdog_remaining_time,
                             register_watchdog_callback, unregister_watchdog_callback,
+                            register_flipper_callback, unregister_flipper_callback,
+                            is_flipper_high_power,
                             _shutter_signal)
 except ImportError:
     from nidaq   import (open_shutter, close_shutter, close_all_shutters, up_flipper, down_flipper,
                          flipper_notch532, set_laser532_voltage, close_all_tasks,
                          heartbeat_shutter, get_watchdog_remaining_time,
                          register_watchdog_callback, unregister_watchdog_callback,
+                         register_flipper_callback, unregister_flipper_callback,
+                         is_flipper_high_power,
                          _shutter_signal)
 
 
@@ -48,24 +52,36 @@ class Frontend(QFrame):
     laser532_signal          = pyqtSignal(float)
     autoclose_timeout_signal = pyqtSignal(object)
     watchdog_triggered_signal = pyqtSignal()
+    flipper_hardware_signal  = pyqtSignal(bool)
     closeSignal              = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._setup_gui()
-        self._setup_watchdog_bridge()
+        self._setup_hardware_bridges()
 
-    def _setup_watchdog_bridge(self):
+    def _setup_hardware_bridges(self):
         self.watchdog_triggered_signal.connect(self._on_watchdog_triggered)
         register_watchdog_callback(self._watchdog_callback_bridge)
+
+        self.flipper_hardware_signal.connect(self.update_power_ui)
+        register_flipper_callback(self._flipper_hardware_bridge)
 
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._update_security_status)
         self._status_timer.start(1000)
 
+    _setup_watchdog_bridge = _setup_hardware_bridges
+
     def _watchdog_callback_bridge(self):
         try:
             self.watchdog_triggered_signal.emit()
+        except Exception:
+            pass
+
+    def _flipper_hardware_bridge(self, high: bool):
+        try:
+            self.flipper_hardware_signal.emit(high)
         except Exception:
             pass
 
@@ -77,41 +93,124 @@ class Frontend(QFrame):
                 btn.blockSignals(True)
                 btn.setChecked(False)
                 btn.blockSignals(False)
+        self.update_power_ui(False)
         self._update_security_status()
 
-    # ── Handlers de botones ───────────────────────────────────────────────────
+    # ── Handlers de botones y Slots de Actuación ──────────────────────────────
 
-    def _shutter0_check(self):
-        self.shutter0_signal.emit(self.shutter0button.isChecked())
+    @pyqtSlot(bool)
+    @pyqtSlot()
+    def _shutter0_check(self, checked: bool | None = None):
+        if checked is None:
+            checked = self.shutter0button.isChecked()
+        elif self.shutter0button.isChecked() != checked:
+            self.shutter0button.blockSignals(True)
+            self.shutter0button.setChecked(checked)
+            self.shutter0button.blockSignals(False)
+        self.shutter0_signal.emit(checked)
         self._update_security_status()
 
-    def _shutter1_check(self):
-        self.shutter1_signal.emit(self.shutter1button.isChecked())
+    @pyqtSlot(bool)
+    @pyqtSlot()
+    def _shutter1_check(self, checked: bool | None = None):
+        if checked is None:
+            checked = self.shutter1button.isChecked()
+        elif self.shutter1button.isChecked() != checked:
+            self.shutter1button.blockSignals(True)
+            self.shutter1button.setChecked(checked)
+            self.shutter1button.blockSignals(False)
+        self.shutter1_signal.emit(checked)
         self._update_security_status()
 
-    def _shutter2_check(self):
-        self.shutter2_signal.emit(self.shutter2button.isChecked())
+    @pyqtSlot(bool)
+    @pyqtSlot()
+    def _shutter2_check(self, checked: bool | None = None):
+        if checked is None:
+            checked = self.shutter2button.isChecked()
+        elif self.shutter2button.isChecked() != checked:
+            self.shutter2button.blockSignals(True)
+            self.shutter2button.setChecked(checked)
+            self.shutter2button.blockSignals(False)
+        self.shutter2_signal.emit(checked)
         self._update_security_status()
 
-    def _shutter3_check(self):
+    @pyqtSlot(bool)
+    @pyqtSlot()
+    def _shutter3_check(self, checked: bool | None = None):
         if hasattr(self, 'shutter3button') and self.shutter3button is not None:
-            self.shutter3_signal.emit(self.shutter3button.isChecked())
+            if checked is None:
+                checked = self.shutter3button.isChecked()
+            elif self.shutter3button.isChecked() != checked:
+                self.shutter3button.blockSignals(True)
+                self.shutter3button.setChecked(checked)
+                self.shutter3button.blockSignals(False)
+            self.shutter3_signal.emit(checked)
             self._update_security_status()
 
-    def _power_check(self):
-        checked = self.powerbutton.isChecked()
+    @pyqtSlot(bool)
+    @pyqtSlot()
+    def _power_check(self, checked: bool | None = None):
+        """Maneja el accionamiento del flipper de potencia (High/Low).
+        Soporta clics en UI, llamadas de slots Qt y señales booleanas externas."""
+        if checked is None:
+            checked = self.powerbutton.isChecked()
+        else:
+            if self.powerbutton.isChecked() != checked:
+                self.powerbutton.blockSignals(True)
+                self.powerbutton.setChecked(checked)
+                self.powerbutton.blockSignals(False)
+
+        self.update_power_ui(checked)
         self.flipper_signal.emit(checked)
-        if checked:
+
+    @pyqtSlot(bool)
+    def update_power_ui(self, high: bool):
+        """Actualiza exclusivamente el estado visual, texto y color del checkbox sin re-emitir señal."""
+        if self.powerbutton.isChecked() != high:
+            self.powerbutton.blockSignals(True)
+            self.powerbutton.setChecked(high)
+            self.powerbutton.blockSignals(False)
+
+        if high:
             self.powerbutton.setText("High\npower")
-            self.powerbutton.setStyleSheet("color: rgb(200, 80, 40);")
+            self.powerbutton.setStyleSheet("color: rgb(200, 80, 40); font-weight: bold;")
         else:
             self.powerbutton.setText("Low\npower")
-            self.powerbutton.setStyleSheet("color: rgb(12, 183, 242);")
+            self.powerbutton.setStyleSheet("color: rgb(12, 183, 242); font-weight: bold;")
 
-    def _notch532_check(self):
-        checked = self.notch532button.isChecked()
+    @pyqtSlot(bool)
+    def set_power(self, high: bool):
+        """Slot público para conmutar la potencia vía señal externa o llamada programática."""
+        self._power_check(high)
+
+    set_flipper = set_power
+    powerbutton_check = _power_check
+
+    @pyqtSlot(bool)
+    @pyqtSlot()
+    def _notch532_check(self, checked: bool | None = None):
+        if checked is None:
+            checked = self.notch532button.isChecked()
+        else:
+            if self.notch532button.isChecked() != checked:
+                self.notch532button.blockSignals(True)
+                self.notch532button.setChecked(checked)
+                self.notch532button.blockSignals(False)
+
+        self.update_notch532_ui(checked)
         self.flipper_notch532_signal.emit(checked)
-        self.notch532button.setText("Mirror down" if checked else "Mirror up")
+
+    @pyqtSlot(bool)
+    def update_notch532_ui(self, down: bool):
+        if self.notch532button.isChecked() != down:
+            self.notch532button.blockSignals(True)
+            self.notch532button.setChecked(down)
+            self.notch532button.blockSignals(False)
+        self.notch532button.setText("Mirror down" if down else "Mirror up")
+
+    @pyqtSlot(bool)
+    def set_notch532(self, down: bool):
+        self._notch532_check(down)
 
     def get_selected_timeout(self) -> float | None:
         if not self.chk_autoclose.isChecked():
@@ -165,23 +264,23 @@ class Frontend(QFrame):
 
         # ── Shutters ──────────────────────────────────────────────────────────
         self.shutter0button = QCheckBox(SHUTTERS[0])
-        self.shutter0button.clicked.connect(self._shutter0_check)
+        self.shutter0button.toggled.connect(self._shutter0_check)
         self.shutter0button.setStyleSheet("color: green; font-weight: bold;")
         self.shutter0button.setToolTip("Abrir/cerrar shutter 532 nm (verde)")
 
         self.shutter1button = QCheckBox(SHUTTERS[1])
-        self.shutter1button.clicked.connect(self._shutter1_check)
+        self.shutter1button.toggled.connect(self._shutter1_check)
         self.shutter1button.setStyleSheet("color: red; font-weight: bold;")
         self.shutter1button.setToolTip("Abrir/cerrar shutter 637 nm (rojo)")
 
         self.shutter2button = QCheckBox(SHUTTERS[2])
-        self.shutter2button.clicked.connect(self._shutter2_check)
+        self.shutter2button.toggled.connect(self._shutter2_check)
         self.shutter2button.setStyleSheet("color: #d4ac0d; font-weight: bold;")
         self.shutter2button.setToolTip("Abrir/cerrar shutter 592 nm (amarillo)")
 
         if len(SHUTTERS) > 3:
             self.shutter3button = QCheckBox(SHUTTERS[3])
-            self.shutter3button.clicked.connect(self._shutter3_check)
+            self.shutter3button.toggled.connect(self._shutter3_check)
             self.shutter3button.setStyleSheet("color: #ad1457; font-weight: bold;")
             self.shutter3button.setToolTip("Abrir/cerrar shutter 808 nm (infrarrojo)")
         else:
@@ -189,10 +288,12 @@ class Frontend(QFrame):
 
         # ── Flippers ─────────────────────────────────────────────────────────
         self.powerbutton = QCheckBox("Low\npower")
-        self.powerbutton.clicked.connect(self._power_check)
+        self.powerbutton.toggled.connect(self._power_check)
+        self.powerbutton.setStyleSheet("color: rgb(12, 183, 242); font-weight: bold;")
+        self.powerbutton.setToolTip("Conmutar potencia del láser (Low power / High power)")
 
         self.notch532button = QCheckBox("Mirror up")
-        self.notch532button.clicked.connect(self._notch532_check)
+        self.notch532button.toggled.connect(self._notch532_check)
 
         self.btn_close_all = QPushButton("Cerrar Todos")
         self.btn_close_all.setStyleSheet("color: #f38ba8; font-weight: bold; font-size: 8pt; padding: 3px;")
@@ -273,6 +374,7 @@ class Frontend(QFrame):
         if hasattr(self, '_status_timer') and self._status_timer.isActive():
             self._status_timer.stop()
         unregister_watchdog_callback(self._watchdog_callback_bridge)
+        unregister_flipper_callback(self._flipper_hardware_bridge)
         self.closeSignal.emit()
         super().closeEvent(event)
 
@@ -282,6 +384,9 @@ class Frontend(QFrame):
 
 # ══════════════════════════════════════════════════════════════════════════════
 class Backend(QObject):
+
+    flipper_state_signal          = pyqtSignal(bool)
+    flipper_notch532_state_signal = pyqtSignal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -329,10 +434,12 @@ class Backend(QObject):
     @pyqtSlot(bool)
     def power_change(self, high: bool):
         down_flipper() if high else up_flipper()
+        self.flipper_state_signal.emit(high)
 
     @pyqtSlot(bool)
     def notch532_change(self, down: bool):
         flipper_notch532("down" if down else "up")
+        self.flipper_notch532_state_signal.emit(down)
 
     @pyqtSlot(float)
     def set_laser532(self, v: float):
@@ -354,6 +461,10 @@ class Backend(QObject):
         frontend.laser532_signal.connect(self.set_laser532)
         frontend.autoclose_timeout_signal.connect(self.set_autoclose_timeout)
         frontend.closeSignal.connect(self.close)
+
+        # Sincronización Backend -> Frontend
+        self.flipper_state_signal.connect(frontend.update_power_ui)
+        self.flipper_notch532_state_signal.connect(frontend.update_notch532_ui)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

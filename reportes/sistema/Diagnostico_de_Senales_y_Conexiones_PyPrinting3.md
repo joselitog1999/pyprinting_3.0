@@ -1,7 +1,6 @@
-# Reporte Metrológico y Diagnóstico Integral: Mapa de Señales y Conexiones en PyPrinting 3.0 📡
-
-**Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
-**Autor Principal**: José Luis González Peñafiel (*Becario Doctoral **Fecha de Publicación**: 2 de Septiembre de 2026  
+# Reporte Metrológico y Diagnóstico Integral: Mapa de Señales y Conexiones en PyPrinting 3.0 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
+**Autor Principal**: José Luis González Peñafiel (*Becario Doctoral CONICET*)  
+**Fecha de Actualización**: 7 de Septiembre de 2026  
 **Documento de Referencia**: `reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md`  
 **Arquitectura**: Qt Event-Driven Architecture (`PyQt6` / `QThread` / `pyqtSignal` / `pyqtSlot`)
 
@@ -9,20 +8,17 @@
 
 ## 1. Resumen Ejecutivo y Diagnóstico Global
 
-El presente informe expone el **Diagnóstico Completo y Auditoría Integral de la Red de Comunicación por Eventos y Señales (`pyqtSignal`)** en la suite de microscopía y nanofabricación **PyPrinting 3.0**.
+El presente informe expone el **Diagnóstico Completo y Auditoría Integral de la Red de Comunicación por Eventos y Señales (`pyqtSignal`)** en la suite de microscopía y nanofabricación **PyPrinting 3.0** y el subsistema de espectrometría avanzada **PySpectrum 3.0**.
 
-Tras una auditoría metrológica exhaustiva de los **148 eventos de señal** declarados en todo el proyecto, se confirma que:
-- **126 Señales (85.1%) están 100% CONECTADAS, VERIFICADAS Y FUNCIONALES** entre el Frontend UI, los Backend Workers (`QThread`) y la instrumentación de hardware (Platina Piezoeléctrica PI E-517, Fotodiodos NI-DAQmx, Cámara Réflex Canon EOS 500D, Láser 532 nm y Shutters).
-- **22 Señales (14.9%) se encuentran en ESTADO DE RESERVA / STANDBY / RECURSOS INTERNOS** (ej. `scandoneSignal`, `particlesSignal`, `gotomaxdoneSignal`, y submódulos de espectrometría `pyspectrum`).
-
-Se resalta la reciente incorporación y conexión exitosa de las señales críticas:
-1. `originCornerSignal(bool)` $\rightarrow$ Conectada a `set_origin_corner` en `ConfocalBackend` y `ConfocalDualBackend` (permite iniciar escaneos en la posición actual de la platina como origen).
-2. `tiltCorrectionSignal(bool)` $\rightarrow$ Conectada a `set_tilt_correction` en `ConfocalBackend` (corrección 3D de inclinación por plano derivado de 4 esquinas).
-3. `etaSignal(str, str)` $\rightarrow$ Conectada a `etaUpdate` (actualización de ETA y tiempo total de escaneo).
+Tras una auditoría metrológica exhaustiva y la actualización crítica del **7 de Septiembre de 2026**, se confirma que:
+- **100% de las Señales Críticas de Adquisición e Instrumentación están CONECTADAS, VERIFICADAS Y FUNCIONALES** entre el Frontend UI, los Backend Workers (`QThread`), los daemons de hardware (NI-DAQmx, PI E-517, Canon EOS 500D, Shamrock 500i, iXon3) y los mecanismos fail-safe de seguridad.
+- **Señales Huérfanas Depuradas en PySpectrum**: Se removieron las declaraciones no operativas `measureKineticsSignal` y `saveSpectrumSignal` de la cámara iXon3, conectando formalmente `stopMeasurementSignal` y `saveSpectrumSignal` en el módulo multihilo `StepAndGlueWorker`.
+- **Reordenamiento Reactivo de Flippers y Shutters**: Se implementó el puente de callbacks de hardware (`flipper_hardware_signal`) y sincronización bidireccional entre el hilo demonio del Watchdog y los widgets de la GUI, resolviendo la insensibilidad de eventos en PyQt6 (`toggled` vs `clicked`).
+- **Pestaña de Calibración de Espectrometría (`calibration_dock.py`)**: Interconexión completa de señales para centrado de orden cero, calibración de ancho de rendija, ajuste de offsets mecánicos vía Shamrock SDK y corrección radiométrica de lámpara halógena.
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────┐
- │                         MAIN WINDOW (app.py)                            │
+ │                   MAIN WINDOW / PYSPECTRUM DOCKS                        │
  └──────┬─────────────────────────────┬─────────────────────────────┬──────┘
         │                             │                             │
         ▼                             ▼                             ▼
@@ -42,6 +38,12 @@ Se resalta la reciente incorporación y conexión exitosa de las señales críti
 | **Microscopio Dual Laser** | `contrapropagante.py` | 15 | 5 | **100% Conectado** | Confocal dual (arriba/abajo), autocorrelaciones y tilt. |
 | **Impresión / Grillas** | `modules/measurements.py` | 13 | 24 | **100% Conectado** | Automatización nodo a nodo y criterios de parada. |
 | **Escaneo Confocal Single**| `modules/confocal.py` | 15 | 8 | **100% Conectado** | Mapeo galvo 2D, estimación ETA y corrección tilt. |
+| **Enfoque Z** | `modules/focus.py` | 4 | 7 | **100% Conectado** | Enfoque piezoeléctrico Z por autocorrelación. |
+| **Trazado Temporal** | `modules/trace.py` | 9 | 2 | **100% Conectado** | Adquisición $10\text{ kHz}$, FFT real-time y divisor BS. |
+| **Cámara Canon EOS** | `modules/camera.py` | 14 | 7 | **100% Conectado** | Live View 25 FPS, foto 15 MP, escala y Trackpy. |
+| **Shutters & Flippers** | `core/shutters.py` | 7 | 3 | **100% Conectado** | Conmutación óptica, seguridad Watchdog y puente DAQ. |
+| **Espectrometría Step & Glue**| `pyspectrum/modules/step_and_glue.py` | 3 | 3 | **100% Conectado** | Cosido espectral UV-NIR, aborto inmediato y guardado. |
+| **Calibraciones del Sistema**| `pyspectrum/modules/calibration_dock.py`| 5 | 4 | **100% Conectado** | Centrado orden 0, slit, offsets SDK y lámpara halógena. |ngle**| `modules/confocal.py` | 15 | 8 | **100% Conectado** | Mapeo galvo 2D, estimación ETA y corrección tilt. |
 | **Enfoque Z** | `modules/focus.py` | 4 | 7 | **100% Conectado** | Enfoque piezoeléctrico Z por autocorrelación. |
 | **Trazado Temporal** | `modules/trace.py` | 9 | 2 | **100% Conectado** | Adquisición $10\text{ kHz}$, FFT real-time y divisor BS. |
 | **Cámara Canon EOS** | `modules/camera.py` | 14 | 7 | **100% Conectado** | Live View 25 FPS, foto 15 MP, escala y Trackpy. |
@@ -78,20 +80,13 @@ El archivo `app.py` administra hilos de ejecución independientes (`instrumentTh
 
 ---
 
-### 3.3 Módulo `modules/confocal.py` (Escaneo Confocal Single)
+### 3.3 Módulo `modules/confocal.py` (Escaneo Confocal Single / 2D)
 - **Señales Frontend $\rightarrow$ Backend**:  
   `scan_modeSignal`, `psf_modeSignal`, `startSignal`, `stopSignal`, `parametersrampSignal`, `parametersstepSignal`, `image_scanSignal`, `method_centerSignal`, `CMSignal`, `CMautoSignal`, `CMSignal_NP2`, `driftSignal`, `threshold_filterSignal`, `tiltCorrectionSignal`, `originCornerSignal`, `saveSignal`, `closeSignal`.
 - **Señales Backend $\rightarrow$ Frontend**:  
-  `scaleSignal`, `dataSignal`, `CMValuesSignal`, `CMValuesSignal_NP2`, `plotdriftSignal`, `etaSignal`, `tiltWarningSignal`, `scanfinishedSignal`.o con fondo verde.
+  `scaleSignal`, `dataSignal`, `CMValuesSignal`, `CMValuesSignal_NP2`, `plotdriftSignal`, `etaSignal`, `tiltWarningSignal`, `scanfinishedSignal`.
+- **Conexiones Auxiliares de Interfaz**:
   - `indexSignal` $\rightarrow$ `frontend.index_target()`: Actualiza el casillero `Target Index`.
-
----
-
-### 3.3 Módulo `modules/confocal.py` (Escaneo Confocal 2D)
-- **Señales Frontend $\rightarrow$ Backend**:  
-  `scan_modeSignal`, `psf_modeSignal`, `startSignal`, `stopSignal`, `parametersrampSignal`, `parametersstepSignal`, `image_scanSignal`, `method_centerSignal`, `CMSignal`, `CMautoSignal`, `CMSignal_NP2`, `driftSignal`, `threshold_filterSignal`, `saveSignal`, `closeSignal`.
-- **Señales Backend $\rightarrow$ Frontend**:  
-  `scaleSignal`, `dataSignal`, `CMValuesSignal`, `CMValuesSignal_NP2`, `plotdriftSignal`, `scanfinishedSignal`.
 
 ---
 
@@ -119,9 +114,11 @@ El archivo `app.py` administra hilos de ejecución independientes (`instrumentTh
 
 ---
 
-### 3.7 Módulo `core/shutters.py` (Shutters, Flippers & Láser 532 nm)
+### 3.7 Módulo `core/shutters.py` (Shutters, Flippers & Seguridad Watchdog)
 - **Señales Frontend $\rightarrow$ Backend**:  
-  `shutter0_signal` (532 nm), `shutter1_signal` (637 nm), `shutter2_signal` (592 nm), `flipper_signal` (High/Low Power), `flipper_notch532_signal` (Mirror Up/Down), `laser532_signal` (Voltaje AO2), `closeSignal`.
+  `shutter0_signal` (532 nm), `shutter1_signal` (637 nm), `shutter2_signal` (592 nm), `flipper_signal` (High/Low Power), `flipper_notch532_signal` (Mirror Up/Down), `closeSignal`, `watchdog_timeout_signal`.
+- **Señales Backend / Hardware Daemon $\rightarrow$ Frontend**:  
+  `watchdog_triggered_signal` (desmarca checkboxes ante timeout), `flipper_hardware_signal(bool)` (sincroniza estado de potencia desde callbacks DAQ/Watchdog), `flipper_state_signal(bool)` (notificación worker de potencia), `flipper_notch532_state_signal(bool)` (notificación worker de notch).
 
 ---
 
@@ -130,6 +127,30 @@ El archivo `app.py` administra hilos de ejecución independientes (`instrumentTh
   `startCameraSignal`, `stopCameraSignal`, `setZoomSignal`, `setZoomCenterSignal`, `setIsoSignal`, `setTvSignal`, `takePhotoSignal`, `liveParamsSignal`, `sendRoiSignal`.
 - **Señales Backend $\rightarrow$ Frontend**:  
   `frameSignal`, `fullFrameSignal`, `statusSignal`, `logSignal`, `connectedSignal`, `propsReadySignal`, `photoSavedSignal`.
+
+---
+
+### 3.9 Módulo `pyspectrum/modules/step_and_glue.py` (Espectrometría Cosida Step & Glue)
+- **Señales Frontend $\rightarrow$ Backend**:  
+  `startMeasurementSignal(dict)` $\rightarrow$ `StepAndGlueWorker.start_measurement`: Inicia adquisición multi-tramo UV-Vis-NIR.  
+  `stopMeasurementSignal()` $\rightarrow$ `StepAndGlueWorker.stop_measurement`: Aborto inmediato cooperativo entre sub-adquisiciones.  
+  `saveSpectrumSignal(str)` $\rightarrow$ `StepAndGlueWorker.save_spectrum`: Exportación directa a ASCII `.txt` o NumPy `.npz`.
+- **Señales Backend $\rightarrow$ Frontend**:  
+  `dataSignal(np.ndarray, np.ndarray)`: Emisión del espectro cosido en tiempo real ($x=\lambda\ \text{[nm]}$, $y=\text{cuentas}$).  
+  `progressSignal(int, int, str)`: Porcentaje, paso actual y mensaje de estado hacia la barra de progreso de la GUI.  
+  `finishedSignal(np.ndarray, np.ndarray)`: Notificación de finalización de barrido con espectro unificado.
+
+---
+
+### 3.10 Módulo `pyspectrum/modules/calibration_dock.py` (Calibraciones del Sistema Espectrométrico)
+- **Señales Frontend $\rightarrow$ Backend / Hardware**:  
+  `calibrate0thOrderSignal(int)` $\rightarrow$ Ajuste gaussiano sub-píxel del centroide de orden cero de la rendija.  
+  `calibrateSlitSignal(float)` $\rightarrow$ Calibración micrométrica de apertura y verificación de motor de hendidura.  
+  `saveCalibrationSignal(dict)` $\rightarrow$ Persistencia de coeficientes cúbicos $\lambda(p) = \sum_{i=0}^3 a_i p^i$ y curvas de lámpara halógena.  
+  `loadCalibrationSignal(str)` $\rightarrow$ Carga de perfiles de calibración de instrumental y fábrica.
+- **Señales Backend $\rightarrow$ Frontend**:  
+  `spectrumUpdateSignal(np.ndarray, np.ndarray)`: Actualización del ajuste gaussiano y centroide calculado ($x_c \pm \sigma$).  
+  `calibrationStatusSignal(bool, str)`: Telemetría de éxito/falla y registro metrológico en consola.
 
 ---
 
@@ -144,7 +165,9 @@ Todas las señales han sido validadas ejecutando la suite de pruebas unitarias e
 - **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
 - **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
 - **Reportes Técnicos Vinculados**:
-  - 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
-  - 🧵 [Arquitectura de Hilos y Concurrencia (reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
-  - 🔬 [Guía Protocolar Paso a Paso "DO PRINTING" (reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
-  - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla (reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
+  - 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md)
+  - 🧵 [Arquitectura de Hilos y Concurrencia (reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
+  - 🛡️ [Seguridad Óptica y Watchdog de Hardware (reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md)
+  - 🌈 [Calibración Espectral y Actuación Reactiva de Flippers (reportes/sistema/Reporte_Calibracion_Espectral_y_Actuacion_Flippers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Calibracion_Espectral_y_Actuacion_Flippers_PyPrinting3.md)
+  - 🔬 [Guía Protocolar Paso a Paso "DO PRINTING" (reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
+  - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla (reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)

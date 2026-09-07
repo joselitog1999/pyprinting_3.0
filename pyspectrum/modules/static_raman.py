@@ -607,15 +607,21 @@ class StaticRamanBackend(QtCore.QObject):
     def acquire_single(self):
         """Adquiere un único cuadro de la cámara y extrae el espectro 1D."""
         try:
-            # Obtener eje de calibración actual
-            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
-            frame = self.camera.get_most_recent_image()
-
-            # Binning vertical en la zona central de la ranura
-            if frame.shape[0] >= 520:
-                spec1d = np.mean(frame[480:520, :], axis=0)
+            # Obtener eje de calibración actual (cúbico de EEPROM si está activo)
+            from config import SHAMROCK_USE_FACTORY_EEPROM
+            if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
             else:
-                spec1d = np.mean(frame, axis=0)
+                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+
+            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
+                spec1d = self.camera.get_1d_spectrum()
+            else:
+                frame = self.camera.get_most_recent_image()
+                if frame.shape[0] >= 520:
+                    spec1d = np.mean(frame[480:520, :], axis=0)
+                else:
+                    spec1d = np.mean(frame, axis=0)
 
             self.spectrumAcquiredSignal.emit(wl_arr, spec1d)
             self.statusMessageSignal.emit("Espectro único adquirido exitosamente.")
@@ -636,12 +642,21 @@ class StaticRamanBackend(QtCore.QObject):
 
     def _acquire_live_frame(self):
         try:
-            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
-            frame = self.camera.get_most_recent_image()
-            if frame.shape[0] >= 520:
-                spec1d = np.mean(frame[480:520, :], axis=0)
+            from config import SHAMROCK_USE_FACTORY_EEPROM
+            if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
             else:
-                spec1d = np.mean(frame, axis=0)
+                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+
+            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
+                spec1d = self.camera.get_1d_spectrum()
+            else:
+                frame = self.camera.get_most_recent_image()
+                if frame.shape[0] >= 520:
+                    spec1d = np.mean(frame[480:520, :], axis=0)
+                else:
+                    spec1d = np.mean(frame, axis=0)
+
             self.spectrumAcquiredSignal.emit(wl_arr, spec1d)
         except Exception:
             pass

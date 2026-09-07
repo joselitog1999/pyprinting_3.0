@@ -81,6 +81,7 @@ if not SAFE_MODE:
 
 _shutter_signal: list[bool]       = [not SHUTTER_POLARITY[s] for s in SHUTTERS]
 _flipper_notch532_up: bool        = True
+_flipper_high_power: bool         = False
 _shutter_task                     = None
 _flipper_task0                    = None
 _flipper_task1                    = None
@@ -92,6 +93,7 @@ _watchdog_active: bool            = True
 _watchdog_deadline: float | None  = None
 _watchdog_lock                    = threading.Lock()
 _watchdog_callbacks: list[Callable[[], None]] = []
+_flipper_callbacks: list[Callable[[bool], None]] = []
 
 
 def _watchdog_loop():
@@ -160,6 +162,23 @@ def unregister_watchdog_callback(fn: Callable[[], None]) -> None:
     """Desregistra una función del watchdog."""
     if fn in _watchdog_callbacks:
         _watchdog_callbacks.remove(fn)
+
+
+def register_flipper_callback(fn: Callable[[bool], None]) -> None:
+    """Registra una función a invocar cuando cambie el estado del flipper de potencia (True=High, False=Low)."""
+    if fn not in _flipper_callbacks:
+        _flipper_callbacks.append(fn)
+
+
+def unregister_flipper_callback(fn: Callable[[bool], None]) -> None:
+    """Desregistra una función de cambio de estado del flipper."""
+    if fn in _flipper_callbacks:
+        _flipper_callbacks.remove(fn)
+
+
+def is_flipper_high_power() -> bool:
+    """Retorna True si el flipper está en alta potencia (down), False si está en baja (up)."""
+    return _flipper_high_power
 
 
 def _emergency_shutdown():
@@ -310,6 +329,13 @@ def close_all_shutters() -> None:
 
 
 def up_flipper() -> None:
+    global _flipper_high_power
+    _flipper_high_power = False
+    for cb in list(_flipper_callbacks):
+        try:
+            cb(False)
+        except Exception:
+            pass
     with _nidaq_lock:
         if SAFE_MODE:
             print("[NI MOCK] up_flipper()"); return
@@ -323,6 +349,13 @@ def up_flipper() -> None:
 
 
 def down_flipper() -> None:
+    global _flipper_high_power
+    _flipper_high_power = True
+    for cb in list(_flipper_callbacks):
+        try:
+            cb(True)
+        except Exception:
+            pass
     with _nidaq_lock:
         if SAFE_MODE:
             print("[NI MOCK] down_flipper()"); return

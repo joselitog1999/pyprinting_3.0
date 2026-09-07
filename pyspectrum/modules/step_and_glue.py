@@ -24,7 +24,6 @@ class Frontend(QtWidgets.QFrame):
 
     measureSingleSignal = pyqtSignal(float, float)  # (lambda_center, exp_time)
     measureStepGlueSignal = pyqtSignal(float, float, float, float, bool)  # (start, end, overlap, exp_time, normalize)
-    measureKineticsSignal = pyqtSignal(int, float, float, bool)  # (n_steps, interval, exp_time, normalize)
     stopMeasurementSignal = pyqtSignal()
     saveSpectrumSignal = pyqtSignal(str)
 
@@ -129,11 +128,23 @@ class Frontend(QtWidgets.QFrame):
         self.chk_fit_raman = QtWidgets.QCheckBox("Ajuste Raman Agua (3300 cm⁻¹)")
         controls_vlo.addWidget(self.chk_fit_raman)
 
-        # Botón Ejecutar Step & Glue
+        # Botones de Acción Step & Glue y Detención
+        btn_box = QtWidgets.QHBoxLayout()
         self.btn_sandg = QtWidgets.QPushButton("🧩 Ejecutar Step and Glue")
         self.btn_sandg.setStyleSheet("background-color: #A6E3A1; color: #11111B;")
         self.btn_sandg.clicked.connect(self._on_sandg_measure)
-        controls_vlo.addWidget(self.btn_sandg)
+        btn_box.addWidget(self.btn_sandg)
+
+        self.btn_stop = QtWidgets.QPushButton("⏹ Detener")
+        self.btn_stop.setStyleSheet("background-color: #F38BA8; color: #11111B;")
+        self.btn_stop.clicked.connect(self._on_stop_measure)
+        btn_box.addWidget(self.btn_stop)
+        controls_vlo.addLayout(btn_box)
+
+        self.btn_save = QtWidgets.QPushButton("💾 Guardar Espectro...")
+        self.btn_save.setStyleSheet("background-color: #313244; color: #CDD6F4;")
+        self.btn_save.clicked.connect(self._on_save_spectrum)
+        controls_vlo.addWidget(self.btn_save)
 
         # Barra de Estado / Info
         self.lbl_status = QtWidgets.QLabel("Listo para medir.")
@@ -176,6 +187,16 @@ class Frontend(QtWidgets.QFrame):
         except ValueError:
             pass
 
+    def _on_stop_measure(self):
+        self.lbl_status.setText("⏹ Detención solicitada por el usuario...")
+        self.stopMeasurementSignal.emit()
+
+    def _on_save_spectrum(self):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar Espectro", "", "Datos ASCII (*.txt *.csv);;NumPy (*.npz);;Todos (*.*)")
+        if path:
+            self.lbl_status.setText(f"Guardando espectro en {Path(path).name}...")
+            self.saveSpectrumSignal.emit(path)
+
     @pyqtSlot(np.ndarray, np.ndarray, np.ndarray, np.ndarray, float)
     def update_spectrum_plot(self, wave_raw: np.ndarray, spec_raw: np.ndarray,
                              wave_norm: np.ndarray, spec_norm: np.ndarray, lambda_max: float):
@@ -206,12 +227,43 @@ class Backend(QtCore.QObject):
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
         self.lamp_calib = HalogenLampCalibration()
+        self._abort_requested = False
+        self._last_wave = np.array([])
+        self._last_spec = np.array([])
+        self._last_norm = np.array([])
 
     def make_connection(self, frontend: Frontend):
         frontend.measureSingleSignal.connect(self.measure_single_spectrum)
         frontend.measureStepGlueSignal.connect(self.measure_step_and_glue)
+        frontend.stopMeasurementSignal.connect(self.stop_measurement)
+        frontend.saveSpectrumSignal.connect(self.save_spectrum)
         self.spectrumFinishedSignal.connect(frontend.update_spectrum_plot)
         self.fitFinishedSignal.connect(frontend.update_fit_plot)
+
+    @pyqtSlot()
+    def stop_measurement(self):
+        self._abort_requested = True
+        print("[Step & Glue] Solicitud de detención recibida.")
+
+    @pyqtSlot(str)
+    def save_spectrum(self, filepath: str):
+        if len(self._last_wave) == 0:
+            print("[Step & Glue] No hay espectro registrado para guardar.")
+            return
+        try:
+            p = Path(filepath)
+            if p.suffix == ".npz":
+                np.savez_compressed(p, wavelength=self._last_wave, intensity=self._last_spec, normalized=self._last_norm)
+            else:
+                data = np.column_stack([self._last_wave, self._last_spec])
+                header = "Wavelength_nm\tIntensity_Counts"
+                if len(self._last_norm) == len(self._last_wave) and len(self._last_norm) > 0:
+                    data = np.column_stack([self._last_wave, self._last_spec, self._last_norm])
+                    header += "\tNormalized_Intensity"
+                np.savetxt(p, data, delimiter="\t", header=header, comments="# ")
+            print(f"[Step & Glue] Espectro guardado con éxito en: {p}")
+        except Exception as e:
+            print(f"[Step & Glue] Error al guardar espectro: {e}")
 
     @pyqtSlot(float, float)
     def measure_single_spectrum(self, lambda_center: float, exp_time: float):
@@ -220,10 +272,18 @@ class Backend(QtCore.QObject):
         self.camera.set_exposure_time(exp_time)
         time.sleep(0.05)
 
-        # 2. Adquirir y leer
-        frame = self.camera.get_most_recent_image()
-        spec_1d = np.mean(frame, axis=0)
-        ret, wave_1d = self.spectrometer.ShamrockGetCalibration(DEVICE, len(spec_1d))
+        # 2. Adquirir y leer (prioriza lectura 1D por hardware de bajo ruido si está activa)
+        if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
+            spec_1d = self.camera.get_1d_spectrum()
+        else:
+            frame = self.camera.get_most_recent_image()
+            spec_1d = np.mean(frame, axis=0)
+
+        # Calibración cúbica de EEPROM o estándar
+        if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+            ret, wave_1d = self.spectrometer.get_wavelength_axis_cubic(DEVICE, len(spec_1d))
+        else:
+            ret, wave_1d = self.spectrometer.ShamrockGetCalibration(DEVICE, len(spec_1d))
 
         # 3. Ajuste opcional
         wave_fit, spec_fit, lambda_max = fit_signal_polynomial(wave_1d, spec_1d, ends_notch=lambda_center - 10, final_wave=wave_1d[-1])
@@ -248,14 +308,25 @@ class Backend(QtCore.QObject):
         raw_waves = []
         raw_specs = []
 
+        self._abort_requested = False
         self.camera.set_exposure_time(exp_time)
 
         for wl_c in centers:
+            if self._abort_requested:
+                print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por el usuario.")
+                break
             self.spectrometer.ShamrockSetWavelength(DEVICE, wl_c)
             time.sleep(0.05)
-            ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
-            frame = self.camera.get_most_recent_image()
-            s_1d = np.mean(frame, axis=0)
+            if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+                ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
+            else:
+                ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+
+            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
+                s_1d = self.camera.get_1d_spectrum()
+            else:
+                frame = self.camera.get_most_recent_image()
+                s_1d = np.mean(frame, axis=0)
 
             raw_waves.append(w_cal)
             raw_specs.append(s_1d)
@@ -281,5 +352,10 @@ class Backend(QtCore.QObject):
         wave_fit, spec_fit, lambda_max = fit_signal_polynomial(target_w, target_s, ends_notch=start_wl + 10, final_wave=end_wl - 10)
         if len(wave_fit) > 0:
             self.fitFinishedSignal.emit(wave_fit, spec_fit)
+
+        # Cachear último resultado
+        self._last_wave = glued_w
+        self._last_spec = glued_s
+        self._last_norm = norm_s
 
         self.spectrumFinishedSignal.emit(glued_w, glued_s, norm_w, norm_s, lambda_max)

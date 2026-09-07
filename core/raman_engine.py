@@ -942,11 +942,18 @@ def compute_dual_cursor_metrics(x: np.ndarray, y: np.ndarray, pos_a: float, pos_
 
 def interpolate_spectra_to_common_grid(
     spectra: List[Tuple[np.ndarray, np.ndarray, str, Dict]],
-    num_points: Optional[int] = None
+    num_points: Optional[int] = None,
+    x_range: Optional[Tuple[float, float]] = None
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[Dict]]:
     """
     Toma una lista de tuplas (x_i, y_i, nombre, metadatos) e interpola todos los espectros
     sobre una grilla común x_common.
+    
+    Parámetros:
+      spectra: lista de tuplas (x_i, y_i, nombre, metadatos).
+      num_points: número de puntos en la grilla común (si None, se preserva la resolución física).
+      x_range: tupla opcional (x_min, x_max) para recortar al ROI deseado (ej. Rayleigh o región Raman activa).
+      
     Retorna:
       x_common: array 1D de longitud M (monotónicamente creciente)
       Y_matrix: array 2D de forma (N, M) con cada espectro en una fila
@@ -979,9 +986,21 @@ def interpolate_spectra_to_common_grid(
     global_min = max(x_mins) if max(x_mins) < min(x_maxs) else min(x_mins)
     global_max = min(x_maxs) if max(x_mins) < min(x_maxs) else max(x_maxs)
 
+    # Si se especificó un x_range de ROI, restringir la grilla común a ese intervalo
+    if x_range is not None:
+        user_min, user_max = float(min(x_range[0], x_range[1])), float(max(x_range[0], x_range[1]))
+        global_min = max(global_min, user_min)
+        global_max = min(global_max, user_max)
+        if global_min >= global_max:
+            global_min, global_max = user_min, user_max
+
     if num_points is None:
-        num_points = int(np.median([len(c[0]) for c in cleaned]))
-        num_points = max(num_points, 100)
+        # Calcular el paso espectral mediano original para mantener la resolución de muestreo físico
+        dx_list = [float(np.median(np.diff(c[0]))) for c in cleaned if len(c[0]) > 1]
+        median_dx = float(np.median(dx_list)) if dx_list else 1.0
+        if median_dx <= 1e-6:
+            median_dx = 1.0
+        num_points = max(50, int(round((global_max - global_min) / median_dx)) + 1)
 
     x_common = np.linspace(global_min, global_max, num_points)
     Y_matrix = np.zeros((len(cleaned), num_points), dtype=np.float64)

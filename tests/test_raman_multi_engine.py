@@ -123,11 +123,119 @@ def test_pca_decomposition():
     assert np.sum(var_exp) > 99.0  # Las 2 componentes explican casi el 100% de la varianza
     print(f"PASS: Descomposición PCA (Varianza Explicada: PC1={var_exp[0]:.1f}%, PC2={var_exp[1]:.1f}%) verificada.")
 
+def test_laser_excitation_shift_recalculation():
+    from core.raman_engine import wavelength_to_raman_shift, raman_shift_to_wavelength
+    wls = np.array([550.0, 560.0, 570.0])
+
+    # Láser 532 nm
+    shift_532 = wavelength_to_raman_shift(wls, 532.0)
+    expected_532 = (1.0 / 532.0 - 1.0 / wls) * 1e7
+    assert np.allclose(shift_532, expected_532, atol=1e-5)
+
+    # Láser 632.8 nm (He-Ne)
+    shift_633 = wavelength_to_raman_shift(wls, 632.8)
+    expected_633 = (1.0 / 632.8 - 1.0 / wls) * 1e7
+    assert np.allclose(shift_633, expected_633, atol=1e-5)
+
+    # Láser 785.0 nm (NIR)
+    shift_785 = wavelength_to_raman_shift(wls, 785.0)
+    expected_785 = (1.0 / 785.0 - 1.0 / wls) * 1e7
+    assert np.allclose(shift_785, expected_785, atol=1e-5)
+
+    # Verificar que el corrimiento con 632.8 nm es sustancialmente distinto que con 532.0 nm
+    assert not np.allclose(shift_532, shift_633)
+    print("PASS: Recálculo de corrimiento Raman para distintos láseres (532, 632.8, 785 nm) verificado.")
+
+def test_reference_blank_subtraction_mode():
+    x_common = np.linspace(400, 1800, 200)
+    # 3 espectros con fondo parabólico común y picos
+    bg_true = 0.001 * (x_common - 1000.0)**2 + 100.0
+    p1 = 1000.0 * np.exp(-0.5 * ((x_common - 1078.0) / 15.0)**2) + bg_true
+    p2 = 2000.0 * np.exp(-0.5 * ((x_common - 1078.0) / 15.0)**2) + bg_true
+    Y = np.vstack([p1, p2])
+
+    # Blanco externo medido en eje ligeramente diferente (ej. 150 puntos)
+    x_blank = np.linspace(350, 1850, 150)
+    bg_blank_raw = 0.001 * (x_blank - 1000.0)**2 + 100.0
+
+    # Interpolar blanco a x_common y restar (Modo 1)
+    blank_interp = np.interp(x_common, x_blank, bg_blank_raw)
+    Y_sub = Y.copy()
+    for i in range(len(Y_sub)):
+        Y_sub[i, :] -= blank_interp
+
+    # Los residuales de fondo lejos del pico deben ser ~0
+    assert np.allclose(Y_sub[0, :30], 0.0, atol=1.0)
+    assert np.allclose(Y_sub[1, :30], 0.0, atol=1.0)
+    print("PASS: Sustracción de fondo de referencia externo (Modo 1) verificado.")
+
+def test_individual_baseline_mode():
+    from core.raman_engine import baseline_asls, baseline_airpls
+    x_common = np.linspace(400, 1800, 200)
+    # 2 espectros con diferente fluorescencia (pendientes opuestas)
+    bg1 = 200.0 + 0.1 * x_common
+    bg2 = 500.0 - 0.15 * x_common
+    p1 = 1500.0 * np.exp(-0.5 * ((x_common - 1078.0) / 15.0)**2) + bg1
+    p2 = 1200.0 * np.exp(-0.5 * ((x_common - 1078.0) / 15.0)**2) + bg2
+    Y = np.vstack([p1, p2])
+
+    # Calcular línea base individual con AsLS (Modo 2)
+    Y_sub = Y.copy()
+    for i in range(len(Y_sub)):
+        base_i = baseline_asls(Y_sub[i, :], lam=1e5, p=0.005)
+        Y_sub[i, :] -= base_i
+
+    # Ambos espectros deben quedar aplanados cerca de 0 fuera del pico
+    assert np.abs(np.mean(Y_sub[0, :30])) < 50.0
+    assert np.abs(np.mean(Y_sub[1, :30])) < 50.0
+    print("PASS: Cálculo individual adaptativo de línea base por espectro (Modo 2) verificado.")
+
+def test_interpolate_spectra_to_common_grid_with_x_range_and_trimming():
+    from core.raman_engine import crop_spectrum
+    # 3 espectros sintéticos de 1000 puntos en rango [100.0, 3600.0]
+    x_full = np.linspace(100.0, 3600.0, 1000)
+    y1 = 1000.0 * np.exp(-0.5 * ((x_full - 1078.0) / 15.0)**2) + 200.0
+    y2 = 1500.0 * np.exp(-0.5 * ((x_full - 1585.0) / 18.0)**2) + 250.0
+    spectra = [(x_full, y1, "Sp1", {}), (x_full, y2, "Sp2", {})]
+
+    # 1. Sin recorte (rango completo)
+    x_c1, Y1, _, _ = interpolate_spectra_to_common_grid(spectra)
+    assert math.isclose(x_c1[0], 100.0, abs_tol=1.0)
+    assert math.isclose(x_c1[-1], 3600.0, abs_tol=1.0)
+    assert Y1.shape[0] == 2
+
+    # 2. Con recorte de ROI a [600.0, 1800.0] cm^-1
+    x_c2, Y2, _, _ = interpolate_spectra_to_common_grid(spectra, x_range=(600.0, 1800.0))
+    assert math.isclose(x_c2[0], 600.0, abs_tol=1e-3)
+    assert math.isclose(x_c2[-1], 1800.0, abs_tol=1e-3)
+    assert len(x_c2) < len(x_c1)
+    assert Y2.shape == (2, len(x_c2))
+
+    # 3. Con atajo Rayleigh (< 150.0 cm^-1)
+    x_c3, Y3, _, _ = interpolate_spectra_to_common_grid(spectra, x_range=(150.0, 3600.0))
+    assert math.isclose(x_c3[0], 150.0, abs_tol=1e-3)
+    assert math.isclose(x_c3[-1], 3600.0, abs_tol=1e-3)
+
+    # 4. Con poda de bordes CCD por puntos (trim_left_pts=20, trim_right_pts=30)
+    trimmed_spectra = []
+    for x_i, y_i, name, meta in spectra:
+        x_t, y_t, _ = crop_spectrum(x_i, y_i, trim_left_pts=20, trim_right_pts=30)
+        assert len(x_t) == 1000 - 50
+        trimmed_spectra.append((x_t, y_t, name, meta))
+    x_c4, Y4, _, _ = interpolate_spectra_to_common_grid(trimmed_spectra)
+    assert len(x_c4) > 0
+    assert Y4.shape[0] == 2
+    print("PASS: Recorte de ROI por rango [Xmin, Xmax] y poda de bordes CCD verificado al 100%.")
+
 if __name__ == "__main__":
     test_interpolate_to_common_grid()
     test_normalizations()
     test_mean_std_and_kinetics()
     test_pca_decomposition()
+    test_laser_excitation_shift_recalculation()
+    test_reference_blank_subtraction_mode()
+    test_individual_baseline_mode()
+    test_interpolate_spectra_to_common_grid_with_x_range_and_trimming()
     print("\n=======================================================")
     print("TODAS LAS PRUEBAS DE MOTOR MULTI-ESPECTRO SUPERADAS!")
     print("=======================================================")

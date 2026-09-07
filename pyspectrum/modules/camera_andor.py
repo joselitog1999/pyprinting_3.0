@@ -9,7 +9,13 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer
 import pyqtgraph as pg
 
-from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.drivers.andor_ccd_driver import (
+    get_andor_ccd,
+    READ_MODE_FVB,
+    READ_MODE_SINGLE_TRACK,
+    READ_MODE_IMAGE
+)
+from config import ANDOR_FLIP_Y_IMAGE, ANDOR_FLIP_X_IMAGE, ANDOR_DEFAULT_READ_MODE
 from pyspectrum.ui.viewbox_tools import GridOverlay, LinePlotWidget
 
 
@@ -22,7 +28,9 @@ class Frontend(QtWidgets.QFrame):
     toggleCoolerSignal = pyqtSignal(bool)
     setOutputAmplifierSignal = pyqtSignal(int)
     setEMGainSignal = pyqtSignal(int)
-    saveSpectrumSignal = pyqtSignal(str)
+    setReadModeSignal = pyqtSignal(int)
+    setSingleTrackSignal = pyqtSignal(int, int)
+    flipToggledSignal = pyqtSignal(bool, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -149,6 +157,41 @@ class Frontend(QtWidgets.QFrame):
         row2.addStretch()
         layout.addLayout(row2)
 
+        # ── Fila 3: Modo de Adquisición de Cámara y Paridad Óptica (Espejo) ───
+        row3 = QtWidgets.QHBoxLayout()
+
+        row3.addWidget(QtWidgets.QLabel("Modo:"))
+        self.cmb_read_mode = QtWidgets.QComboBox()
+        self.cmb_read_mode.addItem("📷 Alineación 2D (Imagen)", READ_MODE_IMAGE)
+        self.cmb_read_mode.addItem("🎯 Single Track (ROI Hardware)", READ_MODE_SINGLE_TRACK)
+        self.cmb_read_mode.addItem("📊 FVB Completo (Hardware)", READ_MODE_FVB)
+        # Establece índice inicial según configuración
+        initial_idx = 0 if ANDOR_DEFAULT_READ_MODE == READ_MODE_IMAGE else (1 if ANDOR_DEFAULT_READ_MODE == READ_MODE_SINGLE_TRACK else 2)
+        self.cmb_read_mode.setCurrentIndex(initial_idx)
+        self.cmb_read_mode.currentIndexChanged.connect(self._on_read_mode_changed)
+        row3.addWidget(self.cmb_read_mode)
+
+        self.chk_flip_y = QtWidgets.QCheckBox("🪞 Flip Y (Espejo)")
+        self.chk_flip_y.setChecked(ANDOR_FLIP_Y_IMAGE)
+        self.chk_flip_y.setStyleSheet("color: #89B4FA; font-weight: bold;")
+        self.chk_flip_y.toggled.connect(self._on_flip_toggled)
+        row3.addWidget(self.chk_flip_y)
+
+        self.chk_flip_x = QtWidgets.QCheckBox("🪞 Flip X")
+        self.chk_flip_x.setChecked(ANDOR_FLIP_X_IMAGE)
+        self.chk_flip_x.setStyleSheet("color: #CDD6F4;")
+        self.chk_flip_x.toggled.connect(self._on_flip_toggled)
+        row3.addWidget(self.chk_flip_x)
+
+        self.btn_crosshair = QtWidgets.QPushButton("✛ Retícula Slit")
+        self.btn_crosshair.setCheckable(True)
+        self.btn_crosshair.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+        self.btn_crosshair.clicked.connect(self._on_toggle_crosshair)
+        row3.addWidget(self.btn_crosshair)
+
+        row3.addStretch()
+        layout.addLayout(row3)
+
         # ── Visualizadores: Imagen 2D + Espectro 1D ───────────────────────────
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
 
@@ -162,11 +205,21 @@ class Frontend(QtWidgets.QFrame):
         # Línea ROI horizontal para integración espectral
         self.roi_line = pg.LinearRegionItem(values=[480, 520], orientation=pg.LinearRegionItem.Horizontal,
                                             brush=pg.mkBrush(137, 180, 250, 40))
+        self.roi_line.sigRegionChangeFinished.connect(self._on_roi_changed)
         self.imv.getView().addItem(self.roi_line)
+
+        # Retícula central / Líneas guía de ranura (Slit Overlay)
+        self.crosshair_v = pg.InfiniteLine(pos=501, angle=90, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
+        self.crosshair_h = pg.InfiniteLine(pos=501, angle=0, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
+        self.crosshair_v.hide()
+        self.crosshair_h.hide()
+        self.imv.getView().addItem(self.crosshair_v)
+        self.imv.getView().addItem(self.crosshair_h)
+
         splitter.addWidget(self.imv)
 
         # 2. Perfil 1D (Espectro colapsado)
-        self.plot_1d = LinePlotWidget(title="Espectro 1D (Perfil CCD)", x_label="Pixel / Longitud de Onda (nm)", y_label="Cuentas (ADC)")
+        self.plot_1d = LinePlotWidget(title="Espectro 1D (Perfil CCD / FVB)", x_label="Pixel / Longitud de Onda (nm)", y_label="Cuentas (ADC)")
         self.plot_1d.setFixedHeight(180)
         splitter.addWidget(self.plot_1d)
 
@@ -247,6 +300,34 @@ class Frontend(QtWidgets.QFrame):
         self.lbl_gain_badge.setText(txt)
         self.lbl_gain_badge.setStyleSheet(f"background-color: {color}; color: #11111B; font-weight: bold; padding: 2px 6px; border-radius: 3px;")
 
+    def _on_read_mode_changed(self, idx: int):
+        mode = self.cmb_read_mode.currentData()
+        self.setReadModeSignal.emit(mode)
+        if mode == READ_MODE_FVB:
+            self.roi_line.hide()
+        else:
+            self.roi_line.show()
+
+    def _on_flip_toggled(self):
+        self.flipToggledSignal.emit(self.chk_flip_y.isChecked(), self.chk_flip_x.isChecked())
+
+    def _on_toggle_crosshair(self, checked: bool):
+        if checked:
+            self.crosshair_v.show()
+            self.crosshair_h.show()
+            self.btn_crosshair.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold;")
+        else:
+            self.crosshair_v.hide()
+            self.crosshair_h.hide()
+            self.btn_crosshair.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+
+    def _on_roi_changed(self):
+        r = self.roi_line.getRegion()
+        y1, y2 = min(r), max(r)
+        center = int(round((y1 + y2) / 2.0))
+        height = max(2, int(round(abs(y2 - y1))))
+        self.setSingleTrackSignal.emit(center, height)
+
     @pyqtSlot(np.ndarray)
     def update_image(self, img: np.ndarray):
         self.imv.setImage(img.T, autoRange=False, autoLevels=False)
@@ -257,11 +338,6 @@ class Frontend(QtWidgets.QFrame):
 
     @pyqtSlot(float, int)
     def update_temperature(self, temp: float, status: int):
-        # Interpretación de estados Andor SDK 2
-        # DRV_TEMP_STABILIZED = 20036
-        # DRV_TEMP_NOT_REACHED = 20037
-        # DRV_TEMP_DRIFT = 20040
-        # DRV_TEMP_NOT_STABILIZED = 20035
         if status == 20036 or abs(temp - float(self.spin_temp.value())) < 0.8:
             status_str = "🟢 Estabilizado"
         elif status == 20040:
@@ -288,6 +364,17 @@ class Backend(QtCore.QObject):
         self.camera = camera or get_andor_ccd()
         self.wavelength_axis = np.linspace(400, 700, 1002)
 
+        self.read_mode = ANDOR_DEFAULT_READ_MODE
+        self.flip_y = ANDOR_FLIP_Y_IMAGE
+        self.flip_x = ANDOR_FLIP_X_IMAGE
+        self.track_center = 501
+        self.track_height = 40
+
+        # Sincroniza estado inicial con el hardware/driver
+        self.camera.set_read_mode(self.read_mode)
+        if self.read_mode == READ_MODE_SINGLE_TRACK:
+            self.camera.set_single_track(self.track_center, self.track_height)
+
         self.view_timer = QTimer(self)
         self.view_timer.setInterval(35)  # ~30 FPS
         self.view_timer.timeout.connect(self._acquire_frame)
@@ -304,10 +391,32 @@ class Backend(QtCore.QObject):
         frontend.toggleCoolerSignal.connect(self.toggle_cooler)
         frontend.setOutputAmplifierSignal.connect(self.set_output_amplifier)
         frontend.setEMGainSignal.connect(self.set_em_gain)
+        frontend.setReadModeSignal.connect(self.set_read_mode)
+        frontend.setSingleTrackSignal.connect(self.set_single_track)
+        frontend.flipToggledSignal.connect(self.set_flip)
 
         self.imageUpdatedSignal.connect(frontend.update_image)
         self.spectrum1DUpdatedSignal.connect(frontend.update_1d_spectrum)
         self.temperatureUpdatedSignal.connect(frontend.update_temperature)
+
+    @pyqtSlot(int)
+    def set_read_mode(self, mode: int):
+        self.read_mode = int(mode)
+        self.camera.set_read_mode(self.read_mode)
+        if self.read_mode == READ_MODE_SINGLE_TRACK:
+            self.camera.set_single_track(self.track_center, self.track_height)
+
+    @pyqtSlot(int, int)
+    def set_single_track(self, center: int, height: int):
+        self.track_center = int(center)
+        self.track_height = int(height)
+        if self.read_mode == READ_MODE_SINGLE_TRACK:
+            self.camera.set_single_track(self.track_center, self.track_height)
+
+    @pyqtSlot(bool, bool)
+    def set_flip(self, flip_y: bool, flip_x: bool):
+        self.flip_y = bool(flip_y)
+        self.flip_x = bool(flip_x)
 
     @pyqtSlot(bool)
     def toggle_live(self, active: bool):
@@ -346,11 +455,22 @@ class Backend(QtCore.QObject):
         self.wavelength_axis = wl_axis
 
     def _acquire_frame(self):
-        frame = self.camera.get_most_recent_image()
-        self.imageUpdatedSignal.emit(frame)
+        if self.read_mode == READ_MODE_IMAGE:
+            frame = self.camera.get_most_recent_image()
+            if self.flip_y:
+                frame = np.flipud(frame)
+            if self.flip_x:
+                frame = np.fliplr(frame)
+            self.imageUpdatedSignal.emit(frame)
 
-        # Binning vertical para perfil 1D
-        spec1d = np.mean(frame[480:520, :], axis=0) if frame.shape[0] >= 520 else np.mean(frame, axis=0)
+            # Binning vertical en software dentro del ROI para visualización simultánea
+            y1 = max(0, self.track_center - self.track_height // 2)
+            y2 = min(frame.shape[0], y1 + self.track_height)
+            spec1d = np.mean(frame[y1:y2, :], axis=0) if y2 > y1 else np.mean(frame, axis=0)
+        else:
+            # En modo Single Track o FVB de hardware: lectura ultra-rápida y bajo ruido
+            spec1d = self.camera.get_1d_spectrum()
+
         x_axis = self.wavelength_axis if len(self.wavelength_axis) == len(spec1d) else np.arange(len(spec1d))
         self.spectrum1DUpdatedSignal.emit(x_axis, spec1d)
 

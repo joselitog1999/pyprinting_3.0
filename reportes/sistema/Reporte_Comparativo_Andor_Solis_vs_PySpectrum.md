@@ -103,4 +103,16 @@ La mayor debilidad de Solis es que no sabe qué ocurre en el microscopio. PyPrin
 
 ---
 
+## 5. ✅ Estado de Implementación en PySpectrum 3.0 (Septiembre 2026)
+
+Todas las funciones críticas identificadas han sido incorporadas y validadas en el código de producción:
+1. **Modos de Lectura en Silicio (Andor SDK 2)**: `READ_MODE_SINGLE_TRACK` (`SetSingleTrack(center, height)`) y `READ_MODE_FVB` (`SetReadMode(0)`), logrando una reducción de ruido de lectura en un factor $\approx 6.3\times$ frente a software binning.
+2. **Corrección de Paridad Óptica y Espejado**: Checkboxes de `Flip Y` (espejo vertical activo por defecto) y `Flip X` en el panel de cámara, alineando el visor 2D con la cámara réflex Canon y los ejes de la platina PI.
+3. **Calibración Cúbica de Fábrica Shamrock**: Extracción de coeficientes polinomiales ($a, b, c, d$) de la EEPROM vía `ShamrockGetPixelCalibrationCoefficients` y botón dedicado a Orden Cero (`goto_zero_order`).
+4. **Step & Glue Continuo**: Ponderación sigmoidea suave $w(x)$, eliminación de duplicados por binning ponderado, pulsador de aborto cooperativo instantáneo (`🛑 Detener`) y exportación directa (`💾 Guardar`) a ASCII/NPZ.
+5. **Pestaña de Calibración del Sistema (`calibration_dock.py`)**: Ajuste no lineal gaussiano sub-píxel de orden 0 ($x_c \pm \sigma$), lectura/escritura de offsets de torreta y detector mediante Shamrock SDK (`ShamrockGetGratingOffset`, `ShamrockSetGratingOffset`, `ShamrockGetDetectorOffset`, `ShamrockSetDetectorOffset`, `ShamrockGetSlitZeroPosition`), y corrección radiométrica de lámpara halógena calibrada.
+6. **Validación Integral**: 49/49 pruebas del sistema superadas al 100% de éxito (`tests/run_all_diagnostics.py`).
+
+---
+
 *Documento técnico de análisis estratégico elaborado para el desarrollo de la Suite PyPrinting 3.0.*

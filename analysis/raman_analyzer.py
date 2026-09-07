@@ -986,11 +986,43 @@ class RamanAnalyzerWindow(QMainWindow):
             self.spin_laser_custom.setEnabled(True)
             self.laser_nm = self.spin_laser_custom.value()
         self._recalculate_all()
+        if hasattr(self, "tab_multi") and self.tab_multi and getattr(self.tab_multi, "check_sync_laser", None) and self.tab_multi.check_sync_laser.isChecked():
+            self.tab_multi.set_laser_wavelength(self.laser_nm, sync_parent=False)
 
     def _on_laser_value_changed(self, val: float):
         if self.combo_laser.currentIndex() == 4:  # Personalizado
             self.laser_nm = val
             self._recalculate_all()
+            if hasattr(self, "tab_multi") and self.tab_multi and getattr(self.tab_multi, "check_sync_laser", None) and self.tab_multi.check_sync_laser.isChecked():
+                self.tab_multi.set_laser_wavelength(self.laser_nm, sync_parent=False)
+
+    def set_laser_wavelength(self, laser_nm: float, sync_multi: bool = True):
+        """Fija la longitud de onda del láser y actualiza controles y cálculo."""
+        self.laser_nm = float(laser_nm)
+        lasers = [532.0, 632.8, 637.0, 785.0]
+        found_idx = -1
+        for i, l in enumerate(lasers):
+            if math.isclose(self.laser_nm, l, abs_tol=0.2):
+                found_idx = i
+                break
+
+        self.combo_laser.blockSignals(True)
+        self.spin_laser_custom.blockSignals(True)
+        if found_idx >= 0:
+            self.combo_laser.setCurrentIndex(found_idx)
+            self.spin_laser_custom.setValue(self.laser_nm)
+            self.spin_laser_custom.setEnabled(False)
+        else:
+            self.combo_laser.setCurrentIndex(4)  # Personalizado
+            self.spin_laser_custom.setValue(self.laser_nm)
+            self.spin_laser_custom.setEnabled(True)
+        self.combo_laser.blockSignals(False)
+        self.spin_laser_custom.blockSignals(False)
+
+        self._recalculate_all()
+
+        if sync_multi and hasattr(self, "tab_multi") and self.tab_multi:
+            self.tab_multi.set_laser_wavelength(self.laser_nm, sync_parent=False)
 
     def _on_units_changed(self, idx: int):
         modes = ["raman_shift", "wavelength", "energy"]

@@ -57,6 +57,9 @@ class _MockShamrock:
         self._flipper_in = SHAMROCK_DIRECT_PORT
         self._flipper_out = SHAMROCK_DIRECT_PORT
         self._serial = "SR-303i-SIM-UNSAM"
+        self._grating_offsets = {1: 0, 2: 0, 3: 0}
+        self._detector_offset = 0
+        self._slit_zero_pos = 0
         print("[Shamrock SIM] Inicializado controlador virtual de espectrógrafo.")
 
     def is_hardware_alive(self, device: int = DEVICE) -> bool:
@@ -128,6 +131,71 @@ class _MockShamrock:
         half_span = (num_pixels / 2.0) * dispersion
         wl_axis = np.linspace(self._wavelength - half_span, self._wavelength + half_span, num_pixels)
         return (SHAMROCK_SUCCESS, wl_axis)
+
+    def ShamrockGetPixelCalibrationCoefficients(self, device: int = DEVICE) -> Tuple[int, float, float, float, float]:
+        """Simula los coeficientes cúbicos de la EEPROM de Shamrock para λ(p) = a + b*p + c*p^2 + d*p^3."""
+        dispersion = 0.175 if self._grating == 1 else (0.022 if self._grating == 2 else 0.0)
+        a = float(self._wavelength - (NUMBER_OF_PIXELS / 2.0) * dispersion)
+        b = float(dispersion)
+        c = 1e-6 if dispersion > 0 else 0.0
+        d = -1e-10 if dispersion > 0 else 0.0
+        return (SHAMROCK_SUCCESS, a, b, c, d)
+
+    def get_pixel_calibration_coefficients(self, device: int = DEVICE) -> Tuple[int, Tuple[float, float, float, float]]:
+        ret, a, b, c, d = self.ShamrockGetPixelCalibrationCoefficients(device)
+        return (ret, (a, b, c, d))
+
+    def ShamrockGotoZeroOrder(self, device: int = DEVICE) -> int:
+        self._wavelength = 0.0
+        return SHAMROCK_SUCCESS
+
+    def goto_zero_order(self, device: int = DEVICE) -> int:
+        return self.ShamrockGotoZeroOrder(device)
+
+    def ShamrockGetGratingOffset(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, int]:
+        return (SHAMROCK_SUCCESS, int(self._grating_offsets.get(grating, 0)))
+
+    def ShamrockSetGratingOffset(self, device: int = DEVICE, grating: int = 1, offset: int = 0) -> int:
+        self._grating_offsets[grating] = int(offset)
+        return SHAMROCK_SUCCESS
+
+    def get_grating_offset(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, int]:
+        return self.ShamrockGetGratingOffset(device, grating)
+
+    def set_grating_offset(self, device: int = DEVICE, grating: int = 1, offset: int = 0) -> int:
+        return self.ShamrockSetGratingOffset(device, grating, offset)
+
+    def ShamrockGetDetectorOffset(self, device: int = DEVICE) -> Tuple[int, int]:
+        return (SHAMROCK_SUCCESS, int(self._detector_offset))
+
+    def ShamrockSetDetectorOffset(self, device: int = DEVICE, offset: int = 0) -> int:
+        self._detector_offset = int(offset)
+        return SHAMROCK_SUCCESS
+
+    def get_detector_offset(self, device: int = DEVICE) -> Tuple[int, int]:
+        return self.ShamrockGetDetectorOffset(device)
+
+    def set_detector_offset(self, device: int = DEVICE, offset: int = 0) -> int:
+        return self.ShamrockSetDetectorOffset(device, offset)
+
+    def ShamrockGetSlitZeroPosition(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, int]:
+        return (SHAMROCK_SUCCESS, int(self._slit_zero_pos))
+
+    def ShamrockSetSlitZeroPosition(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT, offset: int = 0) -> int:
+        self._slit_zero_pos = int(offset)
+        return SHAMROCK_SUCCESS
+
+    def get_slit_zero_position(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, int]:
+        return self.ShamrockGetSlitZeroPosition(device, index)
+
+    def set_slit_zero_position(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT, offset: int = 0) -> int:
+        return self.ShamrockSetSlitZeroPosition(device, index, offset)
+
+    def get_wavelength_axis_cubic(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
+        ret, (a, b, c, d) = self.get_pixel_calibration_coefficients(device)
+        p = np.arange(num_pixels, dtype=np.float64)
+        wl_axis = a + b * p + c * (p ** 2) + d * (p ** 3)
+        return (ret, wl_axis)
 
 
 class ShamrockDriver:
@@ -321,6 +389,130 @@ class ShamrockDriver:
             return (SHAMROCK_COMMUNICATION_ERROR, np.linspace(400, 700, num_pixels))
 
     def ShamrockGetCalibration(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
+        return self.get_calibration(device, num_pixels)
+
+    def ShamrockGetPixelCalibrationCoefficients(self, device: int = DEVICE) -> Tuple[int, float, float, float, float]:
+        """Obtiene los coeficientes polinomiales cúbicos (a, b, c, d) de calibración de fábrica de la EEPROM."""
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0.0, 0.0, 0.0, 0.0)
+        try:
+            a = c_float()
+            b = c_float()
+            c = c_float()
+            d = c_float()
+            ret = self._dll.ShamrockGetPixelCalibrationCoefficients(c_int(device), byref(a), byref(b), byref(c), byref(d))
+            if ret == SHAMROCK_SUCCESS:
+                return (ret, float(a.value), float(b.value), float(c.value), float(d.value))
+            return (ret, 0.0, 0.0, 0.0, 0.0)
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGetPixelCalibrationCoefficients: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 0.0, 0.0, 0.0, 0.0)
+
+    def get_pixel_calibration_coefficients(self, device: int = DEVICE) -> Tuple[int, Tuple[float, float, float, float]]:
+        ret, a, b, c, d = self.ShamrockGetPixelCalibrationCoefficients(device)
+        return (ret, (a, b, c, d))
+
+    def ShamrockGotoZeroOrder(self, device: int = DEVICE) -> int:
+        """Mueve la red a Orden Cero (0.0 nm) para reflexión especular directa (alineación visual)."""
+        if not self._connected or self._dll is None:
+            return SHAMROCK_NOT_INITIALIZED
+        try:
+            if hasattr(self._dll, "ShamrockGotoZeroOrder"):
+                return self._dll.ShamrockGotoZeroOrder(c_int(device))
+            return self.set_wavelength(device, 0.0)
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGotoZeroOrder: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
+
+    def goto_zero_order(self, device: int = DEVICE) -> int:
+        return self.ShamrockGotoZeroOrder(device)
+
+    def get_grating_offset(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, int]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0)
+        c_off = c_int()
+        try:
+            ret = self._dll.ShamrockGetGratingOffset(c_int(device), c_int(grating), byref(c_off))
+            return (ret, int(c_off.value))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGetGratingOffset: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 0)
+
+    def ShamrockGetGratingOffset(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, int]:
+        return self.get_grating_offset(device, grating)
+
+    def set_grating_offset(self, device: int = DEVICE, grating: int = 1, offset: int = 0) -> int:
+        if not self._connected or self._dll is None:
+            return SHAMROCK_NOT_INITIALIZED
+        try:
+            return self._dll.ShamrockSetGratingOffset(c_int(device), c_int(grating), c_int(offset))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockSetGratingOffset: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
+
+    def ShamrockSetGratingOffset(self, device: int = DEVICE, grating: int = 1, offset: int = 0) -> int:
+        return self.set_grating_offset(device, grating, offset)
+
+    def get_detector_offset(self, device: int = DEVICE) -> Tuple[int, int]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0)
+        c_off = c_int()
+        try:
+            ret = self._dll.ShamrockGetDetectorOffset(c_int(device), byref(c_off))
+            return (ret, int(c_off.value))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGetDetectorOffset: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 0)
+
+    def ShamrockGetDetectorOffset(self, device: int = DEVICE) -> Tuple[int, int]:
+        return self.get_detector_offset(device)
+
+    def set_detector_offset(self, device: int = DEVICE, offset: int = 0) -> int:
+        if not self._connected or self._dll is None:
+            return SHAMROCK_NOT_INITIALIZED
+        try:
+            return self._dll.ShamrockSetDetectorOffset(c_int(device), c_int(offset))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockSetDetectorOffset: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
+
+    def ShamrockSetDetectorOffset(self, device: int = DEVICE, offset: int = 0) -> int:
+        return self.set_detector_offset(device, offset)
+
+    def get_slit_zero_position(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, int]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0)
+        c_pos = c_int()
+        try:
+            ret = self._dll.ShamrockGetSlitZeroPosition(c_int(device), c_int(index), byref(c_pos))
+            return (ret, int(c_pos.value))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGetSlitZeroPosition: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 0)
+
+    def ShamrockGetSlitZeroPosition(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, int]:
+        return self.get_slit_zero_position(device, index)
+
+    def set_slit_zero_position(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT, offset: int = 0) -> int:
+        if not self._connected or self._dll is None:
+            return SHAMROCK_NOT_INITIALIZED
+        try:
+            return self._dll.ShamrockSetSlitZeroPosition(c_int(device), c_int(index), c_int(offset))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockSetSlitZeroPosition: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
+
+    def ShamrockSetSlitZeroPosition(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT, offset: int = 0) -> int:
+        return self.set_slit_zero_position(device, index, offset)
+
+    def get_wavelength_axis_cubic(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
+        """Calcula el eje de longitudes de onda evaluando el polinomio cúbico de fábrica de la EEPROM."""
+        ret, (a, b, c, d) = self.get_pixel_calibration_coefficients(device)
+        if ret == SHAMROCK_SUCCESS and (a > 0 or b > 0):
+            p = np.arange(num_pixels, dtype=np.float64)
+            wl_axis = a + b * p + c * (p ** 2) + d * (p ** 3)
+            return (ret, wl_axis)
+        # Fallback a calibración estándar
         return self.get_calibration(device, num_pixels)
 
 

@@ -55,6 +55,8 @@ class _MockAndorCCD:
         self._emccd_gain = 0
         self._output_amplifier = 0  # 0: EMCCD, 1: Convencional
         self._read_mode = READ_MODE_IMAGE
+        self._track_center = 501
+        self._track_height = 40
         self._acquiring = False
         self._frame_count = 0
         print("[Andor CCD SIM] Cámara Andor virtual inicializada (1002x1002, iXon3 EMCCD).")
@@ -126,6 +128,20 @@ class _MockAndorCCD:
         self._read_mode = int(mode)
         return DRV_SUCCESS
 
+    def get_read_mode(self) -> int:
+        return self._read_mode
+
+    def set_single_track(self, center: int, height: int) -> int:
+        self._track_center = max(1, min(self.height, int(center)))
+        self._track_height = max(1, min(self.height, int(height)))
+        return DRV_SUCCESS
+
+    def get_single_track(self) -> Tuple[int, int]:
+        return (self._track_center, self._track_height)
+
+    def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1002, vstart: int = 1, vend: int = 1002) -> int:
+        return DRV_SUCCESS
+
     def start_acquisition(self) -> int:
         self._acquiring = True
         return DRV_SUCCESS
@@ -141,7 +157,7 @@ class _MockAndorCCD:
         y = np.linspace(-5, 5, self.height)
         xx, yy = np.meshgrid(x, y)
 
-        # Fondo base y ruido de lectura
+        # Fondo base y ruido de lectura por píxel 2D
         dark_counts = 500.0 + np.random.normal(0, 4.0, (self.height, self.width))
 
         # Línea de emisión central (ranura del espectrógrafo)
@@ -161,9 +177,39 @@ class _MockAndorCCD:
         return frame
 
     def get_1d_spectrum(self) -> np.ndarray:
-        """Devuelve el espectro 1D binnizado verticalmente."""
-        frame = self.get_most_recent_image()
-        return np.mean(frame, axis=0)
+        """Devuelve el espectro 1D binnizado en hardware (FVB o Single Track) con ruido de lectura cobrado una sola vez."""
+        x = np.linspace(-5, 5, self.width)
+        spr_peak = 1200.0 * np.exp(-0.5 * ((x - 0.5) / 1.2)**2)
+        laser_peak = 4500.0 * np.exp(-0.5 * ((x + 1.8) / 0.08)**2)
+        signal_base = (spr_peak + laser_peak + 150.0)
+
+        # Ruido de lectura analógico cobrado UNA SOLA VEZ por columna (no multiplicado por filas)
+        read_noise = np.random.normal(0, 4.0, self.width)
+
+        if self._read_mode == READ_MODE_SINGLE_TRACK:
+            # Integra verticalmente solo dentro del track configurado
+            dark_integrated = 500.0 + (self._track_height * 0.12)
+            y_span = (self._track_height / float(self.height)) * 10.0
+            integral_factor = min(1.0, max(0.2, y_span / 1.6))
+            spec = (dark_integrated + signal_base * integral_factor + read_noise).astype(np.float32)
+        elif self._read_mode == READ_MODE_FVB:
+            # FVB suma las 1002 filas completas
+            dark_integrated = 500.0 + (self.height * 0.12)
+            spec = (dark_integrated + signal_base + read_noise).astype(np.float32)
+        else:
+            # En Modo Imagen, si se llama get_1d_spectrum, colapsa el frame 2D
+            frame = self.get_most_recent_image()
+            spec = np.mean(frame, axis=0)
+
+        if self._output_amplifier == 0 and self._emccd_gain > 0:
+            spec *= (1.0 + self._emccd_gain * 0.02)
+
+        return spec
+
+    def get_acquired_data(self) -> np.ndarray:
+        if self._read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
+            return self.get_1d_spectrum()
+        return self.get_most_recent_image()
 
 
 class AndorCCDDriver:
@@ -173,6 +219,9 @@ class AndorCCDDriver:
     def __init__(self):
         self._dll = None
         self._connected = False
+        self._read_mode = READ_MODE_IMAGE
+        self._track_center = 501
+        self._track_height = 40
         self._init_dll()
 
     def is_hardware_alive(self) -> bool:
@@ -319,6 +368,74 @@ class AndorCCDDriver:
             return np.zeros((height, width), dtype=np.float32)
         except Exception:
             return np.zeros((height, width), dtype=np.float32)
+
+    def set_read_mode(self, mode: int) -> int:
+        """0: FVB (Full Vertical Binning), 1: Single Track, 4: Image 2D."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            ret = self._dll.SetReadMode(c_int(int(mode)))
+            if ret == DRV_SUCCESS:
+                self._read_mode = int(mode)
+            return ret
+        except Exception as e:
+            print(f"[Andor CCD] Error SetReadMode: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def get_read_mode(self) -> int:
+        return self._read_mode
+
+    def set_single_track(self, center: int, height: int) -> int:
+        """Configura el ROI de integración vertical en hardware (Single Track)."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            ret = self._dll.SetSingleTrack(c_int(int(center)), c_int(int(height)))
+            if ret == DRV_SUCCESS:
+                self._track_center = int(center)
+                self._track_height = int(height)
+            return ret
+        except Exception as e:
+            print(f"[Andor CCD] Error SetSingleTrack: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def get_single_track(self) -> Tuple[int, int]:
+        return (self._track_center, self._track_height)
+
+    def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1002, vstart: int = 1, vend: int = 1002) -> int:
+        """Configura la subárea y binning para modo imagen 2D."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            return self._dll.SetImage(c_int(int(hbin)), c_int(int(vbin)),
+                                      c_int(int(hstart)), c_int(int(hend)),
+                                      c_int(int(vstart)), c_int(int(vend)))
+        except Exception as e:
+            print(f"[Andor CCD] Error SetImage: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def get_1d_spectrum(self, width: int = 1002) -> np.ndarray:
+        """Lee el espectro 1D binnizado en hardware (FVB o Single Track) con ruido cobrado una sola vez."""
+        if not self._connected or self._dll is None:
+            return np.zeros(width, dtype=np.float32)
+        try:
+            arr = (c_long * width)()
+            ret = self._dll.GetMostRecentImage(arr, c_long(width))
+            if ret == DRV_SUCCESS:
+                return np.array(arr[:], dtype=np.float32)
+            # Respaldo con GetAcquiredData
+            ret2 = self._dll.GetAcquiredData(arr, c_long(width))
+            if ret2 == DRV_SUCCESS:
+                return np.array(arr[:], dtype=np.float32)
+            return np.zeros(width, dtype=np.float32)
+        except Exception:
+            return np.zeros(width, dtype=np.float32)
+
+    def get_acquired_data(self, size: int = 1002) -> np.ndarray:
+        """Retorna datos adquiridos según el modo activo (1D para FVB/Track, 2D para Image)."""
+        if self._read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
+            return self.get_1d_spectrum(size)
+        return self.get_most_recent_image(size, size)
 
 
 # ── Instancia Singleton y Fábrica ─────────────────────────────────────────────

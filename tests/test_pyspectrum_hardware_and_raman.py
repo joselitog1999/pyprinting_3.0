@@ -260,5 +260,66 @@ class TestStaticRamanModule(unittest.TestCase):
         self.assertIn("K", temp_text)
 
 
+class TestSolisEnhancements(unittest.TestCase):
+    """Verificación de las mejoras incorporadas desde Andor Solis."""
+
+    def test_single_track_and_fvb_read_modes(self):
+        """Verifica que el driver soporte FVB y Single Track y retorne espectros 1D."""
+        cam = get_andor_ccd(force_mock=True)
+        from pyspectrum.drivers.andor_ccd_driver import READ_MODE_SINGLE_TRACK, READ_MODE_FVB
+        cam.set_read_mode(READ_MODE_SINGLE_TRACK)
+        cam.set_single_track(501, 30)
+        center, height = cam.get_single_track()
+        self.assertEqual(center, 501)
+        self.assertEqual(height, 30)
+        spec_track = cam.get_1d_spectrum()
+        self.assertEqual(len(spec_track), 1002)
+        self.assertGreater(np.mean(spec_track), 400.0)
+
+        # FVB
+        cam.set_read_mode(READ_MODE_FVB)
+        spec_fvb = cam.get_1d_spectrum()
+        self.assertEqual(len(spec_fvb), 1002)
+
+    def test_optical_parity_flip_controls(self):
+        """Verifica que las funciones de inversión vertical/horizontal (Flip Y/X) funcionen en vivo."""
+        backend = CameraBackend()
+        backend.set_flip(flip_y=True, flip_x=False)
+        self.assertTrue(backend.flip_y)
+        self.assertFalse(backend.flip_x)
+
+    def test_shamrock_cubic_eeprom_and_zero_order(self):
+        """Verifica la calibración cúbica y el posicionamiento en orden cero."""
+        sh = get_shamrock(force_mock=True)
+        # Orden cero
+        sh.goto_zero_order()
+        ret, wl = sh.ShamrockGetWavelength()
+        self.assertEqual(wl, 0.0)
+
+        # Coeficientes cúbicos
+        ret_c, coeffs = sh.get_pixel_calibration_coefficients()
+        self.assertEqual(ret_c, 20202)
+        self.assertEqual(len(coeffs), 4)
+
+        # Eje cúbico
+        ret_ax, axis = sh.get_wavelength_axis_cubic(1002)
+        self.assertEqual(ret_ax, 20202)
+        self.assertEqual(len(axis), 1002)
+        self.assertTrue(np.all(np.diff(axis) > 0))
+
+    def test_sigmoidal_step_and_glue_monotonicity(self):
+        """Verifica que el cosido sigmoideo no genere duplicados en el área de solapamiento."""
+        from pyspectrum.calibration.halogen_lamp import glue_steps
+        w1 = np.linspace(400, 600, 1002)
+        w2 = np.linspace(550, 750, 1002)
+        s1 = np.ones(1002) * 100.0
+        s2 = np.ones(1002) * 120.0
+        w = np.concatenate([w1, w2])
+        s = np.concatenate([s1, s2])
+        gw, gs = glue_steps(w, s, 1002)
+        self.assertTrue(np.all(np.diff(gw) > 0))
+        self.assertGreater(len(gw), 1002)
+
+
 if __name__ == "__main__":
     unittest.main()

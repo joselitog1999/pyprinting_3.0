@@ -117,14 +117,21 @@ El usuario dispone de un menú desplegable en el dock de shutters con las siguie
 El dock refleja el estado del sistema mediante etiquetas de alto contraste:
 - `🛡️ ACTIVO (29s)`: Protección armada con cuenta regresiva.
 - `⚠️ CIERRA EN: 5s`: Advertencia visual cuando restan menos de 10 segundos para el corte.
-- `🔓 ALINEACIÓN CONTINUA`: Indica explícitamente que el auto-cierre está desarmado a petición del usuario.
-- `⚠️ CERRADO POR SEGURIDAD`: Notificación inmediata cuando el watchdog ejecutó el corte forzado.
-
-### 4.3 Sincronización GUI-Hardware ante Cierre de Emergencia
+- `🔓 ALINEACIÓN CONTINUA`: Indica explícitamente### 4.3 Sincronización GUI-Hardware ante Cierre de Emergencia
 Para evitar que la GUI muestre un casillero marcado (`Checked = True`) mientras el hardware real fue cerrado por seguridad, se diseñó un puente thread-safe:
 1. `core/nidaq.py` emite las funciones registradas mediante `register_watchdog_callback()`.
 2. El frontend de `core/shutters.py` recibe la llamada y emite la señal Qt `watchdog_triggered_signal`.
 3. El slot `_on_watchdog_triggered()` bloquea temporalmente las señales de los widgets (`blockSignals(True)`), desmarca las casillas de los obturadores y refresca la leyenda de seguridad.
+
+### 4.4 Sincronización Bidireccional y Reactividad del Flipper de Potencia (Low/High Power)
+El flipper electromecánico conmuta entre una atenuación alta (filtro de densidad neutra insertado, Low Power) y haz directo no atenuado (espejo/filtro retirado, High Power). En situaciones de seguridad óptica crítica:
+1. **Corte por Watchdog (`_emergency_shutdown`)**: Además de cerrar digitalmente todos los obturadores (`close_all_shutters()`), el daemon de hardware ejecuta inmediatamente `up_flipper()`, forzando el retorno al estado seguro de baja potencia.
+2. **Puente de Callbacks de Hardware (`register_flipper_callback`)**: 
+   Dado que `core/nidaq.py` opera en un hilo demonio (`threading.Thread`) completamente aislado del bucle de eventos de PyQt6, las funciones de hardware notifican a los observadores registrados mediante una lista thread-safe (`_flipper_callbacks`).
+3. **Recepción en GUI y Desacoplamiento Visual**:
+   En `core/shutters.py`, el callback invoca `flipper_hardware_signal.emit(is_high)`. En el hilo de la GUI, el slot `update_power_ui(is_high)` actualiza el estado visual de `powerbutton` (`setChecked(is_high)`) de forma síncrona sin disparar señales redundantes de re-escritura en la tarjeta NI-DAQmx (`blockSignals(True)` / `blockSignals(False)`).
+4. **Reactividad de Usuario en PyQt6 (`toggled` vs `clicked`)**:
+   En PyQt6, las llamadas programáticas (`setChecked(bool)`) y las pulsaciones de teclado únicamente disparan el evento `toggled(bool)`. El acoplamiento a `toggled` con un slot formal `@pyqtSlot(bool) set_power(high)` y soporte polimórfico de argumentos (`_power_check(self, checked=None)`) garantiza que la interfaz responda con latencia cero a cualquier cambio de estado originado tanto por el operador como por el sistema de seguridad o el watchdog.
 
 ---
 
@@ -180,8 +187,13 @@ Se ejecutaron pruebas automatizadas exhaustivas para verificar ausencia de colis
 3. **Sincronización de UI ante Cierre Forzado**: Checkbox de la GUI se desmarca automáticamente tras el corte de hardware.  `PASS`
 4. **Selector Frontend y Botón de Pánico**: Comprobación funcional de todos los presets temporales y del pulsador `🚨 Cerrar Todos`.  `PASS`
 
-### 7.3 Suite Integral del Sistema (`tests/run_all_diagnostics.py`)
-- **Total de pruebas**: 48 / 48 superadas (**100.0% de éxito**).
+### 7.3 Test de Reactividad del Flipper de Potencia (`tests/test_powerbutton_actuation.py`)
+1. **Actuación Programática y Manual vía `toggled`**: Disparo verificado con `@pyqtSlot(bool)` y argumentos polimórficos.  `PASS`
+2. **Puente de Callbacks de Hardware (`register_flipper_callback`)**: Notificación asíncrona desde el hilo de hardware hacia la GUI.  `PASS`
+3. **Desacoplamiento Visual `update_power_ui`**: Actualización de casillero sin re-escritura ni bucles de señal.  `PASS`
+4. **Retorno a Baja Potencia ante Emergencia**: El watchdog fuerza `up_flipper()` y la GUI se desmarca síncronamente.  `PASS`
+### 7.4 Suite Integral del Sistema (`tests/run_all_diagnostics.py`)
+- **Total de pruebas**: 49 / 49 superadas (**100.0% de éxito**).
 
 ---
 

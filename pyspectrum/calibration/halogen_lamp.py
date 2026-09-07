@@ -101,12 +101,10 @@ def glue_steps(wave_py: np.ndarray, spec_py: np.ndarray, number_pixel: int = 100
         m = int(len(desired_range_tail))
 
         if m > 0:
-            weight_h = np.linspace(0, 1, m) ** grade
-            weight_t = np.flip(weight_h)
-            coef = weight_h + weight_t
-            coef = np.where(coef == 0, 1.0, coef)
-            weight_h /= coef
-            weight_t /= coef
+            # Ponderación sigmoidea suave de transición continua: w(x) = 1 / (1 + exp(-x))
+            x_norm = np.linspace(-3.5, 3.5, m)
+            weight_h = 1.0 / (1.0 + np.exp(-x_norm))
+            weight_t = 1.0 - weight_h
 
             idx_tail = range(valid_pixels - m, valid_pixels)
             idx_head = range(0, m)
@@ -132,4 +130,9 @@ def glue_steps(wave_py: np.ndarray, spec_py: np.ndarray, number_pixel: int = 100
     wave_sorted = wave_final[sort_idx]
     spec_sorted = spectrum_final[sort_idx]
 
-    return wave_sorted, spec_sorted
+    # Eliminar duplicados en el área de cosido promediando bins
+    unique_waves, inverse_indices = np.unique(np.round(wave_sorted, 4), return_inverse=True)
+    counts = np.bincount(inverse_indices)
+    spec_unique = np.bincount(inverse_indices, weights=spec_sorted) / counts
+
+    return unique_waves, spec_unique

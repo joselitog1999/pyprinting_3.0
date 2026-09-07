@@ -22,6 +22,7 @@ class Frontend(QtWidgets.QFrame):
     setSlitSignal = pyqtSignal(int, float)
     setShutterSignal = pyqtSignal(int)
     setFlipperSignal = pyqtSignal(int, int)
+    gotoZeroOrderSignal = pyqtSignal()
     requestCalibrationSignal = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -110,6 +111,12 @@ class Frontend(QtWidgets.QFrame):
         self.btn_shutter.clicked.connect(self._on_toggle_shutter)
         grid.addWidget(self.btn_shutter, 4, 0, 1, 2)
 
+        # 6. Botón Acceso Rápido: Orden Cero (Alineación)
+        self.btn_zero = QtWidgets.QPushButton("🪞 Ir a Orden Cero (0.0 nm / Alineación)")
+        self.btn_zero.setStyleSheet("background-color: #313244; color: #89B4FA; border: 1px solid #89B4FA; font-weight: bold;")
+        self.btn_zero.clicked.connect(self._on_goto_zero_order)
+        grid.addWidget(self.btn_zero, 5, 0, 1, 2)
+
         layout.addLayout(grid)
 
         # Barra de información de dispersión
@@ -146,6 +153,10 @@ class Frontend(QtWidgets.QFrame):
             self.btn_shutter.setStyleSheet("background-color: #F38BA8; color: #11111B;")
             self.setShutterSignal.emit(0)
 
+    def _on_goto_zero_order(self):
+        self.edit_wavelength.setText("0.00")
+        self.gotoZeroOrderSignal.emit()
+
     @pyqtSlot(float, float, float)
     def update_calibration_display(self, wl_center: float, wl_min: float, wl_max: float):
         span = wl_max - wl_min
@@ -178,6 +189,7 @@ class Backend(QtCore.QObject):
         frontend.setSlitSignal.connect(self.set_slit)
         frontend.setShutterSignal.connect(self.set_shutter)
         frontend.setFlipperSignal.connect(self.set_flipper)
+        frontend.gotoZeroOrderSignal.connect(self.goto_zero_order)
         frontend.requestCalibrationSignal.connect(self.update_calibration)
 
         self.calibrationUpdatedSignal.connect(frontend.update_calibration_display)
@@ -206,9 +218,21 @@ class Backend(QtCore.QObject):
         self.spectrometer.ShamrockSetFlipper(DEVICE, flipper, port)
 
     @pyqtSlot()
+    def goto_zero_order(self):
+        if hasattr(self.spectrometer, "goto_zero_order"):
+            self.spectrometer.goto_zero_order(DEVICE)
+        else:
+            self.spectrometer.ShamrockSetWavelength(DEVICE, 0.0)
+        self.update_calibration()
+
+    @pyqtSlot()
     def update_calibration(self):
         ret, wl_center = self.spectrometer.ShamrockGetWavelength(DEVICE)
-        ret, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+        from config import SHAMROCK_USE_FACTORY_EEPROM
+        if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+            ret, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
+        else:
+            ret, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
         self.wavelength_axis = wl_arr
         self.calibrationUpdatedSignal.emit(wl_center, float(wl_arr[0]), float(wl_arr[-1]))
         self.wavelengthAxisSignal.emit(wl_arr)

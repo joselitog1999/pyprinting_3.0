@@ -5,6 +5,7 @@ PyPrinting 3.0 — UNSAM Nanofotónica
 """
 import os
 import sys
+import math
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -120,23 +121,61 @@ def test_gui_lifecycle():
     assert multi_w.Y_displayed.shape[0] == 6
     print(f"PASS: Carga de serie multi-espectro demo ({len(multi_w.spectra_list)} espectros x {len(multi_w.common_x)} pts).")
 
-    # Probar conmutación a modo Cascada (Waterfall) y slider
+    # 11.1 Probar Selector de Láser de Excitación en Multi-Espectro
+    multi_w.combo_multi_laser.setCurrentIndex(1)  # 632.8 nm
+    assert multi_w.laser_nm == 632.8
+    multi_w.combo_multi_laser.setCurrentIndex(5)  # Personalizado
+    multi_w.spin_multi_laser_custom.setValue(785.0)
+    assert multi_w.laser_nm == 785.0
+    # Sincronizar de vuelta a 532 nm
+    multi_w.set_laser_wavelength(532.0, sync_parent=True)
+    assert multi_w.laser_nm == 532.0
+    assert win.laser_nm == 532.0
+    print("PASS: Selector de láser de excitación y sincronización bidireccional en Multi-Espectro verificados.")
+
+    # 11.2 Probar conmutación a modo Cascada (Waterfall) y slider
     multi_w.combo_view_mode.setCurrentIndex(1)
     assert multi_w.view_mode == "waterfall"
     multi_w.slider_waterfall.setValue(45)
 
-    # Probar normalizaciones a máximo, pico de referencia, área y SNV
+    # 11.3 Probar normalizaciones a máximo, pico de referencia, área y SNV
     for n_idx in [1, 2, 3, 4]:
         multi_w.combo_norm_mode.setCurrentIndex(n_idx)
         assert multi_w.Y_displayed.shape[0] == 6
 
-    # Probar línea base compartida AsLS y sustracción de blanco
-    multi_w.combo_multi_baseline.setCurrentIndex(0)
-    multi_w._reprocess_and_update()
-    multi_w.combo_multi_baseline.setCurrentIndex(4)  # Blanco
+    # 11.4 Probar los DOS MODOS de Línea Base
+    # Modo 1: Archivo de referencia / fondo
+    multi_w.combo_baseline_mode.setCurrentIndex(0)
+    assert not multi_w.panel_mode_ref.isHidden()
+    assert multi_w.panel_mode_indiv.isHidden()
+    if demo_file.exists():
+        multi_w.load_reference_file(demo_file)
+        assert multi_w.ref_blank_name == demo_file.name
+        assert len(multi_w.ref_blank_wls) > 0
+        multi_w._on_clear_reference_file()
+        assert multi_w.ref_blank_filepath is None
+
+    # Probar blanco seleccionado del lote
+    multi_w.combo_blank_from_batch.setCurrentIndex(1)
     multi_w._reprocess_and_update()
 
-    # Probar generación de sub-pestañas (promedio, cinética, heatmap, PCA)
+    # Modo 2: Cálculo individual adaptativo por espectro
+    multi_w.combo_baseline_mode.setCurrentIndex(1)
+    assert not multi_w.panel_mode_indiv.isHidden()
+    assert multi_w.panel_mode_ref.isHidden()
+    for algo_i in range(4):  # AsLS, AirPLS, ModPoly, Rolling Ball
+        multi_w.combo_indiv_algo.setCurrentIndex(algo_i)
+        multi_w._reprocess_and_update()
+        assert multi_w.Y_displayed.shape[0] == 6
+
+    # Modo 3: Sin corrección
+    multi_w.combo_baseline_mode.setCurrentIndex(2)
+    assert multi_w.panel_mode_ref.isHidden()
+    assert multi_w.panel_mode_indiv.isHidden()
+    multi_w._reprocess_and_update()
+    print("PASS: Ambos modos de línea base (Modo 1 Archivo Referencia & Modo 2 Individual por Espectro) verificados.")
+
+    # 11.5 Probar generación de sub-pestañas (promedio, cinética, heatmap, PCA)
     multi_w.tabs_views.setCurrentIndex(1)
     multi_w.tabs_views.setCurrentIndex(2)
     multi_w.tabs_views.setCurrentIndex(3)
@@ -145,7 +184,42 @@ def test_gui_lifecycle():
     # Probar copia de matriz TSV
     multi_w._on_copy_tsv()
     print("PASS: Suite Multi-Espectro (cascada, normalizaciones, promedio, cinética, PCA) verificada al 100%.")
-    
+
+    # 11.6 Probar Recorte de Rango Espectral (ROI), Rayleigh y Poda de Bordes en Multi-Espectro
+    orig_pts = len(multi_w.common_x)
+    assert orig_pts > 500
+
+    # Arrastre de región interactiva y sincronización con cursores
+    multi_w.region_ab.setRegion([400.0, 1600.0])
+    multi_w._on_region_ab_dragged()
+    assert math.isclose(float(multi_w.cursor_a.value()), 400.0, abs_tol=1e-2)
+    assert math.isclose(float(multi_w.cursor_b.value()), 1600.0, abs_tol=1e-2)
+
+    # Recorte a cursores
+    multi_w._on_crop_to_cursors()
+    assert multi_w.check_enable_crop_x.isChecked()
+    assert multi_w.common_x[0] >= 399.0
+    assert multi_w.common_x[-1] <= 1601.0
+    assert len(multi_w.common_x) < orig_pts
+    assert multi_w.Y_displayed.shape[1] == len(multi_w.common_x)
+
+    # Atajo de recorte Rayleigh (< 150 cm^-1)
+    multi_w._on_crop_rayleigh()
+    assert multi_w.spin_crop_xmin.value() == 150.0
+
+    # Poda de bordes de detector
+    multi_w.spin_trim_left.setValue(10)
+    multi_w.spin_trim_right.setValue(10)
+    assert multi_w.Y_displayed.shape[0] == 6
+
+    # Restauración a rango completo original
+    multi_w._on_reset_crop()
+    assert not multi_w.check_enable_crop_x.isChecked()
+    assert multi_w.spin_trim_left.value() == 0
+    assert multi_w.spin_trim_right.value() == 0
+    assert len(multi_w.common_x) == orig_pts
+    print("PASS: Recorte de ROI, Rayleigh, poda de bordes CCD y restauración en Multi-Espectro verificados al 100%.")
+
     win.close()
     print("PASS: Ciclo de vida completo de RamanAnalyzerWindow superado al 100%!")
     return True

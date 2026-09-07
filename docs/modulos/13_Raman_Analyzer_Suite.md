@@ -80,30 +80,90 @@ Diseñada para experimentos de cinética química, series temporales SERS, mapeo
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  [ 📂 Cargar Espectros (Lote) ]  [ 🧪 Cargar Serie Demo ]  [ 📋 Copiar TSV ]  [ 💾 Guardar Matriz ]     │
 ├─────────────────────────────────┬──────────────────────────────────────────────────────────────────────┤
-│  TABLA DE ESPECTROS EN LOTE     │  VISUALIZADOR GRÁFICO CIENTÍFICO                                     │
-│  [X] #1  Muestra_A_t00.txt  🎨 │  (•) Superpuesto (Overlay)  ( ) Cascada (Waterfall)  ( ) Heatmap 2D  │
-│  [X] #2  Muestra_A_t05.txt  🎨 │  Offset Cascada: ──[===|======]── 35 %                               │
-│  [X] #3  Muestra_A_t10.txt  🎨 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  [X] #4  Muestra_A_t15.txt  🎨 │  │                                                                │  │
-│  [X] #5  Muestra_A_t20.txt  🎨 │  │               /\        /\                  /\                │  │
-│  [X] #6  Muestra_A_t25.txt  🎨 │  │        /\    /  \      /  \        /\      /  \               │  │
-├─────────────────────────────────┤  │       /  \  /    \    /    \      /  \    /    \              │  │
-│  PROCESAMIENTO EN LOTE          │  │  ____/____\/______\__/______\____/____\__/______\_______      │  │
-│  Línea Base: [ AsLS (λ=1e5) ▼] │  └────────────────────────────────────────────────────────────────┘  │
-│  Filtro:     [ Savitzky-Golay▼] │  Raman Shift (cm⁻¹)                                                  │
+│  🔬 LÁSER DE EXCITACIÓN         │  VISUALIZADOR GRÁFICO CIENTÍFICO                                     │
+│  Láser: [ 532.0 nm (Verde)   ▼] │  (•) Superpuesto (Overlay)  ( ) Cascada (Waterfall)  ( ) Heatmap 2D  │
+│  Custom:[ 532.0 ] nm            │  Offset Cascada: ──[===|======]── 35 %                               │
+│  [X] Sincronizar c/ Individual  │  ┌────────────────────────────────────────────────────────────────┐  │
+├─────────────────────────────────┤  │                                                                │  │
+│  TABLA DE ESPECTROS EN LOTE     │  │  Región A-B Arrastrable [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]     │  │
+│  [X] #1  Muestra_A_t00.txt  🎨 │  │               /\        /\                  /\                │  │
+│  [X] #2  Muestra_A_t05.txt  🎨 │  │        /\    /  \      /  \        /\      /  \               │  │
+│  [X] #3  Muestra_A_t10.txt  🎨 │  │       /  \  /    \    /    \      /  \    /    \              │  │
+│  [X] #4  Muestra_A_t15.txt  🎨 │  │  ____/____\/______\__/______\____/____\__/______\_______      │  │
+├─────────────────────────────────┤  └────────────────────────────────────────────────────────────────┘  │
+│  ✂️ RECORTE DE RANGO (ROI)      │  Raman Shift (cm⁻¹)                                                  │
+│  [✂️ Recortar a Cursores A-B]   │                                                                      │
+│  [⚡ Recortar Rayleigh <150 cm⁻¹]│  HERRAMIENTAS CUANTITATIVAS                                          │
+│  [↺ Restaurar Rango Completo]   │  [ μ ± σ Promedio ]  [ Cinética de Banda ]  [ PCA Quimiométrico ]    │
+│  [X] Límite: [ 150.0 - 3200 ]   │                                                                      │
+│  Podar CCD: [ 0 ] izq  [ 0 ] der│                                                                      │
+├─────────────────────────────────┤                                                                      │
+│  📉 SUSTRACCIÓN DE LÍNEA BASE   │                                                                      │
+│  Modo: [ 1: Archivo Referencia▼]│                                                                      │
+│  [📂 Cargar Archivo Fondo...]   │                                                                      │
+│  Fondo: [ blanco_sustrato.asc ] │                                                                      │
+│  Blanco lote: [ (Ninguno)    ▼] │                                                                      │
+│  -- O MODO 2: INDIVIDUAL --     │                                                                      │
+│  Algoritmo: [ AsLS (λ=1e5)   ▼] │                                                                      │
+├─────────────────────────────────┤                                                                      │
+│  NORMALIZACIÓN Y FILTROS        │                                                                      │
+│  Filtro:     [ Savitzky-Golay▼] │                                                                      │
 │  Normalizar: [ Pico Referencia] │                                                                      │
-│  Pico Ref:   [ 1078.0 ] cm⁻¹    │  HERRAMIENTAS CUANTITATIVAS                                          │
-│  Paleta:     [ Viridis       ▼] │  [ μ ± σ Promedio ]  [ Cinética de Banda ]  [ PCA Quimiométrico ]    │
+│  Pico Ref:   [ 1078.0 ] cm⁻¹    │                                                                      │
+│  Paleta:     [ Viridis       ▼] │                                                                      │
 └─────────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.1 Normalizaciones Espectroscópicas
+### 3.1 Calibración del Láser de Excitación ($\lambda_{\text{laser}}$)
+- **Selector Directo de Longitudes de Onda**:
+  - `532.0 nm` (Verde DPSS / Nd:YAG frecuencialmente doblado)
+  - `632.8 nm` (Rojo He-Ne)
+  - `637.0 nm` (Rojo Diodo Láser)
+  - `785.0 nm` (NIR Infrarrojo Cercano)
+  - `592.0 nm` (Amarillo)
+  - `Personalizado...` (habilita spinbox de alta precisión con pasos de $0.1\text{ nm}$).
+- **Recálculo Espectral Dinámico**:
+  Al cambiar el láser activo, el motor recalcula instantáneamente el desplazamiento Raman para toda la colección:
+  $$\Delta\tilde{\nu} = \left(\frac{1}{\lambda_{\text{laser}}[\text{nm}]} - \frac{1}{\lambda[\text{nm}]}\right) \times 10^7\quad [\text{cm}^{-1}]$$
+  Reconstruye la grilla común interpolada (`common_x`) y refresca en vivo los modos Overlay, Cascada, Heatmap, Promedio, Cinética y PCA.
+- **Sincronización Bidireccional**: La casilla `[X] Sincronizar con Espectro Individual` propaga los cambios de láser entre la pestaña individual (`RamanAnalyzerWindow`) y la suite multi-espectro (`MultiSpectrumWidget`) de manera instantánea.
+- **Auto-Detección desde Metadatos**: Al importar archivos con metadatos Andor Solis (ej. `Laser Wavelength: 785 nm`), el widget auto-selecciona el láser correspondiente.
+
+### 3.2 Selección de Región de Interés (ROI) y Poda de Bordes
+Permite eliminar de forma uniforme en toda la colección los extremos espurios y zonas de artefactos:
+- **Recorte Interactivo a Cursores A y B**:
+  - Arrastrando las reglas verticales A y B (o la región sombreada intermedia `LinearRegionItem`), el usuario delimita visualmente la zona analítica y presiona **`✂️ Recortar a Cursores A y B`**. La grilla común se restringe exactamente a dicho intervalo $[\min(A,B), \max(A,B)]$.
+- **Atajo Rayleigh (`⚡ Recortar Láser/Rayleigh (< 150 cm⁻¹)`)**:
+  - Elimina la subida exponencial del filtro de borde (*edge filter*) o dispersión elástica en el inicio del espectro, evitando que AsLS o polinomios se distorsionen.
+- **Poda de Bordes del Sensor CCD (*Edge Trimming*)**:
+  - Campos numéricos para podar $N$ píxeles en el inicio (`izq`) y $M$ píxeles en el fin (`der`) del detector para descartar píxeles ciegos o viñeteo óptico.
+- **Restauración Rápida (`↺ Restaurar Rango Completo`)**:
+  - Restablece el 100% de la extensión espectral original de los datos brutos sin ninguna pérdida.
+- **Impacto Quimiométrico**:
+  - Al descartar el ruido de bordes y la cola del Rayleigh, el análisis de componentes principales (**PCA**) y el espectro promedio $\mu \pm \sigma$ reflejan exclusivamente las bandas vibracionales moleculares genuinas.
+
+### 3.3 Sistema Bi-Modal de Sustracción de Línea Base
+A diferencia del procesamiento simple, la suite ofrece dos modos analíticos diferenciados:
+1. **Modo 1: Sustracción de Archivo de Referencia / Blanco de Sustrato**:
+   - **Archivo Externo de Fondo**: Permite cargar un espectro de referencia (`.asc`, `.txt`, `.csv`, `.dat`) representativo del blanco (ej. silicio, vidrio, solvente o sustrato SERS limpio).
+   - **Calibración e Interpolación de Fondo**: El espectro de fondo se convierte dinámicamente a Raman shift usando el láser activo y se interpola exactamente sobre la grilla común del lote (`common_x`), sustrayéndolo de manera uniforme de todas las curvas del lote.
+   - **Blanco Seleccionado del Lote**: Alternativamente, permite designar cualquiera de los espectros cargados en el lote como blanco/referencia para restarlo del resto.
+2. **Modo 2: Cálculo Individual Adaptativo por Espectro**:
+   - Calcula una línea base matemática independiente para cada curva individual del lote, adaptándose a variaciones espaciales de fluorescencia, photobleaching o derivas térmicas que cambien de un espectro a otro.
+   - **Algoritmos Disponibles**:
+     - *AsLS*: Parámetros ajustables $\log_{10}(\lambda)$ ($10^2 - 10^9$) y $p$ ($10^{-4} - 0.5$).
+     - *AirPLS*: Ponderación adaptativa libre de umbrales con control de $\log_{10}(\lambda)$.
+     - *ModPoly*: Grado de polinomio Lieber ($1 - 8$).
+     - *Rolling Ball*: Radio de esfera rodante ($5 - 500\text{ pts}$).
+3. **Modo 3: Sin Corrección**: Visualización directa de cuentas espectrales brutas sin restar fondo.
+
+### 3.3 Normalizaciones Espectroscópicas
 1. **A Máximo Global (0 - 1)**: Escala cada espectro dividiendo por su intensidad máxima ($Y / Y_{\max}$).
 2. **A Pico de Referencia Seleccionado**: Fija una banda analítica interna (por ejemplo, el modo de estiramiento del sustrato a $1078\text{ cm}^{-1}$ o el cursor A) a intensidad $1.0$, permitiendo comparar intensidades relativas directas.
 3. **Por Área Unitaria**: Normaliza la integral total a la unidad ($\int Y \, d\nu = 1$), corrigiendo variaciones de potencia láser o fluctuaciones de enfoque.
 4. **SNV (*Standard Normal Variate*)**: Centrado en la media y escalado por la varianza ($z = (y - \bar{y}) / s$).
 
-### 3.2 Modos de Visualización
+### 3.4 Modos de Visualización
 - **Superposición (*Overlay*)**: Delineado simultáneo con paletas continuas perceptualmente uniformes (*Viridis, Plasma, Turbo, Magma, Rainbow*).
 - **Cascada (*Waterfall*)**: Separación vertical con barra deslizadora continua ($0 - 100\%$) para distinguir desplazamientos sutiles sin amontonamiento.
 - **Mapa de Calor 2D (*Heatmap*)**: Representación matricial tiempo/muestra vs. Raman shift con barra de calibración de intensidad.

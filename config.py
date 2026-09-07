@@ -91,6 +91,13 @@ else:
     LAST_POS_FILE = DEFAULT_DATA_PATH / "Last_position.txt"
 
 
+# ── Espectrómetro Andor Shamrock & Cámara CCD/EMCCD ───────────────────────────
+ANDOR_FLIP_Y_IMAGE: bool = True     # Inversión vertical activa por defecto (corrige telescopio Czerny-Turner/Flipper)
+ANDOR_FLIP_X_IMAGE: bool = False    # Inversión horizontal
+ANDOR_DEFAULT_READ_MODE: int = 4    # 0: FVB, 1: Single Track, 4: Image 2D
+SHAMROCK_USE_FACTORY_EEPROM: bool = True  # Calibración cúbica certificada de EEPROM
+SHAMROCK_SLIT_CENTER_PIXEL_X: float = 501.0  # Pixel X central de referencia donde enfoca el slit sobre el sensor CCD
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  PARÁMETROS Y VALORES TÍPICOS DE CONFIGURACIÓN (TYPICAL VALUES)
 # ══════════════════════════════════════════════════════════════════════════════

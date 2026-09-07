@@ -145,18 +145,46 @@ El módulo de **Raman Estático** permite la captura instantánea (Single-Shot y
 
 ---
 
-## 8. ⚠️ Límites de Validez y Modos de Falla
+## 8. 🎯 Pestaña Modular: Calibraciones del Sistema (`calibration_dock.py`)
+
+Integrada en el `DockArea` principal (junto a Step & Glue y Raman) y accesible desde el menú **`🔧 Herramientas → 🎯 Calibraciones del Sistema`**, centraliza la calibración físico-óptica del espectrómetro Andor Shamrock 500i y detector CCD:
+
+### 8.1 Ranura de Entrada (Slit) y Centroide Óptico X
+- **Botón `🎯 Mover a Orden Cero (0.0 nm)`**: Desplaza el goniómetro a dispersión nula para visualización especular de la ranura.
+- **Ancho Micrométrico de Ranura**: Ajuste dinámico de 10 a 2500 µm con botones rápidos de 10, 50, 100 y 500 µm.
+- **Pixel Central X (`SLIT_CENTER_PIXEL_X`)**: Ajuste del pixel central donde focaliza la rendija (predeterminado: 501.0 px).
+- **Auto-Calibración de Centroide X**: Ajuste gaussiano no lineal de la proyección horizontal en orden cero:
+  $$I(x) = A \exp\left(-\frac{(x - x_0)^2}{2\sigma^2}\right) + y_0$$
+  calcula con precisión subpíxel el centroide $x_0$ y el ancho a media altura (FWHM).
+
+### 8.2 Offsets de Rejilla & Detector en Hardware (SDK Oficial)
+Enlace nativo Ctypes con la biblioteca `ShamrockCIF.dll`:
+- **`ShamrockGetGratingOffset` / `ShamrockSetGratingOffset`**: Lectura y escritura de pasos de motor de compensación para cada red independiente (150 l/mm, 1200 l/mm, Espejo).
+- **`ShamrockGetDetectorOffset` / `ShamrockSetDetectorOffset`**: Lectura y escritura del offset de montaje del plano focal del detector CCD.
+- **`ShamrockGetSlitZeroPosition` / `ShamrockSetSlitZeroPosition`**: Calibración del punto cero de apertura mecánica de ranura.
+
+### 8.3 Calibración Cúbica de Longitud de Onda y Respuesta Halógena
+- **Coeficientes EEPROM ($a, b, c, d$)**: Inspección directa de la relación $\lambda(p) = a + bp + cp^2 + dp^3$.
+- **Lámpara Halógena Trazable**: Carga de perfil patrón para corrección cromática instrumental.
+
+### 8.4 Mejoras en Step & Glue (`step_and_glue.py`)
+- **Botón `⏹ Detener Escaneo`**: Interrupción cooperativa limpia entre centros de banda sin dejar la torreta en estado indeterminado.
+- **Botón `💾 Guardar Espectro...`**: Exportación directa del espectro cosido a formato tabular ASCII (`.txt`, `.csv`) o contenedor NumPy comprimido (`.npz`).
+
+---
+
+## 9. ⚠️ Límites de Validez y Modos de Falla
 
 | Condición de Borde (Fallo Espectroscópico / Hardware) | Firma Experimental (Espectro 1D / Imagen CCD) | Acción Correctiva Física (Procedimiento en Laboratorio) |
 | :--- | :--- | :--- |
 | **Saturación del Convertidor ADC de la Cámara CCD Andor** ($I \ge 65535\ \text{ADU}$). | Picos truncados planos en $65535\ \text{cuentas}$ y desbordamiento de carga (*blooming*) horizontal en el sensor CCD. | Reducir el tiempo de exposición (ej. de $1.0\ \text{s}$ a $0.1\ \text{s}$) o cerrar el ancho de las ranuras micrométricas de entrada del espectrógrafo a $\le 50\ \mu\text{m}$. |
-| **Descalibración por Holgura Mecánica en Torreta de Redes (*Grating Backlash*)**. | El pico elástico del láser de 532 nm aparece desplazado en la escala de longitudes de onda calculada ($\Delta \lambda > 2\ \text{nm}$). | Ejecutar la rutina de calibración espectral con lámpara atómica de Mercurio-Argón (Hg-Ar) o corregir el offset con el pico de scattering elástico de 532.0 nm. |
+| **Descalibración por Holgura Mecánica en Torreta de Redes (*Grating Backlash*)**. | El pico elástico del láser de 532 nm aparece desplazado en la escala de longitudes de onda calculada ($\Delta \lambda > 2\ \text{nm}$). | Usar la pestaña **🎯 Calibraciones del Sistema** para ajustar el offset de rejilla con `ShamrockSetGratingOffset` o aplicar compensación por pico elástico a 532.0 nm. |
 | **Condensación en la Ventana Óptica por Falla de Refrigeración Peltier**. | Pérdida abrupta de intensidad luminosa y aumento drástico del nivel de ruido térmico basal de la CCD. | Comprobar el flujo de agua en el recirculador térmico / ventilador de la CCD y asegurar que el vacío interno esté estable con temperatura nominal de $-10\ ^\circ\text{C}$ a $-60\ ^\circ\text{C}$. |
 | **Discontinuidades en el Cosido Espectral (*Step & Glue*)**. | Saltos de intensidad escalonados en las zonas de unión/solapamiento entre ventanas espectrales contiguas. | Adquirir un nuevo espectro de calibración con la lámpara halógena de referencia para normalizar la respuesta cromática de la rejilla de difracción y del sensor. |
 
 ---
 
-## 9. 🔗 Referencias Cruzadas
+## 10. 🔗 Referencias Cruzadas
 - [📘 Reporte de Sistema Shamrock 500i, iXon3 y Óptica Confocal](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md)
 - [📘 Manual de Usuario Principal — Sección 4: PySpectrum 3.0](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
 - [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)

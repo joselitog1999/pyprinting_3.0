@@ -339,8 +339,9 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
   - **`Shutter 592 nm`**: Conmuta el obturador del láser amarillo ($\lambda = 592\ \text{nm}$).
   - **`Shutter 808 nm`**: Conmuta el obturador del láser infrarrojo ($\lambda = 808\ \text{nm}$, pinzas ópticas/termometría).
 * **Flippers Motorizados (Actuadores Biestables `port0/line4:5`)**:
-  - **`Power Flipper (Low/High power)`**: Intercala o retira el atenuador óptico calibrado para reducir la irradiancia sobre la muestra durante el centrado.
-  - **`Notch 532 Flipper (Mirror up/down)`**: Sube o baja el espejo de desviación hacia el filtro Notch de 532 nm para conmutar entre detección de fluorescencia y dispersión elástica/Raman.
+  - **`Power Flipper (Low/High power)`**: Checkbox reactivo con retroalimentación cromática (rojo = alta potencia, celeste = baja potencia). Totalmente reactivo a clics de usuario, llamadas programáticas y señales Qt externas (`set_power`, `set_flipper`, `setChecked`).
+  - **Sincronización Bidireccional de Hardware (`register_flipper_callback`)**: Si cualquier rutina de medición (`measurements.py`, `dimers.py`) o el Watchdog de seguridad conmuta el flipper directamente en la tarjeta NI-DAQmx, un puente de señales thread-safe (`flipper_hardware_signal`) actualiza instantáneamente el checkbox en pantalla.
+  - **`Notch 532 Flipper (Mirror up/down)`**: Sube o baja el espejo de desviación hacia el filtro Notch de 532 nm para conmutar entre detección de fluorescencia y dispersión elástica/Raman (`set_notch532`).
 * **Sistema de Auto-Cierre de Seguridad & Watchdog**:
   - **Casilla `Auto-cierre de seguridad`**: Activa o desactiva la protección contra radiación desatendida.
   - **Selector de Tiempo Máximo**: Menú desplegable con tiempos límite de radiación continua:
@@ -349,9 +350,9 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
     - `300s (5 min)`: Ajustes ópticos intermedios.
     - `600s (10 min)`: Búsqueda exploratoria extensa.
     - `Sin límite (Modo Alineación)`: Desactiva el corte por tiempo para sesiones de alineación óptica manual y colimación de cavidades.
-  - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⚠️ CIERRA EN: Xs`), el modo seguro activo (`🛡️ ACTIVO (Xs)`), el estado de alineación (`🔓 ALINEACIÓN CONTINUA`) o el corte forzado (`⚠️ CERRADO POR SEGURIDAD`).
+  - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⏱️ Auto-cierre en: Xs`), el modo seguro armado (`⏱️ Auto-cierre activo (Xs)`) o el modo alineación continua (`⚠️ MODO ALINEACIÓN (Sin auto-cierre)`).
   - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores y pone a cero las tareas digitales.
-  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
+  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos y conmuta el flipper a `Low power`, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
 * **Modulación Analógica de Potencia**: El control de voltaje analógico DAC ($0.0 - 5.0\ \text{V}$, canal `ao2`) para el láser verde se encuentra desacoplado de este panel y se opera desde su ventana especializada **`Laser532Window`** (disponible desde el Lanzador Principal y menú **`Tools → Láser 532`**).
 
 ---
@@ -554,8 +555,10 @@ El panel **`🌈 PySpectrum 3.0`** (Fila 1, Columna 2 del lanzador `main.py`) es
 
 ### 4.2 Modos de Operación y Algoritmos
 1. **Espectro Simple**: Adquisición monocanal en torno a $\lambda_{\text{center}}$ fija.
-2. **Step & Glue (Cosido Continuo)**:
+2. **Step & Glue (Cosido Continuo Multirango)**:
    - Adquisición concatenada de múltiples bandas (ej. 450 a 950 nm) con solapamiento angular suave ($20\%$).
+   - **Control de Aborto Limpio (`⏹ Detener Escaneo`)**: Permite interrumpir la secuencia multi-ventana entre pasos espectrales de manera cooperativa sin descalibrar el goniómetro.
+   - **Exportación Directa (`💾 Guardar Espectro...`)**: Guarda el espectro cosido activo en formatos ASCII (`.txt`, `.csv`) con cabeceras completas o contenedor NumPy binario (`.npz`).
    - **Normalización Halógena**: Corrección de la eficiencia de red y respuesta cuántica del detector dividiendo por el perfil de referencia de la lámpara halógena (`pyspectrum/calibration/data/`).
 3. **Ajustes Analíticos en Tiempo Real**:
    - **Ajuste Polinomial SPR**: Detección automática del pico de resonancia plasmónica ($\lambda_{\text{max}}$, FWHM y amplitud).
@@ -566,6 +569,23 @@ El panel **`🌈 PySpectrum 3.0`** (Fila 1, Columna 2 del lanzador `main.py`) es
    - *Fotoluminiscencia & Anti-Stokes*: Registro temporal $I(\lambda, t)$ bajo excitación láser con control de obturador TTL.
    - *Cinética de Crecimiento*: Seguimiento continuo del desplazamiento del pico plasmónico $\lambda_{\text{max}}(t)$ durante síntesis fototérmica.
    - *Dímeros Plasmónicos*: Espectros dependientes de la polarización (paralela vs perpendicular) y cálculo de acoplamiento de campo cercano.
+
+### 4.3 Dock: Calibraciones del Sistema (`calibration_dock.py`)
+Ubicado como pestaña en el área de trabajo (junto a Step & Glue y Raman) y en el menú `🔧 Herramientas`, centraliza los ajustes de metrología física y metrología instrumental del espectrógrafo Andor Shamrock:
+1. **Alineación de Ranura (Slit) & Centroide Óptico X**:
+   - Botón directo `🎯 Mover a Orden Cero (0.0 nm)` para visualización especular de la rendija en el plano focal del detector.
+   - Control micrométrico de apertura de ranura (10 a 2500 µm).
+   - Calibración y almacenamiento del pixel central del slit (`SLIT_CENTER_PIXEL_X`, 501.0 px).
+   - **Auto-Calibración de Centroide X**: Ajuste gaussiano no lineal automatizado sobre el perfil horizontal en orden cero que determina con precisión subpíxel el centroide $x_0$ y el FWHM.
+2. **Offsets de Rejilla & Detector (SDK Oficial Andor)**:
+   - Lectura y escritura directa en hardware mediante llamadas Ctypes nativas a `ShamrockCIF.dll`:
+     - `ShamrockGetGratingOffset` y `ShamrockSetGratingOffset` (para red 150 l/mm, 1200 l/mm y Espejo).
+     - `ShamrockGetDetectorOffset` y `ShamrockSetDetectorOffset` (ajuste fino del plano focal de la CCD).
+     - `ShamrockGetSlitZeroPosition` y `ShamrockSetSlitZeroPosition` (cero mecánico de ranura).
+3. **Calibración Cúbica de Longitud de Onda**:
+   - Inspección directa de los polinomios de dispersión de fábrica almacenados en la EEPROM: $\lambda(p) = a + bp + cp^2 + dp^3$.
+4. **Respuesta Instrumental Halógena**:
+   - Carga y verificación de curvas de corrección de sensibilidad óptica espectral.
 
 ---
 
@@ -728,6 +748,18 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
 
 ### 11.2 Suite Multi-Espectro & Series Temporales (`MultiSpectrumWidget`)
 Diseñada para cinéticas químicas, series temporales SERS y comparaciones de lotes:
+- **🔬 Láser de Excitación y Recálculo Dinámico de Raman Shift**:
+  - Selector de longitudes de onda estándar (532.0 nm Verde, 632.8 nm Rojo He-Ne, 637.0 nm Diodo, 785.0 nm NIR, 592.0 nm Amarillo) o valor personalizado.
+  - Al cambiar el láser se recalcula al vuelo la dispersión $\Delta\tilde{\nu} = (1/\lambda_{\text{laser}} - 1/\lambda) \times 10^7\ [\text{cm}^{-1}]$ y la grilla común de interpolación de todo el lote, sincronizando con la pestaña individual si la casilla `[X] Sincronizar con Espectro Individual` está activa.
+- **✂️ Recorte de Región de Interés (ROI) y Poda de Bordes del Sensor CCD**:
+  - Botón directo `✂️ Recortar a Cursores A y B`: Adopta el intervalo visual $[\min(A,B), \max(A,B)]$ arrastrado con las reglas A y B o la región sombreada en el gráfico y recorta todos los espectros del lote.
+  - Atajo `⚡ Recortar Láser/Rayleigh (< 150 cm⁻¹)`: Poda el flanco del filtro de dispersión elástica en el inicio del espectro.
+  - Campos numéricos exactos de rango $[X_{\min}, X_{\max}]\ \text{cm}^{-1}$ y poda de puntos (`trim_left_pts`, `trim_right_pts`) para descartar píxeles ciegos del CCD.
+  - Botón `↺ Restaurar Rango Completo`: Recupera instantáneamente el 100% de la extensión espectral original.
+- **📉 Arquitectura Bi-Modal de Sustracción de Línea Base**:
+  - **Modo 1 (Archivo de Referencia / Blanco de Sustrato)**: Permite cargar un archivo externo de fondo (`.asc`, `.txt`, `.csv`, `.dat`) representativo del sustrato/solvente o seleccionar un espectro blanco del propio lote. El fondo se convierte dinámicamente con el láser activo, se interpola sobre la grilla común y se resta a todos los espectros.
+  - **Modo 2 (Cálculo Individual Adaptativo por Espectro)**: Ejecuta un algoritmo de línea base independiente (AsLS, AirPLS, ModPoly o Rolling Ball) para cada curva individual del lote, adaptándose a variaciones espaciales o cinéticas de fluorescencia.
+  - **Modo 3 (Sin Corrección)**: Representación de cuentas brutas.
 - **Visualización en Superposición, Cascada (*Waterfall*) y Mapas de Calor 2D (*Heatmaps*)**.
 - **Normalizaciones Espectroscópicas en Lote**: Al máximo ($0-1$), a un pico de referencia analítico, por área unitaria o centrado/escalado por varianza (SNV).
 - **Herramientas Cuantitativas**:

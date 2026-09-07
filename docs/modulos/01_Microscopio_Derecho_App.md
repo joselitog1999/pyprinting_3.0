@@ -93,12 +93,12 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 ### Dock Shutters / Flipper (Seguridad Óptica & Modo Alineación)
 | Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
 |---|---|---|---|
-| `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line0:3`. |
-| `Power Flipper` | `QPushButton` | `Low / High` | Actuador biestable que conmuta el atenuador de densidad óptica. |
-| `Notch 532 Flipper` | `QPushButton` | `Mirror Up / Down`| Inserta o retira el espejo de rechazo Notch de 532 nm. |
+| `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line0:3` con reactividad por señal `toggled`. |
+| `Power Flipper` | `QCheckBox` | `Low / High power` | Actuador biestable que conmuta el atenuador de densidad óptica. Reactivo a clics, señales externas (`set_power`, `setChecked`), sincronizado bidireccionalmente con hardware y watchdog. |
+| `Notch 532 Flipper` | `QCheckBox` | `Mirror Up / Down` | Inserta o retira el espejo de desviación hacia el filtro Notch de 532 nm (`set_notch532`). |
 | `Auto-cierre Check` | `QCheckBox` | `True / False` | Habilita o inhabilita el temporizador de auto-apagado de seguridad. |
 | `Selector Timeout` | `QComboBox` | `30s`, `60s`, `5m`, `10m`, `Sin límite` | Define el tiempo de radiación máxima continua antes de cierre automático. |
-| `Estado Seguridad` | `QLabel` | Dinámico | Visualiza cuenta regresiva (`⚠️ CIERRA EN: Xs`), modo seguro o modo alineación continua. |
+| `Estado Seguridad` | `QLabel` | Dinámico | Visualiza cuenta regresiva (`⏱️ Auto-cierre en: Xs`), modo seguro o modo alineación continua. |
 | `🚨 Cerrar Todos` | `QPushButton` | Corte | Fuerza el apagado inmediato de los 4 obturadores y pone las líneas digitales a nivel bajo. |
 
 ### Dock Nanopositioning (Platina Piezoeléctrica PI)

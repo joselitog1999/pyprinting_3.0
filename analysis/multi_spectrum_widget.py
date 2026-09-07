@@ -33,6 +33,7 @@ from PyQt6.QtGui import QFont, QColor, QPen
 from core.raman_engine import (
     parse_andor_solis_file,
     wavelength_to_raman_shift,
+    crop_spectrum,
     baseline_asls,
     baseline_airpls,
     baseline_modpoly,
@@ -94,9 +95,24 @@ class MultiSpectrumWidget(QWidget):
 
         # Parámetros espectrales
         self.laser_nm: float = 532.0
+        if self.parent_analyzer and hasattr(self.parent_analyzer, "laser_nm"):
+            self.laser_nm = float(self.parent_analyzer.laser_nm)
         self.view_mode: str = "overlay"  # 'overlay', 'waterfall', 'heatmap'
         self.norm_mode: str = "none"     # 'none', 'max', 'peak', 'area', 'snv'
         self.ref_peak_pos: float = 1078.0
+
+        # Referencia de línea base externa / fondo (Modo 1)
+        self.ref_blank_filepath: Optional[Path] = None
+        self.ref_blank_name: str = ""
+        self.ref_blank_wls: np.ndarray = np.array([])
+        self.ref_blank_counts: np.ndarray = np.array([])
+
+        # Recorte espectral (ROI) y poda de bordes de detector
+        self.enable_crop_x: bool = False
+        self.crop_xmin: float = 0.0
+        self.crop_xmax: float = 4000.0
+        self.trim_left_pts: int = 0
+        self.trim_right_pts: int = 0
 
         # Elementos gráficos
         self.curve_items: List[pg.PlotDataItem] = []
@@ -168,44 +184,231 @@ class MultiSpectrumWidget(QWidget):
 
         ctrl_vlo.addWidget(box_batch)
 
-        # 2. Grupo: Línea Base Compartida / Fondo
-        box_baseline = QGroupBox("📉 Línea Base Compartida / Fondo")
-        base_flo = QFormLayout(box_baseline)
-        base_flo.setSpacing(6)
+        # 2. Grupo: Láser de Excitación (Multi-Espectro)
+        box_laser = QGroupBox("🔬 Láser de Excitación")
+        l_flo = QFormLayout(box_laser)
+        l_flo.setSpacing(6)
 
-        self.combo_multi_baseline = QComboBox()
-        self.combo_multi_baseline.addItems([
+        self.combo_multi_laser = QComboBox()
+        self.combo_multi_laser.addItems([
+            "532.0 nm (Verde Nd:YAG)",
+            "632.8 nm (He-Ne)",
+            "637.0 nm (Rojo Diodo)",
+            "785.0 nm (NIR Diodo)",
+            "592.0 nm (Amarillo)",
+            "Personalizado..."
+        ])
+        self.combo_multi_laser.currentIndexChanged.connect(self._on_laser_combo_changed)
+        l_flo.addRow("Láser:", self.combo_multi_laser)
+
+        self.spin_multi_laser_custom = QDoubleSpinBox()
+        self.spin_multi_laser_custom.setRange(200.0, 2000.0)
+        self.spin_multi_laser_custom.setValue(self.laser_nm)
+        self.spin_multi_laser_custom.setSuffix(" nm")
+        self.spin_multi_laser_custom.setEnabled(False)
+        self.spin_multi_laser_custom.valueChanged.connect(self._on_laser_custom_changed)
+        l_flo.addRow("λ Personalizada:", self.spin_multi_laser_custom)
+
+        self.check_sync_laser = QCheckBox("Sincronizar con Espectro Individual")
+        self.check_sync_laser.setChecked(True)
+        l_flo.addRow(self.check_sync_laser)
+
+        self.lbl_laser_status = QLabel(f"Láser activo: {self.laser_nm:.1f} nm")
+        self.lbl_laser_status.setStyleSheet("color: #89DCEB; font-size: 8.5pt; font-weight: bold;")
+        l_flo.addRow(self.lbl_laser_status)
+
+        ctrl_vlo.addWidget(box_laser)
+
+        # 3. Grupo: Recorte de Rango Espectral (ROI / Bordes)
+        box_crop = QGroupBox("✂️ Recorte de Rango Espectral (ROI)")
+        cr_vlo = QVBoxLayout(box_crop)
+        cr_vlo.setSpacing(6)
+
+        # Atajos Rápidos
+        grp_quick = QGroupBox("Atajos Rápidos de Recorte")
+        quick_vlo = QVBoxLayout(grp_quick)
+        quick_vlo.setSpacing(4)
+        quick_vlo.setContentsMargins(6, 6, 6, 6)
+
+        self.btn_crop_cursors = QPushButton("✂️ Recortar a Cursores A y B")
+        self.btn_crop_cursors.setStyleSheet("background-color: #A6E3A1; color: #11111B; font-weight: bold; padding: 4px;")
+        self.btn_crop_cursors.setToolTip("Recorta todos los espectros del lote al intervalo definido entre el Cursor A y el Cursor B")
+        self.btn_crop_cursors.clicked.connect(self._on_crop_to_cursors)
+        quick_vlo.addWidget(self.btn_crop_cursors)
+
+        self.btn_crop_rayleigh = QPushButton("⚡ Recortar Láser/Rayleigh (< 150 cm⁻¹)")
+        self.btn_crop_rayleigh.setToolTip("Elimina la dispersión elástica Rayleigh por debajo de 150 cm⁻¹ en todo el lote")
+        self.btn_crop_rayleigh.clicked.connect(self._on_crop_rayleigh)
+        quick_vlo.addWidget(self.btn_crop_rayleigh)
+
+        self.btn_reset_crop = QPushButton("↺ Restaurar Rango Completo")
+        self.btn_reset_crop.setStyleSheet("background-color: #F38BA8; color: #11111B; font-weight: bold; padding: 4px;")
+        self.btn_reset_crop.setToolTip("Deshace cualquier recorte y restaura el rango espectral original completo de los datos")
+        self.btn_reset_crop.clicked.connect(self._on_reset_crop)
+        quick_vlo.addWidget(self.btn_reset_crop)
+        cr_vlo.addWidget(grp_quick)
+
+        # Límites por Rango Físico X
+        grp_range = QGroupBox("Límites Espectrales [X Mín, X Máx]")
+        range_flo = QFormLayout(grp_range)
+        range_flo.setSpacing(4)
+        range_flo.setContentsMargins(6, 6, 6, 6)
+
+        self.check_enable_crop_x = QCheckBox("Habilitar Límite por Rango X")
+        self.check_enable_crop_x.setChecked(False)
+        self.check_enable_crop_x.toggled.connect(self._on_crop_enable_toggled)
+        range_flo.addRow(self.check_enable_crop_x)
+
+        self.spin_crop_xmin = QDoubleSpinBox()
+        self.spin_crop_xmin.setRange(-5000.0, 50000.0)
+        self.spin_crop_xmin.setDecimals(1)
+        self.spin_crop_xmin.setValue(0.0)
+        self.spin_crop_xmin.setSuffix(" cm⁻¹")
+        self.spin_crop_xmin.valueChanged.connect(self._on_crop_params_changed)
+        range_flo.addRow("X Mínimo:", self.spin_crop_xmin)
+
+        self.spin_crop_xmax = QDoubleSpinBox()
+        self.spin_crop_xmax.setRange(-5000.0, 50000.0)
+        self.spin_crop_xmax.setDecimals(1)
+        self.spin_crop_xmax.setValue(4000.0)
+        self.spin_crop_xmax.setSuffix(" cm⁻¹")
+        self.spin_crop_xmax.valueChanged.connect(self._on_crop_params_changed)
+        range_flo.addRow("X Máximo:", self.spin_crop_xmax)
+        cr_vlo.addWidget(grp_range)
+
+        # Poda de Bordes del Sensor CCD (Detector Edge Trimming)
+        grp_trim = QGroupBox("Poda de Bordes del Sensor CCD")
+        trim_flo = QFormLayout(grp_trim)
+        trim_flo.setSpacing(4)
+        trim_flo.setContentsMargins(6, 6, 6, 6)
+
+        self.spin_trim_left = QSpinBox()
+        self.spin_trim_left.setRange(0, 500)
+        self.spin_trim_left.setValue(0)
+        self.spin_trim_left.setSuffix(" pts")
+        self.spin_trim_left.valueChanged.connect(self._reinterpolate_all)
+        trim_flo.addRow("Podar Inicio (izq):", self.spin_trim_left)
+
+        self.spin_trim_right = QSpinBox()
+        self.spin_trim_right.setRange(0, 500)
+        self.spin_trim_right.setValue(0)
+        self.spin_trim_right.setSuffix(" pts")
+        self.spin_trim_right.valueChanged.connect(self._reinterpolate_all)
+        trim_flo.addRow("Podar Fin (der):", self.spin_trim_right)
+        cr_vlo.addWidget(grp_trim)
+
+        # Estado del recorte
+        self.lbl_crop_status = QLabel("Rango: Completo (0 pts)")
+        self.lbl_crop_status.setStyleSheet("color: #89B4FA; font-weight: bold; font-family: monospace; font-size: 8.5pt;")
+        cr_vlo.addWidget(self.lbl_crop_status)
+
+        ctrl_vlo.addWidget(box_crop)
+
+        # 4. Grupo: Línea Base / Fondo (2 Modos)
+        box_baseline = QGroupBox("📉 Línea Base / Fondo (2 Modos)")
+        base_vlo = QVBoxLayout(box_baseline)
+        base_vlo.setSpacing(6)
+
+        mode_flo = QFormLayout()
+        mode_flo.setSpacing(4)
+        self.combo_baseline_mode = QComboBox()
+        self.combo_baseline_mode.addItems([
+            "Modo 1: Archivo de Referencia (Blanco / Fondo)",
+            "Modo 2: Cálculo Individual por Espectro (Algorítmico)",
+            "Sin Corrección de Línea Base"
+        ])
+        self.combo_baseline_mode.currentIndexChanged.connect(self._on_baseline_strategy_changed)
+        mode_flo.addRow("Estrategia:", self.combo_baseline_mode)
+        base_vlo.addLayout(mode_flo)
+
+        # Sub-Panel Modo 1: Archivo de Referencia (Fondo / Blanco)
+        self.panel_mode_ref = QFrame()
+        self.panel_mode_ref.setFrameShape(QFrame.Shape.StyledPanel)
+        self.panel_mode_ref.setStyleSheet("background-color: #181825; border: 1px solid #313244; border-radius: 6px; padding: 4px;")
+        pm1_vlo = QVBoxLayout(self.panel_mode_ref)
+        pm1_vlo.setSpacing(5)
+
+        pm1_btns_hlo = QHBoxLayout()
+        self.btn_load_ref_file = QPushButton("📂 Cargar Archivo de Fondo...")
+        self.btn_load_ref_file.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold; padding: 4px 8px;")
+        self.btn_load_ref_file.clicked.connect(self._on_load_reference_file)
+        self.btn_clear_ref_file = QPushButton("❌ Quitar Fondo")
+        self.btn_clear_ref_file.clicked.connect(self._on_clear_reference_file)
+        pm1_btns_hlo.addWidget(self.btn_load_ref_file)
+        pm1_btns_hlo.addWidget(self.btn_clear_ref_file)
+        pm1_vlo.addLayout(pm1_btns_hlo)
+
+        self.lbl_ref_file = QLabel("Sin archivo de fondo cargado.")
+        self.lbl_ref_file.setStyleSheet("color: #A6ADC8; font-size: 8pt; font-style: italic;")
+        self.lbl_ref_file.setWordWrap(True)
+        pm1_vlo.addWidget(self.lbl_ref_file)
+
+        pm1_batch_flo = QFormLayout()
+        self.combo_blank_from_batch = QComboBox()
+        self.combo_blank_from_batch.addItem("(Ninguno / Usar Archivo Externo)")
+        self.combo_blank_from_batch.currentIndexChanged.connect(self._reprocess_and_update)
+        pm1_batch_flo.addRow("O blanco del lote:", self.combo_blank_from_batch)
+        pm1_vlo.addLayout(pm1_batch_flo)
+
+        base_vlo.addWidget(self.panel_mode_ref)
+
+        # Sub-Panel Modo 2: Cálculo Individual por Espectro
+        self.panel_mode_indiv = QFrame()
+        self.panel_mode_indiv.setFrameShape(QFrame.Shape.StyledPanel)
+        self.panel_mode_indiv.setStyleSheet("background-color: #181825; border: 1px solid #313244; border-radius: 6px; padding: 4px;")
+        pm2_flo = QFormLayout(self.panel_mode_indiv)
+        pm2_flo.setSpacing(5)
+
+        self.combo_indiv_algo = QComboBox()
+        self.combo_indiv_algo.addItems([
             "AsLS (Asimétrico Penalizado)",
             "AirPLS (Iterativo Ponderado)",
             "Polinomio ModPoly",
-            "Rolling Ball",
-            "Restar Espectro Blanco (Fondo)",
-            "Sin Línea Base"
+            "Rolling Ball (Morfológico)"
         ])
-        self.combo_multi_baseline.currentIndexChanged.connect(self._on_baseline_mode_changed)
-        base_flo.addRow("Método:", self.combo_multi_baseline)
+        self.combo_indiv_algo.currentIndexChanged.connect(self._on_indiv_algo_changed)
+        pm2_flo.addRow("Algoritmo:", self.combo_indiv_algo)
 
         self.spin_asls_lambda = QDoubleSpinBox()
         self.spin_asls_lambda.setRange(1e2, 1e9)
         self.spin_asls_lambda.setValue(1e5)
         self.spin_asls_lambda.setSingleStep(1e4)
-        base_flo.addRow("AsLS Lambda (λ):", self.spin_asls_lambda)
+        self.spin_asls_lambda.valueChanged.connect(self._reprocess_and_update)
+        pm2_flo.addRow("AsLS Lambda (λ):", self.spin_asls_lambda)
 
         self.spin_asls_p = QDoubleSpinBox()
         self.spin_asls_p.setRange(0.0001, 0.1)
         self.spin_asls_p.setValue(0.005)
         self.spin_asls_p.setSingleStep(0.001)
         self.spin_asls_p.setDecimals(4)
-        base_flo.addRow("AsLS Asimetría (p):", self.spin_asls_p)
+        self.spin_asls_p.valueChanged.connect(self._reprocess_and_update)
+        pm2_flo.addRow("AsLS Asimetría (p):", self.spin_asls_p)
 
-        self.combo_blank_spectrum = QComboBox()
-        self.combo_blank_spectrum.setEnabled(False)
-        base_flo.addRow("Espectro Blanco:", self.combo_blank_spectrum)
+        self.spin_modpoly_order = QSpinBox()
+        self.spin_modpoly_order.setRange(1, 8)
+        self.spin_modpoly_order.setValue(3)
+        self.spin_modpoly_order.setEnabled(False)
+        self.spin_modpoly_order.valueChanged.connect(self._reprocess_and_update)
+        pm2_flo.addRow("Orden ModPoly:", self.spin_modpoly_order)
 
-        self.btn_apply_baseline = QPushButton("⚡ Aplicar Línea Base a Todos")
+        self.spin_rolling_radius = QSpinBox()
+        self.spin_rolling_radius.setRange(5, 500)
+        self.spin_rolling_radius.setValue(50)
+        self.spin_rolling_radius.setEnabled(False)
+        self.spin_rolling_radius.valueChanged.connect(self._reprocess_and_update)
+        pm2_flo.addRow("Radio Bola (px):", self.spin_rolling_radius)
+
+        base_vlo.addWidget(self.panel_mode_indiv)
+        self.panel_mode_indiv.setVisible(False)  # Por defecto Modo 1 está visible
+
+        # Alias para compatibilidad hacia atrás
+        self.combo_multi_baseline = self.combo_baseline_mode
+        self.combo_blank_spectrum = self.combo_blank_from_batch
+
+        self.btn_apply_baseline = QPushButton("⚡ Actualizar Línea Base")
         self.btn_apply_baseline.setStyleSheet("background-color: #A6E3A1; color: #11111B; font-weight: bold; padding: 5px;")
         self.btn_apply_baseline.clicked.connect(self._reprocess_and_update)
-        base_flo.addRow(self.btn_apply_baseline)
+        base_vlo.addWidget(self.btn_apply_baseline)
 
         ctrl_vlo.addWidget(box_baseline)
 
@@ -340,7 +543,8 @@ class MultiSpectrumWidget(QWidget):
         self.cursor_b.sigPositionChanged.connect(self._on_cursors_moved)
         self.plot_multi.addItem(self.cursor_b)
 
-        self.region_ab = pg.LinearRegionItem(values=[1078.0, 1580.0], brush=pg.mkBrush(137, 180, 250, 35), movable=False)
+        self.region_ab = pg.LinearRegionItem(values=[1078.0, 1580.0], brush=pg.mkBrush(137, 180, 250, 35), movable=True)
+        self.region_ab.sigRegionChanged.connect(self._on_region_ab_dragged)
         self.plot_multi.addItem(self.region_ab)
 
         tp_vlo.addWidget(self.plot_multi)
@@ -456,6 +660,19 @@ class MultiSpectrumWidget(QWidget):
                 print(f"[MultiSpectrum Error] Error leyendo {p.name}: {e}")
 
         if loaded_count > 0:
+            # Auto-detección del láser a partir de los metadatos del primer archivo cargado
+            if len(self.spectra_list) == loaded_count:
+                first_meta = self.spectra_list[0].get("metadata", {})
+                for k in ("Laser Wavelength", "Laser Wavelength (nm)", "Excitation (nm)", "Laser", "Excitation Wavelength"):
+                    if k in first_meta:
+                        try:
+                            val = float(str(first_meta[k]).replace(",", "."))
+                            if 300.0 <= val <= 1500.0:
+                                self.set_laser_wavelength(val, sync_parent=self.check_sync_laser.isChecked())
+                                break
+                        except ValueError:
+                            pass
+
             self._update_palettes()
             self._reinterpolate_all()
             self._refresh_table()
@@ -524,7 +741,10 @@ class MultiSpectrumWidget(QWidget):
     def _refresh_table(self):
         self.table_spectra.blockSignals(True)
         self.table_spectra.setRowCount(len(self.spectra_list))
-        self.combo_blank_spectrum.clear()
+        self.combo_blank_from_batch.blockSignals(True)
+        curr_batch_blank = self.combo_blank_from_batch.currentIndex()
+        self.combo_blank_from_batch.clear()
+        self.combo_blank_from_batch.addItem("(Ninguno / Usar Archivo Externo)")
 
         for r, sp in enumerate(self.spectra_list):
             # Checkbox de visibilidad
@@ -550,7 +770,11 @@ class MultiSpectrumWidget(QWidget):
             pts_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table_spectra.setItem(r, 3, pts_item)
 
-            self.combo_blank_spectrum.addItem(f"#{r+1} {sp['name']}")
+            self.combo_blank_from_batch.addItem(f"#{r+1} {sp['name']}")
+
+        if 0 <= curr_batch_blank < self.combo_blank_from_batch.count():
+            self.combo_blank_from_batch.setCurrentIndex(curr_batch_blank)
+        self.combo_blank_from_batch.blockSignals(False)
 
         self.table_spectra.blockSignals(False)
         act = sum(1 for s in self.spectra_list if s["visible"])
@@ -589,16 +813,35 @@ class MultiSpectrumWidget(QWidget):
         self._refresh_table()
         self._reprocess_and_update()
 
-    # ── Remuestreo e Intercalibración ─────────────────────────────────────────
+    # ── Remuestreo e Intercalibración con Recorte de ROI y Poda de Bordes ─────
 
     def _reinterpolate_all(self):
+        crop_xmin = self.spin_crop_xmin.value() if self.check_enable_crop_x.isChecked() else None
+        crop_xmax = self.spin_crop_xmax.value() if self.check_enable_crop_x.isChecked() else None
+        trim_l = self.spin_trim_left.value()
+        trim_r = self.spin_trim_right.value()
+
+        x_range = None
+        if self.check_enable_crop_x.isChecked() and crop_xmin is not None and crop_xmax is not None:
+            x_range = (min(crop_xmin, crop_xmax), max(crop_xmin, crop_xmax))
+
         visible_spectra = []
         self.active_indices = []
         for idx, sp in enumerate(self.spectra_list):
             if sp["visible"]:
                 # Convertir a corrimiento Raman según el láser actual
                 x_shift = wavelength_to_raman_shift(sp["raw_wls"], self.laser_nm)
-                visible_spectra.append((x_shift, sp["active_counts"], sp["name"], sp["metadata"]))
+
+                # Poda de bordes de detector si trim_l > 0 o trim_r > 0
+                if trim_l > 0 or trim_r > 0:
+                    x_shift, y_cnts, _ = crop_spectrum(
+                        x_shift, sp["active_counts"],
+                        trim_left_pts=trim_l, trim_right_pts=trim_r
+                    )
+                else:
+                    y_cnts = sp["active_counts"]
+
+                visible_spectra.append((x_shift, y_cnts, sp["name"], sp["metadata"]))
                 self.active_indices.append(idx)
 
         if not visible_spectra:
@@ -606,20 +849,236 @@ class MultiSpectrumWidget(QWidget):
             self.Y_raw = np.empty((0, 0))
             self.Y_corrected = np.empty((0, 0))
             self.Y_displayed = np.empty((0, 0))
+            self.lbl_crop_status.setText("Sin espectros visibles")
             self._reprocess_and_update()
             return
 
-        self.common_x, self.Y_raw, _, _ = interpolate_spectra_to_common_grid(visible_spectra)
+        self.common_x, self.Y_raw, _, _ = interpolate_spectra_to_common_grid(
+            visible_spectra,
+            x_range=x_range
+        )
+
+        if len(self.common_x) > 0:
+            x0 = float(self.common_x[0])
+            x1 = float(self.common_x[-1])
+            n_pts = len(self.common_x)
+
+            if not self.check_enable_crop_x.isChecked():
+                self.spin_crop_xmin.blockSignals(True)
+                self.spin_crop_xmax.blockSignals(True)
+                self.spin_crop_xmin.setValue(round(x0, 1))
+                self.spin_crop_xmax.setValue(round(x1, 1))
+                self.spin_crop_xmin.blockSignals(False)
+                self.spin_crop_xmax.blockSignals(False)
+                self.lbl_crop_status.setText(f"Rango Completo: <b>{x0:.1f}</b> a <b>{x1:.1f} cm⁻¹</b> ({n_pts} pts)")
+            else:
+                self.lbl_crop_status.setText(f"ROI Activo: <b>{x0:.1f}</b> a <b>{x1:.1f} cm⁻¹</b> ({n_pts} pts)")
+
+            # Clamping suave de cursores si quedaron fuera del rango
+            val_a = float(self.cursor_a.value())
+            val_b = float(self.cursor_b.value())
+            new_a = max(x0, min(x1, val_a))
+            new_b = max(x0, min(x1, val_b))
+            if math.isclose(new_a, new_b, abs_tol=1e-3):
+                span = x1 - x0
+                new_a = max(x0, new_a - 0.05 * span)
+                new_b = min(x1, new_b + 0.05 * span)
+
+            self.cursor_a.blockSignals(True)
+            self.cursor_b.blockSignals(True)
+            self.cursor_a.setValue(new_a)
+            self.cursor_b.setValue(new_b)
+            self.cursor_a.blockSignals(False)
+            self.cursor_b.blockSignals(False)
+
+            self.region_ab.blockSignals(True)
+            self.region_ab.setRegion([min(new_a, new_b), max(new_a, new_b)])
+            self.region_ab.blockSignals(False)
+
         self._reprocess_and_update()
 
-    # ── Pipeline de Procesamiento Matricial (Línea Base + Filtro + Norm) ──────
+    # ── Gestión de Recorte de ROI y Poda de Bordes ────────────────────────────
+
+    def _on_crop_to_cursors(self):
+        """Recorta todos los espectros del lote al intervalo definido entre Cursor A y Cursor B."""
+        if not self.spectra_list or len(self.common_x) == 0:
+            return
+        pos_a = float(self.cursor_a.value())
+        pos_b = float(self.cursor_b.value())
+        x_min = min(pos_a, pos_b)
+        x_max = max(pos_a, pos_b)
+
+        self.spin_crop_xmin.blockSignals(True)
+        self.spin_crop_xmax.blockSignals(True)
+        self.spin_crop_xmin.setValue(x_min)
+        self.spin_crop_xmax.setValue(x_max)
+        self.spin_crop_xmin.blockSignals(False)
+        self.spin_crop_xmax.blockSignals(False)
+
+        self.check_enable_crop_x.setChecked(True)
+        self._reinterpolate_all()
+
+    def _on_crop_rayleigh(self):
+        """Atajo para recortar la subida del filtro Rayleigh (< 150 cm⁻¹) en todo el lote."""
+        if not self.spectra_list or len(self.common_x) == 0:
+            return
+        self.spin_crop_xmin.setValue(150.0)
+        self.check_enable_crop_x.setChecked(True)
+        self._reinterpolate_all()
+
+    def _on_reset_crop(self):
+        """Restaura el rango completo original de los espectros del lote sin pérdidas."""
+        self.check_enable_crop_x.setChecked(False)
+        self.spin_trim_left.setValue(0)
+        self.spin_trim_right.setValue(0)
+        full_mins = []
+        full_maxs = []
+        for sp in self.spectra_list:
+            xs = wavelength_to_raman_shift(sp["raw_wls"], self.laser_nm)
+            full_mins.append(float(np.min(xs)))
+            full_maxs.append(float(np.max(xs)))
+        if full_mins and full_maxs:
+            self.spin_crop_xmin.blockSignals(True)
+            self.spin_crop_xmax.blockSignals(True)
+            self.spin_crop_xmin.setValue(round(min(full_mins), 1))
+            self.spin_crop_xmax.setValue(round(max(full_maxs), 1))
+            self.spin_crop_xmin.blockSignals(False)
+            self.spin_crop_xmax.blockSignals(False)
+        self._reinterpolate_all()
+
+    def _on_crop_enable_toggled(self, checked: bool):
+        self._reinterpolate_all()
+
+    def _on_crop_params_changed(self):
+        if self.check_enable_crop_x.isChecked():
+            self._reinterpolate_all()
+
+    # ── Gestión de Láser de Excitación ────────────────────────────────────────
+
+    def _on_laser_combo_changed(self, idx: int):
+        lasers = [532.0, 632.8, 637.0, 785.0, 592.0]
+        if idx < len(lasers):
+            self.laser_nm = lasers[idx]
+            self.spin_multi_laser_custom.setEnabled(False)
+            self.spin_multi_laser_custom.blockSignals(True)
+            self.spin_multi_laser_custom.setValue(self.laser_nm)
+            self.spin_multi_laser_custom.blockSignals(False)
+        else:
+            self.spin_multi_laser_custom.setEnabled(True)
+            self.laser_nm = float(self.spin_multi_laser_custom.value())
+
+        self.lbl_laser_status.setText(f"Láser activo: {self.laser_nm:.1f} nm")
+
+        if self.check_sync_laser.isChecked() and self.parent_analyzer and hasattr(self.parent_analyzer, "set_laser_wavelength"):
+            self.parent_analyzer.set_laser_wavelength(self.laser_nm, sync_multi=False)
+
+        self._reinterpolate_all()
+
+    def _on_laser_custom_changed(self, val: float):
+        if self.combo_multi_laser.currentIndex() == 5:  # Personalizado
+            self.laser_nm = float(val)
+            self.lbl_laser_status.setText(f"Láser activo: {self.laser_nm:.1f} nm")
+            if self.check_sync_laser.isChecked() and self.parent_analyzer and hasattr(self.parent_analyzer, "set_laser_wavelength"):
+                self.parent_analyzer.set_laser_wavelength(self.laser_nm, sync_multi=False)
+            self._reinterpolate_all()
+
+    def set_laser_wavelength(self, laser_nm: float, sync_parent: bool = False):
+        """Fija programáticamente la longitud de onda del láser y actualiza la UI."""
+        self.laser_nm = float(laser_nm)
+        lasers = [532.0, 632.8, 637.0, 785.0, 592.0]
+        found_idx = -1
+        for i, l in enumerate(lasers):
+            if math.isclose(self.laser_nm, l, abs_tol=0.2):
+                found_idx = i
+                break
+
+        self.combo_multi_laser.blockSignals(True)
+        self.spin_multi_laser_custom.blockSignals(True)
+        if found_idx >= 0:
+            self.combo_multi_laser.setCurrentIndex(found_idx)
+            self.spin_multi_laser_custom.setValue(self.laser_nm)
+            self.spin_multi_laser_custom.setEnabled(False)
+        else:
+            self.combo_multi_laser.setCurrentIndex(5)  # Personalizado
+            self.spin_multi_laser_custom.setValue(self.laser_nm)
+            self.spin_multi_laser_custom.setEnabled(True)
+        self.combo_multi_laser.blockSignals(False)
+        self.spin_multi_laser_custom.blockSignals(False)
+
+        self.lbl_laser_status.setText(f"Láser activo: {self.laser_nm:.1f} nm")
+
+        if sync_parent and self.check_sync_laser.isChecked() and self.parent_analyzer and hasattr(self.parent_analyzer, "set_laser_wavelength"):
+            self.parent_analyzer.set_laser_wavelength(self.laser_nm, sync_multi=False)
+
+        self._reinterpolate_all()
+
+    # ── Gestión de Línea Base en Dos Modos ───────────────────────────────────
+
+    def _on_baseline_strategy_changed(self, idx: int):
+        # 0: Modo 1 (Archivo / Blanco), 1: Modo 2 (Cálculo individual), 2: Sin línea base
+        self.panel_mode_ref.setVisible(idx == 0)
+        self.panel_mode_indiv.setVisible(idx == 1)
+        self._reprocess_and_update()
+
+    def _on_indiv_algo_changed(self, idx: int):
+        is_asls = (idx == 0)
+        is_airpls = (idx == 1)
+        is_modpoly = (idx == 2)
+        is_rolling = (idx == 3)
+        self.spin_asls_lambda.setEnabled(is_asls or is_airpls)
+        self.spin_asls_p.setEnabled(is_asls)
+        self.spin_modpoly_order.setEnabled(is_modpoly)
+        self.spin_rolling_radius.setEnabled(is_rolling)
+        self._reprocess_and_update()
+
+    def _on_load_reference_file(self):
+        start_dir = str(Path.home() / "Documents")
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Seleccionar Archivo de Fondo / Blanco de Referencia", start_dir,
+            "Archivos Espectroscópicos (*.asc *.txt *.csv *.dat);;Todos (*.*)"
+        )
+        if not filepath:
+            return
+        self.load_reference_file(filepath)
+
+    def load_reference_file(self, filepath: Union[str, Path]):
+        """Carga un archivo de referencia/blanco externo para sustraer como línea base (Modo 1)."""
+        p = Path(filepath)
+        try:
+            meta, wls, counts = parse_andor_solis_file(p)
+            self.ref_blank_filepath = p
+            self.ref_blank_name = p.name
+            self.ref_blank_wls = np.asarray(wls, dtype=np.float64)
+            self.ref_blank_counts = np.asarray(counts, dtype=np.float64)
+            self.lbl_ref_file.setText(f"✓ <b>{self.ref_blank_name}</b> ({len(wls)} pts)")
+            self.lbl_ref_file.setStyleSheet("color: #A6E3A1; font-size: 8pt;")
+            self.combo_baseline_mode.setCurrentIndex(0)
+            self._reprocess_and_update()
+        except Exception as e:
+            QMessageBox.critical(self, "Error al cargar fondo", f"No se pudo parsear el archivo de referencia:\n{e}")
+
+    def _on_clear_reference_file(self):
+        self.ref_blank_filepath = None
+        self.ref_blank_name = ""
+        self.ref_blank_wls = np.array([])
+        self.ref_blank_counts = np.array([])
+        self.lbl_ref_file.setText("Sin archivo de fondo cargado.")
+        self.lbl_ref_file.setStyleSheet("color: #A6ADC8; font-size: 8pt; font-style: italic;")
+        self._reprocess_and_update()
 
     def _on_baseline_mode_changed(self, idx: int):
-        self.combo_blank_spectrum.setEnabled(idx == 4)
-        is_asls = (idx == 0)
-        self.spin_asls_lambda.setEnabled(is_asls)
-        self.spin_asls_p.setEnabled(is_asls)
-        self._reprocess_and_update()
+        """Método de compatibilidad hacia atrás si se invoca desde tests o scripts."""
+        if idx == 4:  # Restar blanco
+            self.combo_baseline_mode.setCurrentIndex(0)
+        elif idx == 5:  # Sin línea base
+            self.combo_baseline_mode.setCurrentIndex(2)
+        elif idx in (0, 1, 2, 3):  # Modos algorítmicos individuales
+            self.combo_baseline_mode.setCurrentIndex(1)
+            self.combo_indiv_algo.setCurrentIndex(idx)
+        else:
+            self._reprocess_and_update()
+
+    # ── Pipeline de Procesamiento Matricial (Línea Base + Filtro + Norm) ──────
 
     def _on_norm_mode_changed(self, idx: int):
         modes = ["none", "max", "peak", "area", "snv"]
@@ -678,32 +1137,59 @@ class MultiSpectrumWidget(QWidget):
         N, M = self.Y_raw.shape
         Y_work = self.Y_raw.copy()
 
-        # 1. Corrección de Línea Base o Sustracción de Blanco
-        b_mode = self.combo_multi_baseline.currentIndex()
-        if b_mode == 4:  # Restar Espectro Blanco
-            b_idx = self.combo_blank_spectrum.currentIndex()
-            if 0 <= b_idx < N:
-                blank_curve = Y_work[b_idx, :].copy()
+        # 1. Corrección de Línea Base en Dos Modos
+        b_strategy = self.combo_baseline_mode.currentIndex()
+
+        if b_strategy == 0:  # Modo 1: Archivo de Referencia (Fondo / Blanco)
+            if self.ref_blank_wls.size > 0 and self.ref_blank_counts.size > 0:
+                # Si las longitudes de onda son ópticas en nm, convertir al mismo Raman Shift
+                if np.all(self.ref_blank_wls > 200.0):
+                    blank_x = wavelength_to_raman_shift(self.ref_blank_wls, self.laser_nm)
+                else:
+                    blank_x = self.ref_blank_wls.copy()
+
+                sort_idx = np.argsort(blank_x)
+                bx_sorted = blank_x[sort_idx]
+                by_sorted = self.ref_blank_counts[sort_idx]
+
+                # Interpolar en la grilla común de corrimiento Raman
+                blank_curve = np.interp(self.common_x, bx_sorted, by_sorted)
                 for i in range(N):
                     Y_work[i, :] -= blank_curve
-        elif b_mode == 0:  # AsLS
-            lam = float(self.spin_asls_lambda.value())
-            p = float(self.spin_asls_p.value())
-            for i in range(N):
-                base = baseline_asls(Y_work[i, :], lam=lam, p=p)
-                Y_work[i, :] -= base
-        elif b_mode == 1:  # AirPLS
-            for i in range(N):
-                base = baseline_airpls(Y_work[i, :], lam=1e5)
-                Y_work[i, :] -= base
-        elif b_mode == 2:  # ModPoly
-            for i in range(N):
-                base = baseline_modpoly(Y_work[i, :], poly_order=3)
-                Y_work[i, :] -= base
-        elif b_mode == 3:  # Rolling Ball
-            for i in range(N):
-                base = baseline_rolling_ball(Y_work[i, :], radius=50)
-                Y_work[i, :] -= base
+            else:
+                # Blanco alternativo desde el lote
+                b_idx = self.combo_blank_from_batch.currentIndex() - 1  # 0 es "(Ninguno)"
+                if 0 <= b_idx < N:
+                    blank_curve = Y_work[b_idx, :].copy()
+                    for i in range(N):
+                        Y_work[i, :] -= blank_curve
+
+        elif b_strategy == 1:  # Modo 2: Cálculo Individual por Espectro (Algorítmico)
+            algo_idx = self.combo_indiv_algo.currentIndex()
+            if algo_idx == 0:  # AsLS
+                lam = float(self.spin_asls_lambda.value())
+                p = float(self.spin_asls_p.value())
+                for i in range(N):
+                    base = baseline_asls(Y_work[i, :], lam=lam, p=p)
+                    Y_work[i, :] -= base
+            elif algo_idx == 1:  # AirPLS
+                lam = float(self.spin_asls_lambda.value())
+                for i in range(N):
+                    base = baseline_airpls(Y_work[i, :], lam=lam)
+                    Y_work[i, :] -= base
+            elif algo_idx == 2:  # ModPoly
+                deg = int(self.spin_modpoly_order.value())
+                for i in range(N):
+                    base = baseline_modpoly(Y_work[i, :], poly_order=deg)
+                    Y_work[i, :] -= base
+            elif algo_idx == 3:  # Rolling Ball
+                rad = int(self.spin_rolling_radius.value())
+                for i in range(N):
+                    base = baseline_rolling_ball(Y_work[i, :], radius=rad)
+                    Y_work[i, :] -= base
+
+        elif b_strategy == 2:  # Sin Corrección de Línea Base
+            pass
 
         # 2. Suavizado en Lote si está activo
         if self.check_batch_smooth.isChecked():
@@ -757,13 +1243,30 @@ class MultiSpectrumWidget(QWidget):
 
         self._on_cursors_moved()
 
-    def _on_cursors_moved(self):
+    def _on_region_ab_dragged(self):
+        region = self.region_ab.getRegion()
+        if not region or len(region) < 2:
+            return
+        min_x, max_x = float(min(region)), float(max(region))
+        self.cursor_a.blockSignals(True)
+        self.cursor_b.blockSignals(True)
+        self.cursor_a.setValue(min_x)
+        self.cursor_b.setValue(max_x)
+        self.cursor_a.blockSignals(False)
+        self.cursor_b.blockSignals(False)
+        self._on_cursors_moved(from_region=True)
+
+    def _on_cursors_moved(self, from_region: bool = False):
         pos_a = float(self.cursor_a.value())
         pos_b = float(self.cursor_b.value())
         x_min = min(pos_a, pos_b)
         x_max = max(pos_a, pos_b)
 
-        self.region_ab.setRegion([x_min, x_max])
+        if not from_region:
+            self.region_ab.blockSignals(True)
+            self.region_ab.setRegion([x_min, x_max])
+            self.region_ab.blockSignals(False)
+
         self.lbl_cursor_metrics.setText(
             f"<b>Regla A:</b> {pos_a:.2f} cm⁻¹ | <b>Regla B:</b> {pos_b:.2f} cm⁻¹ | <b>ΔX:</b> {abs(pos_b - pos_a):.2f} cm⁻¹"
         )

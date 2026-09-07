@@ -6,7 +6,19 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
 
 ## 🎯 Últimos Cambios y Correcciones Realizadas
 
-1. **Implementación de 5 Modos Seleccionables de Criterio de Parada (`modules/measurements.py`)**:
+1. **Reactividad Total del Checkbox Low/High Power & Sincronización Hardware-GUI (`core/shutters.py`, `core/nidaq.py`)**:
+   - **Diagnóstico y Corrección de Señales Qt**: Se resolvió la insensibilidad del checkbox ante señales externas (`setChecked(bool)` emitía `toggled` en lugar de `clicked`, y `_power_check` descartaba el payload booleano).
+   - **Migración a `toggled` & Slots Públicos**: Conmutación de checkboxes a `.toggled.connect(...)` y creación del slot formal `@pyqtSlot(bool) def set_power(self, high: bool)` con alias `set_flipper` y `powerbutton_check`.
+   - **Puente Bidireccional de Hardware**: Implementación en `core/nidaq.py` de `register_flipper_callback(fn)`, `unregister_flipper_callback(fn)` e `is_flipper_high_power()`, conectado a `ShuttersFrontend.flipper_hardware_signal`. Cualquier conmutación por watchdog o rutinas (`measurements.py`) actualiza la UI en tiempo real.
+   - **Suite Automatizada**: Creación de [`tests/test_powerbutton_actuation.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/tests/test_powerbutton_actuation.py) (7/7 PASS) e integración en [`tests/run_all_diagnostics.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/tests/run_all_diagnostics.py) (49/49 PASS, 100%).
+
+2. **Pestaña Modular "🎯 Calibraciones del Sistema" en PySpectrum 3.0 (`pyspectrum/modules/calibration_dock.py`)**:
+   - **Alineación de Slit y Centroide Óptico X**: Botón a Orden Cero (0.0 nm), ajuste de ancho micrométrico de rendija y auto-calibración por ajuste gaussiano subpíxel del centroide horizontal (`SLIT_CENTER_PIXEL_X`).
+   - **Offsets de Rejilla y Detector vía SDK Oficial**: Vinculación directa con `ShamrockCIF.dll` mediante las funciones `ShamrockGetGratingOffset`, `ShamrockSetGratingOffset`, `ShamrockGetDetectorOffset`, `ShamrockSetDetectorOffset` y `ShamrockGetSlitZeroPosition`.
+   - **Calibración Cúbica y Lámpara Halógena**: Verificación de coeficientes de fábrica de la EEPROM $\lambda(p) = a + bp + cp^2 + dp^3$ y perfiles de lámpara trazable.
+   - **Parches en Step & Glue**: Incorporación del botón de aborto cooperativo **"⏹ Detener Escaneo"** (`stopMeasurementSignal`) y exportador directo **"💾 Guardar Espectro..."** (`saveSpectrumSignal`).
+
+3. **Implementación de 5 Modos Seleccionables de Criterio de Parada (`modules/measurements.py`)**:
    - **Modo 0: Legacy (Salto Relativo Estándar)**: Mantiene $100\%$ de compatibilidad con secuencias históricas ($I_{\text{new}} / I_{\text{old}} > \text{Umbral}$).
    - **Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso**: Permite definir `Umbral Absoluto (V)` para solucionar impresiones instantáneas a $t=0$ y `N hold steps` para evitar falsas detecciones de partículas "de paso" (tránsito temporal).
    - **Modo 2: Derivada Temporal Adaptativa & Aplanamiento ($dI/dt$)**: Evalúa la derivada discreta en tiempo real para detectar la meseta en alto nivel ($dI/dt \to 0$), solucionando curvas de crecimiento exponencial $1-e^{-t/\tau}$.
@@ -66,10 +78,19 @@ Este archivo mantiene el registro continuo de los cambios, soluciones y validaci
   ```powershell
   .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; import sys; app = QApplication(sys.argv); from modules.measurements import Frontend, Backend; fe = Frontend(mode='printing'); be = Backend(mode='printing'); fe.make_connection(be); print('Merged measurements.py PASSED!')"
   ```
-  Result: **`PASSED`** (Compilación e instanciación limpias).
-
-- **Prueba Completa de Detección Multimotor Picasso (MLE, LQ, Avg)**:
-  ```powershell
-  .\.venv\Scripts\python.exe -c "import sys, numpy as np; from PyQt6.QtWidgets import QApplication; app = QApplication(sys.argv); from analysis.image_analyzer import ImageAnalyzerWidget; win = ImageAnalyzerWidget(); win._raw_frame = np.zeros((200, 200, 3), dtype=np.uint8); win._current_frame = win._raw_frame; win._trackpy_params = {'engine': 'picasso', 'min_net_gradient': 200.0, 'box_size': 7, 'fit_method': 'gaussmle'}; win._run_detection(); print('Picasso Tests PASSED!')"
-  ```
   Result: **`PASSED`** (Detección sub-píxel operativa en los 3 métodos).
+
+---
+
+## 4. Raman Analyzer Suite: Selector de Láser de Excitación y Línea Base Bi-Modal en Multi-Espectro
+- **🔬 Láser de Excitación Multi-Espectro**: Selector de $\lambda_{\text{laser}}$ (532 nm, 632.8 nm, 637 nm, 785 nm, 592 nm o personalizado) con recálculo dinámico del Raman shift ($\text{cm}^{-1}$) y sincronización bidireccional con la pestaña individual.
+- **📉 Línea Base Bi-Modal**:
+  - **Modo 1 (Archivo de Referencia / Fondo)**: Carga de archivo externo o selección de un espectro del lote como blanco, con interpolación sobre la grilla común y sustracción homogénea.
+  - **Modo 2 (Cálculo Individual por Espectro)**: Aplicación adaptativa e independiente de AsLS, AirPLS, ModPoly o Rolling Ball para cada curva del lote.
+  - **Modo 3 (Sin Corrección)**: Cuentas brutas sin sustracción.
+- **✂️ Recorte de ROI y Poda de Bordes CCD en Multi-Espectro**:
+  - Botón directo `✂️ Recortar a Cursores A y B` con región interactiva sombreada arrastrable en el gráfico.
+  - Atajo `⚡ Recortar Láser/Rayleigh (< 150 cm⁻¹)` para purgar dispersión elástica sin afectar las bandas moleculares.
+  - Campos numéricos $[X_{\min}, X_{\max}]\ \text{cm}^{-1}$ y poda de puntos en inicio y fin del sensor CCD (`trim_left_pts`, `trim_right_pts`).
+  - Botón `↺ Restaurar Rango Completo` para recuperar el 100% de la extensión espectral original.
+- **Verificación**: 100% en pruebas de motor (`test_raman_multi_engine.py`), ciclo de vida GUI (`test_raman_gui.py`) y diagnósticos de sistema (`run_all_diagnostics.py`).

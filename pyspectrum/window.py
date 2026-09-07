@@ -23,6 +23,7 @@ from pyspectrum.modules.camera_andor import Frontend as CameraFrontend, Backend 
 from pyspectrum.modules.step_and_glue import Frontend as StepGlueFrontend, Backend as StepGlueBackend
 from pyspectrum.modules.hyperspectral_confocal import Frontend as ConfocalFrontend, Backend as ConfocalBackend
 from pyspectrum.modules.static_raman import StaticRamanWidget, StaticRamanBackend
+from pyspectrum.modules.calibration_dock import CalibrationFrontend, CalibrationBackend
 
 from pyspectrum.modules.routines.luminescence import LuminescenceWidget, LuminescenceBackend
 from pyspectrum.modules.routines.growth_kinetics import GrowthKineticsWidget, GrowthKineticsBackend
@@ -117,6 +118,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         act_hw.triggered.connect(self._open_hardware_dashboard)
         tools_menu.addAction(act_hw)
 
+        act_calib = QtGui.QAction("🎯 Calibraciones del Sistema (Slit, Grating, Offset)", self)
+        act_calib.triggered.connect(lambda: self.dock_calibration.raise_())
+        tools_menu.addAction(act_calib)
+
         # ── Menú Rutinas Especializadas ───────────────────────────────────────
         routines_menu = menubar.addMenu("🧪 Rutinas")
 
@@ -163,6 +168,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.dock_raman.addWidget(self.raman_widget)
         self.dock_area.addDock(self.dock_raman, 'above', self.dock_sandg)
 
+        self.dock_calibration = Dock("🎯 Calibraciones del Sistema", size=(650, 400))
+        self.calib_widget = CalibrationFrontend()
+        self.dock_calibration.addWidget(self.calib_widget)
+        self.dock_area.addDock(self.dock_calibration, 'above', self.dock_sandg)
+
         self.dock_confocal = Dock("🧬 Mapeo Confocal Hiperespectral (X, Y, λ)", size=(650, 360))
         self.confocal_widget = ConfocalFrontend()
         self.dock_confocal.addWidget(self.confocal_widget)
@@ -194,6 +204,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         self.confocal_backend = ConfocalBackend(self.camera, self.spectrometer)
         self.confocal_backend.make_connection(self.confocal_widget)
+
+        self.calib_backend = CalibrationBackend(self.camera, self.spectrometer)
+        self.calib_backend.make_connection(self.calib_widget)
+        self.calib_backend.statusSignal.connect(lambda msg: self.statusBar().showMessage(msg, 4000))
 
         self.lumin_widget = LuminescenceWidget(self)
         self.lumin_backend = LuminescenceBackend(self.camera, self.spectrometer)

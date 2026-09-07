@@ -79,6 +79,10 @@ def run_tests():
         except Exception as e:
             assert_test(f"Obturador [{sh}]", False, f"({e})")
 
+    from tests.test_powerbutton_actuation import test_power_actuation_via_signals
+    test_power_actuation_via_signals()
+    assert_test("Reactividad Flipper & Checkbox Potencia (Señales Qt)", True)
+
     from pyspectrum.drivers.shamrock_driver import get_shamrock, DEVICE
     sh_driver = get_shamrock()
     ret, sn = sh_driver.ShamrockGetSerialNumber(DEVICE)
