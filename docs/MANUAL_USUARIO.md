@@ -748,9 +748,11 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
 
 ### 11.2 Suite Multi-Espectro & Series Temporales (`MultiSpectrumWidget`)
 Diseñada para cinéticas químicas, series temporales SERS y comparaciones de lotes:
-- **🔬 Láser de Excitación y Recálculo Dinámico de Raman Shift**:
-  - Selector de longitudes de onda estándar (532.0 nm Verde, 632.8 nm Rojo He-Ne, 637.0 nm Diodo, 785.0 nm NIR, 592.0 nm Amarillo) o valor personalizado.
-  - Al cambiar el láser se recalcula al vuelo la dispersión $\Delta\tilde{\nu} = (1/\lambda_{\text{laser}} - 1/\lambda) \times 10^7\ [\text{cm}^{-1}]$ y la grilla común de interpolación de todo el lote, sincronizando con la pestaña individual si la casilla `[X] Sincronizar con Espectro Individual` está activa.
+- **🔬 Láser de Excitación y Selector Tri-Modal de Unidades Espectrales**:
+  - **Selector de Láser**: Longitudes de onda estándar (532.0 nm Verde, 632.8 nm Rojo He-Ne, 637.0 nm Diodo, 785.0 nm NIR, 592.0 nm Amarillo) o valor personalizado.
+  - **Selector de Unidades Eje X**: Permite alternar de forma inmediata entre **Corrimiento Raman ($\text{cm}^{-1}$)**, **Longitud de Onda ($\text{nm}$)** y **Energía Relativa ($\text{eV}$)**.
+  - **Efectos Globales**: Al cambiar de unidad, se actualiza el eje X de todos los gráficos (Superposición/Cascada, Promedio $\mu \pm \sigma$, Mapa de Calor 2D y Cargas PCA), la grilla común remuestreada `common_x`, los sufijos y resolución de los spinboxes (4 decimales en eV, 1 decimal en $\text{cm}^{-1}$ y $\text{nm}$), el corte de filtro Rayleigh y la sustracción de blanco en Modo 1.
+  - **Sincronización Bidireccional**: La casilla `[X] Sincronizar con Espectro Individual` propaga tanto el láser como la unidad activa entre ambas pestañas instantáneamente.
 - **✂️ Recorte de Región de Interés (ROI) y Poda de Bordes del Sensor CCD**:
   - Botón directo `✂️ Recortar a Cursores A y B`: Adopta el intervalo visual $[\min(A,B), \max(A,B)]$ arrastrado con las reglas A y B o la región sombreada en el gráfico y recorta todos los espectros del lote.
   - Atajo `⚡ Recortar Láser/Rayleigh (< 150 cm⁻¹)`: Poda el flanco del filtro de dispersión elástica en el inicio del espectro.
@@ -1014,6 +1016,7 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 | **`analysis/`**| [analysis/spiral.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/spiral.py) | **Trayectorias Helicoidales**: Algoritmo de transformación de matriz simétrica a espiral continua en sentido horario/antihorario. |
 | **`analysis/`**| [analysis/image_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/image_analyzer.py) | **Analizador Gráfico de Imágenes**: Herramienta de medición espacial y calibración en $\mu\text{m}/\text{px}$ sobre fotos guardadas. |
 | **`analysis/`**| [analysis/psf_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf_analyzer.py) | **Caracterizador de PSF**: Ajuste no lineal en tiempo real de funciones PSF sobre datos confocales exportados. |
+| **`analysis/`**| [analysis/raman_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/raman_analyzer.py) | **Suite Raman & SERS Analyzer 3.0**: Análisis individual, calibración de láser, desconvolución Voigt/Lorentz, termometría Stokes/Anti-Stokes, suite multi-espectro con pestaña de crudos/líneas de base y exportación contextual dinámica (PNG 600 DPI, CSV, TSV). |
 
 
 ---

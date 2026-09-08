@@ -114,7 +114,7 @@ Diseñada para experimentos de cinética química, series temporales SERS, mapeo
 └─────────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.1 Calibración del Láser de Excitación ($\lambda_{\text{laser}}$)
+### 3.1 Calibración del Láser de Excitación ($\lambda_{\text{laser}}$) y Selector de Unidades Espectrales
 - **Selector Directo de Longitudes de Onda**:
   - `532.0 nm` (Verde DPSS / Nd:YAG frecuencialmente doblado)
   - `632.8 nm` (Rojo He-Ne)
@@ -122,11 +122,18 @@ Diseñada para experimentos de cinética química, series temporales SERS, mapeo
   - `785.0 nm` (NIR Infrarrojo Cercano)
   - `592.0 nm` (Amarillo)
   - `Personalizado...` (habilita spinbox de alta precisión con pasos de $0.1\text{ nm}$).
+- **Selector Tri-Modal de Unidades Espectrales Eje X**:
+  - `Corrimiento Raman (cm⁻¹)`: Desplazamiento Raman inelástico calibrado respecto a $\lambda_{\text{laser}}$.
+  - `Longitud de Onda (nm)`: Coordenada óptica absoluta directa registrada por el detector.
+  - `Energía Relativa (eV)`: Conversión cuántica $E = \Delta\tilde{\nu} \cdot 1.239841984\times 10^{-4}\text{ eV}$.
+- **Conmutación Universal e Instantánea**:
+  - Actualiza dinámicamente las etiquetas y escalas del eje X en los 4 gráficos clave: Superposición/Cascada (`plot_multi`), Espectro Promedio (`plot_mean`), Mapa de Calor 2D (`plot_heatmap`) y Cargas PCA (`plot_pca_loadings`).
+  - Adapta automáticamente los sufijos y la resolución decimal de los campos numéricos de recorte (`spin_crop_xmin`, `spin_crop_xmax`) y pico de referencia (`spin_ref_peak`) a 4 decimales en modo $\text{eV}$ y 1 decimal en $\text{cm}^{-1}$ y $\text{nm}$.
+  - Convierte transparentemente el espectro de fondo (Modo 1) al sistema de coordenadas activo para una sustracción coherente en cualquier unidad.
+  - Adapta el atajo rápido Rayleigh al umbral físico equivalente en la unidad elegida ($150\text{ cm}^{-1}$, $\approx 536.3\text{ nm}$ para láser 532 nm, o $\approx 0.0186\text{ eV}$).
 - **Recálculo Espectral Dinámico**:
-  Al cambiar el láser activo, el motor recalcula instantáneamente el desplazamiento Raman para toda la colección:
-  $$\Delta\tilde{\nu} = \left(\frac{1}{\lambda_{\text{laser}}[\text{nm}]} - \frac{1}{\lambda[\text{nm}]}\right) \times 10^7\quad [\text{cm}^{-1}]$$
-  Reconstruye la grilla común interpolada (`common_x`) y refresca en vivo los modos Overlay, Cascada, Heatmap, Promedio, Cinética y PCA.
-- **Sincronización Bidireccional**: La casilla `[X] Sincronizar con Espectro Individual` propaga los cambios de láser entre la pestaña individual (`RamanAnalyzerWindow`) y la suite multi-espectro (`MultiSpectrumWidget`) de manera instantánea.
+  Al cambiar el láser activo o la unidad, el motor recalcula instantáneamente la grilla común (`common_x`) y refresca en vivo los modos Overlay, Cascada, Heatmap, Promedio, Cinética y PCA.
+- **Sincronización Bidireccional**: La casilla `[X] Sincronizar con Espectro Individual` propaga tanto los cambios de láser como las unidades seleccionadas entre la pestaña individual (`RamanAnalyzerWindow`) y la suite multi-espectro (`MultiSpectrumWidget`) de manera instantánea.
 - **Auto-Detección desde Metadatos**: Al importar archivos con metadatos Andor Solis (ej. `Laser Wavelength: 785 nm`), el widget auto-selecciona el láser correspondiente.
 
 ### 3.2 Selección de Región de Interés (ROI) y Poda de Bordes
@@ -163,12 +170,18 @@ A diferencia del procesamiento simple, la suite ofrece dos modos analíticos dif
 3. **Por Área Unitaria**: Normaliza la integral total a la unidad ($\int Y \, d\nu = 1$), corrigiendo variaciones de potencia láser o fluctuaciones de enfoque.
 4. **SNV (*Standard Normal Variate*)**: Centrado en la media y escalado por la varianza ($z = (y - \bar{y}) / s$).
 
-### 3.4 Modos de Visualización
-- **Superposición (*Overlay*)**: Delineado simultáneo con paletas continuas perceptualmente uniformes (*Viridis, Plasma, Turbo, Magma, Rainbow*).
-- **Cascada (*Waterfall*)**: Separación vertical con barra deslizadora continua ($0 - 100\%$) para distinguir desplazamientos sutiles sin amontonamiento.
-- **Mapa de Calor 2D (*Heatmap*)**: Representación matricial tiempo/muestra vs. Raman shift con barra de calibración de intensidad.
+### 3.4 Pestaña de Espectros Crudos & Líneas de Base (`📉 Crudos & Línea Base`)
+Permite inspeccionar visualmente los datos originales antes del preprocesamiento y comprobar la precisión del modelo de línea base:
+- **Visualización Simultánea de Crudos**:
+  Todos los espectros del lote se dibujan en sus intensidades brutas originales sobre la grilla espectral común.
+- **Regla Estricta para Modo 1 (Referencia / Blanco)**:
+  Cuando se selecciona corregir con el archivo de fondo de referencia, **se dibuja exclusivamente una única curva de línea base** (la del archivo de fondo interpolada, resaltada en línea punteada `#F38BA8` de grosor 2.6). Esto evita la sobrecarga visual y permite verificar de un vistazo cómo se relaciona el fondo de referencia con toda la serie.
+- **Visualización en Modo 2 (Cálculo Individual)**:
+  Cada espectro del lote muestra su propia línea base algorítmica estimada (AsLS, AirPLS, ModPoly o Rolling Ball) con línea punteada en el color asignado a dicho espectro.
+- **Modo 3 (Sin corrección)**:
+  Muestra únicamente los espectros crudos sin curvas de fondo superpuestas.
 
-### 3.3 Herramientas Cuantitativas
+### 3.5 Herramientas Cuantitativas
 - **Espectro Promedio $\pm \sigma$ & RSD%**:
   Traza la curva promedio $\mu(\nu)$ junto a un intervalo de confianza sombreado semitransparente $\pm \sigma(\nu)$. Calcula la **Desviación Estándar Relativa porcentual ($\text{RSD}\% = 100 \cdot \sigma / \mu$)** global y puntual en la posición del cursor A, evaluando la reproducibilidad lote a lote.
 - **Cinética de Banda**:
@@ -177,3 +190,32 @@ A diferencia del procesamiento simple, la suite ofrece dos modos analíticos dif
   Descomposición espectral por valores singulares (SVD) con centrado en la media:
   $$X = U \Sigma V^T$$
   Genera el gráfico bidimensional de **Scores** ($\text{PC1}$ vs $\text{PC2}$) para agrupamiento no supervisado (*clustering*) de muestras y el espectro de **Loadings** (cargas) para identificar las bandas vibracionales responsables de la varianza.
+
+### 3.6 Sistema de Exportación Dinámica y Contextual (PNG 600 DPI, CSV, TSV)
+Tanto la suite multi-espectro (`MultiSpectrumWidget`) como la pestaña individual (`RamanAnalyzerWindow`) cuentan con barras de exportación de 1-click adaptadas a publicaciones científicas:
+- **Botones Dinámicos en Multi-Espectro**:
+  La barra superior adapta automáticamente su texto, tooltips y formato según la pestaña activa:
+  1. `📉 Crudos & Línea Base`: Exporta gráfico PNG y CSV con columnas `[X, Raw_1, ..., Raw_N, Baseline_Ref]` (Modo 1) o `[X, Raw_1, Base_1, ..., Raw_N, Base_N]` (Modo 2).
+  2. `📈 Espectros (Overlay / Cascada)`: Exporta figura PNG a 2400 px y matriz normalizada completa en CSV.
+  3. `📊 Promedio ± Desvío`: Exporta gráfico de banda de dispersión a 2400 px y CSV con `Mean_Intensity, Std_Dev, Minus_1Sigma, Plus_1Sigma, RSD_Percent`.
+  4. `⏱️ Cinética de Banda`: Exporta gráfico de tendencia y CSV con altura máxima y área integrada entre reglas A-B para cada espectro.
+  5. `🗺️ Mapa de Calor 2D`: Exporta mapa 2D a PNG y matriz CSV tiempo vs. coordenada espectral.
+  6. `🧬 Análisis PCA`: Exporta una **figura científica combinada a 2400 px** ensamblando lado a lado el Score Plot y los Loadings mediante renderizado compuesto de alta resolución, y un CSV estructurado con bloques de Scores y Cargas espectrales.
+- **Copiado al Portapapeles (TSV)**:
+  El botón `📋 Copiar TSV` envía los datos tabulados directamente al portapapeles listos para pegar en OriginLab, GraphPad Prism o Microsoft Excel con formato y encabezados completos.
+- **Exportación Rápida en Espectro Individual**:
+  Barra superior sobre los gráficos sincronizados con botones directos: `📸 Exportar Gráfico (PNG 600 DPI)`, `💾 Exportar CSV` y `📋 Copiar TSV`.
+
+### 3.7 🌓 Deslizador de Tema Claro / Oscuro para Visualización y Exportación
+Para satisfacer los requerimientos de edición de publicaciones científicas y compatibilidad con diapositivas o reportes impresos, tanto `MultiSpectrumWidget` como `RamanAnalyzerWindow` incorporan un **deslizador de fondo estricto**:
+- **Selector Discreto (Solo 0 y 100, sin intermedios)**:
+  Un control deslizante físico (`QSlider` horizontal) con tope estricto en los extremos `0` (🌙 Oscuro) y `100` (☀️ Claro). Al desplazarse o hacer clic, chasquea automáticamente sin admitir valores intermedios.
+- **Tema Oscuro (`0: #181825`)**:
+  Paleta Catppuccin Mocha con fondo oscuro de alto contraste, curvas pasteles fluorescentes y tipografía `#CDD6F4`, ideal para pantallas de laboratorio y microscopía.
+- **Tema Claro (`100: #FFFFFF`)**:
+  Fondo blanco puro editorial con ejes, textos y leyendas en negro carbón `#11111B`, etiquetas de picos en violeta profundo `#7C3AED`, y curvas de alto contraste cromático (`#1E66F5` azul real, `#15803D` verde esmeralda, `#D97706` ámbar y `#D20F39` carmesí).
+- **Sincronización Bidireccional**:
+  Alternar el deslizador en la vista individual actualiza en tiempo real los 7 paneles gráficos de multi-espectro y viceversa.
+- **Exportación Fiel de Imágenes (PNG 600 DPI / 2400 px)**:
+  Las imágenes exportadas respetan con fidelidad absoluta el fondo seleccionado (blanco editorial `#FFFFFF` o modo oscuro `#181825`), incluyendo la composición integrada de la pestaña PCA.
+

@@ -128,10 +128,16 @@ class RamanAnalyzerWindow(QMainWindow):
         self.laser_nm: float = 532.0
         self.unit_mode: str = "raman_shift"  # 'raman_shift' (cm^-1) o 'wavelength' (nm) o 'energy' (eV)
 
+        # Tema de fondo para visualización y exportación (0: Oscuro #181825, 100: Claro #FFFFFF)
+        self.theme_mode: int = 0
+        self.slider_theme_single: Optional[QSlider] = None
+        self.lbl_theme_single: Optional[QLabel] = None
+
         self._setup_styles()
         self._setup_ui()
         self._setup_plots()
         self._setup_cursors()
+        self.set_theme_mode(self.theme_mode, sync_multi=False)
 
         # Cargar archivo de demostración si existe
         demo_file = Path(__file__).resolve().parent.parent / "reserva" / "90%_in_red_10s_3_em.asc"
@@ -774,6 +780,53 @@ class RamanAnalyzerWindow(QMainWindow):
         plots_vlo.setContentsMargins(0, 0, 0, 0)
         plots_vlo.setSpacing(4)
 
+        # Barra superior de exportación rápida sobre los gráficos
+        quick_exp_bar = QWidget()
+        quick_exp_hlo = QHBoxLayout(quick_exp_bar)
+        quick_exp_hlo.setContentsMargins(4, 2, 4, 2)
+        # Deslizador de Fondo (Claro / Oscuro)
+        quick_exp_hlo.addWidget(QLabel("Fondo:"))
+        self.slider_theme_single = QSlider(Qt.Orientation.Horizontal)
+        self.slider_theme_single.setRange(0, 100)
+        self.slider_theme_single.setSingleStep(100)
+        self.slider_theme_single.setPageStep(100)
+        self.slider_theme_single.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider_theme_single.setTickInterval(100)
+        self.slider_theme_single.setValue(self.theme_mode)
+        self.slider_theme_single.setFixedWidth(46)
+        self.slider_theme_single.setToolTip("Alternar Fondo: 0 = 🌙 Oscuro (#181825) | 100 = ☀️ Claro (#FFFFFF)")
+        self.slider_theme_single.valueChanged.connect(self._on_theme_slider_changed)
+        quick_exp_hlo.addWidget(self.slider_theme_single)
+
+        self.lbl_theme_single = QLabel("☀️ Claro (100)" if self.theme_mode == 100 else "🌙 Oscuro (0)")
+        self.lbl_theme_single.setStyleSheet(
+            "font-size: 8.5pt; color: #11111B; font-weight: bold;"
+            if self.theme_mode == 100 else
+            "font-size: 8.5pt; color: #CDD6F4; font-weight: bold;"
+        )
+        quick_exp_hlo.addWidget(self.lbl_theme_single)
+
+        quick_exp_hlo.addStretch()
+
+        self.btn_quick_copy_tsv = QPushButton("📋 Copiar TSV")
+        self.btn_quick_copy_tsv.setToolTip("Copiar datos del espectro actual al portapapeles en formato TSV")
+        self.btn_quick_copy_tsv.clicked.connect(self._on_copy_tsv)
+        quick_exp_hlo.addWidget(self.btn_quick_copy_tsv)
+
+        self.btn_quick_export_csv = QPushButton("💾 Exportar CSV")
+        self.btn_quick_export_csv.setToolTip("Exportar datos del espectro actual a archivo .CSV")
+        self.btn_quick_export_csv.setStyleSheet("background-color: #A6E3A1; color: #11111B; font-weight: bold;")
+        self.btn_quick_export_csv.clicked.connect(self._on_export_csv)
+        quick_exp_hlo.addWidget(self.btn_quick_export_csv)
+
+        self.btn_quick_export_png = QPushButton("📸 Exportar Gráfico (PNG 600 DPI)")
+        self.btn_quick_export_png.setToolTip("Exportar figura científica a PNG de alta resolución (600 DPI / 2400 px)")
+        self.btn_quick_export_png.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold;")
+        self.btn_quick_export_png.clicked.connect(self._on_export_png)
+        quick_exp_hlo.addWidget(self.btn_quick_export_png)
+
+        plots_vlo.addWidget(quick_exp_bar)
+
         # Layout gráfico con dos gráficos sincronizados
         self.plot_layout = pg.GraphicsLayoutWidget()
         plots_vlo.addWidget(self.plot_layout)
@@ -1036,6 +1089,127 @@ class RamanAnalyzerWindow(QMainWindow):
         self.spin_peak_max_width.setSuffix(suf)
 
         self._recalculate_all()
+
+        if hasattr(self, "tab_multi") and self.tab_multi and getattr(self.tab_multi, "check_sync_laser", None) and self.tab_multi.check_sync_laser.isChecked():
+            self.tab_multi.set_unit_mode(self.unit_mode, sync_parent=False)
+
+    def set_unit_mode(self, mode: str, sync_multi: bool = True):
+        """Fija la unidad de visualización (raman_shift, wavelength, energy) y sincroniza."""
+        modes = ["raman_shift", "wavelength", "energy"]
+        labels = ["Corrimiento Raman (cm⁻¹)", "Longitud de Onda (nm)", "Energía Relativa (eV)"]
+        if mode not in modes:
+            return
+        idx = modes.index(mode)
+        if mode == self.unit_mode:
+            if self.combo_units.currentIndex() != idx:
+                self.combo_units.blockSignals(True)
+                self.combo_units.setCurrentIndex(idx)
+                self.combo_units.blockSignals(False)
+            return
+
+        self.unit_mode = mode
+        self.combo_units.blockSignals(True)
+        self.combo_units.setCurrentIndex(idx)
+        self.combo_units.blockSignals(False)
+
+        self.plot_bottom.setLabel("bottom", labels[idx])
+        suf = " cm⁻¹" if self.unit_mode == "raman_shift" else (" nm" if self.unit_mode == "wavelength" else " eV")
+        self.spin_peak_min_width.setSuffix(suf)
+        self.spin_peak_max_width.setSuffix(suf)
+
+        self._recalculate_all()
+
+        if sync_multi and hasattr(self, "tab_multi") and self.tab_multi:
+            self.tab_multi.set_unit_mode(self.unit_mode, sync_parent=False)
+
+    def _on_theme_slider_changed(self, val: int):
+        """Manejador del deslizador de fondo en espectro individual: 0 (Oscuro) o 100 (Claro), sin intermedios."""
+        snapped = 0 if val < 50 else 100
+        if val != snapped and self.slider_theme_single:
+            self.slider_theme_single.blockSignals(True)
+            self.slider_theme_single.setValue(snapped)
+            self.slider_theme_single.blockSignals(False)
+        self.set_theme_mode(snapped, sync_multi=True)
+
+    def set_theme_mode(self, val: int, sync_multi: bool = True):
+        """Ajusta el modo de fondo (0 = Oscuro #181825, 100 = Claro #FFFFFF)."""
+        snapped = 0 if val < 50 else 100
+        self.theme_mode = snapped
+        is_light = (self.theme_mode == 100)
+
+        # Actualizar slider y label local
+        if self.slider_theme_single:
+            self.slider_theme_single.blockSignals(True)
+            self.slider_theme_single.setValue(self.theme_mode)
+            self.slider_theme_single.blockSignals(False)
+
+        if self.lbl_theme_single:
+            if is_light:
+                self.lbl_theme_single.setText("☀️ Claro (100)")
+                self.lbl_theme_single.setStyleSheet("font-size: 8.5pt; color: #11111B; font-weight: bold;")
+            else:
+                self.lbl_theme_single.setText("🌙 Oscuro (0)")
+                self.lbl_theme_single.setStyleSheet("font-size: 8.5pt; color: #CDD6F4; font-weight: bold;")
+
+        # Colores para gráficos y ejes
+        bg_col = QColor(255, 255, 255) if is_light else QColor(24, 24, 37)
+        fg_col = QColor(17, 17, 27) if is_light else QColor(205, 214, 244)
+        fg_hex = "#11111B" if is_light else "#CDD6F4"
+
+        if hasattr(self, "plot_layout") and self.plot_layout:
+            self.plot_layout.setBackground(bg_col)
+
+        plots_config = [
+            (getattr(self, "plot_top", None), "Espectro Original & Estimación de Línea Base", "#1E66F5", "#89B4FA"),
+            (getattr(self, "plot_bottom", None), "Espectro Raman Corregido & Identificación de Bandas", "#15803D", "#A6E3A1")
+        ]
+        for p, default_title, light_color, dark_color in plots_config:
+            if p is not None:
+                title_col = light_color if is_light else dark_color
+                p.setTitle(f"<b style='color:{title_col}; font-size:11pt;'>{default_title}</b>")
+                for ax_name in ("bottom", "left", "top", "right"):
+                    ax = p.getAxis(ax_name)
+                    if ax:
+                        ax.setTextPen(fg_col)
+                        ax.setPen(fg_col)
+                if p.legend is not None:
+                    try:
+                        p.legend.setLabelTextColor(fg_col)
+                        p.legend.setPen(fg_col)
+                        legend_bg = QColor(245, 245, 250, 220) if is_light else QColor(30, 30, 46, 220)
+                        p.legend.setBrush(legend_bg)
+                    except Exception:
+                        pass
+
+        # Plumas de curvas individuales
+        if hasattr(self, "curve_raw") and self.curve_raw:
+            self.curve_raw.setPen(pg.mkPen("#1E66F5" if is_light else "#89B4FA", width=1.5))
+        if hasattr(self, "curve_baseline") and self.curve_baseline:
+            self.curve_baseline.setPen(pg.mkPen("#D97706" if is_light else "#FAB387", width=2.0, style=Qt.PenStyle.DashLine))
+        if hasattr(self, "scatter_spikes") and self.scatter_spikes:
+            self.scatter_spikes.setPen(pg.mkPen("#D20F39" if is_light else "#F38BA8", width=1.5))
+        if hasattr(self, "curve_corrected") and self.curve_corrected:
+            self.curve_corrected.setPen(pg.mkPen("#15803D" if is_light else "#A6E3A1", width=1.8))
+        if hasattr(self, "curve_fit") and self.curve_fit:
+            self.curve_fit.setPen(pg.mkPen("#B91C1C" if is_light else "#F38BA8", width=2.2))
+        if hasattr(self, "scatter_peaks") and self.scatter_peaks:
+            self.scatter_peaks.setBrush(pg.mkBrush("#7C3AED" if is_light else "#F5C2E7"))
+            self.scatter_peaks.setPen(pg.mkPen("#FFFFFF" if is_light else "#11111B", width=1.0))
+
+        # Reglas / cursores
+        if hasattr(self, "cursor_a") and self.cursor_a:
+            self.cursor_a.setPen(pg.mkPen("#D20F39" if is_light else "#F38BA8", width=2.0, style=Qt.PenStyle.SolidLine))
+        if hasattr(self, "cursor_b") and self.cursor_b:
+            self.cursor_b.setPen(pg.mkPen("#D97706" if is_light else "#FAB387", width=1.8, style=Qt.PenStyle.DashLine))
+
+        # Re-renderizar gráficos y etiquetas de picos
+        if hasattr(self, "_update_plots"):
+            self._update_plots()
+
+        # Sincronizar con el widget multi-espectro
+        if sync_multi and hasattr(self, "tab_multi") and self.tab_multi:
+            if hasattr(self.tab_multi, "set_theme_mode"):
+                self.tab_multi.set_theme_mode(self.theme_mode, sync_parent=False)
 
     # ── Pipeline de Procesamiento (Recorte + Spikes + Línea Base + Filtros) ────
 
@@ -1511,10 +1685,11 @@ class RamanAnalyzerWindow(QMainWindow):
             self.scatter_peaks.setData(x=pk_x, y=pk_y)
 
             if self.check_show_peak_labels.isChecked():
+                pk_lbl_col = "#7C3AED" if self.theme_mode == 100 else "#F5C2E7"
                 for p in self.detected_peaks:
                     txt = pg.TextItem(
                         text=f"{p['position']:.1f}",
-                        color="#F5C2E7",
+                        color=pk_lbl_col,
                         anchor=(0.5, 1.2)
                     )
                     txt.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
@@ -1643,10 +1818,47 @@ class RamanAnalyzerWindow(QMainWindow):
             exporter = pg.exporters.ImageExporter(self.plot_layout.scene())
             # 600 DPI escalando el ancho a ~2400 px
             exporter.parameters()["width"] = 2400
+            bg_color = QColor("#FFFFFF") if self.theme_mode == 100 else QColor("#181825")
+            exporter.parameters()["background"] = bg_color
             exporter.export(out_path)
             QMessageBox.information(self, "Figura Exportada", f"Figura científica guardada con éxito en:\n{out_path}")
         except Exception as e:
             QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar la imagen:\n{e}")
+
+    def _on_copy_tsv(self):
+        """Copia al portapapeles en formato TSV los datos del espectro actual (longitud de onda, eje activo, crudo, base, corregido)."""
+        if len(self.cropped_wls) == 0:
+            return
+
+        x_shifts = wavelength_to_raman_shift(self.cropped_wls, self.laser_nm)
+        base_col = self.baseline if len(self.baseline) == len(self.cropped_wls) else np.zeros_like(self.cropped_wls)
+        corr_col = self.corrected if len(self.corrected) == len(self.cropped_wls) else self.cropped_raw_counts
+
+        if self.unit_mode == "raman_shift":
+            x_col = x_shifts
+            x_header = "Raman_Shift_cm-1"
+            dec_x = 2
+        elif self.unit_mode == "wavelength":
+            x_col = self.cropped_wls
+            x_header = "Wavelength_nm"
+            dec_x = 4
+        else:
+            x_col = raman_shift_to_ev(x_shifts)
+            x_header = "Energy_eV"
+            dec_x = 4
+
+        header = f"Wavelength_nm\t{x_header}\tRaw_Counts\tBaseline\tCorrected_Counts"
+        lines = [header]
+        for i in range(len(self.cropped_wls)):
+            lines.append(f"{self.cropped_wls[i]:.4f}\t{x_col[i]:.{dec_x}f}\t{self.cropped_raw_counts[i]:.2f}\t{base_col[i]:.2f}\t{corr_col[i]:.2f}")
+
+        tsv_text = "\n".join(lines)
+        QApplication.clipboard().setText(tsv_text)
+        if hasattr(self, "statusBar") and self.statusBar():
+            self.statusBar().showMessage(f"Datos de {self.filepath.name if self.filepath else 'espectro'} copiados al portapapeles (TSV).", 4000)
+        elif os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            QMessageBox.information(self, "Copiado", "Espectro copiado al portapapeles en formato TSV (OriginLab / Excel).")
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════

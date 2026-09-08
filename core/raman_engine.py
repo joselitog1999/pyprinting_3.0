@@ -199,6 +199,11 @@ def raman_shift_to_ev(raman_shift_cm1: np.ndarray | float) -> np.ndarray | float
     return np.asarray(raman_shift_cm1, dtype=np.float64) * EV_PER_CM1
 
 
+def ev_to_raman_shift(energy_ev: np.ndarray | float) -> np.ndarray | float:
+    """Convierte energía relativa (eV) a Corrimiento Raman (cm^-1)."""
+    return np.asarray(energy_ev, dtype=np.float64) / EV_PER_CM1
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  3. ELIMINADOR DE RAYOS CÓSMICOS (SPIKE REMOVAL)
 # ══════════════════════════════════════════════════════════════════════════════

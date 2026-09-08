@@ -28,11 +28,14 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox, QSplitter,
     QGroupBox, QFormLayout, QScrollArea, QFrame, QColorDialog, QApplication
 )
-from PyQt6.QtGui import QFont, QColor, QPen
+from PyQt6.QtGui import QFont, QColor, QPen, QPainter, QImage
 
 from core.raman_engine import (
     parse_andor_solis_file,
     wavelength_to_raman_shift,
+    raman_shift_to_wavelength,
+    raman_shift_to_ev,
+    ev_to_raman_shift,
     crop_spectrum,
     baseline_asls,
     baseline_airpls,
@@ -89,6 +92,7 @@ class MultiSpectrumWidget(QWidget):
         # Matrices remuestreadas a grilla común
         self.common_x: np.ndarray = np.array([])
         self.Y_raw: np.ndarray = np.empty((0, 0))
+        self.Y_baseline: np.ndarray = np.empty((0, 0))
         self.Y_corrected: np.ndarray = np.empty((0, 0))
         self.Y_displayed: np.ndarray = np.empty((0, 0))
         self.active_indices: List[int] = []
@@ -97,6 +101,9 @@ class MultiSpectrumWidget(QWidget):
         self.laser_nm: float = 532.0
         if self.parent_analyzer and hasattr(self.parent_analyzer, "laser_nm"):
             self.laser_nm = float(self.parent_analyzer.laser_nm)
+        self.unit_mode: str = "raman_shift"  # 'raman_shift' (cm^-1), 'wavelength' (nm), 'energy' (eV)
+        if self.parent_analyzer and hasattr(self.parent_analyzer, "unit_mode"):
+            self.unit_mode = str(self.parent_analyzer.unit_mode)
         self.view_mode: str = "overlay"  # 'overlay', 'waterfall', 'heatmap'
         self.norm_mode: str = "none"     # 'none', 'max', 'peak', 'area', 'snv'
         self.ref_peak_pos: float = 1078.0
@@ -106,6 +113,7 @@ class MultiSpectrumWidget(QWidget):
         self.ref_blank_name: str = ""
         self.ref_blank_wls: np.ndarray = np.array([])
         self.ref_blank_counts: np.ndarray = np.array([])
+        self.ref_blank_curve: Optional[np.ndarray] = None
 
         # Recorte espectral (ROI) y poda de bordes de detector
         self.enable_crop_x: bool = False
@@ -114,7 +122,23 @@ class MultiSpectrumWidget(QWidget):
         self.trim_left_pts: int = 0
         self.trim_right_pts: int = 0
 
-        # Elementos gráficos
+        # Pestañas y contenedores
+        self.tab_raw_base: Optional[QWidget] = None
+        self.tab_plot: Optional[QWidget] = None
+        self.tab_mean: Optional[QWidget] = None
+        self.tab_kin: Optional[QWidget] = None
+        self.tab_heat: Optional[QWidget] = None
+        self.tab_pca: Optional[QWidget] = None
+
+        # Elementos gráficos y botones de exportación contextual
+        self.theme_mode: int = 0  # 0: Oscuro (#181825), 100: Claro (#FFFFFF)
+        if self.parent_analyzer and hasattr(self.parent_analyzer, "theme_mode"):
+            self.theme_mode = int(self.parent_analyzer.theme_mode)
+        self.slider_theme: Optional[QSlider] = None
+        self.lbl_theme_state: Optional[QLabel] = None
+        self.plot_raw_baseline: Optional[pg.PlotWidget] = None
+        self.lbl_raw_base_info: Optional[QLabel] = None
+        self.btn_export_png: Optional[QPushButton] = None
         self.curve_items: List[pg.PlotDataItem] = []
         self.mean_curve_item: Optional[pg.PlotDataItem] = None
         self.mean_fill_item: Optional[pg.FillBetweenItem] = None
@@ -184,8 +208,8 @@ class MultiSpectrumWidget(QWidget):
 
         ctrl_vlo.addWidget(box_batch)
 
-        # 2. Grupo: Láser de Excitación (Multi-Espectro)
-        box_laser = QGroupBox("🔬 Láser de Excitación")
+        # 2. Grupo: Láser de Excitación & Unidades (Multi-Espectro)
+        box_laser = QGroupBox("🔬 Láser de Excitación & Unidades")
         l_flo = QFormLayout(box_laser)
         l_flo.setSpacing(6)
 
@@ -208,6 +232,18 @@ class MultiSpectrumWidget(QWidget):
         self.spin_multi_laser_custom.setEnabled(False)
         self.spin_multi_laser_custom.valueChanged.connect(self._on_laser_custom_changed)
         l_flo.addRow("λ Personalizada:", self.spin_multi_laser_custom)
+
+        self.combo_units = QComboBox()
+        self.combo_units.addItems([
+            "Corrimiento Raman (cm⁻¹)",
+            "Longitud de Onda (nm)",
+            "Energía Relativa (eV)"
+        ])
+        modes = ["raman_shift", "wavelength", "energy"]
+        if self.unit_mode in modes:
+            self.combo_units.setCurrentIndex(modes.index(self.unit_mode))
+        self.combo_units.currentIndexChanged.connect(self._on_units_changed)
+        l_flo.addRow("Unidades Eje X:", self.combo_units)
 
         self.check_sync_laser = QCheckBox("Sincronizar con Espectro Individual")
         self.check_sync_laser.setChecked(True)
@@ -261,17 +297,17 @@ class MultiSpectrumWidget(QWidget):
 
         self.spin_crop_xmin = QDoubleSpinBox()
         self.spin_crop_xmin.setRange(-5000.0, 50000.0)
-        self.spin_crop_xmin.setDecimals(1)
+        self.spin_crop_xmin.setDecimals(4 if self.unit_mode == "energy" else 1)
         self.spin_crop_xmin.setValue(0.0)
-        self.spin_crop_xmin.setSuffix(" cm⁻¹")
+        self.spin_crop_xmin.setSuffix(self._get_unit_suffix())
         self.spin_crop_xmin.valueChanged.connect(self._on_crop_params_changed)
         range_flo.addRow("X Mínimo:", self.spin_crop_xmin)
 
         self.spin_crop_xmax = QDoubleSpinBox()
         self.spin_crop_xmax.setRange(-5000.0, 50000.0)
-        self.spin_crop_xmax.setDecimals(1)
+        self.spin_crop_xmax.setDecimals(4 if self.unit_mode == "energy" else 1)
         self.spin_crop_xmax.setValue(4000.0)
-        self.spin_crop_xmax.setSuffix(" cm⁻¹")
+        self.spin_crop_xmax.setSuffix(self._get_unit_suffix())
         self.spin_crop_xmax.valueChanged.connect(self._on_crop_params_changed)
         range_flo.addRow("X Máximo:", self.spin_crop_xmax)
         cr_vlo.addWidget(grp_range)
@@ -452,9 +488,10 @@ class MultiSpectrumWidget(QWidget):
 
         ref_hlo = QHBoxLayout()
         self.spin_ref_peak = QDoubleSpinBox()
-        self.spin_ref_peak.setRange(100.0, 4000.0)
+        self.spin_ref_peak.setRange(-5000.0, 50000.0)
+        self.spin_ref_peak.setDecimals(4 if self.unit_mode == "energy" else 1)
         self.spin_ref_peak.setValue(1078.0)
-        self.spin_ref_peak.setSuffix(" cm⁻¹")
+        self.spin_ref_peak.setSuffix(self._get_unit_suffix())
         self.spin_ref_peak.setEnabled(False)
         self.spin_ref_peak.valueChanged.connect(self._reprocess_and_update)
 
@@ -507,29 +544,80 @@ class MultiSpectrumWidget(QWidget):
         self.combo_cmap.currentIndexChanged.connect(self._on_palette_changed)
         tb_hlo.addWidget(self.combo_cmap)
 
+        tb_hlo.addSpacing(12)
+        tb_hlo.addWidget(QLabel("Fondo:"))
+        self.slider_theme = QSlider(Qt.Orientation.Horizontal)
+        self.slider_theme.setRange(0, 100)
+        self.slider_theme.setSingleStep(100)
+        self.slider_theme.setPageStep(100)
+        self.slider_theme.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider_theme.setTickInterval(100)
+        self.slider_theme.setValue(self.theme_mode)
+        self.slider_theme.setFixedWidth(46)
+        self.slider_theme.setToolTip("Alternar Fondo: 0 = 🌙 Oscuro (#181825) | 100 = ☀️ Claro (#FFFFFF)")
+        self.slider_theme.valueChanged.connect(self._on_theme_slider_changed)
+        tb_hlo.addWidget(self.slider_theme)
+
+        self.lbl_theme_state = QLabel("☀️ Claro (100)" if self.theme_mode == 100 else "🌙 Oscuro (0)")
+        self.lbl_theme_state.setStyleSheet(
+            "font-size: 8.5pt; color: #11111B; font-weight: bold;"
+            if self.theme_mode == 100 else
+            "font-size: 8.5pt; color: #CDD6F4; font-weight: bold;"
+        )
+        tb_hlo.addWidget(self.lbl_theme_state)
+
         tb_hlo.addStretch()
 
         self.btn_copy_tsv = QPushButton("📋 Copiar TSV")
-        self.btn_copy_tsv.clicked.connect(self._on_copy_tsv)
-        self.btn_export_csv = QPushButton("💾 Exportar CSV")
+        self.btn_copy_tsv.setToolTip("Copiar datos de la pestaña activa al portapapeles en formato TSV")
+        self.btn_copy_tsv.clicked.connect(self._on_copy_active_tsv)
+
+        self.btn_export_csv = QPushButton("💾 Exportar Datos (.CSV)")
+        self.btn_export_csv.setToolTip("Exportar datos numéricos de la pestaña activa a archivo .CSV")
         self.btn_export_csv.setStyleSheet("background-color: #A6E3A1; color: #11111B; font-weight: bold;")
-        self.btn_export_csv.clicked.connect(self._on_export_csv)
+        self.btn_export_csv.clicked.connect(self._on_export_active_csv)
+
+        self.btn_export_png = QPushButton("📸 Exportar Gráfico (PNG 600 DPI)")
+        self.btn_export_png.setToolTip("Exportar visualización actual a imagen de alta resolución (600 DPI / 2400 px)")
+        self.btn_export_png.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold;")
+        self.btn_export_png.clicked.connect(self._on_export_active_png)
+
         tb_hlo.addWidget(self.btn_copy_tsv)
         tb_hlo.addWidget(self.btn_export_csv)
+        tb_hlo.addWidget(self.btn_export_png)
 
         right_vlo.addWidget(top_bar)
 
         # Pestañas de Visualización y Métricas
         self.tabs_views = QTabWidget()
 
+        # ── Tab 0: Espectros Crudos & Líneas de Base ─────────────────────────
+        self.tab_raw_base = QWidget()
+        trb_vlo = QVBoxLayout(self.tab_raw_base)
+        trb_vlo.setContentsMargins(0, 0, 0, 0)
+        trb_vlo.setSpacing(4)
+
+        self.plot_raw_baseline = pg.PlotWidget(title="Espectros Originales (Crudos) y Líneas de Base")
+        self.plot_raw_baseline.setLabel("bottom", self._get_unit_axis_label())
+        self.plot_raw_baseline.setLabel("left", "Intensidad Original (Cuentas)")
+        self.plot_raw_baseline.showGrid(x=True, y=True, alpha=0.25)
+        self.plot_raw_baseline.addLegend(offset=(-10, 10))
+        trb_vlo.addWidget(self.plot_raw_baseline)
+
+        self.lbl_raw_base_info = QLabel("Modo de Línea Base: N/A")
+        self.lbl_raw_base_info.setStyleSheet("background-color: #181825; color: #CDD6F4; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
+        trb_vlo.addWidget(self.lbl_raw_base_info)
+
+        self.tabs_views.addTab(self.tab_raw_base, "📉 Crudos & Línea Base")
+
         # ── Tab 1: Gráfico Principal de Espectros (Overlay / Cascada) ─────────
-        tab_plot = QWidget()
-        tp_vlo = QVBoxLayout(tab_plot)
+        self.tab_plot = QWidget()
+        tp_vlo = QVBoxLayout(self.tab_plot)
         tp_vlo.setContentsMargins(0, 0, 0, 0)
         tp_vlo.setSpacing(4)
 
         self.plot_multi = pg.PlotWidget(title="Espectros Raman en Lote (Overlay / Cascada)")
-        self.plot_multi.setLabel("bottom", "Corrimiento Raman (cm⁻¹)")
+        self.plot_multi.setLabel("bottom", self._get_unit_axis_label())
         self.plot_multi.setLabel("left", "Intensidad Normalizada (cts / u.a.)")
         self.plot_multi.showGrid(x=True, y=True, alpha=0.25)
         self.plot_multi.addLegend(offset=(-10, 10))
@@ -553,16 +641,16 @@ class MultiSpectrumWidget(QWidget):
         self.lbl_cursor_metrics.setStyleSheet("background-color: #181825; color: #CDD6F4; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
         tp_vlo.addWidget(self.lbl_cursor_metrics)
 
-        self.tabs_views.addTab(tab_plot, "📈 Espectros (Overlay / Cascada)")
+        self.tabs_views.addTab(self.tab_plot, "📈 Espectros (Overlay / Cascada)")
 
         # ── Tab 2: Espectro Promedio ± Desviación Estándar (μ ± σ) ─────────────
-        tab_mean = QWidget()
-        tm_vlo = QVBoxLayout(tab_mean)
+        self.tab_mean = QWidget()
+        tm_vlo = QVBoxLayout(self.tab_mean)
         tm_vlo.setContentsMargins(0, 0, 0, 0)
         tm_vlo.setSpacing(4)
 
         self.plot_mean = pg.PlotWidget(title="Espectro Promedio (Línea Central) y Banda de Dispersión ± 1σ (Sombreado)")
-        self.plot_mean.setLabel("bottom", "Corrimiento Raman (cm⁻¹)")
+        self.plot_mean.setLabel("bottom", self._get_unit_axis_label())
         self.plot_mean.setLabel("left", "Intensidad Promedio (cts / u.a.)")
         self.plot_mean.showGrid(x=True, y=True, alpha=0.25)
         tm_vlo.addWidget(self.plot_mean)
@@ -571,11 +659,11 @@ class MultiSpectrumWidget(QWidget):
         self.lbl_reproducibility.setStyleSheet("background-color: #181825; color: #A6E3A1; font-weight: bold; font-size: 9pt; padding: 6px; border-radius: 4px;")
         tm_vlo.addWidget(self.lbl_reproducibility)
 
-        self.tabs_views.addTab(tab_mean, "📊 Promedio ± Desvío (μ ± σ)")
+        self.tabs_views.addTab(self.tab_mean, "📊 Promedio ± Desvío (μ ± σ)")
 
         # ── Tab 3: Seguimiento Cinético de Banda (Rango A-B) ──────────────────
-        tab_kin = QWidget()
-        tk_vlo = QVBoxLayout(tab_kin)
+        self.tab_kin = QWidget()
+        tk_vlo = QVBoxLayout(self.tab_kin)
         tk_vlo.setContentsMargins(0, 0, 0, 0)
         tk_vlo.setSpacing(4)
 
@@ -586,26 +674,26 @@ class MultiSpectrumWidget(QWidget):
         self.plot_kinetics.addLegend(offset=(-10, 10))
         tk_vlo.addWidget(self.plot_kinetics)
 
-        self.tabs_views.addTab(tab_kin, "⏱️ Cinética de Banda (Rango A-B)")
+        self.tabs_views.addTab(self.tab_kin, "⏱️ Cinética de Banda (Rango A-B)")
 
         # ── Tab 4: Mapa de Calor Espectro-Temporal 2D ──────────────────────────
-        tab_heat = QWidget()
-        th_vlo = QVBoxLayout(tab_heat)
+        self.tab_heat = QWidget()
+        th_vlo = QVBoxLayout(self.tab_heat)
         th_vlo.setContentsMargins(0, 0, 0, 0)
         th_vlo.setSpacing(4)
 
-        self.plot_heatmap = pg.PlotWidget(title="Mapa de Calor Espectro-Temporal 2D (Eje X: Raman Shift, Eje Y: Índice)")
-        self.plot_heatmap.setLabel("bottom", "Corrimiento Raman (cm⁻¹)")
+        self.plot_heatmap = pg.PlotWidget(title="Mapa de Calor Espectro-Temporal 2D (Eje X: Coordenada Espectral, Eje Y: Índice)")
+        self.plot_heatmap.setLabel("bottom", self._get_unit_axis_label())
         self.plot_heatmap.setLabel("left", "Índice de Espectro / Tiempo")
         self.heatmap_item = pg.ImageItem()
         self.plot_heatmap.addItem(self.heatmap_item)
         th_vlo.addWidget(self.plot_heatmap)
 
-        self.tabs_views.addTab(tab_heat, "🗺️ Mapa de Calor 2D")
+        self.tabs_views.addTab(self.tab_heat, "🗺️ Mapa de Calor 2D")
 
         # ── Tab 5: Análisis Quimiométrico (PCA) ────────────────────────────────
-        tab_pca = QWidget()
-        tpca_vlo = QVBoxLayout(tab_pca)
+        self.tab_pca = QWidget()
+        tpca_vlo = QVBoxLayout(self.tab_pca)
         tpca_vlo.setContentsMargins(0, 0, 0, 0)
         tpca_vlo.setSpacing(4)
 
@@ -616,7 +704,7 @@ class MultiSpectrumWidget(QWidget):
         self.plot_pca_scores.showGrid(x=True, y=True, alpha=0.25)
 
         self.plot_pca_loadings = pg.PlotWidget(title="Cargas Espectrales (Loadings PC1 & PC2)")
-        self.plot_pca_loadings.setLabel("bottom", "Corrimiento Raman (cm⁻¹)")
+        self.plot_pca_loadings.setLabel("bottom", self._get_unit_axis_label())
         self.plot_pca_loadings.setLabel("left", "Amplitud de Carga (u.a.)")
         self.plot_pca_loadings.showGrid(x=True, y=True, alpha=0.25)
 
@@ -628,7 +716,10 @@ class MultiSpectrumWidget(QWidget):
         self.lbl_pca_info.setStyleSheet("background-color: #181825; color: #F5C2E7; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
         tpca_vlo.addWidget(self.lbl_pca_info)
 
-        self.tabs_views.addTab(tab_pca, "🧬 Análisis PCA (SVD)")
+        self.tabs_views.addTab(self.tab_pca, "🧬 Análisis PCA (SVD)")
+
+        self.tabs_views.currentChanged.connect(self._on_tab_view_changed)
+        self._on_tab_view_changed(0)
 
         right_vlo.addWidget(self.tabs_views)
 
@@ -636,6 +727,7 @@ class MultiSpectrumWidget(QWidget):
         splitter.setSizes([460, 960])
 
         main_layout.addWidget(splitter)
+        self.set_theme_mode(self.theme_mode, sync_parent=False)
 
     # ── Gestión de Archivos y Carga ───────────────────────────────────────────
 
@@ -808,8 +900,12 @@ class MultiSpectrumWidget(QWidget):
         self.spectra_list.clear()
         self.common_x = np.array([])
         self.Y_raw = np.empty((0, 0))
+        self.Y_baseline = np.empty((0, 0))
         self.Y_corrected = np.empty((0, 0))
         self.Y_displayed = np.empty((0, 0))
+        self.ref_blank_curve = None
+        if self.plot_raw_baseline:
+            self.plot_raw_baseline.clear()
         self._refresh_table()
         self._reprocess_and_update()
 
@@ -829,19 +925,19 @@ class MultiSpectrumWidget(QWidget):
         self.active_indices = []
         for idx, sp in enumerate(self.spectra_list):
             if sp["visible"]:
-                # Convertir a corrimiento Raman según el láser actual
-                x_shift = wavelength_to_raman_shift(sp["raw_wls"], self.laser_nm)
+                # Convertir a la unidad espectral activa según el láser
+                x_active = self._convert_wls_to_current_x(sp["raw_wls"])
 
                 # Poda de bordes de detector si trim_l > 0 o trim_r > 0
                 if trim_l > 0 or trim_r > 0:
-                    x_shift, y_cnts, _ = crop_spectrum(
-                        x_shift, sp["active_counts"],
+                    x_active, y_cnts, _ = crop_spectrum(
+                        x_active, sp["active_counts"],
                         trim_left_pts=trim_l, trim_right_pts=trim_r
                     )
                 else:
                     y_cnts = sp["active_counts"]
 
-                visible_spectra.append((x_shift, y_cnts, sp["name"], sp["metadata"]))
+                visible_spectra.append((x_active, y_cnts, sp["name"], sp["metadata"]))
                 self.active_indices.append(idx)
 
         if not visible_spectra:
@@ -862,17 +958,19 @@ class MultiSpectrumWidget(QWidget):
             x0 = float(self.common_x[0])
             x1 = float(self.common_x[-1])
             n_pts = len(self.common_x)
+            suf = self._get_unit_suffix()
+            dec = 4 if self.unit_mode == "energy" else 1
 
             if not self.check_enable_crop_x.isChecked():
                 self.spin_crop_xmin.blockSignals(True)
                 self.spin_crop_xmax.blockSignals(True)
-                self.spin_crop_xmin.setValue(round(x0, 1))
-                self.spin_crop_xmax.setValue(round(x1, 1))
+                self.spin_crop_xmin.setValue(round(x0, dec))
+                self.spin_crop_xmax.setValue(round(x1, dec))
                 self.spin_crop_xmin.blockSignals(False)
                 self.spin_crop_xmax.blockSignals(False)
-                self.lbl_crop_status.setText(f"Rango Completo: <b>{x0:.1f}</b> a <b>{x1:.1f} cm⁻¹</b> ({n_pts} pts)")
+                self.lbl_crop_status.setText(f"Rango Completo: <b>{x0:.{dec}f}</b> a <b>{x1:.{dec}f}{suf}</b> ({n_pts} pts)")
             else:
-                self.lbl_crop_status.setText(f"ROI Activo: <b>{x0:.1f}</b> a <b>{x1:.1f} cm⁻¹</b> ({n_pts} pts)")
+                self.lbl_crop_status.setText(f"ROI Activo: <b>{x0:.{dec}f}</b> a <b>{x1:.{dec}f}{suf}</b> ({n_pts} pts)")
 
             # Clamping suave de cursores si quedaron fuera del rango
             val_a = float(self.cursor_a.value())
@@ -907,11 +1005,12 @@ class MultiSpectrumWidget(QWidget):
         pos_b = float(self.cursor_b.value())
         x_min = min(pos_a, pos_b)
         x_max = max(pos_a, pos_b)
+        dec = 4 if self.unit_mode == "energy" else 1
 
         self.spin_crop_xmin.blockSignals(True)
         self.spin_crop_xmax.blockSignals(True)
-        self.spin_crop_xmin.setValue(x_min)
-        self.spin_crop_xmax.setValue(x_max)
+        self.spin_crop_xmin.setValue(round(x_min, dec))
+        self.spin_crop_xmax.setValue(round(x_max, dec))
         self.spin_crop_xmin.blockSignals(False)
         self.spin_crop_xmax.blockSignals(False)
 
@@ -919,10 +1018,20 @@ class MultiSpectrumWidget(QWidget):
         self._reinterpolate_all()
 
     def _on_crop_rayleigh(self):
-        """Atajo para recortar la subida del filtro Rayleigh (< 150 cm⁻¹) en todo el lote."""
+        """Atajo para recortar la subida del filtro Rayleigh (< 150 cm⁻¹) adaptado a la unidad activa."""
         if not self.spectra_list or len(self.common_x) == 0:
             return
-        self.spin_crop_xmin.setValue(150.0)
+        if self.unit_mode == "raman_shift":
+            cutoff = 150.0
+        elif self.unit_mode == "wavelength":
+            cutoff = float(raman_shift_to_wavelength(150.0, self.laser_nm))
+        elif self.unit_mode == "energy":
+            cutoff = float(raman_shift_to_ev(150.0))
+        else:
+            cutoff = 150.0
+
+        dec = 4 if self.unit_mode == "energy" else 1
+        self.spin_crop_xmin.setValue(round(cutoff, dec))
         self.check_enable_crop_x.setChecked(True)
         self._reinterpolate_all()
 
@@ -934,14 +1043,15 @@ class MultiSpectrumWidget(QWidget):
         full_mins = []
         full_maxs = []
         for sp in self.spectra_list:
-            xs = wavelength_to_raman_shift(sp["raw_wls"], self.laser_nm)
+            xs = self._convert_wls_to_current_x(sp["raw_wls"])
             full_mins.append(float(np.min(xs)))
             full_maxs.append(float(np.max(xs)))
         if full_mins and full_maxs:
+            dec = 4 if self.unit_mode == "energy" else 1
             self.spin_crop_xmin.blockSignals(True)
             self.spin_crop_xmax.blockSignals(True)
-            self.spin_crop_xmin.setValue(round(min(full_mins), 1))
-            self.spin_crop_xmax.setValue(round(max(full_maxs), 1))
+            self.spin_crop_xmin.setValue(round(min(full_mins), dec))
+            self.spin_crop_xmax.setValue(round(max(full_maxs), dec))
             self.spin_crop_xmin.blockSignals(False)
             self.spin_crop_xmax.blockSignals(False)
         self._reinterpolate_all()
@@ -1006,9 +1116,180 @@ class MultiSpectrumWidget(QWidget):
         self.spin_multi_laser_custom.blockSignals(False)
 
         self.lbl_laser_status.setText(f"Láser activo: {self.laser_nm:.1f} nm")
+        self._update_rayleigh_button()
 
         if sync_parent and self.check_sync_laser.isChecked() and self.parent_analyzer and hasattr(self.parent_analyzer, "set_laser_wavelength"):
             self.parent_analyzer.set_laser_wavelength(self.laser_nm, sync_multi=False)
+
+        self._reinterpolate_all()
+
+    # ── Métodos Auxiliares de Unidades Espectrales ─────────────────────────────
+
+    def _get_unit_suffix(self) -> str:
+        """Devuelve el sufijo de unidad según el modo activo."""
+        if self.unit_mode == "raman_shift":
+            return " cm⁻¹"
+        elif self.unit_mode == "wavelength":
+            return " nm"
+        elif self.unit_mode == "energy":
+            return " eV"
+        return ""
+
+    def _get_unit_axis_label(self) -> str:
+        """Devuelve el texto formateado para la etiqueta del eje X."""
+        if self.unit_mode == "raman_shift":
+            return "Corrimiento Raman (cm⁻¹)"
+        elif self.unit_mode == "wavelength":
+            return "Longitud de Onda (nm)"
+        elif self.unit_mode == "energy":
+            return "Energía Relativa (eV)"
+        return "Eje Espectral"
+
+    def _convert_wls_to_current_x(self, wls: np.ndarray) -> np.ndarray:
+        """Convierte longitudes de onda ópticas (nm) a la unidad espectral seleccionada."""
+        wls_arr = np.asarray(wls, dtype=np.float64)
+        if self.unit_mode == "raman_shift":
+            return wavelength_to_raman_shift(wls_arr, self.laser_nm)
+        elif self.unit_mode == "energy":
+            shifts = wavelength_to_raman_shift(wls_arr, self.laser_nm)
+            return raman_shift_to_ev(shifts)
+        else:  # "wavelength"
+            return wls_arr.copy()
+
+    def _convert_value_between_units(self, val: float, from_mode: str, to_mode: str) -> float:
+        """Convierte un valor numérico escalar de una unidad espectral a otra."""
+        if from_mode == to_mode:
+            return float(val)
+        try:
+            # 1. Convertir from_mode a corrimiento Raman (cm^-1)
+            if from_mode == "raman_shift":
+                shift = float(val)
+            elif from_mode == "wavelength":
+                shift = float(wavelength_to_raman_shift(val, self.laser_nm))
+            elif from_mode == "energy":
+                shift = float(ev_to_raman_shift(val))
+            else:
+                shift = float(val)
+
+            # 2. Convertir corrimiento Raman al nuevo to_mode
+            if to_mode == "raman_shift":
+                return shift
+            elif to_mode == "wavelength":
+                return float(raman_shift_to_wavelength(shift, self.laser_nm))
+            elif to_mode == "energy":
+                return float(raman_shift_to_ev(shift))
+            return shift
+        except Exception:
+            return float(val)
+
+    def _update_rayleigh_button(self):
+        """Actualiza el texto y tooltip del botón de recorte Rayleigh según la unidad activa."""
+        if not hasattr(self, "btn_crop_rayleigh"):
+            return
+        if self.unit_mode == "raman_shift":
+            self.btn_crop_rayleigh.setText("⚡ Recortar Láser/Rayleigh (< 150 cm⁻¹)")
+            self.btn_crop_rayleigh.setToolTip("Elimina la dispersión elástica Rayleigh por debajo de 150 cm⁻¹ en todo el lote")
+        elif self.unit_mode == "wavelength":
+            wl_cut = float(raman_shift_to_wavelength(150.0, self.laser_nm))
+            self.btn_crop_rayleigh.setText(f"⚡ Recortar Láser/Rayleigh (< {wl_cut:.1f} nm)")
+            self.btn_crop_rayleigh.setToolTip(f"Elimina la dispersión elástica Rayleigh por debajo de {wl_cut:.1f} nm en todo el lote")
+        elif self.unit_mode == "energy":
+            ev_cut = float(raman_shift_to_ev(150.0))
+            self.btn_crop_rayleigh.setText(f"⚡ Recortar Láser/Rayleigh (< {ev_cut:.3f} eV)")
+            self.btn_crop_rayleigh.setToolTip(f"Elimina la dispersión elástica Rayleigh por debajo de {ev_cut:.3f} eV en todo el lote")
+
+    def _on_units_changed(self, idx: int):
+        modes = ["raman_shift", "wavelength", "energy"]
+        if 0 <= idx < len(modes):
+            new_mode = modes[idx]
+            self.set_unit_mode(new_mode, sync_parent=self.check_sync_laser.isChecked())
+
+    def set_unit_mode(self, mode: str, sync_parent: bool = False):
+        """Cambia el modo de unidades (raman_shift, wavelength, energy) y actualiza todo el widget."""
+        modes = ["raman_shift", "wavelength", "energy"]
+        if mode not in modes:
+            return
+        if mode == self.unit_mode:
+            if self.combo_units.currentIndex() != modes.index(mode):
+                self.combo_units.blockSignals(True)
+                self.combo_units.setCurrentIndex(modes.index(mode))
+                self.combo_units.blockSignals(False)
+            return
+
+        prev_mode = self.unit_mode
+        self.unit_mode = mode
+        idx = modes.index(mode)
+
+        self.combo_units.blockSignals(True)
+        self.combo_units.setCurrentIndex(idx)
+        self.combo_units.blockSignals(False)
+
+        # Actualizar etiquetas de ejes en todos los gráficos relevantes
+        axis_label = self._get_unit_axis_label()
+        if self.plot_raw_baseline:
+            self.plot_raw_baseline.setLabel("bottom", axis_label)
+        self.plot_multi.setLabel("bottom", axis_label)
+        self.plot_mean.setLabel("bottom", axis_label)
+        self.plot_heatmap.setLabel("bottom", axis_label)
+        self.plot_pca_loadings.setLabel("bottom", axis_label)
+
+        # Actualizar botón Rayleigh
+        self._update_rayleigh_button()
+
+        # Actualizar sufijos y precisión de spinboxes
+        suf = self._get_unit_suffix()
+        dec = 4 if self.unit_mode == "energy" else 1
+        step = 0.01 if self.unit_mode == "energy" else 10.0
+
+        self.spin_crop_xmin.setSuffix(suf)
+        self.spin_crop_xmax.setSuffix(suf)
+        self.spin_ref_peak.setSuffix(suf)
+
+        self.spin_crop_xmin.setDecimals(dec)
+        self.spin_crop_xmax.setDecimals(dec)
+        self.spin_ref_peak.setDecimals(dec)
+
+        self.spin_crop_xmin.setSingleStep(step)
+        self.spin_crop_xmax.setSingleStep(step)
+        self.spin_ref_peak.setSingleStep(step)
+
+        # Convertir valores de spinboxes y cursores a la nueva unidad
+        old_crop_min = float(self.spin_crop_xmin.value())
+        old_crop_max = float(self.spin_crop_xmax.value())
+        new_crop_min = self._convert_value_between_units(old_crop_min, prev_mode, self.unit_mode)
+        new_crop_max = self._convert_value_between_units(old_crop_max, prev_mode, self.unit_mode)
+
+        self.spin_crop_xmin.blockSignals(True)
+        self.spin_crop_xmax.blockSignals(True)
+        self.spin_crop_xmin.setValue(round(new_crop_min, dec))
+        self.spin_crop_xmax.setValue(round(new_crop_max, dec))
+        self.spin_crop_xmin.blockSignals(False)
+        self.spin_crop_xmax.blockSignals(False)
+
+        old_ref = float(self.spin_ref_peak.value())
+        new_ref = self._convert_value_between_units(old_ref, prev_mode, self.unit_mode)
+        self.spin_ref_peak.blockSignals(True)
+        self.spin_ref_peak.setValue(round(new_ref, dec))
+        self.spin_ref_peak.blockSignals(False)
+
+        # Convertir cursores A y B
+        old_ca = float(self.cursor_a.value())
+        old_cb = float(self.cursor_b.value())
+        new_ca = self._convert_value_between_units(old_ca, prev_mode, self.unit_mode)
+        new_cb = self._convert_value_between_units(old_cb, prev_mode, self.unit_mode)
+        self.cursor_a.blockSignals(True)
+        self.cursor_b.blockSignals(True)
+        self.cursor_a.setValue(new_ca)
+        self.cursor_b.setValue(new_cb)
+        self.cursor_a.blockSignals(False)
+        self.cursor_b.blockSignals(False)
+
+        self.region_ab.blockSignals(True)
+        self.region_ab.setRegion([min(new_ca, new_cb), max(new_ca, new_cb)])
+        self.region_ab.blockSignals(False)
+
+        if sync_parent and self.parent_analyzer and hasattr(self.parent_analyzer, "set_unit_mode"):
+            self.parent_analyzer.set_unit_mode(self.unit_mode, sync_multi=False)
 
         self._reinterpolate_all()
 
@@ -1093,15 +1374,115 @@ class MultiSpectrumWidget(QWidget):
         self.view_mode = modes[idx]
         self.slider_waterfall.setEnabled(self.view_mode == "waterfall")
         if self.view_mode == "heatmap":
-            self.tabs_views.setCurrentIndex(3)
+            if self.tab_heat:
+                self.tabs_views.setCurrentWidget(self.tab_heat)
         else:
-            self.tabs_views.setCurrentIndex(0)
+            if self.tab_plot:
+                self.tabs_views.setCurrentWidget(self.tab_plot)
         self._reprocess_and_update()
 
     def _on_palette_changed(self):
         self._update_palettes()
         self._refresh_table()
         self._reprocess_and_update()
+
+    def _apply_theme_to_plot_widget(self, pw: pg.PlotWidget, is_light: bool):
+        """Aplica el tema claro u oscuro al fondo, ejes y leyendas de un PlotWidget."""
+        if not pw:
+            return
+        bg_col = QColor(255, 255, 255) if is_light else QColor(24, 24, 37)
+        fg_col = QColor(17, 17, 27) if is_light else QColor(205, 214, 244)
+
+        pw.setBackground(bg_col)
+        pi = pw.getPlotItem()
+        if not pi:
+            return
+
+        for ax_name in ("bottom", "left", "top", "right"):
+            ax = pi.getAxis(ax_name)
+            if ax:
+                ax.setTextPen(fg_col)
+                ax.setPen(fg_col)
+
+        if pi.legend is not None:
+            try:
+                pi.legend.setLabelTextColor(fg_col)
+                pi.legend.setPen(fg_col)
+                legend_bg = QColor(245, 245, 250, 220) if is_light else QColor(30, 30, 46, 220)
+                pi.legend.setBrush(legend_bg)
+            except Exception:
+                pass
+
+    def _on_theme_slider_changed(self, val: int):
+        """Manejador del deslizador de fondo: estrictamente 0 (Oscuro) o 100 (Claro), sin valores intermedios."""
+        snapped = 0 if val < 50 else 100
+        if val != snapped and self.slider_theme:
+            self.slider_theme.blockSignals(True)
+            self.slider_theme.setValue(snapped)
+            self.slider_theme.blockSignals(False)
+        self.set_theme_mode(snapped, sync_parent=True)
+
+    def set_theme_mode(self, val: int, sync_parent: bool = True):
+        """Ajusta el modo de fondo (0 = Oscuro #181825, 100 = Claro #FFFFFF)."""
+        snapped = 0 if val < 50 else 100
+        self.theme_mode = snapped
+        is_light = (self.theme_mode == 100)
+
+        if self.slider_theme:
+            self.slider_theme.blockSignals(True)
+            self.slider_theme.setValue(self.theme_mode)
+            self.slider_theme.blockSignals(False)
+
+        if self.lbl_theme_state:
+            if is_light:
+                self.lbl_theme_state.setText("☀️ Claro (100)")
+                self.lbl_theme_state.setStyleSheet("font-size: 8.5pt; color: #11111B; font-weight: bold;")
+            else:
+                self.lbl_theme_state.setText("🌙 Oscuro (0)")
+                self.lbl_theme_state.setStyleSheet("font-size: 8.5pt; color: #CDD6F4; font-weight: bold;")
+
+        # Aplicar estilo de fondo y ejes a todos los gráficos de las pestañas
+        plot_list = [
+            getattr(self, "plot_raw_baseline", None),
+            getattr(self, "plot_multi", None),
+            getattr(self, "plot_mean", None),
+            getattr(self, "plot_kinetics", None),
+            getattr(self, "plot_heatmap", None),
+            getattr(self, "plot_pca_scores", None),
+            getattr(self, "plot_pca_loadings", None),
+        ]
+        for p in plot_list:
+            if p is not None:
+                self._apply_theme_to_plot_widget(p, is_light)
+
+        # Reglas y cursores
+        if hasattr(self, "cursor_a") and self.cursor_a:
+            self.cursor_a.setPen(pg.mkPen("#D20F39" if is_light else "#F38BA8", width=1.8))
+        if hasattr(self, "cursor_b") and self.cursor_b:
+            self.cursor_b.setPen(pg.mkPen("#B45309" if is_light else "#F9E2AF", width=1.8, style=Qt.PenStyle.DashLine))
+        if hasattr(self, "region_ab") and self.region_ab:
+            self.region_ab.setBrush(pg.mkBrush(30, 102, 245, 30) if is_light else pg.mkBrush(137, 180, 250, 35))
+
+        # Etiquetas informativas inferiores
+        lbl_bg = "#E6E9EF" if is_light else "#181825"
+        lbl_fg = "#11111B" if is_light else "#CDD6F4"
+        if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
+            self.lbl_raw_base_info.setStyleSheet(f"background-color: {lbl_bg}; color: {lbl_fg}; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
+        if hasattr(self, "lbl_cursor_metrics") and self.lbl_cursor_metrics:
+            self.lbl_cursor_metrics.setStyleSheet(f"background-color: {lbl_bg}; color: {lbl_fg}; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
+        if hasattr(self, "lbl_reproducibility") and self.lbl_reproducibility:
+            fg_rep = "#15803D" if is_light else "#A6E3A1"
+            self.lbl_reproducibility.setStyleSheet(f"background-color: {lbl_bg}; color: {fg_rep}; font-weight: bold; font-size: 9pt; padding: 6px; border-radius: 4px;")
+        if hasattr(self, "lbl_pca_info") and self.lbl_pca_info:
+            fg_pca = "#7C3AED" if is_light else "#F5C2E7"
+            self.lbl_pca_info.setStyleSheet(f"background-color: {lbl_bg}; color: {fg_pca}; font-size: 8.5pt; padding: 4px 8px; border-radius: 4px;")
+
+        # Re-renderizar contenidos que tienen curvas/rellenos dependientes del tema
+        self._reprocess_and_update()
+
+        # Sincronizar bidireccionalmente con el analizador padre
+        if sync_parent and self.parent_analyzer and hasattr(self.parent_analyzer, "set_theme_mode"):
+            self.parent_analyzer.set_theme_mode(self.theme_mode, sync_multi=False)
 
     def _on_use_cursor_a_as_ref(self):
         pos_a = float(self.cursor_a.value())
@@ -1126,6 +1507,8 @@ class MultiSpectrumWidget(QWidget):
 
     def _reprocess_and_update(self):
         if self.Y_raw.size == 0 or len(self.common_x) == 0:
+            if self.plot_raw_baseline:
+                self.plot_raw_baseline.clear()
             self.plot_multi.clear()
             self.plot_mean.clear()
             self.plot_kinetics.clear()
@@ -1140,11 +1523,14 @@ class MultiSpectrumWidget(QWidget):
         # 1. Corrección de Línea Base en Dos Modos
         b_strategy = self.combo_baseline_mode.currentIndex()
 
+        self.ref_blank_curve = None
+        self.Y_baseline = np.zeros((N, M), dtype=np.float64)
+
         if b_strategy == 0:  # Modo 1: Archivo de Referencia (Fondo / Blanco)
             if self.ref_blank_wls.size > 0 and self.ref_blank_counts.size > 0:
-                # Si las longitudes de onda son ópticas en nm, convertir al mismo Raman Shift
+                # Si las longitudes de onda son ópticas en nm, convertir según la unidad activa
                 if np.all(self.ref_blank_wls > 200.0):
-                    blank_x = wavelength_to_raman_shift(self.ref_blank_wls, self.laser_nm)
+                    blank_x = self._convert_wls_to_current_x(self.ref_blank_wls)
                 else:
                     blank_x = self.ref_blank_wls.copy()
 
@@ -1152,16 +1538,20 @@ class MultiSpectrumWidget(QWidget):
                 bx_sorted = blank_x[sort_idx]
                 by_sorted = self.ref_blank_counts[sort_idx]
 
-                # Interpolar en la grilla común de corrimiento Raman
+                # Interpolar en la grilla común
                 blank_curve = np.interp(self.common_x, bx_sorted, by_sorted)
+                self.ref_blank_curve = blank_curve.copy()
                 for i in range(N):
+                    self.Y_baseline[i, :] = blank_curve
                     Y_work[i, :] -= blank_curve
             else:
                 # Blanco alternativo desde el lote
                 b_idx = self.combo_blank_from_batch.currentIndex() - 1  # 0 es "(Ninguno)"
                 if 0 <= b_idx < N:
                     blank_curve = Y_work[b_idx, :].copy()
+                    self.ref_blank_curve = blank_curve.copy()
                     for i in range(N):
+                        self.Y_baseline[i, :] = blank_curve
                         Y_work[i, :] -= blank_curve
 
         elif b_strategy == 1:  # Modo 2: Cálculo Individual por Espectro (Algorítmico)
@@ -1171,25 +1561,29 @@ class MultiSpectrumWidget(QWidget):
                 p = float(self.spin_asls_p.value())
                 for i in range(N):
                     base = baseline_asls(Y_work[i, :], lam=lam, p=p)
+                    self.Y_baseline[i, :] = base
                     Y_work[i, :] -= base
             elif algo_idx == 1:  # AirPLS
                 lam = float(self.spin_asls_lambda.value())
                 for i in range(N):
                     base = baseline_airpls(Y_work[i, :], lam=lam)
+                    self.Y_baseline[i, :] = base
                     Y_work[i, :] -= base
             elif algo_idx == 2:  # ModPoly
                 deg = int(self.spin_modpoly_order.value())
                 for i in range(N):
                     base = baseline_modpoly(Y_work[i, :], poly_order=deg)
+                    self.Y_baseline[i, :] = base
                     Y_work[i, :] -= base
             elif algo_idx == 3:  # Rolling Ball
                 rad = int(self.spin_rolling_radius.value())
                 for i in range(N):
                     base = baseline_rolling_ball(Y_work[i, :], radius=rad)
+                    self.Y_baseline[i, :] = base
                     Y_work[i, :] -= base
 
         elif b_strategy == 2:  # Sin Corrección de Línea Base
-            pass
+            self.Y_baseline = np.zeros((N, M), dtype=np.float64)
 
         # 2. Suavizado en Lote si está activo
         if self.check_batch_smooth.isChecked():
@@ -1215,7 +1609,8 @@ class MultiSpectrumWidget(QWidget):
         else:
             self.Y_displayed = Y_norm.copy()
 
-        # 5. Renderizado en Gráfico Principal
+        # 5. Renderizado en Gráficos (Crudos & Línea Base y Principal)
+        self._update_raw_baseline_tab()
         self._render_main_plot()
 
         # 6. Actualizar Sub-Pestañas Cuantitativas
@@ -1225,6 +1620,56 @@ class MultiSpectrumWidget(QWidget):
         self._update_pca_tab(Y_norm)
 
     # ── Renderizado Gráfico ───────────────────────────────────────────────────
+
+    def _update_raw_baseline_tab(self):
+        if not self.plot_raw_baseline:
+            return
+        self.plot_raw_baseline.clear()
+        if self.Y_raw.size == 0 or len(self.common_x) == 0:
+            if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
+                self.lbl_raw_base_info.setText("Sin espectros cargados.")
+            return
+
+        N, M = self.Y_raw.shape
+        b_strategy = self.combo_baseline_mode.currentIndex()
+
+        # 1. Graficar espectros crudos
+        for i in range(N):
+            orig_idx = self.active_indices[i]
+            sp_data = self.spectra_list[orig_idx]
+            pen_raw = pg.mkPen(sp_data["color"], width=1.6)
+            self.plot_raw_baseline.plot(self.common_x, self.Y_raw[i, :], pen=pen_raw, name=f"{sp_data['name']} (Crudo)")
+
+        # 2. Graficar líneas de base según el modo seleccionado
+        # REQUISITO DEL USUARIO: "En caso de elegir la opcion de corregir con la linea de base del archivo de referencia, solo debera mostrarse esa."
+        if b_strategy == 0:  # Modo 1: Archivo de Referencia / Fondo
+            if self.ref_blank_curve is not None and len(self.ref_blank_curve) == len(self.common_x):
+                pen_ref = pg.mkPen("#D20F39" if self.theme_mode == 100 else "#F38BA8", width=2.6, style=Qt.PenStyle.DashLine)
+                ref_lbl = f"Línea Base Ref: {self.ref_blank_name}" if self.ref_blank_name else "Línea Base Ref (Fondo)"
+                self.plot_raw_baseline.plot(self.common_x, self.ref_blank_curve, pen=pen_ref, name=ref_lbl)
+                if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
+                    self.lbl_raw_base_info.setText(
+                        f"Modo 1 (Referencia Externa / Fondo): <b>{ref_lbl}</b> única superpuesta a {N} espectros crudos."
+                    )
+            else:
+                if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
+                    self.lbl_raw_base_info.setText("Modo 1 activo: Sin archivo de fondo cargado (no se aplica corrección de línea base).")
+
+        elif b_strategy == 1:  # Modo 2: Cálculo Individual por Espectro
+            algo_name = self.combo_indiv_algo.currentText()
+            for i in range(N):
+                orig_idx = self.active_indices[i]
+                sp_data = self.spectra_list[orig_idx]
+                pen_base = pg.mkPen(sp_data["color"], width=1.8, style=Qt.PenStyle.DashLine)
+                self.plot_raw_baseline.plot(self.common_x, self.Y_baseline[i, :], pen=pen_base, name=f"Línea Base {sp_data['name']}")
+            if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
+                self.lbl_raw_base_info.setText(
+                    f"Modo 2 (Cálculo Individual): Algoritmo <b>{algo_name}</b> estimado independientemente para cada uno de los {N} espectros."
+                )
+
+        elif b_strategy == 2:  # Modo 3: Sin Corrección de Línea Base
+            if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
+                self.lbl_raw_base_info.setText("Modo Sin Corrección de Línea Base: Se muestran únicamente los espectros crudos.")
 
     def _render_main_plot(self):
         self.plot_multi.clear()
@@ -1267,12 +1712,14 @@ class MultiSpectrumWidget(QWidget):
             self.region_ab.setRegion([x_min, x_max])
             self.region_ab.blockSignals(False)
 
+        suf = self._get_unit_suffix()
+        dec = 4 if self.unit_mode == "energy" else 2
         self.lbl_cursor_metrics.setText(
-            f"<b>Regla A:</b> {pos_a:.2f} cm⁻¹ | <b>Regla B:</b> {pos_b:.2f} cm⁻¹ | <b>ΔX:</b> {abs(pos_b - pos_a):.2f} cm⁻¹"
+            f"<b>Regla A:</b> {pos_a:.{dec}f}{suf} | <b>Regla B:</b> {pos_b:.{dec}f}{suf} | <b>ΔX:</b> {abs(pos_b - pos_a):.{dec}f}{suf}"
         )
 
         # Actualizar cinética si la pestaña está activa
-        if self.tabs_views.currentIndex() == 2:
+        if self.tabs_views.currentWidget() == self.tab_kin:
             ref_p = float(self.spin_ref_peak.value())
             Y_norm = normalize_spectrum_matrix(self.common_x, self.Y_corrected, mode=self.norm_mode, ref_pos=ref_p)
             self._update_kinetics_tab(Y_norm)
@@ -1285,12 +1732,15 @@ class MultiSpectrumWidget(QWidget):
         mean_y, std_y, rsd = compute_mean_std_spectrum(Y_norm)
 
         # Curva de media y relleno de dispersión
+        is_light = (self.theme_mode == 100)
         upper = self.plot_mean.plot(self.common_x, mean_y + std_y, pen=pg.mkPen(None))
         lower = self.plot_mean.plot(self.common_x, mean_y - std_y, pen=pg.mkPen(None))
-        fill = pg.FillBetweenItem(lower, upper, brush=pg.mkBrush(137, 180, 250, 65))
+        fill_brush = pg.mkBrush(30, 102, 245, 45) if is_light else pg.mkBrush(137, 180, 250, 65)
+        fill = pg.FillBetweenItem(lower, upper, brush=fill_brush)
         self.plot_mean.addItem(fill)
 
-        self.plot_mean.plot(self.common_x, mean_y, pen=pg.mkPen("#89B4FA", width=2.5), name="Espectro Promedio")
+        mean_pen = pg.mkPen("#1E66F5" if is_light else "#89B4FA", width=2.5)
+        self.plot_mean.plot(self.common_x, mean_y, pen=mean_pen, name="Espectro Promedio")
 
         # Métricas de RSD%
         mean_rsd = float(np.mean(rsd)) if len(rsd) > 0 else 0.0
@@ -1298,8 +1748,10 @@ class MultiSpectrumWidget(QWidget):
         idx_a = int(np.argmin(np.abs(self.common_x - pos_a))) if len(self.common_x) > 0 else 0
         rsd_at_a = float(rsd[idx_a]) if len(rsd) > idx_a else 0.0
 
+        suf = self._get_unit_suffix()
+        dec = 4 if self.unit_mode == "energy" else 1
         self.lbl_reproducibility.setText(
-            f"<b>RSD% Promedio Global:</b> {mean_rsd:.2f}% | <b>RSD% en Cursor A ({pos_a:.1f} cm⁻¹):</b> {rsd_at_a:.2f}%"
+            f"<b>RSD% Promedio Global:</b> {mean_rsd:.2f}% | <b>RSD% en Cursor A ({pos_a:.{dec}f}{suf}):</b> {rsd_at_a:.2f}%"
         )
 
     def _update_kinetics_tab(self, Y_norm: np.ndarray):
@@ -1311,14 +1763,18 @@ class MultiSpectrumWidget(QWidget):
         pos_b = float(self.cursor_b.value())
         kin = extract_band_kinetics(self.common_x, Y_norm, pos_a, pos_b)
 
+        is_light = (self.theme_mode == 100)
+        col_h = "#D20F39" if is_light else "#F38BA8"
+        col_a = "#15803D" if is_light else "#A6E3A1"
+
         indices = np.arange(1, len(kin["heights"]) + 1)
         self.plot_kinetics.plot(
             indices, kin["heights"],
-            pen=pg.mkPen("#F38BA8", width=2.0), symbol="o", symbolBrush=pg.mkBrush("#F38BA8"), name="Altura Máxima"
+            pen=pg.mkPen(col_h, width=2.0), symbol="o", symbolBrush=pg.mkBrush(col_h), name="Altura Máxima"
         )
         self.plot_kinetics.plot(
             indices, kin["areas"],
-            pen=pg.mkPen("#A6E3A1", width=2.0, style=Qt.PenStyle.DashLine), symbol="s", symbolBrush=pg.mkBrush("#A6E3A1"), name="Área Integrada"
+            pen=pg.mkPen(col_a, width=2.0, style=Qt.PenStyle.DashLine), symbol="s", symbolBrush=pg.mkBrush(col_a), name="Área Integrada"
         )
 
     def _update_heatmap_tab(self, Y_norm: np.ndarray):
@@ -1349,9 +1805,12 @@ class MultiSpectrumWidget(QWidget):
         exp_var = pca["explained_variance"]
 
         # Score plot
+        is_light = (self.theme_mode == 100)
         scatter = pg.ScatterPlotItem(
             x=scores[:, 0], y=scores[:, 1],
-            size=11, pen=pg.mkPen("#11111B", width=1), brush=pg.mkBrush("#F5C2E7")
+            size=11,
+            pen=pg.mkPen("#CDD6F4" if is_light else "#11111B", width=1),
+            brush=pg.mkBrush("#7C3AED" if is_light else "#F5C2E7")
         )
         self.plot_pca_scores.addItem(scatter)
 
@@ -1359,15 +1818,15 @@ class MultiSpectrumWidget(QWidget):
         for i in range(len(scores)):
             orig_idx = self.active_indices[i]
             sp_name = self.spectra_list[orig_idx]["name"]
-            txt = pg.TextItem(sp_name, color="#CDD6F4", anchor=(0.5, -0.5))
+            txt = pg.TextItem(sp_name, color="#11111B" if is_light else "#CDD6F4", anchor=(0.5, -0.5))
             txt.setPos(scores[i, 0], scores[i, 1])
             self.plot_pca_scores.addItem(txt)
 
         # Loadings plot
         if loadings.shape[0] >= 1:
-            self.plot_pca_loadings.plot(self.common_x, loadings[0, :], pen=pg.mkPen("#89B4FA", width=2.0), name="PC1 Loading")
+            self.plot_pca_loadings.plot(self.common_x, loadings[0, :], pen=pg.mkPen("#1E66F5" if is_light else "#89B4FA", width=2.0), name="PC1 Loading")
         if loadings.shape[0] >= 2:
-            self.plot_pca_loadings.plot(self.common_x, loadings[1, :], pen=pg.mkPen("#FAB387", width=2.0), name="PC2 Loading")
+            self.plot_pca_loadings.plot(self.common_x, loadings[1, :], pen=pg.mkPen("#D97706" if is_light else "#FAB387", width=2.0), name="PC2 Loading")
 
         v1 = exp_var[0] if len(exp_var) > 0 else 0.0
         v2 = exp_var[1] if len(exp_var) > 1 else 0.0
@@ -1375,48 +1834,385 @@ class MultiSpectrumWidget(QWidget):
             f"<b>Varianza Explicada:</b> PC1 = {v1:.1f}% | PC2 = {v2:.1f}% | <b>Total Acumulado:</b> {v1 + v2:.1f}%"
         )
 
-    # ── Exportación ───────────────────────────────────────────────────────────
+    # ── Exportación Contextual de Gráficos y Datos ────────────────────────────
 
-    def _on_export_csv(self):
-        if self.Y_displayed.size == 0 or len(self.common_x) == 0:
-            QMessageBox.warning(self, "Sin datos", "No hay matriz de espectros para exportar.")
+    def _get_axis_col_name(self) -> str:
+        if self.unit_mode == "raman_shift":
+            return "Raman_Shift_cm-1"
+        elif self.unit_mode == "wavelength":
+            return "Wavelength_nm"
+        else:
+            return "Energy_eV"
+
+    def _on_tab_view_changed(self, idx: int = 0):
+        """Actualiza dinámicamente las etiquetas y tooltips de los botones de exportación según la pestaña activa."""
+        if not hasattr(self, "tabs_views") or not self.tabs_views:
+            return
+
+        curr = self.tabs_views.currentWidget()
+        if curr == self.tab_raw_base:
+            if self.btn_export_png:
+                self.btn_export_png.setText("📸 Exportar Crudos & Base (PNG)")
+                self.btn_export_png.setToolTip("Exportar gráfico de espectros crudos y líneas de base a PNG de alta resolución (600 DPI / 2400 px)")
+            if self.btn_export_csv:
+                self.btn_export_csv.setText("💾 Exportar Crudos & Base (.CSV)")
+                self.btn_export_csv.setToolTip("Exportar matriz de espectros crudos y curvas de línea base a archivo .CSV")
+            if self.btn_copy_tsv:
+                self.btn_copy_tsv.setToolTip("Copiar espectros crudos y líneas de base al portapapeles (TSV)")
+
+        elif curr == self.tab_plot:
+            if self.btn_export_png:
+                self.btn_export_png.setText("📸 Exportar Espectros (PNG)")
+                self.btn_export_png.setToolTip("Exportar gráfico de espectros overlay/cascada a PNG de alta resolución (600 DPI / 2400 px)")
+            if self.btn_export_csv:
+                self.btn_export_csv.setText("💾 Exportar Espectros (.CSV)")
+                self.btn_export_csv.setToolTip("Exportar matriz alineada y corregida de espectros a archivo .CSV")
+            if self.btn_copy_tsv:
+                self.btn_copy_tsv.setToolTip("Copiar matriz alineada de espectros al portapapeles (TSV)")
+
+        elif curr == self.tab_mean:
+            if self.btn_export_png:
+                self.btn_export_png.setText("📸 Exportar Promedio ± σ (PNG)")
+                self.btn_export_png.setToolTip("Exportar gráfico de promedio y banda de dispersión ± 1σ a PNG (600 DPI / 2400 px)")
+            if self.btn_export_csv:
+                self.btn_export_csv.setText("💾 Exportar Promedio ± σ (.CSV)")
+                self.btn_export_csv.setToolTip("Exportar curva de espectro promedio, desviación estándar y RSD% a archivo .CSV")
+            if self.btn_copy_tsv:
+                self.btn_copy_tsv.setToolTip("Copiar datos de promedio, dispersión ± 1σ y RSD% al portapapeles (TSV)")
+
+        elif curr == self.tab_kin:
+            if self.btn_export_png:
+                self.btn_export_png.setText("📸 Exportar Cinética (PNG)")
+                self.btn_export_png.setToolTip("Exportar gráfico de evolución de banda cinética a PNG (600 DPI / 2400 px)")
+            if self.btn_export_csv:
+                self.btn_export_csv.setText("💾 Exportar Cinética (.CSV)")
+                self.btn_export_csv.setToolTip("Exportar perfil cinético de altura y área integrada a archivo .CSV")
+            if self.btn_copy_tsv:
+                self.btn_copy_tsv.setToolTip("Copiar evolución cinética de la banda al portapapeles (TSV)")
+
+        elif curr == self.tab_heat:
+            if self.btn_export_png:
+                self.btn_export_png.setText("📸 Exportar Mapa de Calor (PNG)")
+                self.btn_export_png.setToolTip("Exportar mapa de calor 2D espectro-temporal a PNG de alta resolución (600 DPI / 2400 px)")
+            if self.btn_export_csv:
+                self.btn_export_csv.setText("💾 Exportar Mapa de Calor (.CSV)")
+                self.btn_export_csv.setToolTip("Exportar matriz 2D espectro-temporal a archivo .CSV")
+            if self.btn_copy_tsv:
+                self.btn_copy_tsv.setToolTip("Copiar matriz del mapa de calor 2D al portapapeles (TSV)")
+
+        elif curr == self.tab_pca:
+            if self.btn_export_png:
+                self.btn_export_png.setText("📸 Exportar Figura PCA (PNG)")
+                self.btn_export_png.setToolTip("Exportar Score Plot y Loadings combinados en alta resolución a PNG (600 DPI / 2400 px)")
+            if self.btn_export_csv:
+                self.btn_export_csv.setText("💾 Exportar PCA Scores & Loadings (.CSV)")
+                self.btn_export_csv.setToolTip("Exportar coordenadas de scores y cargas espectrales de PCA a archivo .CSV")
+            if self.btn_copy_tsv:
+                self.btn_copy_tsv.setToolTip("Copiar coordenadas de PCA (Scores & Loadings) al portapapeles (TSV)")
+
+    def _export_plotitem_to_png(self, plot_widget: pg.PlotWidget, default_filename: str):
+        """Exporta un PlotWidget de PyQtGraph a imagen PNG de alta resolución (2400 px / ~600 DPI)."""
+        if self.Y_raw.size == 0 or len(self.common_x) == 0:
+            QMessageBox.warning(self, "Sin datos", "No hay datos espectrales para exportar el gráfico.")
             return
 
         out_path, _ = QFileDialog.getSaveFileName(
-            self, "Exportar Matriz Multi-Espectro", "Raman_MultiSpectra_Matrix.csv",
-            "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+            self, "Exportar Gráfico de Alta Resolución", default_filename,
+            "Imagen PNG (*.png);;Todos los Archivos (*.*)"
         )
         if not out_path:
             return
 
         try:
-            # Construir matriz de datos: Primera columna = Corrimiento Raman, columnas siguientes = cada espectro
-            N = len(self.active_indices)
-            header_cols = ["Raman_Shift_cm-1"] + [self.spectra_list[idx]["name"].replace(",", "_") for idx in self.active_indices]
-            header = ",".join(header_cols)
-
-            matrix_out = np.column_stack([self.common_x] + [self.Y_displayed[i, :] for i in range(N)])
-            np.savetxt(out_path, matrix_out, delimiter=",", header=header, comments="", fmt="%.4f" + ",%.4f" * N)
-            QMessageBox.information(self, "Exportación Exitosa", f"Matriz exportada correctamente en:\n{out_path}")
+            import pyqtgraph.exporters
+            exporter = pg.exporters.ImageExporter(plot_widget.plotItem)
+            exporter.parameters()["width"] = 2400
+            bg_color = QColor("#FFFFFF") if self.theme_mode == 100 else QColor("#181825")
+            exporter.parameters()["background"] = bg_color
+            exporter.export(out_path)
+            QMessageBox.information(self, "Exportación Exitosa", f"Gráfico exportado con éxito en alta resolución (600 DPI / 2400 px):\n{out_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar la matriz:\n{e}")
+            QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar la imagen:\n{e}")
 
-    def _on_copy_tsv(self):
-        if self.Y_displayed.size == 0 or len(self.common_x) == 0:
+    def _export_pca_to_png(self, default_filename: str):
+        """Exporta el análisis PCA combinando Score Plot y Loadings en una sola imagen de alta resolución (2400 px)."""
+        if self.Y_raw.size == 0 or len(self.common_x) == 0 or self.Y_displayed.shape[0] < 2:
+            QMessageBox.warning(self, "Sin datos", "Se requieren al menos 2 espectros activos para exportar la figura PCA.")
             return
 
-        N = len(self.active_indices)
-        header_cols = ["Raman_Shift_cm-1"] + [self.spectra_list[idx]["name"] for idx in self.active_indices]
-        lines = ["\t".join(header_cols)]
+        out_path, _ = QFileDialog.getSaveFileName(
+            self, "Exportar Figura PCA de Alta Resolución", default_filename,
+            "Imagen PNG (*.png);;Todos los Archivos (*.*)"
+        )
+        if not out_path:
+            return
 
-        M = len(self.common_x)
-        for j in range(M):
-            row_vals = [f"{self.common_x[j]:.2f}"] + [f"{self.Y_displayed[i, j]:.4f}" for i in range(N)]
-            lines.append("\t".join(row_vals))
+        try:
+            import pyqtgraph.exporters
+            bg_color = QColor("#FFFFFF") if self.theme_mode == 100 else QColor("#181825")
+
+            exp1 = pg.exporters.ImageExporter(self.plot_pca_scores.plotItem)
+            exp1.parameters()["width"] = 1200
+            exp1.parameters()["background"] = bg_color
+            qimg1 = exp1.export(toBytes=True)
+
+            exp2 = pg.exporters.ImageExporter(self.plot_pca_loadings.plotItem)
+            exp2.parameters()["width"] = 1200
+            exp2.parameters()["background"] = bg_color
+            qimg2 = exp2.export(toBytes=True)
+
+            h = max(qimg1.height(), qimg2.height())
+            combined = QImage(2400, h, QImage.Format.Format_ARGB32)
+            combined.fill(bg_color)
+            painter = QPainter(combined)
+            painter.drawImage(0, 0, qimg1)
+            painter.drawImage(1200, 0, qimg2)
+            painter.end()
+
+            combined.save(out_path)
+            QMessageBox.information(self, "Exportación Exitosa", f"Figura PCA combinada guardada con éxito (2400 px):\n{out_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar la imagen PCA:\n{e}")
+
+    def _on_export_active_png(self):
+        """Exporta la visualización gráfica de la pestaña actualmente visible a PNG de 600 DPI."""
+        curr = self.tabs_views.currentWidget()
+        if curr == self.tab_raw_base:
+            self._export_plotitem_to_png(self.plot_raw_baseline, "Raman_Raw_and_Baselines.png")
+        elif curr == self.tab_plot:
+            self._export_plotitem_to_png(self.plot_multi, "Raman_Overlay_Spectra.png")
+        elif curr == self.tab_mean:
+            self._export_plotitem_to_png(self.plot_mean, "Raman_Mean_Std_Spectrum.png")
+        elif curr == self.tab_kin:
+            self._export_plotitem_to_png(self.plot_kinetics, "Raman_Band_Kinetics.png")
+        elif curr == self.tab_heat:
+            self._export_plotitem_to_png(self.plot_heatmap, "Raman_Heatmap_2D.png")
+        elif curr == self.tab_pca:
+            self._export_pca_to_png("Raman_PCA_Analysis.png")
+
+    def _on_export_active_csv(self):
+        """Exporta los datos numéricos de la pestaña actualmente visible a formato CSV."""
+        if self.Y_raw.size == 0 or len(self.common_x) == 0:
+            QMessageBox.warning(self, "Sin datos", "No hay datos espectrales para exportar.")
+            return
+
+        curr = self.tabs_views.currentWidget()
+        col_x = self._get_axis_col_name()
+        N = len(self.active_indices)
+        names = [self.spectra_list[idx]["name"].replace(",", "_") for idx in self.active_indices]
+
+        if curr == self.tab_raw_base:
+            out_path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Espectros Crudos y Línea Base", "Raman_Raw_and_Baselines.csv",
+                "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+            )
+            if not out_path:
+                return
+            try:
+                b_strategy = self.combo_baseline_mode.currentIndex()
+                if b_strategy == 0 and self.ref_blank_curve is not None and len(self.ref_blank_curve) == len(self.common_x):
+                    header = ",".join([col_x] + [f"Raw_{name}" for name in names] + ["Baseline_Reference"])
+                    matrix = np.column_stack([self.common_x] + [self.Y_raw[i, :] for i in range(N)] + [self.ref_blank_curve])
+                elif b_strategy == 1 and self.Y_baseline.shape == self.Y_raw.shape:
+                    cols = [col_x]
+                    cols_list = [self.common_x]
+                    for i in range(N):
+                        cols.append(f"Raw_{names[i]}")
+                        cols_list.append(self.Y_raw[i, :])
+                        cols.append(f"Baseline_{names[i]}")
+                        cols_list.append(self.Y_baseline[i, :])
+                    header = ",".join(cols)
+                    matrix = np.column_stack(cols_list)
+                else:
+                    header = ",".join([col_x] + [f"Raw_{name}" for name in names])
+                    matrix = np.column_stack([self.common_x] + [self.Y_raw[i, :] for i in range(N)])
+
+                fmt = "%.4f," + ",".join(["%.4f"] * (matrix.shape[1] - 1))
+                np.savetxt(out_path, matrix, delimiter=",", header=header, comments="", fmt=fmt)
+                QMessageBox.information(self, "Exportación Exitosa", f"Datos exportados correctamente en:\n{out_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar CSV:\n{e}")
+
+        elif curr == self.tab_plot:
+            out_path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Matriz de Espectros", "Raman_MultiSpectra_Matrix.csv",
+                "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+            )
+            if not out_path:
+                return
+            try:
+                header = ",".join([col_x] + names)
+                matrix = np.column_stack([self.common_x] + [self.Y_displayed[i, :] for i in range(N)])
+                fmt = "%.4f," + ",".join(["%.4f"] * N)
+                np.savetxt(out_path, matrix, delimiter=",", header=header, comments="", fmt=fmt)
+                QMessageBox.information(self, "Exportación Exitosa", f"Matriz exportada correctamente en:\n{out_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar CSV:\n{e}")
+
+        elif curr == self.tab_mean:
+            out_path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Espectro Promedio y Desviación", "Raman_Mean_Std_Spectrum.csv",
+                "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+            )
+            if not out_path:
+                return
+            try:
+                mean_y, std_y, rsd = compute_mean_std_spectrum(self.Y_displayed)
+                header = f"{col_x},Mean_Intensity,Std_Dev,Minus_1Sigma,Plus_1Sigma,RSD_Percent"
+                matrix = np.column_stack([self.common_x, mean_y, std_y, mean_y - std_y, mean_y + std_y, rsd])
+                np.savetxt(out_path, matrix, delimiter=",", header=header, comments="", fmt="%.4f,%.4f,%.4f,%.4f,%.4f,%.2f")
+                QMessageBox.information(self, "Exportación Exitosa", f"Estadísticas exportadas correctamente en:\n{out_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar CSV:\n{e}")
+
+        elif curr == self.tab_kin:
+            out_path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Cinética de Banda", "Raman_Band_Kinetics.csv",
+                "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+            )
+            if not out_path:
+                return
+            try:
+                pos_a = float(self.cursor_a.value())
+                pos_b = float(self.cursor_b.value())
+                kin = extract_band_kinetics(self.common_x, self.Y_displayed, pos_a, pos_b)
+                lines = [f"# Region: Cursor_A={pos_a:.2f}, Cursor_B={pos_b:.2f}"]
+                lines.append("Index,Spectrum_Name,Peak_Intensity,Integrated_Area")
+                for i in range(len(kin["heights"])):
+                    lines.append(f"{i+1},{names[i]},{kin['heights'][i]:.4f},{kin['areas'][i]:.4f}")
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(lines))
+                QMessageBox.information(self, "Exportación Exitosa", f"Cinética exportada correctamente en:\n{out_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar CSV:\n{e}")
+
+        elif curr == self.tab_heat:
+            out_path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Matriz 2D Mapa de Calor", "Raman_Heatmap_Matrix.csv",
+                "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+            )
+            if not out_path:
+                return
+            try:
+                header = ",".join([col_x] + [f"Idx_{i+1}_{names[i]}" for i in range(N)])
+                matrix = np.column_stack([self.common_x] + [self.Y_displayed[i, :] for i in range(N)])
+                fmt = "%.4f," + ",".join(["%.4f"] * N)
+                np.savetxt(out_path, matrix, delimiter=",", header=header, comments="", fmt=fmt)
+                QMessageBox.information(self, "Exportación Exitosa", f"Matriz 2D exportada correctamente en:\n{out_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar CSV:\n{e}")
+
+        elif curr == self.tab_pca:
+            if self.Y_displayed.shape[0] < 2:
+                QMessageBox.warning(self, "Insuficientes datos", "Se requieren al menos 2 espectros activos para exportar PCA.")
+                return
+            out_path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Análisis PCA (Scores & Loadings)", "Raman_PCA_Analysis.csv",
+                "Archivos CSV (*.csv);;Archivos de Texto (*.txt)"
+            )
+            if not out_path:
+                return
+            try:
+                pca = compute_spectral_pca(self.Y_displayed, n_components=2)
+                scores = pca["scores"]
+                loadings = pca["loadings"]
+                exp_var = pca["explained_variance"]
+                v1 = exp_var[0] if len(exp_var) > 0 else 0.0
+                v2 = exp_var[1] if len(exp_var) > 1 else 0.0
+
+                lines = [f"# PCA Spectral Analysis — Variance: PC1={v1:.2f}%, PC2={v2:.2f}%"]
+                lines.append("# --- SCORES ---")
+                lines.append("Index,Spectrum_Name,PC1_Score,PC2_Score")
+                for i in range(len(scores)):
+                    lines.append(f"{i+1},{names[i]},{scores[i, 0]:.4f},{scores[i, 1]:.4f}")
+                lines.append("")
+                lines.append("# --- LOADINGS ---")
+                lines.append(f"{col_x},PC1_Loading,PC2_Loading")
+                for j in range(len(self.common_x)):
+                    l1 = loadings[0, j] if loadings.shape[0] >= 1 else 0.0
+                    l2 = loadings[1, j] if loadings.shape[0] >= 2 else 0.0
+                    lines.append(f"{self.common_x[j]:.4f},{l1:.4f},{l2:.4f}")
+
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(lines))
+                QMessageBox.information(self, "Exportación Exitosa", f"Análisis PCA exportado correctamente en:\n{out_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar CSV:\n{e}")
+
+    def _on_copy_active_tsv(self):
+        """Copia al portapapeles en formato TSV los datos de la pestaña activa (compatible con Excel y OriginLab)."""
+        if self.Y_raw.size == 0 or len(self.common_x) == 0:
+            return
+
+        curr = self.tabs_views.currentWidget()
+        col_x = self._get_axis_col_name()
+        N = len(self.active_indices)
+        names = [self.spectra_list[idx]["name"] for idx in self.active_indices]
+        dec = 4 if self.unit_mode == "energy" else 2
+
+        lines = []
+        if curr == self.tab_raw_base:
+            b_strategy = self.combo_baseline_mode.currentIndex()
+            if b_strategy == 0 and self.ref_blank_curve is not None and len(self.ref_blank_curve) == len(self.common_x):
+                lines.append("\t".join([col_x] + [f"Raw_{name}" for name in names] + ["Baseline_Reference"]))
+                for j in range(len(self.common_x)):
+                    row = [f"{self.common_x[j]:.{dec}f}"] + [f"{self.Y_raw[i, j]:.4f}" for i in range(N)] + [f"{self.ref_blank_curve[j]:.4f}"]
+                    lines.append("\t".join(row))
+            elif b_strategy == 1 and self.Y_baseline.shape == self.Y_raw.shape:
+                cols = [col_x]
+                for name in names:
+                    cols.extend([f"Raw_{name}", f"Baseline_{name}"])
+                lines.append("\t".join(cols))
+                for j in range(len(self.common_x)):
+                    row = [f"{self.common_x[j]:.{dec}f}"]
+                    for i in range(N):
+                        row.append(f"{self.Y_raw[i, j]:.4f}")
+                        row.append(f"{self.Y_baseline[i, j]:.4f}")
+                    lines.append("\t".join(row))
+            else:
+                lines.append("\t".join([col_x] + [f"Raw_{name}" for name in names]))
+                for j in range(len(self.common_x)):
+                    row = [f"{self.common_x[j]:.{dec}f}"] + [f"{self.Y_raw[i, j]:.4f}" for i in range(N)]
+                    lines.append("\t".join(row))
+
+        elif curr == self.tab_plot or curr == self.tab_heat:
+            lines.append("\t".join([col_x] + names))
+            for j in range(len(self.common_x)):
+                row = [f"{self.common_x[j]:.{dec}f}"] + [f"{self.Y_displayed[i, j]:.4f}" for i in range(N)]
+                lines.append("\t".join(row))
+
+        elif curr == self.tab_mean:
+            mean_y, std_y, rsd = compute_mean_std_spectrum(self.Y_displayed)
+            lines.append(f"{col_x}\tMean_Intensity\tStd_Dev\tMinus_1Sigma\tPlus_1Sigma\tRSD_Percent")
+            for j in range(len(self.common_x)):
+                lines.append(f"{self.common_x[j]:.{dec}f}\t{mean_y[j]:.4f}\t{std_y[j]:.4f}\t{mean_y[j] - std_y[j]:.4f}\t{mean_y[j] + std_y[j]:.4f}\t{rsd[j]:.2f}")
+
+        elif curr == self.tab_kin:
+            pos_a = float(self.cursor_a.value())
+            pos_b = float(self.cursor_b.value())
+            kin = extract_band_kinetics(self.common_x, self.Y_displayed, pos_a, pos_b)
+            lines.append("Index\tSpectrum_Name\tPeak_Intensity\tIntegrated_Area")
+            for i in range(len(kin["heights"])):
+                lines.append(f"{i+1}\t{names[i]}\t{kin['heights'][i]:.4f}\t{kin['areas'][i]:.4f}")
+
+        elif curr == self.tab_pca:
+            if self.Y_displayed.shape[0] >= 2:
+                pca = compute_spectral_pca(self.Y_displayed, n_components=2)
+                scores = pca["scores"]
+                lines.append("Index\tSpectrum_Name\tPC1_Score\tPC2_Score")
+                for i in range(len(scores)):
+                    lines.append(f"{i+1}\t{names[i]}\t{scores[i, 0]:.4f}\t{scores[i, 1]:.4f}")
 
         tsv_text = "\n".join(lines)
         QApplication.clipboard().setText(tsv_text)
-        if self.parent_analyzer and hasattr(self.parent_analyzer, "statusBar"):
-            self.parent_analyzer.statusBar().showMessage(f"Matriz de {N} espectros x {M} puntos copiada al portapapeles (TSV).", 4000)
+        if self.parent_analyzer and hasattr(self.parent_analyzer, "statusBar") and self.parent_analyzer.statusBar():
+            self.parent_analyzer.statusBar().showMessage(f"Datos de {curr.accessibleName() or 'pestaña activa'} copiados al portapapeles (TSV).", 4000)
         elif os.environ.get("QT_QPA_PLATFORM") != "offscreen":
-            QMessageBox.information(self, "Copiado", "Matriz completa copiada al portapapeles en formato TSV (OriginLab / Excel).")
+            QMessageBox.information(self, "Copiado", "Datos de la pestaña activa copiados al portapapeles en formato TSV (OriginLab / Excel).")
+
+    # Alias para retrocompatibilidad
+    def _on_export_csv(self):
+        self._on_export_active_csv()
+
+    def _on_copy_tsv(self):
+        self._on_copy_active_tsv()

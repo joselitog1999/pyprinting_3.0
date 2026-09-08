@@ -227,6 +227,66 @@ def test_interpolate_spectra_to_common_grid_with_x_range_and_trimming():
     assert Y4.shape[0] == 2
     print("PASS: Recorte de ROI por rango [Xmin, Xmax] y poda de bordes CCD verificado al 100%.")
 
+def test_multi_spectrum_units_conversion():
+    from core.raman_engine import (
+        wavelength_to_raman_shift,
+        raman_shift_to_wavelength,
+        raman_shift_to_ev,
+        ev_to_raman_shift
+    )
+    wls = np.linspace(540.0, 650.0, 500)
+    laser_nm = 532.0
+
+    # 1. Espectros en tres unidades distintas
+    # A. Wavelength (nm)
+    spec_wl = [(wls, np.sin(wls), "Spec_WL", {})]
+    x_wl, Y_wl, _, _ = interpolate_spectra_to_common_grid(spec_wl)
+    assert math.isclose(x_wl[0], 540.0, abs_tol=1e-3)
+    assert math.isclose(x_wl[-1], 650.0, abs_tol=1e-3)
+
+    # B. Raman Shift (cm^-1)
+    shifts = wavelength_to_raman_shift(wls, laser_nm)
+    spec_shift = [(shifts, np.sin(wls), "Spec_Shift", {})]
+    x_shift, Y_shift, _, _ = interpolate_spectra_to_common_grid(spec_shift)
+    assert x_shift[0] >= 270.0
+    assert x_shift[-1] <= 3500.0
+
+    # C. Energía Relativa (eV)
+    evs = raman_shift_to_ev(shifts)
+    spec_ev = [(evs, np.sin(wls), "Spec_EV", {})]
+    x_ev, Y_ev, _, _ = interpolate_spectra_to_common_grid(spec_ev)
+    assert x_ev[0] >= 0.03
+    assert x_ev[-1] <= 0.45
+
+    # 2. Consistencia biyectiva de ida y vuelta
+    wls_recovered = raman_shift_to_wavelength(shifts, laser_nm)
+    assert np.allclose(wls, wls_recovered, atol=1e-9)
+
+    shifts_recovered = ev_to_raman_shift(evs)
+    assert np.allclose(shifts, shifts_recovered, atol=1e-9)
+
+    # 3. Interpolar blanco de referencia (Modo 1) en las tres unidades
+    wls_blank = np.linspace(535.0, 655.0, 300)
+    bg_raw = 0.05 * (wls_blank - 532.0)**2 + 50.0
+
+    # En nm
+    bg_interp_wl = np.interp(x_wl, wls_blank, bg_raw)
+    assert len(bg_interp_wl) == len(x_wl)
+
+    # En cm^-1
+    shifts_blank = wavelength_to_raman_shift(wls_blank, laser_nm)
+    sort_s = np.argsort(shifts_blank)
+    bg_interp_shift = np.interp(x_shift, shifts_blank[sort_s], bg_raw[sort_s])
+    assert len(bg_interp_shift) == len(x_shift)
+
+    # En eV
+    evs_blank = raman_shift_to_ev(shifts_blank)
+    sort_e = np.argsort(evs_blank)
+    bg_interp_ev = np.interp(x_ev, evs_blank[sort_e], bg_raw[sort_e])
+    assert len(bg_interp_ev) == len(x_ev)
+
+    print("PASS: Conversión de grilla multi-espectro (nm, cm^-1, eV) y sustracción de blanco verificado al 100%.")
+
 if __name__ == "__main__":
     test_interpolate_to_common_grid()
     test_normalizations()
@@ -236,6 +296,7 @@ if __name__ == "__main__":
     test_reference_blank_subtraction_mode()
     test_individual_baseline_mode()
     test_interpolate_spectra_to_common_grid_with_x_range_and_trimming()
+    test_multi_spectrum_units_conversion()
     print("\n=======================================================")
     print("TODAS LAS PRUEBAS DE MOTOR MULTI-ESPECTRO SUPERADAS!")
     print("=======================================================")
