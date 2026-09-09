@@ -19,18 +19,35 @@ from __future__ import annotations
 import time
 import numpy as np
 
-from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot, QEvent
 from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
-                              QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton)
-from PyQt6.QtGui     import QFont
+                              QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton,
+                              QComboBox, QTextEdit, QPlainTextEdit)
+from PyQt6.QtGui     import QFont, QKeyEvent
 from pyqtgraph.dockarea import DockArea, Dock
 
 from config import (pi, PI_AXES,
                     DEFAULT_NANO_STEP_XY, DEFAULT_NANO_STEP_Z,
-                    DEFAULT_NANO_GOTO_X, DEFAULT_NANO_GOTO_Y, DEFAULT_NANO_GOTO_Z)
+                    DEFAULT_NANO_GOTO_X, DEFAULT_NANO_GOTO_Y, DEFAULT_NANO_GOTO_Z,
+                    REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF, DEFAULT_COORDINATE_REGIME)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+_ACTIVE_FRONTENDS: list[Frontend] = []
+
+
+def set_global_coordinate_regime(regime: str):
+    """Sincroniza el régimen de coordenadas en todas las instancias activas de Nanopositioning."""
+    if regime not in (REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF):
+        return
+    for fe in list(_ACTIVE_FRONTENDS):
+        try:
+            if fe.current_regime != regime:
+                fe.set_regime(regime)
+        except Exception:
+            pass
+
+
 class Frontend(QFrame):
 
     read_pos_button_signal = pyqtSignal()
@@ -38,10 +55,38 @@ class Frontend(QFrame):
     go_to_pos_signal       = pyqtSignal(list)
     set_reference_signal   = pyqtSignal()
     reconnect_signal       = pyqtSignal()
+    regime_changed_signal  = pyqtSignal(str)
+
+    DIRECTION_MAP = {
+        REGIME_LEGACY: {
+            "right": ("x",  1.0),
+            "left":  ("x", -1.0),
+            "up":    ("y",  1.0),
+            "down":  ("y", -1.0),
+        },
+        REGIME_LASER_REF: {
+            "right": ("y",  1.0),
+            "left":  ("y", -1.0),
+            "up":    ("x", -1.0),
+            "down":  ("x",  1.0),
+        },
+        REGIME_SAMPLE_REF: {
+            "right": ("y", -1.0),
+            "left":  ("y",  1.0),
+            "up":    ("x",  1.0),
+            "down":  ("x", -1.0),
+        },
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.current_regime = DEFAULT_COORDINATE_REGIME
+        if self not in _ACTIVE_FRONTENDS:
+            _ACTIVE_FRONTENDS.append(self)
         self._setup_gui()
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.installEventFilter(self)
+        self.set_regime(self.current_regime)
 
     # ── Slots de actualización de UI ──────────────────────────────────────────
 
@@ -74,22 +119,40 @@ class Frontend(QFrame):
         self.ygotoLabel.setText(f"{positions[1]:.3f}")
         self.zgotoLabel.setText(f"{positions[2]:.3f}")
 
-    # ── Acciones de botones ───────────────────────────────────────────────────
+    # ── Acciones de botones y movimiento ──────────────────────────────────────
 
     def get_read_pos(self):
         self.read_pos_button_signal.emit()
 
-    def _step(self): return float(self.StepEdit.text())
-    def _zstep(self): return float(self.zStepEdit.text())
+    def _step(self):
+        try:
+            return float(self.StepEdit.text())
+        except ValueError:
+            return DEFAULT_NANO_STEP_XY
 
-    def xUp(self):    self.move_signal.emit('x',   self._step())
-    def xUp2(self):   self.move_signal.emit('x',  10*self._step())
-    def xDown(self):  self.move_signal.emit('x',  -self._step())
-    def xDown2(self): self.move_signal.emit('x', -10*self._step())
-    def yUp(self):    self.move_signal.emit('y',   self._step())
-    def yUp2(self):   self.move_signal.emit('y',  10*self._step())
-    def yDown(self):  self.move_signal.emit('y',  -self._step())
-    def yDown2(self): self.move_signal.emit('y', -10*self._step())
+    def _zstep(self):
+        try:
+            return float(self.zStepEdit.text())
+        except ValueError:
+            return DEFAULT_NANO_STEP_Z
+
+    def move_direction(self, direction: str, multiplier: float = 1.0):
+        """Despacha movimiento en el eje físico y signo según el régimen de coordenadas activo."""
+        mapping = self.DIRECTION_MAP.get(self.current_regime, self.DIRECTION_MAP[REGIME_LEGACY])
+        if direction not in mapping:
+            return
+        axis, sign = mapping[direction]
+        dist = sign * multiplier * self._step()
+        self.move_signal.emit(axis, dist)
+
+    def xUp(self):    self.move_direction("right", 1.0)
+    def xUp2(self):   self.move_direction("right", 10.0)
+    def xDown(self):  self.move_direction("left", 1.0)
+    def xDown2(self): self.move_direction("left", 10.0)
+    def yUp(self):    self.move_direction("up", 1.0)
+    def yUp2(self):   self.move_direction("up", 10.0)
+    def yDown(self):  self.move_direction("down", 1.0)
+    def yDown2(self): self.move_direction("down", 10.0)
     def zUp(self):    self.move_signal.emit('z',   self._zstep())
     def zUp2(self):   self.move_signal.emit('z',  10*self._zstep())
     def zDown(self):  self.move_signal.emit('z',  -self._zstep())
@@ -106,6 +169,145 @@ class Frontend(QFrame):
         ]
         self.go_to_pos_signal.emit(go_to_pos)
 
+    # ── Gestión de Régimen de Coordenadas ─────────────────────────────────────
+
+    @pyqtSlot(int)
+    def _on_regime_changed(self, index: int):
+        regime = self.cmb_regime.currentData()
+        if regime:
+            self.set_regime(regime)
+            set_global_coordinate_regime(regime)
+
+    def closeEvent(self, event):
+        if self in _ACTIVE_FRONTENDS:
+            _ACTIVE_FRONTENDS.remove(self)
+        super().closeEvent(event)
+
+    def set_regime(self, regime: str):
+        if regime not in (REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF):
+            return
+        self.current_regime = regime
+        for i in range(self.cmb_regime.count()):
+            if self.cmb_regime.itemData(i) == regime:
+                if self.cmb_regime.currentIndex() != i:
+                    self.cmb_regime.blockSignals(True)
+                    self.cmb_regime.setCurrentIndex(i)
+                    self.cmb_regime.blockSignals(False)
+                break
+        self._update_button_labels_and_tooltips()
+        self.regime_changed_signal.emit(regime)
+
+    def _update_button_labels_and_tooltips(self):
+        if self.current_regime == REGIME_LEGACY:
+            self.xUpButton.setText("x ►")
+            self.xUp2Button.setText("x ►►")
+            self.xDownButton.setText("◄ x")
+            self.xDown2Button.setText("◄◄ x")
+            self.yUpButton.setText("y ▲")
+            self.yUp2Button.setText("y ▲▲")
+            self.yDownButton.setText("y ▼")
+            self.yDown2Button.setText("y ▼▼")
+            self.xUpButton.setToolTip("Legacy: Eje físico 1 (+) paso 1x")
+            self.xUp2Button.setToolTip("Legacy: Eje físico 1 (+) paso 10x")
+            self.xDownButton.setToolTip("Legacy: Eje físico 1 (-) paso 1x")
+            self.xDown2Button.setToolTip("Legacy: Eje físico 1 (-) paso 10x")
+            self.yUpButton.setToolTip("Legacy: Eje físico 2 (+) paso 1x")
+            self.yUp2Button.setToolTip("Legacy: Eje físico 2 (+) paso 10x")
+            self.yDownButton.setToolTip("Legacy: Eje físico 2 (-) paso 1x")
+            self.yDown2Button.setToolTip("Legacy: Eje físico 2 (-) paso 10x")
+            self.lbl_keyboard_info.setToolTip("Régimen Legacy: [→]=Eje1+, [←]=Eje1-, [↑]=Eje2+, [↓]=Eje2-")
+        elif self.current_regime == REGIME_LASER_REF:
+            self.xUpButton.setText("Laser ►")
+            self.xUp2Button.setText("Laser ►►")
+            self.xDownButton.setText("◄ Laser")
+            self.xDown2Button.setText("◄◄ Laser")
+            self.yUpButton.setText("Laser ▲")
+            self.yUp2Button.setText("Laser ▲▲")
+            self.yDownButton.setText("Laser ▼")
+            self.yDown2Button.setText("Laser ▼▼")
+            self.xUpButton.setToolTip("Laser Ref: Desplaza el spot láser a la DERECHA en pantalla (Eje físico 2 +)")
+            self.xUp2Button.setToolTip("Laser Ref: Desplaza el spot láser a la DERECHA 10x (Eje físico 2 +)")
+            self.xDownButton.setToolTip("Laser Ref: Desplaza el spot láser a la IZQUIERDA en pantalla (Eje físico 2 -)")
+            self.xDown2Button.setToolTip("Laser Ref: Desplaza el spot láser a la IZQUIERDA 10x (Eje físico 2 -)")
+            self.yUpButton.setToolTip("Laser Ref: Desplaza el spot láser hacia ARRIBA en pantalla (Eje físico 1 -)")
+            self.yUp2Button.setToolTip("Laser Ref: Desplaza el spot láser hacia ARRIBA 10x (Eje físico 1 -)")
+            self.yDownButton.setToolTip("Laser Ref: Desplaza el spot láser hacia ABAJO en pantalla (Eje físico 1 +)")
+            self.yDown2Button.setToolTip("Laser Ref: Desplaza el spot láser hacia ABAJO 10x (Eje físico 1 +)")
+            self.lbl_keyboard_info.setToolTip("Régimen Laser Ref: [→]=Láser Derecha, [←]=Láser Izquierda, [↑]=Láser Arriba, [↓]=Láser Abajo")
+        elif self.current_regime == REGIME_SAMPLE_REF:
+            self.xUpButton.setText("Sample ►")
+            self.xUp2Button.setText("Sample ►►")
+            self.xDownButton.setText("◄ Sample")
+            self.xDown2Button.setText("◄◄ Sample")
+            self.yUpButton.setText("Sample ▲")
+            self.yUp2Button.setText("Sample ▲▲")
+            self.yDownButton.setText("Sample ▼")
+            self.yDown2Button.setText("Sample ▼▼")
+            self.xUpButton.setToolTip("Sample Ref: Desplaza los objetos de la muestra a la DERECHA en pantalla (Eje físico 2 -)")
+            self.xUp2Button.setToolTip("Sample Ref: Desplaza los objetos de la muestra a la DERECHA 10x (Eje físico 2 -)")
+            self.xDownButton.setToolTip("Sample Ref: Desplaza los objetos de la muestra a la IZQUIERDA en pantalla (Eje físico 2 +)")
+            self.xDown2Button.setToolTip("Sample Ref: Desplaza los objetos de la muestra a la IZQUIERDA 10x (Eje físico 2 +)")
+            self.yUpButton.setToolTip("Sample Ref: Desplaza los objetos de la muestra hacia ARRIBA en pantalla (Eje físico 1 +)")
+            self.yUp2Button.setToolTip("Sample Ref: Desplaza los objetos de la muestra hacia ARRIBA 10x (Eje físico 1 +)")
+            self.yDownButton.setToolTip("Sample Ref: Desplaza los objetos de la muestra hacia ABAJO en pantalla (Eje físico 1 -)")
+            self.yDown2Button.setToolTip("Sample Ref: Desplaza los objetos de la muestra hacia ABAJO 10x (Eje físico 1 -)")
+            self.lbl_keyboard_info.setToolTip("Régimen Sample Ref: [→]=Muestra Derecha, [←]=Muestra Izquierda, [↑]=Muestra Arriba, [↓]=Muestra Abajo")
+
+    # ── Control por Teclado (Flechas paso 1x, Shift paso 10x) ─────────────────
+
+    def keyPressEvent(self, event: QKeyEvent):
+        focused = self.focusWidget() or QApplication.focusWidget()
+        if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
+            super().keyPressEvent(event)
+            return
+
+        k = event.key()
+        step_mult = 10.0 if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else 1.0
+
+        if k == Qt.Key.Key_Right:
+            self.move_direction("right", step_mult)
+            event.accept()
+            return
+        elif k == Qt.Key.Key_Left:
+            self.move_direction("left", step_mult)
+            event.accept()
+            return
+        elif k == Qt.Key.Key_Up:
+            self.move_direction("up", step_mult)
+            event.accept()
+            return
+        elif k == Qt.Key.Key_Down:
+            self.move_direction("down", step_mult)
+            event.accept()
+            return
+        elif k == Qt.Key.Key_PageUp:
+            if step_mult > 1.0:
+                self.zUp2()
+            else:
+                self.zUp()
+            event.accept()
+            return
+        elif k == Qt.Key.Key_PageDown:
+            if step_mult > 1.0:
+                self.zDown2()
+            else:
+                self.zDown()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+    def eventFilter(self, watched, event: QEvent):
+        if event.type() == QEvent.Type.KeyPress:
+            focused = self.focusWidget() or QApplication.focusWidget()
+            if not isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                if isinstance(event, QKeyEvent):
+                    k = event.key()
+                    if k in (Qt.Key.Key_Right, Qt.Key.Key_Left, Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+                        self.keyPressEvent(event)
+                        return True
+        return super().eventFilter(watched, event)
+
     # ── Construcción de la GUI ────────────────────────────────────────────────
 
     def _setup_gui(self):
@@ -115,8 +317,10 @@ class Frontend(QFrame):
 
         # ── Posicionador ──────────────────────────────────────────────────────
         self.read_pos_button = QPushButton("Read position")
+        self.read_pos_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.read_pos_button.clicked.connect(self.get_read_pos)
         self.set_ref_button  = QPushButton("Set reference")
+        self.set_ref_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.set_ref_button.clicked.connect(self.set_reference)
 
         self.StepEdit  = QLineEdit(str(int(DEFAULT_NANO_STEP_XY) if DEFAULT_NANO_STEP_XY.is_integer() else DEFAULT_NANO_STEP_XY))
@@ -141,6 +345,7 @@ class Frontend(QFrame):
         def btn(text, slot, w=S):
             b = QPushButton(text)
             b.setFixedWidth(w)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.clicked.connect(slot)
             return b
 
@@ -158,6 +363,7 @@ class Frontend(QFrame):
         self.zDown2Button = btn("z ▼▼", self.zDown2)
 
         positioner = QWidget()
+        positioner.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         lo = QGridLayout(positioner)
 
         lo.addWidget(self.read_pos_button, 0, 0, 1, 2)
@@ -200,6 +406,7 @@ class Frontend(QFrame):
             w.setFixedWidth(54)
 
         self.gotoButton = QPushButton("Go to")
+        self.gotoButton.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.gotoButton.clicked.connect(self.go_to_action)
 
         lo2.addWidget(self.gotoButton,    1, 5, 2, 2)
@@ -216,6 +423,7 @@ class Frontend(QFrame):
         )
 
         self.reconnect_button = QPushButton("🔌 Reconectar")
+        self.reconnect_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.reconnect_button.setToolTip("Reintenta conectar la platina física si fue encendida o reconectada por USB.")
         self.reconnect_button.setStyleSheet("""
             QPushButton {
@@ -232,11 +440,45 @@ class Frontend(QFrame):
         status_bar.addWidget(self.conn_status_label, stretch=1)
         status_bar.addWidget(self.reconnect_button)
 
+        # ── Selector de Régimen de Coordenadas & Atajos de Teclado ─────────
+        regime_hlo = QHBoxLayout()
+        regime_hlo.setSpacing(6)
+        lbl_regime = QLabel("<b>Régimen:</b>")
+        lbl_regime.setStyleSheet("font-size: 8pt; color: #cdd6f4;")
+        self.cmb_regime = QComboBox()
+        self.cmb_regime.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.cmb_regime.addItem("🏛️ Legacy (Ejes PI 1/2)", REGIME_LEGACY)
+        self.cmb_regime.addItem("🎯 Laser Ref (Spot en Pantalla)", REGIME_LASER_REF)
+        self.cmb_regime.addItem("🔬 Sample Ref (Objetos en Muestra)", REGIME_SAMPLE_REF)
+        self.cmb_regime.setStyleSheet("""
+            QComboBox {
+                background-color: #181825; color: #89b4fa; border: 1px solid #45475a;
+                border-radius: 4px; padding: 2px 6px; font-size: 8pt; font-weight: bold;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #1e1e2e; color: #cdd6f4; selection-background-color: #313244;
+            }
+        """)
+        self.cmb_regime.currentIndexChanged.connect(self._on_regime_changed)
+
+        self.lbl_keyboard_info = QLabel("⌨️ [←↑→↓] Paso 1x")
+        self.lbl_keyboard_info.setStyleSheet(
+            "color: #a6e3a1; background-color: #11111b; border: 1px solid #313244; "
+            "border-radius: 4px; padding: 2px 6px; font-size: 8pt; font-weight: bold;"
+        )
+        self.lbl_keyboard_info.setToolTip("Control por flechas activo: Pulse [← ↑ → ↓] para mover 1 paso (Shift: 10 pasos, PgUp/PgDn: Eje Z).")
+
+        regime_hlo.addWidget(lbl_regime)
+        regime_hlo.addWidget(self.cmb_regime, stretch=1)
+        regime_hlo.addWidget(self.lbl_keyboard_info)
+
         pos_container = QWidget()
         pos_vlo = QVBoxLayout(pos_container)
         pos_vlo.setContentsMargins(2, 2, 2, 2)
         pos_vlo.setSpacing(6)
         pos_vlo.addLayout(status_bar)
+        pos_vlo.addLayout(regime_hlo)
         pos_vlo.addWidget(positioner)
 
         # ── Docks ─────────────────────────────────────────────────────────────
@@ -259,6 +501,7 @@ class Frontend(QFrame):
         backend.reference_signal.connect(self.get_go_to_reference)
         backend.connection_status_signal.connect(self.update_connection_status)
         self.reconnect_signal.connect(backend.reconnect)
+        self.regime_changed_signal.connect(backend.set_regime)
         is_phys = hasattr(pi, "is_physically_connected") and pi.is_physically_connected()
         txt = f"PI Física ({pi.qIDN().strip().split()[0]})" if is_phys else "Modo Virtual (Desconectada)"
         self.update_connection_status(is_phys, txt)
@@ -273,7 +516,13 @@ class Backend(QObject):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.current_regime = DEFAULT_COORDINATE_REGIME
         self.reconnect()
+
+    @pyqtSlot(str)
+    def set_regime(self, regime: str):
+        if regime in (REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF):
+            self.current_regime = regime
 
     @pyqtSlot()
     def reconnect(self):

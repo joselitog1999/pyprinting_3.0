@@ -813,6 +813,7 @@ class ContrapropaganteMainWindow(QMainWindow):
         # 4. Nanopositioning — a la izquierda de focus
         nanoDock = Dock("Nanopositioning", size=(200, 180))
         self.nanoWidget = NanoFrontend()
+        self.installEventFilter(self.nanoWidget)
         nanoDock.addWidget(self.nanoWidget)
         self.dockArea.addDock(nanoDock, "left", focusDock)
 

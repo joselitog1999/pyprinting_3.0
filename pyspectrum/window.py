@@ -430,6 +430,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.nano_fe = NanoFrontend()
         self.nano_be = NanoBackend()
         self.nano_fe.make_connection(self.nano_be)
+        self.installEventFilter(self.nano_fe)
+        self.nano_dialog.installEventFilter(self.nano_fe)
         nano_vlo.addWidget(self.nano_fe)
 
         self.shutters_dialog = QtWidgets.QDialog(self)

@@ -126,6 +126,12 @@ DEFAULT_NANO_GOTO_X             = 50.0    # µm coordenada inicial Go to X
 DEFAULT_NANO_GOTO_Y             = 50.0    # µm coordenada inicial Go to Y
 DEFAULT_NANO_GOTO_Z             = 10.0    # µm coordenada inicial Go to Z
 
+# ── Regímenes de Coordenadas de Platina PI ────────────────────────────────────
+REGIME_LEGACY                   = "legacy"      # Ejes brutos PI: x=Eje 1, y=Eje 2
+REGIME_LASER_REF                = "laser_ref"   # Referencia spot láser: Right=Eje 2 (+), Up=Eje 1 (-)
+REGIME_SAMPLE_REF               = "sample_ref"  # Referencia muestra: Right=Eje 2 (-), Up=Eje 1 (+)
+DEFAULT_COORDINATE_REGIME       = REGIME_LEGACY
+
 # ── Impresión y Dímeros (`measurements.py`) ──────────────────────────────────
 DEFAULT_GRID_NPS_COL            = 4       # número de filas/partículas por columna
 DEFAULT_GRID_COLS               = 4       # número de columnas de la grilla

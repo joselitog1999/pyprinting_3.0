@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QFrame, QVBoxLayout, QHBoxLay
 from PyQt6.QtGui import QColor, QFont
 
 from core.hardware_manager import hardware_manager, HardwareManager
+from config import (REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF, DEFAULT_COORDINATE_REGIME)
+from core.nanopositioning import set_global_coordinate_regime
 
 
 class HardwareDashboardWidget(QFrame):
@@ -182,6 +184,55 @@ class HardwareDashboardWidget(QFrame):
 
         main_layout.addWidget(devices_box)
 
+        # ── Cinemática y Régimen de Coordenadas de Platina PI ──────────────────
+        kinematics_box = QGroupBox("Cinemática de Platina Piezoeléctrica PI (Régimen de Coordenadas & Teclado)")
+        kin_vlo = QVBoxLayout(kinematics_box)
+        kin_vlo.setSpacing(6)
+
+        kin_top_hlo = QHBoxLayout()
+        lbl_kin_title = QLabel("<b>Régimen Activo:</b>")
+        lbl_kin_title.setStyleSheet("font-size: 9pt; color: #cdd6f4;")
+
+        self.combo_kin_regime = QComboBox()
+        self.combo_kin_regime.addItem("🏛️ Legacy (Ejes brutos PI 1/2)", REGIME_LEGACY)
+        self.combo_kin_regime.addItem("🎯 Laser Ref (Spot en Pantalla)", REGIME_LASER_REF)
+        self.combo_kin_regime.addItem("🔬 Sample Ref (Objetos en Muestra)", REGIME_SAMPLE_REF)
+        self.combo_kin_regime.setStyleSheet("""
+            QComboBox {
+                background-color: #181825; color: #89b4fa; border: 1px solid #45475a;
+                border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 9pt;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #1e1e2e; color: #cdd6f4; selection-background-color: #313244;
+            }
+        """)
+        self.combo_kin_regime.currentIndexChanged.connect(self._on_kin_regime_changed)
+
+        self.lbl_kin_keyboard_badge = QLabel("⌨️ Flechas Teclado: [← ↑ → ↓] Paso 1x (Shift: 10x)")
+        self.lbl_kin_keyboard_badge.setStyleSheet(
+            "color: #a6e3a1; background-color: #11111b; border: 1px solid #313244; "
+            "border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 8.5pt;"
+        )
+        self.lbl_kin_keyboard_badge.setToolTip("Control por flechas activo en la aplicación: [← ↑ → ↓] mueven 1 paso la platina según el régimen activo.")
+
+        kin_top_hlo.addWidget(lbl_kin_title)
+        kin_top_hlo.addWidget(self.combo_kin_regime, stretch=1)
+        kin_top_hlo.addSpacing(10)
+        kin_top_hlo.addWidget(self.lbl_kin_keyboard_badge)
+
+        self.lbl_kin_description = QLabel("")
+        self.lbl_kin_description.setStyleSheet(
+            "color: #bac2de; font-size: 8.5pt; background-color: #181825; border-radius: 4px; "
+            "padding: 4px 8px; border: 1px dashed #45475a;"
+        )
+        self._update_kin_description(DEFAULT_COORDINATE_REGIME)
+
+        kin_vlo.addLayout(kin_top_hlo)
+        kin_vlo.addWidget(self.lbl_kin_description)
+
+        main_layout.addWidget(kinematics_box)
+
         # ── Console / Hardware Log ────────────────────────────────────────────
         log_box = QGroupBox("Bitácora de Eventos I/O & Telemetría en Tiempo Real")
         log_vlo = QVBoxLayout(log_box)
@@ -191,6 +242,24 @@ class HardwareDashboardWidget(QFrame):
         log_vlo.addWidget(self.log_text)
 
         main_layout.addWidget(log_box)
+
+    def _update_kin_description(self, regime: str):
+        if regime == REGIME_LEGACY:
+            desc = "<b>Legacy (Ejes Brutos):</b> [→] Eje físico 1 (+) | [←] Eje físico 1 (-) | [↑] Eje físico 2 (+) | [↓] Eje físico 2 (-)"
+        elif regime == REGIME_LASER_REF:
+            desc = "<b>Laser Ref (Spot en Pantalla):</b> [→] Spot Láser a la DERECHA (Eje 2 +) | [←] Spot Láser a la IZQUIERDA (Eje 2 -) | [↑] Spot Láser hacia ARRIBA (Eje 1 -) | [↓] Spot Láser hacia ABAJO (Eje 1 +)"
+        elif regime == REGIME_SAMPLE_REF:
+            desc = "<b>Sample Ref (Objetos en Muestra):</b> [→] Objetos a la DERECHA (Eje 2 -) | [←] Objetos a la IZQUIERDA (Eje 2 +) | [↑] Objetos hacia ARRIBA (Eje 1 +) | [↓] Objetos hacia ABAJO (Eje 1 -)"
+        else:
+            desc = ""
+        self.lbl_kin_description.setText(desc)
+
+    def _on_kin_regime_changed(self, idx: int):
+        regime = self.combo_kin_regime.currentData()
+        if regime:
+            self._update_kin_description(regime)
+            set_global_coordinate_regime(regime)
+            hardware_manager.log("INFO", f"[Kinematics] Régimen de coordenadas de platina conmutado a: {regime}")
 
     def _connect_signals(self):
         hardware_manager.deviceStatusSignal.connect(self._on_device_status_update)
