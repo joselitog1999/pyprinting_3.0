@@ -76,12 +76,22 @@ class Frontend(QtWidgets.QFrame):
         grid.addWidget(QtWidgets.QLabel("Red de Difracción:"), 0, 0)
         self.cmb_grating = QtWidgets.QComboBox()
         self.cmb_grating.addItems(NAME_GRATINGS)
+        self.cmb_grating.setToolTip(
+            "Selecciona la red de difracción montada en la torreta motorizada:\n"
+            "• Red 1 (150 l/mm): Amplia cobertura espectral (UV-Vis-NIR) para nanopartículas.\n"
+            "• Red 2 (1200 l/mm): Alta resolución espectral Raman y modos plasmónicos finos.\n"
+            "• Red 3 (Espejo): Imagen directa sin dispersión para alineación de microscopía."
+        )
         self.cmb_grating.currentIndexChanged.connect(self._on_grating_changed)
         grid.addWidget(self.cmb_grating, 0, 1)
 
         # 2. Longitud de Onda Central (nm)
         grid.addWidget(QtWidgets.QLabel("Longitud de Onda Central (nm):"), 1, 0)
         self.edit_wavelength = QtWidgets.QLineEdit("532.00")
+        self.edit_wavelength.setToolTip(
+            "Longitud de onda central (nm) a la cual se posicionará el centro del detector CCD.\n"
+            "Presione Enter para mover la red de difracción con el motor paso a paso."
+        )
         self.edit_wavelength.returnPressed.connect(self._on_wavelength_changed)
         grid.addWidget(self.edit_wavelength, 1, 1)
 
@@ -101,6 +111,11 @@ class Frontend(QtWidgets.QFrame):
         grid.addWidget(QtWidgets.QLabel("Puerto Entrada (Flipper IN):"), 3, 0)
         self.cmb_flipper_in = QtWidgets.QComboBox()
         self.cmb_flipper_in.addItems(NAME_PORTS_IN)
+        self.cmb_flipper_in.setToolTip(
+            "Selecciona el puerto de entrada óptico activo mediante el espejo basculante:\n"
+            "• Entrada 1: Acople directo de espacio libre desde el microscopio óptico.\n"
+            "• Entrada 2: Entrada auxiliar por conector de fibra óptica SMA/FC."
+        )
         self.cmb_flipper_in.currentIndexChanged.connect(lambda idx: self.setFlipperSignal.emit(1, idx))
         grid.addWidget(self.cmb_flipper_in, 3, 1)
 
@@ -108,12 +123,14 @@ class Frontend(QtWidgets.QFrame):
         self.btn_shutter = QtWidgets.QPushButton("🟢 Obturador Espectrógrafo: ABIERTO")
         self.btn_shutter.setCheckable(True)
         self.btn_shutter.setChecked(True)
+        self.btn_shutter.setToolTip("Abre o cierra el obturador electromecánico de entrada del Shamrock para proteger el sensor CCD.")
         self.btn_shutter.clicked.connect(self._on_toggle_shutter)
         grid.addWidget(self.btn_shutter, 4, 0, 1, 2)
 
         # 6. Botón Acceso Rápido: Orden Cero (Alineación)
         self.btn_zero = QtWidgets.QPushButton("🪞 Ir a Orden Cero (0.0 nm / Alineación)")
         self.btn_zero.setStyleSheet("background-color: #313244; color: #89B4FA; border: 1px solid #89B4FA; font-weight: bold;")
+        self.btn_zero.setToolTip("Posiciona la red en Orden Cero (0.0 nm) para proyección de imagen directa y enfoque confocal.")
         self.btn_zero.clicked.connect(self._on_goto_zero_order)
         grid.addWidget(self.btn_zero, 5, 0, 1, 2)
 
@@ -122,6 +139,7 @@ class Frontend(QtWidgets.QFrame):
         # Barra de información de dispersión
         self.lbl_info = QtWidgets.QLabel("Rango espectral en detector: ~350 nm a 710 nm")
         self.lbl_info.setStyleSheet("color: #A6ADC8; font-size: 8.5pt; font-style: italic;")
+        self.lbl_info.setToolTip("Información calculada en tiempo real de la ventana espectral y dispersión lineal sobre el sensor CCD.")
         layout.addWidget(self.lbl_info)
 
         layout.addStretch()

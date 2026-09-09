@@ -82,10 +82,12 @@ class Frontend(QtWidgets.QFrame):
 
         param_grid.addWidget(QtWidgets.QLabel("Tiempo Exp (s):"), 0, 0)
         self.edit_exp = QtWidgets.QLineEdit("1.0")
+        self.edit_exp.setToolTip("Tiempo de integración en segundos para cada cuadro espectral individual.")
         param_grid.addWidget(self.edit_exp, 0, 1)
 
         param_grid.addWidget(QtWidgets.QLabel("Paso Único λ (nm):"), 1, 0)
         self.edit_center_wl = QtWidgets.QLineEdit("532.0")
+        self.edit_center_wl.setToolTip("Longitud de onda central (nm) para la adquisición simple de paso único.")
         param_grid.addWidget(self.edit_center_wl, 1, 1)
 
         controls_vlo.addLayout(param_grid)
@@ -93,6 +95,7 @@ class Frontend(QtWidgets.QFrame):
         # Botón Medición Simple
         self.btn_single = QtWidgets.QPushButton("🔬 Medir Espectro Simple")
         self.btn_single.setStyleSheet("background-color: #89B4FA; color: #11111B;")
+        self.btn_single.setToolTip("Posiciona el espectrógrafo y adquiere un único espectro centrado en la longitud de onda especificada.")
         self.btn_single.clicked.connect(self._on_single_measure)
         controls_vlo.addWidget(self.btn_single)
 
@@ -104,14 +107,17 @@ class Frontend(QtWidgets.QFrame):
 
         sandg_grid.addWidget(QtWidgets.QLabel("λ Inicial (nm):"), 0, 0)
         self.edit_start_wl = QtWidgets.QLineEdit("450.0")
+        self.edit_start_wl.setToolTip("Longitud de onda inicial (nm) para el barrido multi-paso concatenado.")
         sandg_grid.addWidget(self.edit_start_wl, 0, 1)
 
         sandg_grid.addWidget(QtWidgets.QLabel("λ Final (nm):"), 1, 0)
         self.edit_end_wl = QtWidgets.QLineEdit("950.0")
+        self.edit_end_wl.setToolTip("Longitud de onda final (nm) para el barrido multi-paso concatenado.")
         sandg_grid.addWidget(self.edit_end_wl, 1, 1)
 
         sandg_grid.addWidget(QtWidgets.QLabel("Solapamiento:"), 2, 0)
         self.edit_overlap = QtWidgets.QLineEdit("0.20")
+        self.edit_overlap.setToolTip("Fracción de solapamiento espacial/espectral entre ventanas consecutivas (ej. 0.20 = 20% de solape ponderado).")
         sandg_grid.addWidget(self.edit_overlap, 2, 1)
 
         controls_vlo.addWidget(box_sandg)
@@ -119,30 +125,36 @@ class Frontend(QtWidgets.QFrame):
         # Opciones de procesamiento
         self.chk_norm_lamp = QtWidgets.QCheckBox("Normalizar con Lámpara Halógena")
         self.chk_norm_lamp.setChecked(True)
+        self.chk_norm_lamp.setToolTip("Corrige la curva de respuesta instrumental espectral dividiendo por el perfil de la lámpara halógena.")
         controls_vlo.addWidget(self.chk_norm_lamp)
 
         self.chk_fit_poly = QtWidgets.QCheckBox("Ajuste Polinomial SPR (λ_max)")
         self.chk_fit_poly.setChecked(True)
+        self.chk_fit_poly.setToolTip("Ajusta un modelo polinomial de 4to orden para estimar el pico máximo de resonancia plasmónica (SPR).")
         controls_vlo.addWidget(self.chk_fit_poly)
 
         self.chk_fit_raman = QtWidgets.QCheckBox("Ajuste Raman Agua (3300 cm⁻¹)")
+        self.chk_fit_raman.setToolTip("Ajusta las bandas Raman de agua en el rango Stokes para calibración o referencia in-situ.")
         controls_vlo.addWidget(self.chk_fit_raman)
 
         # Botones de Acción Step & Glue y Detención
         btn_box = QtWidgets.QHBoxLayout()
         self.btn_sandg = QtWidgets.QPushButton("🧩 Ejecutar Step and Glue")
         self.btn_sandg.setStyleSheet("background-color: #A6E3A1; color: #11111B;")
+        self.btn_sandg.setToolTip("Inicia la rutina automática: cálculo de centros intermedios, rotación de red, lectura y cosido suave de espectros.")
         self.btn_sandg.clicked.connect(self._on_sandg_measure)
         btn_box.addWidget(self.btn_sandg)
 
         self.btn_stop = QtWidgets.QPushButton("⏹ Detener")
         self.btn_stop.setStyleSheet("background-color: #F38BA8; color: #11111B;")
+        self.btn_stop.setToolTip("Detiene de manera inmediata y segura la rutina de adquisición y movimiento en curso.")
         self.btn_stop.clicked.connect(self._on_stop_measure)
         btn_box.addWidget(self.btn_stop)
         controls_vlo.addLayout(btn_box)
 
         self.btn_save = QtWidgets.QPushButton("💾 Guardar Espectro...")
         self.btn_save.setStyleSheet("background-color: #313244; color: #CDD6F4;")
+        self.btn_save.setToolTip("Guarda los datos espectrales procesados (longitud de onda e intensidad) en formato de texto (.txt).")
         self.btn_save.clicked.connect(self._on_save_spectrum)
         controls_vlo.addWidget(self.btn_save)
 

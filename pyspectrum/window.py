@@ -201,6 +201,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             }
         """)
         self.btn_reset_estop.setEnabled(False)
+        self.btn_reset_estop.setToolTip("Restaura el enclavamiento tras una parada de emergencia y rehabilita el hardware óptico.")
         self.btn_reset_estop.clicked.connect(self._on_reset_estop_clicked)
         toolbar.addWidget(self.btn_reset_estop)
 
@@ -219,6 +220,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
                 border-radius: 4px;
             }
         """)
+        self.lbl_hw_status.setToolTip("Monitorea la exclusividad mutua: indica qué rutina tiene tomado el control de los instrumentos.")
         toolbar.addWidget(self.lbl_hw_status)
 
         # Espaciador elástico
@@ -242,6 +244,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
                 color: #89B4FA;
             }
         """)
+        btn_quick_shutters.setToolTip("Acceso directo a la ventana de control de obturadores láser y espejos abatibles (flippers).")
         btn_quick_shutters.clicked.connect(self._open_shutters_dialog)
         toolbar.addWidget(btn_quick_shutters)
 
@@ -261,6 +264,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
                 color: #FAB387;
             }
         """)
+        btn_quick_hw.setToolTip("Abre el panel general de instrumentación y diagnóstico de conexiones físicas.")
         btn_quick_hw.clicked.connect(self._open_hardware_dashboard)
         toolbar.addWidget(btn_quick_hw)
 
@@ -343,31 +347,37 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         # ── Docks Modulares ───────────────────────────────────────────────────
         self.dock_camera = Dock("📷 Cámara Andor CCD (Detector)", size=(500, 500))
         self.cam_widget = CameraFrontend()
+        self.cam_widget.setToolTip("Panel del detector Andor CCD: adquisición en vivo 2D/1D, control térmico Peltier y ganancia EM.")
         self.dock_camera.addWidget(self.cam_widget)
         self.dock_area.addDock(self.dock_camera, 'left')
 
         self.dock_spectrometer = Dock("🌈 Espectrógrafo Andor Shamrock", size=(500, 260))
         self.spec_widget = SpectrumFrontend()
+        self.spec_widget.setToolTip("Control motorizado del espectrógrafo Shamrock 500i: redes de difracción, longitud de onda central y ranura.")
         self.dock_spectrometer.addWidget(self.spec_widget)
         self.dock_area.addDock(self.dock_spectrometer, 'bottom', self.dock_camera)
 
         self.dock_sandg = Dock("🧩 Espectroscopía & Step and Glue", size=(650, 400))
         self.sandg_widget = StepGlueFrontend()
+        self.sandg_widget.setToolTip("Módulo de adquisición espectral y cosido continuo (Step & Glue) para barridos de banda ancha.")
         self.dock_sandg.addWidget(self.sandg_widget)
         self.dock_area.addDock(self.dock_sandg, 'right')
 
         self.dock_raman = Dock("🔬 Espectroscopía Raman Estática & Termometría", size=(650, 400))
         self.raman_widget = StaticRamanWidget()
+        self.raman_widget.setToolTip("Módulo de Raman estático ultra-rápido, sustracción de línea base y termometría in-situ con cursores duales.")
         self.dock_raman.addWidget(self.raman_widget)
         self.dock_area.addDock(self.dock_raman, 'above', self.dock_sandg)
 
         self.dock_calibration = Dock("🎯 Calibraciones del Sistema", size=(650, 400))
         self.calib_widget = CalibrationFrontend()
+        self.calib_widget.setToolTip("Subsistema metrológico de calibraciones: alineación de slit, offsets de rejilla, EEPROM y persistencia TXT.")
         self.dock_calibration.addWidget(self.calib_widget)
         self.dock_area.addDock(self.dock_calibration, 'above', self.dock_sandg)
 
         self.dock_confocal = Dock("🧬 Mapeo Confocal Hiperespectral (X, Y, λ)", size=(650, 360))
         self.confocal_widget = ConfocalFrontend()
+        self.confocal_widget.setToolTip("Mapeo hiperespectral confocal: escaneo piezoeléctrico bidimensional sincronizado con espectrometría.")
         self.dock_confocal.addWidget(self.confocal_widget)
         self.dock_area.addDock(self.dock_confocal, 'bottom', self.dock_sandg)
 

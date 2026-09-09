@@ -154,6 +154,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
         for s in SHUTTERS:
             self.cmb_laser.addItem(f"🔦 {s}", LASER_WAVELENGTH_MAP.get(s, 532.0))
         self.cmb_laser.addItem("✏️ Personalizado...", -1.0)
+        self.cmb_laser.setToolTip("Láser de bombeo óptico utilizado para la excitación inelástica Raman.")
         row1.addWidget(self.cmb_laser)
 
         self.spin_laser_custom = QtWidgets.QDoubleSpinBox()
@@ -163,6 +164,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.spin_laser_custom.setSuffix(" nm")
         self.spin_laser_custom.setFixedWidth(90)
         self.spin_laser_custom.setEnabled(False)
+        self.spin_laser_custom.setToolTip("Longitud de onda personalizada en nm para fuentes láser externas no convencionales.")
         row1.addWidget(self.spin_laser_custom)
 
         row1.addWidget(QtWidgets.QLabel("Red Shamrock:"))
@@ -170,6 +172,11 @@ class StaticRamanWidget(QtWidgets.QWidget):
         # Red 1 (150 l/mm) por defecto (exploratorio)
         self.cmb_grating.addItem("150 l/mm (Blaze 800 nm)", 1)
         self.cmb_grating.addItem("1200 l/mm (Blaze 500 nm)", 2)
+        self.cmb_grating.setToolTip(
+            "Red de difracción del Shamrock:\n"
+            "• 150 l/mm: Cobertura amplia para Stokes y Anti-Stokes simultáneo (termometría).\n"
+            "• 1200 l/mm: Alta resolución para desdoblamiento de picos y fonones finos."
+        )
         row1.addWidget(self.cmb_grating)
 
         row1.addStretch()
@@ -182,6 +189,12 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.cmb_mode.addItem("🔍 Huella Dactilar Raman (Stokes)", "stokes")
         self.cmb_mode.addItem("⚖️ Stokes + Anti-Stokes Simétrico (Termometría)", "symmetric")
         self.cmb_mode.addItem("🖐️ Manual", "manual")
+        self.cmb_mode.setToolTip(
+            "Ventana espectral preconfigurada:\n"
+            "• Huella Dactilar: Centrado en rango Stokes (500 a 2000 cm⁻¹).\n"
+            "• Simétrico: Centrado en la línea láser para cocientes Stokes/Anti-Stokes (termometría in-situ).\n"
+            "• Manual: Control libre del centroide espectral."
+        )
         row2.addWidget(self.cmb_mode)
 
         row2.addWidget(QtWidgets.QLabel("Centro Espectrógrafo:"))
@@ -191,14 +204,17 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.spin_center_wl.setDecimals(2)
         self.spin_center_wl.setSuffix(" nm")
         self.spin_center_wl.setFixedWidth(95)
+        self.spin_center_wl.setToolTip("Longitud de onda central (nm) configurada en el espectrógrafo Shamrock.")
         row2.addWidget(self.spin_center_wl)
 
         self.lbl_shift_center = QtWidgets.QLabel("≈ +1098 cm⁻¹")
         self.lbl_shift_center.setStyleSheet("color: #89B4FA; font-weight: bold;")
+        self.lbl_shift_center.setToolTip("Corrimiento Raman equivalente correspondiente al centro espectral actual.")
         row2.addWidget(self.lbl_shift_center)
 
         self.btn_apply_spectrometer = QtWidgets.QPushButton("🚀 Sintonizar Espectrógrafo")
         self.btn_apply_spectrometer.setStyleSheet("background-color: #89B4FA; color: #11111B;")
+        self.btn_apply_spectrometer.setToolTip("Comanda al espectrógrafo para posicionar la red y el centroide de longitud de onda seleccionado.")
         row2.addWidget(self.btn_apply_spectrometer)
 
         row2.addStretch()
@@ -214,27 +230,37 @@ class StaticRamanWidget(QtWidgets.QWidget):
         # Eje X: cm^-1 vs nm
         self.chk_raman_shift = QtWidgets.QCheckBox("Mostrar Raman Shift (cm⁻¹)")
         self.chk_raman_shift.setChecked(True)
+        self.chk_raman_shift.setToolTip("Alterna el eje horizontal entre longitud de onda (nm) y corrimiento Raman relativo (cm⁻¹).")
         proc_hlo.addWidget(self.chk_raman_shift)
 
         # Despiking
         self.chk_despike = QtWidgets.QCheckBox("Despiking Rayos Cósmicos")
         self.chk_despike.setChecked(True)
+        self.chk_despike.setToolTip("Elimina automáticamente picos espurios y estrechos provocados por rayos cósmicos sobre el CCD.")
         proc_hlo.addWidget(self.chk_despike)
 
         # Línea Base
         self.chk_baseline = QtWidgets.QCheckBox("Sustraer Línea Base:")
         self.chk_baseline.setChecked(False)
+        self.chk_baseline.setToolTip("Calcula y sustrae el fondo de fluorescencia y dispersión no resonante.")
         proc_hlo.addWidget(self.chk_baseline)
 
         self.cmb_baseline = QtWidgets.QComboBox()
         self.cmb_baseline.addItem("AsLS (Asymmetric Least Squares)", "asls")
         self.cmb_baseline.addItem("AirPLS (Adaptive Iterative Reweighted)", "airpls")
         self.cmb_baseline.addItem("ModPoly (Polinomial Modificado)", "modpoly")
+        self.cmb_baseline.setToolTip(
+            "Algoritmo de ajuste de línea base:\n"
+            "• AsLS: Mínimos cuadrados asimétricos.\n"
+            "• AirPLS: Mínimos cuadrados ponderados iterativos adaptativos.\n"
+            "• ModPoly: Ajuste polinomial modificado."
+        )
         proc_hlo.addWidget(self.cmb_baseline)
 
         # Suavizado Savitzky-Golay
         self.chk_savgol = QtWidgets.QCheckBox("Suavizado Savitzky-Golay")
         self.chk_savgol.setChecked(False)
+        self.chk_savgol.setToolTip("Filtro polinomial Savitzky-Golay para suavizado reduciendo el ruido de alta frecuencia.")
         proc_hlo.addWidget(self.chk_savgol)
 
         self.spin_savgol_win = QtWidgets.QSpinBox()
@@ -243,6 +269,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.spin_savgol_win.setValue(11)
         self.spin_savgol_win.setSuffix(" pts")
         self.spin_savgol_win.setFixedWidth(70)
+        self.spin_savgol_win.setToolTip("Tamaño de la ventana de puntos impares para el filtro Savitzky-Golay.")
         proc_hlo.addWidget(self.spin_savgol_win)
 
         proc_hlo.addStretch()
@@ -286,6 +313,11 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.lbl_temp_info = QtWidgets.QLabel("🌡️ <b>Temp Fototérmica:</b> -- K (-- °C)")
         self.lbl_temp_info.setStyleSheet("color: #F9E2AF; font-weight: bold;")
 
+        self.lbl_cursor_a_info.setToolTip("Posición espectral e intensidad del Cursor A (azul).")
+        self.lbl_cursor_b_info.setToolTip("Posición espectral e intensidad del Cursor B (rojo).")
+        self.lbl_diff_info.setToolTip("Diferencia de frecuencia (Δν) y cociente de intensidades (IA/IB) entre ambos cursores.")
+        self.lbl_temp_info.setToolTip("Temperatura fototérmica estimada mediante la ley de distribución de Boltzmann para los modos Stokes y Anti-Stokes.")
+
         tel_hlo.addWidget(self.lbl_cursor_a_info)
         tel_hlo.addWidget(self.lbl_cursor_b_info)
         tel_hlo.addWidget(self.lbl_diff_info)
@@ -298,21 +330,25 @@ class StaticRamanWidget(QtWidgets.QWidget):
         actions_hlo = QtWidgets.QHBoxLayout()
 
         self.btn_single = QtWidgets.QPushButton("📸 Capturar Espectro Único")
+        self.btn_single.setToolTip("Adquiere un único cuadro Raman estático de alta fidelidad.")
         self.btn_single.clicked.connect(self._on_acquire_single)
         actions_hlo.addWidget(self.btn_single)
 
         self.btn_live = QtWidgets.QPushButton("▶️ Live Raman (Continuo)")
         self.btn_live.setCheckable(True)
+        self.btn_live.setToolTip("Inicia o detiene la adquisición continua en tiempo real (Live Raman) actualizando termometría.")
         self.btn_live.clicked.connect(self._on_toggle_live)
         actions_hlo.addWidget(self.btn_live)
 
         actions_hlo.addStretch()
 
         self.btn_copy_tsv = QtWidgets.QPushButton("📋 Copiar Datos (TSV)")
+        self.btn_copy_tsv.setToolTip("Copia los datos de dispersión e intensidad al portapapeles en formato TSV compatible con Excel y Origin.")
         self.btn_copy_tsv.clicked.connect(self._on_copy_tsv)
         actions_hlo.addWidget(self.btn_copy_tsv)
 
         self.btn_save = QtWidgets.QPushButton("💾 Guardar Espectro (.txt)")
+        self.btn_save.setToolTip("Guarda el espectro procesado con metadatos completos en un archivo de texto (.txt).")
         self.btn_save.clicked.connect(self._on_save_spectrum)
         actions_hlo.addWidget(self.btn_save)
 

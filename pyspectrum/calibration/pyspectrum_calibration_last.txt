@@ -1,0 +1,66 @@
+# ==============================================================================
+# PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
+# Laboratorio de Nanofotónica — UNSAM
+# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iKon-M / Newton CCD
+# Última actualización: 2026-09-09 09:15:00
+# Operador / Responsable: Ingeniero de Instrumentación y Software
+# ==============================================================================
+
+[METADATOS]
+instrumento = Andor Shamrock SR-500i
+detector = Andor CCD iKon-M / Newton (1024x256 / 1002x1002)
+tamano_pixel_um = 13.0
+resolucion_horizontal_px = 1002
+fecha_calibracion = 2026-09-09 09:15:00
+estado = CALIBRADO_VALIDADO
+
+[GEOMETRIA_SLIT]
+# Ancho nominal calibrado de la ranura de entrada motorizada (µm)
+slit_width_um = 50.0
+# Posición del centroide óptico en Orden Cero (0.0 nm) determinado por ajuste Gaussiano
+slit_center_pixel_x = 501.25
+# Ancho a media altura (FWHM) medido en pixeles para ranura de 50 µm
+slit_fwhm_pixels = 4.12
+# Offset de pasos mecánicos para el cero absoluto de la ranura (Shamrock SDK)
+slit_zero_position_steps = 0
+
+[OFFSETS_HARDWARE_SDK]
+# Offset angular en pasos de motor paso a paso para la torreta de rejillas (Shamrock SDK)
+# Rejilla 1: 150 l/mm (Blaze 800 nm, espectros amplios de nanopartículas)
+grating_1_offset_steps = 12
+# Rejilla 2: 1200 l/mm (Blaze 500 nm, alta resolución Raman / plasmónica fina)
+grating_2_offset_steps = -35
+# Rejilla 3: Espejo / Mirror (Alineación confocal de campo claro e imagen directa)
+grating_3_offset_steps = 0
+# Offset mecánico angular de la brida del detector CCD (Shamrock SDK)
+detector_offset_steps = 5
+
+[DISPERSION_CUBICA_EEPROM]
+# Polinomio de calibración de longitud de onda: lambda(p) = a + b*p + c*p^2 + d*p^3
+# donde 'p' es el índice de pixel horizontal (0 a 1001)
+# Coeficiente a (Offset de longitud de onda en nm al pixel 0)
+coeff_a = 450.124500
+# Coeficiente b (Dispersión lineal principal nm/pixel)
+coeff_b = 0.301450
+# Coeficiente c (Término cuadrático de aberración cromática)
+coeff_c = 1.250000e-06
+# Coeficiente d (Término cúbico de corrección geométrica Czerny-Turner)
+coeff_d = -8.120000e-10
+
+[CALIBRACION_RAMAN]
+# Longitud de onda nominal del láser de bombeo (nm)
+laser_excitation_nm = 532.00
+# Pico de referencia estándar: Silicio monocristalino Si (100) Fonón TO a 298 K (cm^-1)
+silicon_peak_reference_cm1 = 520.50
+# Pico medido experimentalmente con la rejilla de 1200 l/mm (cm^-1)
+silicon_peak_measured_cm1 = 520.50
+# Offset correctivo aplicado al cálculo de Raman Shift (cm^-1)
+raman_offset_cm1 = 0.00
+
+[RESPUESTA_RADIOMETRICA_INTENSIDAD]
+# Archivo de calibración de cuerpo negro / lámpara halógena trazable NIST
+lamp_calibration_file = lamparaIR_450-950_overlap0.2
+# Temperatura de color equivalente de cuerpo gris / filamento de tungsteno (K)
+lamp_color_temperature_k = 3100.0
+# Corrección de respuesta espectral activa por defecto (True/False)
+correction_enabled = True

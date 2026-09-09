@@ -92,17 +92,20 @@ class Frontend(QtWidgets.QFrame):
 
         self.btn_live = QtWidgets.QPushButton("▶️ Iniciar Live View")
         self.btn_live.setCheckable(True)
+        self.btn_live.setToolTip("Inicia o detiene la adquisición continua (Live View) en el detector CCD.")
         self.btn_live.clicked.connect(self._on_toggle_live)
         row1.addWidget(self.btn_live)
 
         self.lbl_temp = QtWidgets.QLabel("❄️ Temp: <b>-- °C</b> (⚪ Off)")
         self.lbl_temp.setStyleSheet("background-color: #11111B; padding: 4px 8px; border-radius: 4px; border: 1px solid #45475A;")
+        self.lbl_temp.setToolTip("Lectura en tiempo real de la temperatura del sensor CCD y estado del lazo de control Peltier.")
         row1.addWidget(self.lbl_temp)
 
         self.btn_cooler = QtWidgets.QPushButton("❄️ Enfriador: ON")
         self.btn_cooler.setCheckable(True)
         self.btn_cooler.setChecked(True)
         self.btn_cooler.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold;")
+        self.btn_cooler.setToolTip("Activa o desactiva la etapa termoeléctrica Peltier para enfriar el sensor y minimizar la corriente oscura.")
         self.btn_cooler.clicked.connect(self._on_toggle_cooler)
         row1.addWidget(self.btn_cooler)
 
@@ -112,12 +115,14 @@ class Frontend(QtWidgets.QFrame):
         self.spin_temp.setValue(-65)
         self.spin_temp.setSuffix(" °C")
         self.spin_temp.setFixedWidth(75)
+        self.spin_temp.setToolTip("Temperatura objetivo (°C) para el enfriador Peltier (típicamente -60 °C a -70 °C para bajo ruido).")
         self.spin_temp.editingFinished.connect(self._on_temp_changed)
         row1.addWidget(self.spin_temp)
 
         row1.addWidget(QtWidgets.QLabel("Exp (s):"))
         self.edit_exp = QtWidgets.QLineEdit("0.05")
         self.edit_exp.setFixedWidth(55)
+        self.edit_exp.setToolTip("Tiempo de exposición del sensor CCD por cuadro en segundos (presione Enter para aplicar).")
         self.edit_exp.returnPressed.connect(self._on_exp_changed)
         row1.addWidget(self.edit_exp)
 
@@ -131,6 +136,11 @@ class Frontend(QtWidgets.QFrame):
         self.cmb_amp = QtWidgets.QComboBox()
         self.cmb_amp.addItem("Modo EMCCD (Multiplicador)", 0)
         self.cmb_amp.addItem("Modo Convencional (Bajo Ruido)", 1)
+        self.cmb_amp.setToolTip(
+            "Selecciona el canal de lectura y amplificación:\n"
+            "• EMCCD: Multiplicación por impacto para detección ultra-rápida o fotón único.\n"
+            "• Convencional: Lectura lenta de ultra-bajo ruido para espectroscopía de integración prolongada."
+        )
         self.cmb_amp.currentIndexChanged.connect(self._on_amp_changed)
         row2.addWidget(self.cmb_amp)
 
@@ -139,6 +149,7 @@ class Frontend(QtWidgets.QFrame):
         self.slider_gain.setRange(0, 1000)
         self.slider_gain.setValue(0)
         self.slider_gain.setFixedWidth(140)
+        self.slider_gain.setToolTip("Control interactivo de la ganancia de multiplicación de electrones (EM Gain). Desactivado en modo convencional.")
         self.slider_gain.valueChanged.connect(self._on_slider_gain_changed)
         row2.addWidget(self.slider_gain)
 
@@ -147,11 +158,13 @@ class Frontend(QtWidgets.QFrame):
         self.spin_gain.setRange(0, 1000)
         self.spin_gain.setValue(0)
         self.spin_gain.setFixedWidth(65)
+        self.spin_gain.setToolTip("Ingreso numérico directo de la ganancia EM.")
         self.spin_gain.valueChanged.connect(self._on_spin_gain_changed)
         row2.addWidget(self.spin_gain)
 
         self.lbl_gain_badge = QtWidgets.QLabel("1x (CCD)")
         self.lbl_gain_badge.setStyleSheet("background-color: #A6E3A1; color: #11111B; font-weight: bold; padding: 2px 6px; border-radius: 3px;")
+        self.lbl_gain_badge.setToolTip("Factor multiplicador de ganancia EM actual estimado.")
         row2.addWidget(self.lbl_gain_badge)
 
         row2.addStretch()
@@ -165,6 +178,12 @@ class Frontend(QtWidgets.QFrame):
         self.cmb_read_mode.addItem("📷 Alineación 2D (Imagen)", READ_MODE_IMAGE)
         self.cmb_read_mode.addItem("🎯 Single Track (ROI Hardware)", READ_MODE_SINGLE_TRACK)
         self.cmb_read_mode.addItem("📊 FVB Completo (Hardware)", READ_MODE_FVB)
+        self.cmb_read_mode.setToolTip(
+            "Modo de lectura del sensor Andor:\n"
+            "• Imagen 2D: Cuadro completo para enfoque y visualización espacial.\n"
+            "• Single Track: Lectura de una banda horizontal reducida para mayor velocidad.\n"
+            "• FVB (Full Vertical Binning): Suma vertical completa por hardware de las columnas."
+        )
         # Establece índice inicial según configuración
         initial_idx = 0 if ANDOR_DEFAULT_READ_MODE == READ_MODE_IMAGE else (1 if ANDOR_DEFAULT_READ_MODE == READ_MODE_SINGLE_TRACK else 2)
         self.cmb_read_mode.setCurrentIndex(initial_idx)
@@ -174,18 +193,21 @@ class Frontend(QtWidgets.QFrame):
         self.chk_flip_y = QtWidgets.QCheckBox("🪞 Flip Y (Espejo)")
         self.chk_flip_y.setChecked(ANDOR_FLIP_Y_IMAGE)
         self.chk_flip_y.setStyleSheet("color: #89B4FA; font-weight: bold;")
+        self.chk_flip_y.setToolTip("Invierte verticalmente la imagen adquirida para compensar la paridad óptica del microscopio.")
         self.chk_flip_y.toggled.connect(self._on_flip_toggled)
         row3.addWidget(self.chk_flip_y)
 
         self.chk_flip_x = QtWidgets.QCheckBox("🪞 Flip X")
         self.chk_flip_x.setChecked(ANDOR_FLIP_X_IMAGE)
         self.chk_flip_x.setStyleSheet("color: #CDD6F4;")
+        self.chk_flip_x.setToolTip("Invierte horizontalmente la imagen para alinear la dirección del eje espectral.")
         self.chk_flip_x.toggled.connect(self._on_flip_toggled)
         row3.addWidget(self.chk_flip_x)
 
         self.btn_crosshair = QtWidgets.QPushButton("✛ Retícula Slit")
         self.btn_crosshair.setCheckable(True)
         self.btn_crosshair.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+        self.btn_crosshair.setToolTip("Muestra u oculta las líneas de retícula guía centradas en el eje óptico del slit.")
         self.btn_crosshair.clicked.connect(self._on_toggle_crosshair)
         row3.addWidget(self.btn_crosshair)
 

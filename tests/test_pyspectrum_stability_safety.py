@@ -565,6 +565,103 @@ class TestPySpectrumSafety(unittest.TestCase):
         ret_wl = self.spectrometer.ShamrockSetWavelength(DEVICE, 532.0)
         self.assertEqual(ret_wl, 20202)  # SHAMROCK_SUCCESS
 
+    def test_calibration_txt_persistence_roundtrip(self):
+        """Verifica que CalibrationBackend guarde y cargue el archivo TXT con todos los campos y valores."""
+        from pyspectrum.modules import calibration_dock
+        import tempfile
+
+        be = calibration_dock.CalibrationBackend(self.camera, self.spectrometer)
+        fe = calibration_dock.CalibrationFrontend()
+        be.make_connection(fe)
+
+        # 1. Verificar carga inicial desde pyspectrum_calibration_last.txt
+        self.assertAlmostEqual(be.slit_center_x, 501.25, places=1)
+        self.assertEqual(be.slit_width, 50.0)
+        self.assertEqual(be.grating_offsets[1], 12)
+        self.assertEqual(be.grating_offsets[2], -35)
+        self.assertEqual(be.detector_offset, 5)
+
+        # 2. Modificar valores
+        be.slit_center_x = 502.40
+        be.slit_width = 75.0
+        be.grating_offsets[1] = 20
+        be.grating_offsets[2] = -40
+        be.detector_offset = 8
+
+        # 3. Guardar en archivo TXT temporal
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            save_ok = be.save_calibration_to_txt(tmp_path)
+            self.assertTrue(save_ok)
+            self.assertTrue(Path(tmp_path).exists())
+
+            # 4. Crear nuevo backend y cargar desde el archivo temporal
+            be2 = calibration_dock.CalibrationBackend(self.camera, self.spectrometer)
+            load_ok = be2.load_calibration_from_txt(tmp_path)
+            self.assertTrue(load_ok)
+            self.assertAlmostEqual(be2.slit_center_x, 502.40, places=2)
+            self.assertEqual(be2.slit_width, 75.0)
+            self.assertEqual(be2.grating_offsets[1], 20)
+            self.assertEqual(be2.grating_offsets[2], -40)
+            self.assertEqual(be2.detector_offset, 8)
+        finally:
+            if Path(tmp_path).exists():
+                Path(tmp_path).unlink(missing_ok=True)
+
+    def test_ui_tooltips_completeness(self):
+        """Verifica que todos los elementos PyQt útiles de PySpectrum tengan tooltips informativos."""
+        from pyspectrum.modules import calibration_dock, spectrum_control, camera_andor, step_and_glue, static_raman
+
+        # 1. CalibrationFrontend
+        fe_calib = calibration_dock.CalibrationFrontend()
+        self.assertTrue(len(fe_calib.btn_zero_order.toolTip()) > 10)
+        self.assertTrue(len(fe_calib.spin_slit_width.toolTip()) > 10)
+        self.assertTrue(len(fe_calib.btn_auto_slit.toolTip()) > 10)
+        self.assertTrue(len(fe_calib.combo_grating.toolTip()) > 10)
+        self.assertTrue(len(fe_calib.btn_save_calib_txt.toolTip()) > 10)
+        self.assertTrue(len(fe_calib.btn_load_calib_txt.toolTip()) > 10)
+        self.assertTrue(len(fe_calib.btn_reload_last.toolTip()) > 10)
+
+        # 2. SpectrumFrontend
+        fe_spec = spectrum_control.Frontend()
+        self.assertTrue(len(fe_spec.cmb_grating.toolTip()) > 10)
+        self.assertTrue(len(fe_spec.edit_wavelength.toolTip()) > 10)
+        self.assertTrue(len(fe_spec.edit_slit.toolTip()) > 10)
+        self.assertTrue(len(fe_spec.cmb_flipper_in.toolTip()) > 10)
+        self.assertTrue(len(fe_spec.btn_shutter.toolTip()) > 10)
+        self.assertTrue(len(fe_spec.btn_zero.toolTip()) > 10)
+
+        # 3. CameraFrontend
+        fe_cam = camera_andor.Frontend()
+        self.assertTrue(len(fe_cam.btn_live.toolTip()) > 10)
+        self.assertTrue(len(fe_cam.btn_cooler.toolTip()) > 10)
+        self.assertTrue(len(fe_cam.spin_temp.toolTip()) > 10)
+        self.assertTrue(len(fe_cam.edit_exp.toolTip()) > 10)
+        self.assertTrue(len(fe_cam.cmb_amp.toolTip()) > 10)
+        self.assertTrue(len(fe_cam.slider_gain.toolTip()) > 10)
+        self.assertTrue(len(fe_cam.cmb_read_mode.toolTip()) > 10)
+        self.assertTrue(len(fe_cam.chk_flip_y.toolTip()) > 10)
+
+        # 4. StepGlueFrontend
+        fe_sandg = step_and_glue.Frontend()
+        self.assertTrue(len(fe_sandg.btn_single.toolTip()) > 10)
+        self.assertTrue(len(fe_sandg.btn_sandg.toolTip()) > 10)
+        self.assertTrue(len(fe_sandg.btn_stop.toolTip()) > 10)
+        self.assertTrue(len(fe_sandg.chk_norm_lamp.toolTip()) > 10)
+        self.assertTrue(len(fe_sandg.chk_fit_poly.toolTip()) > 10)
+
+        # 5. StaticRamanWidget
+        fe_raman = static_raman.StaticRamanWidget()
+        self.assertTrue(len(fe_raman.cmb_laser.toolTip()) > 10)
+        self.assertTrue(len(fe_raman.cmb_grating.toolTip()) > 10)
+        self.assertTrue(len(fe_raman.cmb_mode.toolTip()) > 10)
+        self.assertTrue(len(fe_raman.btn_apply_spectrometer.toolTip()) > 10)
+        self.assertTrue(len(fe_raman.btn_single.toolTip()) > 10)
+        self.assertTrue(len(fe_raman.btn_live.toolTip()) > 10)
+        self.assertTrue(len(fe_raman.btn_save.toolTip()) > 10)
+
 
 if __name__ == "__main__":
     unittest.main()
