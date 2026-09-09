@@ -105,8 +105,10 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 ### Dock Nanopositioning (Platina Piezoeléctrica PI)
 | Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
 |---|---|---|---|
-| `Ejes X, Y, Z` | `QDoubleSpinBox` | $0.000 - 100.000\ \mu\text{m}$ | Visualización y comando de coordenadas piezoeléctricas en bucle cerrado. |
-| `Botones de Paso` | `QPushButton` | $\pm 0.1$, $\pm 1.0$, $\pm 10.0\ \mu\text{m}$ | Incrementos relativos sobre los ejes principales. |
+| `Régimen de Coordenadas` | `QComboBox` | `Legacy`, `Laser Ref`, `Sample Ref` | Selector global que adapta reactivamente todas las etiquetas (`X`, `Y (Vert)`, `Y (Muestra)`), ejes de gráficos y reportes, manteniendo 100% invariante la actuación física del hardware PI. |
+| `Ejes (Go To / Read)` | `QDoubleSpinBox` / `QLabel` | $0.000 - 100.000\ \mu\text{m}$ | Visualización continua (`pi.qPOS()`) y comando de coordenadas piezoeléctricas. Las etiquetas de los Ejes 1, 2 y 3 se adaptan dinámicamente con tooltips informativos de dirección de movimiento. |
+| `Botones de Paso` | `QPushButton` | $\pm 0.1$, $\pm 1.0$, $\pm 10.0\ \mu\text{m}$ | Incrementos relativos discretos sobre los ejes de la platina. |
+| `Navegación con Flechas`| Teclado | $\uparrow, \downarrow, \leftarrow, \rightarrow, \text{PgUp}, \text{PgDn}$ | Permite mover la platina paso a paso de a 1 unidad ($\pm \text{Step X-Y}$ o $\pm \text{Step Z}$) con el teclado al enfocar el dock. |
 | `Set Reference` | `QPushButton` | Origen $P_0$ | Fija las coordenadas actuales como origen de referencia experimental. |
 | `🔌 Reconectar` | `QPushButton` | Hot-plug | Restablece en caliente el socket de comunicación con la controladora E-517/E-736. |
 

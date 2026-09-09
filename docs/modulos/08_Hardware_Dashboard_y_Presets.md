@@ -84,6 +84,7 @@ Este subsistema combina dos herramientas críticas para la confiabilidad y repro
 | Control / Botón | Tipo de Widget | Función Técnica |
 |---|---|---|
 | `Selector de Perfil` | `QComboBox` | Conmuta entre `PyPrinting`, `PySpectrum`, `Cámara` y `Completo (All)`, aplicando la política de aislamiento instantáneo. |
+| `Kinematics / Coordinate Regime` | `QComboBox` | Selecciona el régimen global (`Legacy`, `Laser Ref`, `Sample Ref`) y difunde la actualización a todos los docks y widgets del sistema mediante el Event Bus. |
 | `Soft Disconnect` | `QPushButton` | Suspende las llamadas a la DLL/controlador y conmuta a mock/simulación sin cerrar la aplicación. |
 | `Re-conectar / Conectar` | `QPushButton` | Inicializa bajo demanda la conexión USB/PCIe del dispositivo específico en caliente. |
 | `Aislar (Soft Mock)` | `QCheckBox` | Bloquea el acceso físico al driver y suministra telemetría virtual para pruebas sin apagar el equipo. |

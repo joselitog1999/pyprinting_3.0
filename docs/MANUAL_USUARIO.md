@@ -235,11 +235,37 @@ $$r(z) = \frac{\sum (I(z) - \bar{I})(I_{\text{ref}}(z) - \bar{I}_{\text{ref}})}{
 
 ---
 
-### 2.8 Mapeo Físico de Coordenadas y Calibración de Platina Piezoeléctrica PI
-Mapeo de transformación de ejes espaciales entre la imagen de cámara réflex y el movimiento físico de la platina PI E-517 ($0.0 - 100.0\ \mu\text{m}$):
-- **Cámara Hacia la DERECHA ($+X_{\text{cam}}$)** $\longrightarrow$ **Platina $+Y_{\text{PI}}$**
-- **Cámara Hacia ABAJO ($+Y_{\text{cam}}$)** $\longrightarrow$ **Platina $+X_{\text{PI}}$**
-- **Eje Axial Óptico ($Z_{\text{óptico}}$)** $\longrightarrow$ **Platina $+Z_{\text{PI}}$**
+### 2.8 Mapeo Físico de Coordenadas, Regímenes de Referencia e Invariancia Cinemática
+
+En la plataforma **PyPrinting 3.0**, la muestra se encuentra montada sobre una platina piezoeléctrica triaxial Physik Instrumente (PI E-517/E-736, rango $0.0 - 100.0\ \mu\text{m}$), mientras que el haz láser focalizado por el objetivo de alta apertura numérica ($NA \ge 1.40$) se mantiene estático en el espacio del laboratorio $\mathcal{R}_{\text{lab}}$.
+
+#### 1. Cinemática de Movimiento Relativo (Muestra vs. Láser)
+Cuando la platina desplaza mecánicamente la muestra con velocidad $\mathbf{v}_{\text{sample}}$, el punto focal del láser respecto al sustrato se mueve con velocidad exactamente opuesta:
+$$\mathbf{v}_{\text{laser}/\text{sample}} = -\mathbf{v}_{\text{sample}/\text{lab}}$$
+
+En la cámara réflex Canon EOS 500D (orientación de la imagen en monitor):
+- **Desplazamiento del Láser hacia la DERECHA ($+X_{\text{laser}}$)** $\iff$ La platina física mueve la muestra hacia la izquierda ($\mathbf{v}_{\text{sample}} \propto -\hat{\mathbf{x}}$), correspondiente al **Eje 2 de la platina PI**.
+- **Desplazamiento del Láser hacia ABAJO ($+Y_{\text{laser}}$)** $\iff$ La platina física mueve la muestra hacia arriba ($\mathbf{v}_{\text{sample}} \propto -\hat{\mathbf{y}}$), correspondiente al **Eje 1 de la platina PI**.
+- **Eje Axial Óptico ($Z_{\text{óptico}}$)** $\iff$ Movimiento del foco hacia el interior de la muestra, correspondiente al **Eje 3 de la platina PI**.
+
+#### 2. Los 3 Regímenes de Coordenadas Seleccionables
+Para armonizar la práctica histórica con la intuición visual directa y la nanofabricación orientada a muestras, el sistema incorpora tres marcos de referencia seleccionables dinámicamente desde el **Dock Nanopositioning** o el **Tablero de Hardware**:
+
+| Régimen | Perspectiva Metrológica | Casilla 1 (Eje 1 PI) | Casilla 2 (Eje 2 PI) | Casilla 3 (Eje 3 PI) | Aplicación Típica |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`Legacy`** | Convención histórica de PyPrinting 2 | `X =` (Vertical en pantalla) | `Y =` (Horizontal en pantalla) | `Z =` (Axial) | Compatibilidad retrospectiva estricta con protocolos 2017-2024. |
+| **`Laser Ref`** | Marco visual del monitor / cámara | `Y (Vert) =` (Eje vertical hacia abajo) | `X (Horiz) =` (Eje horizontal a derecha) | `Z (Axial) =` | **Recomendado**: Alineación óptica directa, confocal y coincidencia 1:1 con la cámara. |
+| **`Sample Ref`** | Marco intrínseco del sustrato de vidrio | `Y (Muestra) =` (Eje intrínseco de muestra) | `X (Muestra) =` (Eje intrínseco de muestra) | `Z (Axial) =` | Fabricación de metasuperficies, correlación directa con AFM, SEM y litografía. |
+
+#### 3. Principio Rector de Invariancia de Hardware
+> [!IMPORTANT]
+> **Invariancia Cinemática Absoluta**: La selección del régimen de coordenadas **NO modifica en un solo nanómetro la actuación física ni las señales enviadas a la controladora PI**.
+> Las casillas de entrada `Go To` y de lectura `Read Position` siguen gobernando exactamente los mismos canales físicos de hardware:
+> - Casilla 1 $\longrightarrow$ Siempre comanda y lee el **Eje 1 de la platina PI**.
+> - Casilla 2 $\longrightarrow$ Siempre comanda y lee el **Eje 2 de la platina PI**.
+> - Casilla 3 $\longrightarrow$ Siempre comanda y lee el **Eje 3 de la platina PI**.
+>
+> Lo que cambia de manera 100% reactiva y en tiempo real es la **nomenclatura textual** (`X`, `Y (Vert)`, `Y (Muestra)`), los rótulos de los ejes en los gráficos confocales y de impresión, y los metadatos exportados en `grid_info.txt`.
 
 ---
 
@@ -332,10 +358,10 @@ donde $\bar{t}_{\text{raw}}$ es la media móvil del tiempo de tránsito/fijació
 | Control | Tipo | Rango / Opciones | Descripción |
 |---|---|---|---|
 | **`Laser`** | `QComboBox` | `532 nm`, `637 nm`, `592 nm` | Línea de excitación láser para la iluminación confocal. |
-| **`Range x / y`** | `QDoubleSpinBox` | $0.100 - 100.000\ \mu\text{m}$ | Dimensión física del área cuadrada/rectangular a escanear. |
-| **`Pixels x / y`** | `QSpinBox` | $10 - 500$ | Resolución en píxeles de la matriz de adquisición confocal. |
+| **`Range x / y`** | `QDoubleSpinBox` | $0.100 - 100.000\ \mu\text{m}$ | Dimensión física del área cuadrada/rectangular a escanear. Sus etiquetas cambian reactivamente: `Range X/Y` (Legacy), `Range Y (Vert) / Range X (Horiz)` (Laser Ref), o `Range Y / Range X (Muestra)` (Sample Ref). |
+| **`Pixels x / y`** | `QSpinBox` | $10 - 500$ | Resolución en píxeles de la matriz de adquisición confocal. Rótulos reactivos sincronizados con el régimen activo. |
 | **`Scan mode`** | `QComboBox` | `Ramp`, `Step by step` | `Ramp`: Lectura síncrona continua a $10\ \text{kHz}$ por hardware NI-DAQ. `Step`: Paso a paso por software. |
-| **`Scan projection`**| `QComboBox` | `x/y`, `x/z`, `y/z` | Plano ortogonal de escaneo confocal. |
+| **`Scan projection`**| `QComboBox` | Ver opciones dinámicas | Plano ortogonal de escaneo confocal. Los textos se adaptan ergonómicamente al régimen (`x/y` $\leftrightarrow$ `Y/X (Vert/Horiz)` $\leftrightarrow$ `Y/X (Muestra)`), emitiendo de forma determinista la clave canónica al backend para garantizar 0% de regresión. |
 | **`Scan Image`** | `QComboBox` | `NPs maximum`, `NPs minimum` | `NPs maximum`: Partículas brillantes (fluorescencia/scattering). `NPs minimum`: Partículas oscuras (absorción). |
 | **`method_center`** | `QComboBox` | `center of mass`, `center of gauss`, `two NP: center of gauss`, `donut (Laguerre-Gauss)` | Algoritmo de centrado analítico para calcular la posición de la partícula. |
 | **`Auto CM`** | `QCheckBox` | `True` / `False` | Si está marcado, desplaza automáticamente la platina PI al centro calculado tras finalizar el escaneo. |
@@ -395,8 +421,24 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
 ---
 
 ### 3.6 Dock: Nanopositioning (Platina Piezoeléctrica PI)
-* Muestra la lectura continua en micrómetros ($X, Y, Z$) de los sensores capacitivos en bucle cerrado de la platina PI E-517/E-727.
-* Botones de incremento relativo ($\pm 0.1\ \mu\text{m}$, $\pm 1.0\ \mu\text{m}$, $\pm 10.0\ \mu\text{m}$).
+* **Selector Global de Régimen de Coordenadas (`Régimen: [ ... ▼ ]`)**:
+  - Permite conmutar en caliente entre `Legacy (Histórico)`, `Laser Ref (Cámara/Monitor)` y `Sample Ref (Muestra)`.
+  - Actualiza de forma reactiva todas las etiquetas del dock, del escaneo confocal, de la previsualización de impresión y del mapeo espectral, preservando 100% la invariancia del hardware.
+* **Lectura Continua de Sensores Capacitivos (`Read Position`)**:
+  - Visualiza en tiempo real la posición física absoluta en micrómetros leída por `pi.qPOS()` a través de sensores capacitivos de bucle cerrado.
+  - Sus rótulos cambian automáticamente: `X, Y, Z` (Legacy), `Y (Vert), X (Horiz), Z (Axial)` (Laser Ref), o `Y (Muestra), X (Muestra), Z (Axial)` (Sample Ref).
+* **Casillas de Desplazamiento Absoluto (`Go To`)**:
+  - Permiten ingresar valores directos en micrómetros ($0.0 - 100.0\ \mu\text{m}$).
+  - Las etiquetas de cabecera (`X =`, `Y =`, `Z =`) se actualizan al unísono con el régimen activo, incorporando tooltips explicativos que indican la dirección física de movimiento.
+* **Control Paso a Paso Relativo y Navegación por Teclado (`Arrow Keys Navigation`)**:
+  - Botones relativos de salto rápido ($\pm 0.1\ \mu\text{m}$, $\pm 1.0\ \mu\text{m}$, $\pm 10.0\ \mu\text{m}$).
+  - **Navegación Fluida con Flechas de Teclado**: Al hacer foco en el dock de Nanoposicionamiento, es posible desplazar la platina interactiva y suavemente paso a paso utilizando el teclado:
+    - **`Flecha Arriba (↑)`**: Desplaza en $-\Delta$ sobre el Eje 1 (en Laser Ref: el láser sube en la cámara).
+    - **`Flecha Abajo (↓)`**: Desplaza en $+\Delta$ sobre el Eje 1 (en Laser Ref: el láser baja en la cámara).
+    - **`Flecha Derecha (→)`**: Desplaza en $+\Delta$ sobre el Eje 2 (en Laser Ref: el láser va a la derecha en la cámara).
+    - **`Flecha Izquierda (←)`**: Desplaza en $-\Delta$ sobre el Eje 2 (en Laser Ref: el láser va a la izquierda en la cámara).
+    - **`Re Pág (PgUp) / Av Pág (PgDn)`**: Desplaza el eje axial Z en $\pm \Delta z$.
+    - El valor de $\Delta$ respeta el casillero `Step X-Y` o `Step Z`.
 * **Telemetría y Estado Físico en Tiempo Real**:
   - `🟢 PI Física (SN: 0119048050)`: La controladora física responde activamente mediante health-check periódico `qIDN()`.
   - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente si el hardware está apagado o desconectado, imprimiendo en consola `[PI VIRTUAL] MOV ...` para no confundir desplazamientos numéricos de GUI con movimiento mecánico real.
@@ -422,7 +464,9 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
 - **`Go to reference`**: Retorna inmediatamente la platina a las coordenadas origen.
 - **`Reset all 🔄`**: Restablecimiento atómico completo que devuelve el origen a $\text{NaN}$, limpia acumuladores de deriva lateral y axial, reinicia el botón de referencia a naranja, vacía la casilla de nombre custom y restablece la grilla interactiva.
 - **`Display 2D del Patrón & Camino (`Grid Pattern & Path Viewer 🗺️`)**:
-  - **Dock Desplegable Integrado**: Previsualización gráfica 2D de la matriz completa ajustada a la orientación del sistema cartesiano físico del microscopio (rotado $90^\circ$ a la derecha: eje $+X$ hacia abajo, eje $+Y$ a la derecha):
+  - **Dock Desplegable Integrado con Ejes Dinámicos (`InteractiveGridWidget`)**: Previsualización gráfica 2D interactiva de la matriz completa ajustada a la orientación del sistema de coordenadas:
+    - **Ejes Reactivos al Régimen**: Las leyendas de los ejes `bottom` y `left` se actualizan automáticamente según el régimen activo (`X / Y` en Legacy; `X Horiz / Y Vert` en Laser Ref; `X Muestra / Y Muestra` en Sample Ref).
+    - **Coincidencia Visual con la Cámara (Laser Ref)**: En el régimen `Laser Ref`, la previsualización coincide exactamente con la vista de la cámara réflex: la partícula 2 se grafica verticalmente debajo de la partícula 1 (eje vertical $Y_{\text{Vert}}$), y las columnas sucesivas se despliegan hacia la derecha (eje horizontal $X_{\text{Horiz}}$).
     - ⚪ **Pendiente** (Gris): Nodos futuros.
     - 🟡 **En Proceso** (Amarillo brillante pulsante): Nodo activo en impresión o autofoco.
     - 🟢 **Impresa** (Verde esmeralda): Nanopartícula impresa con éxito.
@@ -531,6 +575,9 @@ El **Tablero de Conexiones y Seguridad de Hardware** constituye el centro neurá
   - Siguiendo la especificación del laboratorio, el canal del espectrómetro se encuentra registrado como `⚪ Inactivo — Pendiente de integración con PySpectrum`, con sus casilleros de interacción bloqueados hasta la incorporación oficial de la suite `PySpectrum`.
 - **Aislamiento por Software (*Soft Disconnect / Mock Isolation*)**:
   - Cada instrumento cuenta con una casilla de verificación individual (*Soft Isolation*). Al marcar un equipo, el sistema interrumpe la comunicación física e ingresa en un estado de simulación local sin detener el resto de los hilos de adquisición ni congelar la GUI.
+- **Selector de Cinemática y Régimen de Coordenadas (`Kinematics / Coordinate Regime`)**:
+  - Desplegable central sincronizado bidireccionalmente con el resto del sistema (`Legacy`, `Laser Ref`, `Sample Ref`).
+  - Proporciona una etiqueta de estado descriptiva en tiempo real sobre la correspondencia física de los ejes Eje 1 (PI), Eje 2 (PI) y Eje 3 (PI) frente a la cámara réflex y la muestra.
 - **Bitácora I/O en Tiempo Real y Re-scan en Caliente**:
   - Consola gráfica de registros con marcas de tiempo (`HH:MM:SS.mmm`) que registra eventos I/O.
   - Botón **`🔄 Re-scan Hardware`**: Ejecuta un ping síncrono a todos los puertos físicos sin necesidad de reiniciar la aplicación.
@@ -990,6 +1037,9 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 | **`F8`** | Ejecutar Autofoco Z al pico de intensidad (*Go to max*) | Dock: Focus z |
 | **`F9`** | Congelar perfil Z actual como firma de referencia (*Lock*) | Dock: Focus z |
 | **`F10`** | Ejecutar corrección de deriva Z por autocorrelación ($\times 2$) | Dock: Focus z |
+| **`Flechas ↑ / ↓`** | Desplazamiento fino paso a paso en Eje 1 ($\pm \text{Step}$) | Dock: Nanopositioning |
+| **`Flechas ← / →`** | Desplazamiento fino paso a paso en Eje 2 ($\pm \text{Step}$) | Dock: Nanopositioning |
+| **`Re Pág / Av Pág`** | Desplazamiento fino axial Z ($\pm \text{Step Z}$) | Dock: Nanopositioning |
 
 ---
 

@@ -253,7 +253,10 @@ En la carpeta `YYYYMMDD-HHMMSS_Printing_<CustomName>/`:
    - `reporte_parametros_<nombre_red>.txt`: Informe estadístico, diagnóstico SBR y Sección 4 con cinética de deriva termomecánica y recomendaciones de $N_{\text{sugerido}}$.
    - `time_volt_distributions.png`: Figura PNG con los 3 paneles de histogramas de tiempos, voltajes y diagrama de dispersión.
 6. **Metadatos y Parámetros Experimentales (`grid_info.txt`)**:
-   - Registra fecha, tipo de nanopartícula, sustrato, potencia BFP, criterio de parada, nombre custom, `Drift Velocity (v)`, `Adaptive AF` y `Drift Tolerance (nm)`.
+   - Registra fecha, tipo de nanopartícula, sustrato, potencia BFP, criterio de parada, nombre custom, `Drift Velocity (v)`, `Adaptive AF`, `Drift Tolerance (nm)` y trazabilidad completa de coordenadas:
+     - `Coordinate Regime:` (`legacy`, `laser_ref`, `sample_ref`).
+     - `Stage Axis 1 (um):`, `Stage Axis 2 (um):`, `Stage Axis 3 (um):` (coordenadas inequívocas de la platina PI).
+     - `Reference X / Y / Z (um):` rotulado según el régimen activo.
 7. **Subcarpetas en Modo Dímeros**:
    - `Pree_Scan/`: Escaneos de la primera partícula del par coloidal.
    - `Dimer_Scan/`: Escaneos del dímero ensamblado final.

@@ -29,11 +29,11 @@ Si eres una Inteligencia Artificial o un desarrollador modificando, auditando o 
    - El sistema conmuta automáticamente a la Capa de Abstracción Mock (`_MockPI`, `_MockNITask`, cámara sintética), permitiendo probar el 100% de los botones, ventanas y flujos de trabajo sin errores de E/S.
 
 3. **Verificación Diagnóstica Previa a Commits**:
-   - Antes de dar por finalizada cualquier tarea o cambio en el código, **es MANDATORIO ejecutar la suite integral de 49 diagnósticos del sistema**:
+   - Antes de dar por finalizada cualquier tarea o cambio en el código, **es MANDATORIO ejecutar la suite integral de 56 diagnósticos del sistema**:
      ```powershell
      python tests/run_all_diagnostics.py
      ```
-   - **Criterio de Aprobación**: El 100% de las pruebas (49/49) deben resultar en `[PASS]`. Si una prueba falla, corrígela de inmediato antes de solicitar revisión al usuario.
+   - **Criterio de Aprobación**: El 100% de las pruebas (56/56) deben resultar en `[PASS]`. Si una prueba falla, corrígela de inmediato antes de solicitar revisión al usuario.
 
 4. **Integridad de Documentación y Código**:
    - Preserva siempre los comentarios metrológicos, ecuaciones físicas en docstrings y enlaces a los reportes técnicos.
@@ -49,6 +49,7 @@ Si eres una Inteligencia Artificial o un desarrollador modificando, auditando o 
 **PyPrinting 3.0** representa la evolución y modernización completa del software de nanofabricación del laboratorio, integrando capacidades avanzadas de control óptico y análisis quimiométrico:
 
 * **Microscopio Derecho Principal ([`app.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/app.py))**: Orquestador multihilo central con interfaz desacoplada basada en `QMainWindow`, `QDockWidget` y `pyqtgraph.dockarea`, permitiendo flotar, apilar o recolocar docks de Confocal, Trazas, Foco Z, Obturadores y Nanoposicionamiento en tiempo real.
+* **Arquitectura de Regímenes de Coordenadas Invariante y Navegación por Teclado ([`core/nanopositioning.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nanopositioning.py))**: Sistema reactivo multirégimen que permite al operador conmutar libremente entre `Legacy` (histórico PyPrinting 2), `Laser Ref` (referencia visual del monitor/láser) y `Sample Ref` (referencia del sustrato de vidrio), con adaptación en tiempo real de casillas `Go To`, lecturas, ejes de `InteractiveGridWidget`, proyecciones confocales y exportación en `grid_info.txt`, manteniendo 100% invariante la actuación física del hardware piezoeléctrico PI y permitiendo navegación fina paso a paso con flechas de teclado.
 * **Microscopio Contrapropagante ([`contrapropagante.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/contrapropagante.py))**: Estación de excitación dual superior/inferior para pinzas ópticas 3D y alineación vectorial nanométrica ($\mathbf{r}_{\text{TOP}} - \mathbf{r}_{\text{BOT}}$) con modelos de ajuste Gaussiano y Donut ($LG_{01}$).
 * **Escaneo Confocal Multimodal 2D/3D ([`modules/confocal.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/confocal.py))**:
   - Modos **Ramp** (barrido piezoeléctrico continuo a $10\ \text{kHz}$) y **Step-by-Step** (paso a paso discreto) en planos $XY$, $XZ$, $YX$, $YZ$.

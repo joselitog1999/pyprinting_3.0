@@ -39,6 +39,7 @@ reportes/
 | **Arquitectura Óptica Microscopio Derecho** | Trazado optomecánico completo, 3 canales confocales con filtros Notch, pinholes dedicados y 10 técnicas operativas. | [Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md) |
 | **Control de Láseres Excelsior / OBIS / MPBC** | Comunicación serie RS-232/USB, comandos SCPI, calibración analógica de potencia y modulación en BFP. | [Reporte_Analisis_Control_Laseres_Excelsior_OBIS_MPBC.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Analisis_Control_Laseres_Excelsior_OBIS_MPBC.md) |
 | **Comparativo Andor Solis vs PySpectrum** | Auditoría integral feature-by-feature frente a la suite comercial Solis, ventajas de calibración y flujo de investigación. | [Reporte_Comparativo_Andor_Solis_vs_PySpectrum.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Comparativo_Andor_Solis_vs_PySpectrum.md) |
+| **Regímenes de Coordenadas e Invariancia Cinemática** | Arquitectura reactiva multirégimen (Legacy, Laser Ref, Sample Ref), invariancia de hardware PI, atajos de teclado y exportación metrológica. | [Reporte_Regimenes_de_Coordenadas_e_Invariancia_Cinematica_PyPrinting3.md](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Regimenes_de_Coordenadas_e_Invariancia_Cinematica_PyPrinting3.md) |
 
 ---
 

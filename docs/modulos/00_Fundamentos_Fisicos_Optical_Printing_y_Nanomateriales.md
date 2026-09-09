@@ -28,6 +28,7 @@
    - 4.2 Atrapamiento Irreversible en el Pozo de Van der Waals
    - 4.3 Nanodímeros Plasmónicos, Hibridación de Modos y *Hot Spots* de Campo Cercano
    - 4.4 Fuerzas Ópticas de Campo Cercano Inducidas y Control de Polarización (Tesis Gargiulo, Cap. 6 & Martínez, Cap. 4)
+   - 4.5 Marcos de Referencia en Microscopía y Cinemática de Impresión (Tesis Gargiulo, Cap. 3 & Martínez, Cap. 4)
 5. [Tabla Maestra de Propiedades Físicas de Nanomateriales y Parámetros del Setup](#5-tabla-maestra-de-propiedades-físicas-de-nanomateriales-y-parámetros-del-setup)
 6. [Límites de Validez y Modos de Falla Físico-Química](#6-límites-de-validez-y-modos-de-falla-físico-química)
 7. [Referencias Bibliográficas Fundacionales](#7-referencias-bibliográficas-fundacionales)
@@ -403,6 +404,37 @@ Durante la fabricación asistida de nanodímeros, la Partícula A (ya fija en el
 
 ---
 
+### 4.5 Marcos de Referencia en Microscopía y Cinemática de Impresión (Tesis Gargiulo, Cap. 3 & Martínez, Cap. 4)
+
+En la operación del microscopio de nanofotónica para *Optical Printing*, la descripción geométrica de las posiciones requiere definir rigurosamente la cinemática de movimiento relativo entre el foco óptico y el sustrato portamuestra.
+
+#### 1. Formulación Cinemática de Marcos de Referencia:
+- **Marco del Laboratorio / Láser ($\mathcal{R}_{\text{lab}}$ / *Laser Reference*)**:
+  El objetivo del microscopio y el punto focal del láser $\mathbf{r}_{\text{laser}}$ son estacionarios respecto a la mesa óptica aislada de vibraciones:
+  $$\mathbf{r}_{\text{laser}} \equiv \text{constante}$$
+  Al comandar un desplazamiento a la platina piezoeléctrica Physik Instrumente $\mathbf{r}_{\text{stage}}(t)$, la muestra experimenta una trayectoria $\mathbf{r}_{\text{sample}}(t) = \mathbf{r}_{\text{stage}}(t)$. Por lo tanto, el punto de impacto relativo del láser sobre el sustrato de vidrio se desplaza con velocidad:
+  $$\mathbf{v}_{\text{laser}/\text{sample}} = -\mathbf{v}_{\text{stage}/\text{lab}} = -\frac{d\mathbf{r}_{\text{stage}}}{dt}$$
+
+- **Marco de la Muestra ($\mathcal{R}_{\text{sample}}$ / *Sample Reference*)**:
+  Solidario al cubreobjetos funcionalizado con APTES. Describe las coordenadas intrínsecas de las nanopartículas impresas $(x_i, y_i)$, coincidente con los marcos de caracterización ex-situ por Microscopía de Fuerza Atómica (AFM) o Microscopía Electrónica de Barrido (SEM).
+
+#### 2. Correspondencia Optomecánica con la Cámara Réflex Canon EOS 500D:
+La proyección óptica a través de la lente de tubo ($f = 200\ \text{mm}$) sobre el sensor CMOS de la cámara réflex introduce una rotación espacial fija determinada por el trazado de espejos del microscopio derecho:
+- **Eje Horizontal de la Cámara ($+X_{\text{cam}}$, hacia la derecha)**:
+  Corresponde a un desplazamiento del láser hacia la derecha en la imagen, el cual se logra desplazando la platina física en sentido negativo de su segundo canal ($\mathbf{v}_{\text{sample}} \propto -\hat{\mathbf{y}}_{\text{PI}}$). En el hardware de la controladora PI E-517, este movimiento está gobernado por el **Eje 2 de la platina**.
+- **Eje Vertical de la Cámara ($+Y_{\text{cam}}$, hacia abajo)**:
+  Corresponde a un desplazamiento del láser hacia abajo en la pantalla, el cual se logra desplazando mecánicamente la platina física en sentido positivo de su primer canal ($\mathbf{v}_{\text{sample}} \propto +\hat{\mathbf{x}}_{\text{PI}}$). En la controladora PI E-517, este movimiento está gobernado por el **Eje 1 de la platina**.
+- **Eje Axial Óptico ($+Z_{\text{cam}}$, hacia el interior del fluido)**:
+  Gobernado unívocamente por el **Eje 3 de la platina PI**.
+
+#### 3. Justificación Histórica de la Convención Legacy y Solución Ergonómica en PyPrinting 3.0:
+En las rutinas originales del laboratorio (PyPrinting 2, 2017–2024), el Eje 1 de la controladora PI fue rotulado como `"X"` (el cual producía un desplazamiento vertical en el monitor) y el Eje 2 fue rotulado como `"Y"` (desplazamiento horizontal). Para resolver la discordancia visual en nuevos usuarios sin descalibrar a los usuarios senior, PyPrinting 3.0 desacopla la nomenclatura de la cinemática física:
+- En **`Legacy`**: Se preserva la notación clásica ($X = \text{Eje 1 PI}, Y = \text{Eje 2 PI}$).
+- En **`Laser Ref`**: Se alinean las etiquetas con la percepción de la cámara ($Y_{\text{Vert}} = \text{Eje 1 PI}, X_{\text{Horiz}} = \text{Eje 2 PI}$), logrando coincidencia inmediata 1:1 con la previsualización 2D de la grilla (`InteractiveGridWidget`).
+- En **`Sample Ref`**: Se adoptan las coordenadas solidarias al sustrato ($Y_{\text{Muestra}} = \text{Eje 1 PI}, X_{\text{Muestra}} = \text{Eje 2 PI}$).
+
+---
+
 ## 5. Tabla Maestra de Propiedades Físicas de Nanomateriales y Parámetros del Setup
 
 | Parámetro Físico | Símbolo | Valor Típico en Setup PyPrinting | Unidades | Significado e Impacto Experimental |
@@ -436,7 +468,16 @@ Durante la fabricación asistida de nanodímeros, la Partícula A (ya fija en el
 ## 7. Referencias Bibliográficas Fundacionales
 
 1. **Gargiulo, Julián** (2017). *Impresión óptica de nanopartículas metálicas*. Tesis Doctoral, Facultad de Ciencias Exactas y Naturales, Universidad de Buenos Aires (FCEN-UBA / CIBION-CONICET). [Archivo local: `docs/bibliografia/Julian_Gargiulo_2017.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Julian_Gargiulo_2017.pdf).
+   - **Capítulo 2**: Formulación analítica de fuerzas ópticas en régimen de Rayleigh y separación de fuerzas de gradiente y de dispersión/absorción.
+   - **Capítulo 3**: Alineación optomecánica, calibración capacitiva de platina piezoeléctrica Physik Instrumente, transporte difusivo browniano y estadística de arribo coloidal de Poisson.
+   - **Capítulo 5**: Dependencia espectral de fuerzas ópticas de radiación y optimización de la precisión de impresión sub-10 nm.
+   - **Capítulo 6**: Ensamblado guiado de dímeros plasmónicos, acoplamiento dipolo-dipolo de campo cercano y dependencia con la polarización del haz incidente.
 2. **Martínez, Luciana**. *Impresión óptica de nanopartículas y nanoestructuras: ensamblado guiado, nanotermometría y plasmónica*. Tesis Doctoral, Instituto de Nanosistemas, Universidad Nacional de San Martín (INS-UNSAM / CONICET). [Archivo local: `docs/bibliografia/Tesis%20Luciana%20Martinez.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Tesis%20Luciana%20Martinez.pdf).
+   - **Capítulo 2**: Termoplasmónica en nanoestructuras individuales, balance térmico en la interfase vidrio-agua y perfil espacial asimétrico de temperatura local.
+   - **Capítulo 4**: Ensamblado asistido por luz de nanodímeros plasmónicos, nanotermometría por anti-Stokes y control de fuerzas ópticas interparticulares atractivas/repulsivas.
 3. **Urban, A. S., Lutich, A. A., Sannomiya, T., et al.** (2010). *Laser printing of single gold nanoparticles*. Nano Letters, 10(12), 4794–4798.
 4. **Gargiulo, J., Brick, T., Violi, I. L., Herrera, P. C., Shibanuma, T., Albella, P., Maier, S. A., & Stefani, F. D.** (2017). *Understanding and optimizing the printing accuracy of isolated gold and silver nanoparticles*. Nano Letters, 17(9), 5747–5755.
-5. **Martínez, L. D., Gargiulo, J., Violi, I. L., & Stefani, F. D.** (2019). *Real-time temperature mapping and sub-diffraction assembly of metallic nanodimers by optical printing*. ACS Photonics.
+5. **Martínez, L. D., Gargiulo, J., Violi, I. L., & Stefani, F. D.** (2019). *Real-time temperature mapping and sub-diffraction assembly of metallic nanodimers by optical printing*. ACS Photonics, 6(11), 2682–2688.
+6. **Neuman, K. C., & Block, S. M.** (2004). *Optical trapping*. Review of Scientific Instruments, 75(9), 2787–2809.
+7. **Bohren, C. F., & Huffman, D. R.** (1983). *Absorption and Scattering of Light by Small Particles*. John Wiley & Sons.
+
