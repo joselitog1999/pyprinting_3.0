@@ -41,7 +41,7 @@ READ_MODE_IMAGE = 4       # Imagen 2D
 
 
 class _MockAndorCCD:
-    """Simulador transparente de Cámara Andor Newton / iDus / iXon3 EMCCD."""
+    """Simulador transparente de Cámara Andor iXon3 EMCCD (1002x1002 px, 13 µm)."""
     is_mock = True
 
     def __init__(self, temperature: float = -65.0, fan_mode: str = "low"):
@@ -238,7 +238,7 @@ class _MockAndorCCD:
 
 
 class AndorCCDDriver:
-    """Controlador Ctypes para la cámara física Andor CCD mediante atmcd64d.dll."""
+    """Controlador Ctypes para la cámara física Andor iXon3 EMCCD mediante atmcd64d.dll."""
     is_mock = False
 
     def __init__(self):

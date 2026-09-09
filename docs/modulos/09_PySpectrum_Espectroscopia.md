@@ -12,7 +12,7 @@ El módulo **PySpectrum 3.0** es la estación central de **espectroscopía ópti
 
 Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
 - **Control de Espectrógrafo Andor Shamrock (SR-303i / SR-500i)**: Selección de red de difracción (150 l/mm, 1200 l/mm, espejo), longitud de onda central $\lambda_{center}$, ranuras micrométricas motorizadas (*slits*) y conmutación de puertos (*flippers*).
-- **Cámara Andor CCD / EMCCD (Newton / iDus)**: Control de enfriamiento termoeléctrico Peltier ($-10\ ^\circ\text{C}$), tiempo de integración, ganancia EMCCD, visualización 2D en falso color y *binning* vertical automático para perfil 1D.
+- **Cámara Andor iXon3 EMCCD**: Control de refrigeración criogénica Peltier multi-etapa ($-65^\circ\text{C}$ a $-80^\circ\text{C}$), doble canal de amplificación (EMCCD alta sensibilidad y Convencional bajo ruido), ganancia EM ($0$ a $1000\times$), tiempo de exposición, visualización 2D en vivo ($1002 \times 1002$ px, píxel $13.0\,\mu\text{m}$), binning vertical hardware FVB y Single Track.
 - **Algoritmo *Step & Glue* de Banda Ancha**: Adquisición concatenada de múltiples rangos espectrales (ej. $450 - 950\ \text{nm}$) con solapamiento suave ponderado y normalización por lámpara halógena de calibración.
 - **Mapeo Confocal Hiperespectral $(X, Y, \lambda)$**: Coordinación del escaneo piezoeléctrico PI cerrado con la captura espectral por píxel para generar hipercubos de datos tridimensionales.
 - **Rutinas Especializadas**:

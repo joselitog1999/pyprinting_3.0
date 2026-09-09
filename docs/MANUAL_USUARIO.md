@@ -592,7 +592,7 @@ El panel **`🌈 PySpectrum 3.0`** (Fila 1, Columna 2 del lanzador `main.py`) es
 
 ### 4.1 Arquitectura y Conexión de Hardware
 - **Espectrógrafo Andor Shamrock (SR-303i / SR-500i)**: Control de redes de difracción (150 l/mm, 1200 l/mm, espejo), ranuras micrométricas motorizadas (10 a 2500 µm), obturador interno y flippers de puerto (fibra vs ranura).
-- **Detector Andor CCD / EMCCD (Newton / iDus)**: Enfriamiento Peltier con control PID hasta $-10\ ^\circ\text{C}$, visualización en vivo 2D a 30 FPS y perfil espectral 1D colapsado.
+- **Detector Andor iXon3 EMCCD**: Enfriamiento criogénico Peltier hasta $-65\ ^\circ\text{C} / -80\ ^\circ\text{C}$, doble canal de salida (EMCCD multiplicador $1\times-1000\times$ y convencional de ultra-bajo ruido), visualización en vivo 2D a 30 FPS ($1002 \times 1002$ px, $13.0\,\mu\text{m}$) y perfil espectral 1D (FVB / Single Track).
 - **Modo Seguro y Simulación Transparente**: Controladores `_MockShamrock` y `_MockAndorCCD` que permiten operar sin hardware físico conectado, generando perfiles plasmónicos sintéticos con ruido instrumental.
 
 ### 4.2 Modos de Operación y Algoritmos

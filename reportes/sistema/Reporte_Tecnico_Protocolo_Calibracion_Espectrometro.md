@@ -1,5 +1,5 @@
 # PROTOCOLO TÉCNICO METROLÓGICO DE CALIBRACIÓN MULTI-FASE
-## Espectrógrafo Andor Shamrock SR-500i y Detector CCD Andor iKon-M / Newton
+## Espectrógrafo Andor Shamrock SR-500i y Detector Andor iXon3 EMCCD
 ### PySpectrum 3.0 — Laboratorio de Nanofotónica (UNSAM)
 
 ---
@@ -14,7 +14,7 @@
 
 ## 1. Resumen Ejecutivo y Alcance Metrológico
 
-El presente reporte técnico formaliza el protocolo metrológico estandarizado para la calibración absoluta y relativa del banco espectroscópico del Laboratorio de Nanofotónica (UNSAM). El sistema instrumental está constituido por un espectrógrafo de alta resolución **Andor Shamrock SR-500i-B2-R** acoplado mecánicamente y ópticamente a una cámara científica refrigerada **Andor CCD (iKon-M / Newton / iXon3 EMCCD)**, integrado al entorno de control automatizado **PySpectrum 3.0**.
+El presente reporte técnico formaliza el protocolo metrológico estandarizado para la calibración absoluta y relativa del banco espectroscópico del Laboratorio de Nanofotónica (UNSAM). El sistema instrumental está constituido por un espectrógrafo de alta resolución **Andor Shamrock SR-500i-B2-R** acoplado mecánicamente y ópticamente a una cámara científica de alta sensibilidad refrigerada **Andor iXon3 EMCCD**, integrado al entorno de control automatizado **PySpectrum 3.0**.
 
 El objetivo primario de este procedimiento es garantizar:
 1. **Exactitud espectral absoluta:** Desviación inferior a $\pm 0.05\text{ nm}$ en todo el rango visible e infrarrojo cercano ($400 - 1000\text{ nm}$).
@@ -66,11 +66,14 @@ El objetivo primario de este procedimiento es garantizar:
   * **Rejilla 2:** $1200\text{ líneas/mm}$, ángulo de blaze $500\text{ nm}$ (Alta resolución Raman, dispersión recíproca lineal $\approx 0.035\text{ nm/px}$).
   * **Rejilla 3:** Espejo plano reflectivo protegido de aluminio (Modo reflexión directa/imagen confocal).
 
-### 2.2. Detector Andor CCD (iKon-M / Newton 970 / iXon3)
-* **Arreglo del Sensor:** $1024 \times 256$ o $1002 \times 1002$ píxeles activos.
-* **Tamaño de Píxel:** $13.0\,\mu\text{m} \times 13.0\,\mu\text{m}$ ($100\%$ fill-factor).
+### 2.2. Detector Andor iXon3 EMCCD (Sensor Cuadrado Megapíxel Back-Illuminated)
+* **Arreglo del Sensor:** $1002 \times 1002$ píxeles activos en plano focal.
+* **Tamaño de Píxel:** $13.0\,\mu\text{m} \times 13.0\,\mu\text{m}$ ($100\%$ fill-factor, área fotosensible $\approx 13.03\,\text{mm} \times 13.03\,\text{mm}$).
+* **Canales de Salida y Amplificación:**
+  * **Modo EMCCD (Multiplicación por Impacto):** Ganancia $1\times$ a $1000\times$, ruido de lectura efectivo $< 0.1\,\text{e}^-$ (esencial para Anti-Stokes, SERS ultra-diluido y fotón único).
+  * **Modo Convencional CCD:** Lectura de ultra-bajo ruido ($\approx 3 - 5\,\text{e}^-$) sin ruido multiplicativo de exceso ($F=1$), óptimo para integración prolongada y alta señal.
 * **Profundidad de Digitalización:** Convertidor A/D de 16 bits (0 a 65535 cuentas ADC).
-* **Refrigeración Termoeléctrica (Peltier):** Hasta $-70^\circ\text{C}$ con disipación por convección forzada de aire, o $-100^\circ\text{C}$ con recirculación de refrigerante líquido.
+* **Refrigeración Termoeléctrica Peltier Profunda:** Hasta $-65^\circ\text{C} / -80^\circ\text{C}$ con disipación por aire forzado, y hasta $-100^\circ\text{C}$ con recirculación de líquido (corriente oscura $< 0.001\,\text{e}^-/\text{px/s}$).
 
 ---
 
@@ -282,14 +285,14 @@ Para asegurar portabilidad completa, transparencia de auditoría y evitar la cor
 # ==============================================================================
 # PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
 # Laboratorio de Nanofotónica — UNSAM
-# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iKon-M / Newton CCD
+# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD (1002x1002, 13 µm)
 # Última actualización: 2026-09-09 09:15:00
 # Operador / Responsable: Ingeniero de Instrumentación y Software
 # ==============================================================================
 
 [METADATOS]
 instrumento = Andor Shamrock SR-500i
-detector = Andor CCD iKon-M / Newton (1024x256 / 1002x1002)
+detector = Andor iXon3 EMCCD (1002x1002 px, 13.0 µm)
 tamano_pixel_um = 13.0
 resolucion_horizontal_px = 1002
 fecha_calibracion = 2026-09-09 09:15:00

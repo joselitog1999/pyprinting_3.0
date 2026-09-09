@@ -820,14 +820,14 @@ class CalibrationBackend(QtCore.QObject):
             txt_content = f"""# ==============================================================================
 # PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
 # Laboratorio de Nanofotónica — UNSAM
-# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iKon-M / Newton CCD
+# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD (1002x1002, 13 µm)
 # Última actualización: {now_str}
 # Archivo de destino: {target.name}
 # ==============================================================================
 
 [METADATOS]
 instrumento = Andor Shamrock SR-500i
-detector = Andor CCD iKon-M / Newton (1024x256 / 1002x1002)
+detector = Andor iXon3 EMCCD (1002x1002 px, 13.0 µm)
 tamano_pixel_um = 13.0
 resolucion_horizontal_px = 1002
 fecha_calibracion = {now_str}
