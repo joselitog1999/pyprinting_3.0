@@ -76,6 +76,8 @@ class Frontend(QtWidgets.QFrame):
         grid.addWidget(QtWidgets.QLabel("X Min / Max (µm):"), 0, 0)
         self.edit_xmin = QtWidgets.QLineEdit("45.0")
         self.edit_xmax = QtWidgets.QLineEdit("55.0")
+        self.edit_xmin.setToolTip("Límite inferior en X (µm) para la grilla de escaneo piezoeléctrico. Rango: 0.0 a 100.0 µm.")
+        self.edit_xmax.setToolTip("Límite superior en X (µm) para la grilla de escaneo piezoeléctrico. Rango: 0.0 a 100.0 µm.")
         hlo_x = QtWidgets.QHBoxLayout()
         hlo_x.addWidget(self.edit_xmin); hlo_x.addWidget(self.edit_xmax)
         grid.addLayout(hlo_x, 0, 1)
@@ -83,35 +85,49 @@ class Frontend(QtWidgets.QFrame):
         grid.addWidget(QtWidgets.QLabel("Y Min / Max (µm):"), 1, 0)
         self.edit_ymin = QtWidgets.QLineEdit("45.0")
         self.edit_ymax = QtWidgets.QLineEdit("55.0")
+        self.edit_ymin.setToolTip("Límite inferior en Y (µm) para la grilla de escaneo piezoeléctrico. Rango: 0.0 a 100.0 µm.")
+        self.edit_ymax.setToolTip("Límite superior en Y (µm) para la grilla de escaneo piezoeléctrico. Rango: 0.0 a 100.0 µm.")
         hlo_y = QtWidgets.QHBoxLayout()
         hlo_y.addWidget(self.edit_ymin); hlo_y.addWidget(self.edit_ymax)
         grid.addLayout(hlo_y, 1, 1)
 
         grid.addWidget(QtWidgets.QLabel("Paso Δ (µm):"), 2, 0)
         self.edit_step = QtWidgets.QLineEdit("1.0")
+        self.edit_step.setToolTip("Resolución espacial / Paso de muestreo Δ (µm) entre puntos sucesivos.")
         grid.addWidget(self.edit_step, 2, 1)
 
         grid.addWidget(QtWidgets.QLabel("Tiempo Exp (s):"), 3, 0)
         self.edit_exp = QtWidgets.QLineEdit("0.05")
+        self.edit_exp.setToolTip("Tiempo de integración/exposición del sensor CCD Andor (segundos) por cada punto del mapa.")
         grid.addWidget(self.edit_exp, 3, 1)
 
         ctrl_vlo.addLayout(grid)
 
         # Botón Iniciar Escaneo
         self.btn_scan = QtWidgets.QPushButton("🚀 Iniciar Escaneo Hiperespectral")
+        self.btn_scan.setToolTip("Inicia o aborta el barrido confocal raster bidimensional (PI Piezo + CCD Andor).")
         self.btn_scan.setCheckable(True)
         self.btn_scan.setStyleSheet("background-color: #89B4FA; color: #11111B;")
         self.btn_scan.clicked.connect(self._on_toggle_scan)
         ctrl_vlo.addWidget(self.btn_scan)
 
         self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setToolTip("Porcentaje de avance del escaneo hiperespectral (puntos completados / total).")
         self.progress_bar.setStyleSheet("QProgressBar { border: 1px solid #45475A; border-radius: 4px; text-align: center; color: #CDD6F4; } QProgressBar::chunk { background-color: #A6E3A1; }")
         self.progress_bar.setValue(0)
         ctrl_vlo.addWidget(self.progress_bar)
 
         self.lbl_info = QtWidgets.QLabel("Matriz: 11x11 pts (121 espectros)")
+        self.lbl_info.setToolTip("Dimensiones de la matriz de escaneo espacial y cantidad total de espectros a adquirir.")
         self.lbl_info.setStyleSheet("color: #A6ADC8; font-size: 8.5pt;")
         ctrl_vlo.addWidget(self.lbl_info)
+
+        # Conectar campos de texto para actualizar información de matriz dinámicamente
+        self.edit_xmin.textChanged.connect(self._update_matrix_info)
+        self.edit_xmax.textChanged.connect(self._update_matrix_info)
+        self.edit_ymin.textChanged.connect(self._update_matrix_info)
+        self.edit_ymax.textChanged.connect(self._update_matrix_info)
+        self.edit_step.textChanged.connect(self._update_matrix_info)
 
         ctrl_vlo.addStretch()
         main_layout.addLayout(ctrl_vlo, stretch=1)
@@ -121,16 +137,32 @@ class Frontend(QtWidgets.QFrame):
 
         # Mapa 2D
         self.imv_map = pg.ImageView()
+        self.imv_map.setToolTip("Mapa 2D de intensidad espectral integrada ∫I(λ)dλ en falso color.")
         self.imv_map.ui.roiBtn.hide()
         self.imv_map.ui.menuBtn.hide()
         right_splitter.addWidget(self.imv_map)
 
         # Espectro del punto seleccionado
         self.plot_point = LinePlotWidget(title="Espectro del Punto Seleccionado", x_label="Longitud de Onda (nm)", y_label="Intensidad")
+        self.plot_point.setToolTip("Gráfico espectral I(λ) adquirido en el punto actual o seleccionado del mapa confocal.")
         self.plot_point.setFixedHeight(160)
         right_splitter.addWidget(self.plot_point)
 
         main_layout.addWidget(right_splitter, stretch=3)
+
+    def _update_matrix_info(self):
+        try:
+            xmin = float(self.edit_xmin.text())
+            xmax = float(self.edit_xmax.text())
+            ymin = float(self.edit_ymin.text())
+            ymax = float(self.edit_ymax.text())
+            step = float(self.edit_step.text())
+            if step > 0:
+                nx = max(1, int(round(abs(xmax - xmin) / step)) + 1)
+                ny = max(1, int(round(abs(ymax - ymin) / step)) + 1)
+                self.lbl_info.setText(f"Matriz: {nx}x{ny} pts ({nx * ny} espectros)")
+        except (ValueError, ZeroDivisionError):
+            pass
 
     def _on_toggle_scan(self, checked: bool):
         if checked:

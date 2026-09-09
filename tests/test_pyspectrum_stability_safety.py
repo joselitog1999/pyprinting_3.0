@@ -662,6 +662,16 @@ class TestPySpectrumSafety(unittest.TestCase):
         self.assertTrue(len(fe_raman.btn_live.toolTip()) > 10)
         self.assertTrue(len(fe_raman.btn_save.toolTip()) > 10)
 
+        # 6. HyperspectralConfocal Frontend
+        from pyspectrum.modules import hyperspectral_confocal
+        fe_confocal = hyperspectral_confocal.Frontend()
+        self.assertTrue(len(fe_confocal.btn_scan.toolTip()) > 10)
+        self.assertTrue(len(fe_confocal.edit_xmin.toolTip()) > 10)
+        self.assertTrue(len(fe_confocal.edit_step.toolTip()) > 10)
+        self.assertTrue(len(fe_confocal.edit_exp.toolTip()) > 10)
+        self.assertTrue(len(fe_confocal.imv_map.toolTip()) > 10)
+        self.assertTrue(len(fe_confocal.plot_point.toolTip()) > 10)
+
 
 if __name__ == "__main__":
     unittest.main()

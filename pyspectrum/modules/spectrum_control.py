@@ -262,7 +262,10 @@ class Backend(QtCore.QObject):
             pass
 
         msg = f"🛡️ Salvaguarda {reason}: Ganancia EM forzada a 0x y láseres cerrados por protección del chip CCD."
-        print(f"[SpectrumControl Safety] {msg}")
+        try:
+            print(f"[SpectrumControl Safety] {msg}")
+        except UnicodeEncodeError:
+            print(f"[SpectrumControl Safety] {msg.encode('ascii', 'replace').decode('ascii')}")
         self.statusMessageSignal.emit(msg)
 
     @pyqtSlot()
