@@ -9,6 +9,7 @@ import sys
 import time
 from ctypes import c_int, c_float, byref, create_string_buffer, cdll, windll
 from pathlib import Path
+import threading
 from typing import Tuple, List, Optional
 import numpy as np
 
@@ -19,6 +20,11 @@ DEVICE = 0
 GRATING_150_LINES = 1
 GRATING_1200_LINES = 2
 GRATING_MIRROR = 3
+
+# Tiempos de asentamiento mecánico prudenciales (en segundos)
+GRATING_SETTLING_TIME_S = 4.0     # Rotación del revólver motorizado de 3 redes
+SLIT_SETTLING_TIME_S = 0.8        # Traslación de mordazas micrométricas de ranura
+WAVELENGTH_SETTLING_TIME_S = 0.3  # Giro del tornillo micrométrico de longitud de onda
 
 SHAMROCK_INPUT_FLIPPER = 1
 SHAMROCK_OUTPUT_FLIPPER = 2
@@ -49,6 +55,7 @@ class _MockShamrock:
     is_mock = True
 
     def __init__(self):
+        self._lock = threading.RLock()
         self._connected = True
         self._grating = GRATING_150_LINES
         self._wavelength = 532.0
@@ -60,7 +67,23 @@ class _MockShamrock:
         self._grating_offsets = {1: 0, 2: 0, 3: 0}
         self._detector_offset = 0
         self._slit_zero_pos = 0
+        self._settling_until = 0.0
+        self._last_motion_type = ""
         print("[Shamrock SIM] Inicializado controlador virtual de espectrógrafo.")
+
+    def is_moving(self) -> bool:
+        """Indica si el actuador mecánico (red, rendija o tornillo) está en movimiento o asentamiento."""
+        with self._lock:
+            return time.time() < self._settling_until
+
+    def wait_until_ready(self, timeout_s: float = 6.0) -> bool:
+        """Bloquea hasta que cesen las vibraciones y el actuador termine de asentarse."""
+        t0 = time.time()
+        while time.time() < self._settling_until:
+            if time.time() - t0 > timeout_s:
+                return False
+            time.sleep(0.01)
+        return True
 
     def is_hardware_alive(self, device: int = DEVICE) -> bool:
         return False
@@ -72,15 +95,20 @@ class _MockShamrock:
         return SHAMROCK_SUCCESS
 
     def ShamrockGetSerialNumber(self, device: int = DEVICE) -> Tuple[int, str]:
-        return (SHAMROCK_SUCCESS, self._serial)
+        with self._lock:
+            return (SHAMROCK_SUCCESS, self._serial)
 
     def ShamrockGetGrating(self, device: int = DEVICE) -> Tuple[int, int]:
-        return (SHAMROCK_SUCCESS, self._grating)
+        with self._lock:
+            return (SHAMROCK_SUCCESS, self._grating)
 
     def ShamrockSetGrating(self, device: int = DEVICE, grating: int = 1) -> int:
-        self._grating = max(1, min(3, int(grating)))
-        time.sleep(0.05)  # Simula movimiento del revólver motorizado
-        return SHAMROCK_SUCCESS
+        with self._lock:
+            self._grating = max(1, min(3, int(grating)))
+            self._settling_until = time.time() + (0.05 if SAFE_MODE else GRATING_SETTLING_TIME_S)
+            self._last_motion_type = "grating"
+            time.sleep(0.05)  # Simula movimiento del revólver motorizado
+            return SHAMROCK_SUCCESS
 
     def ShamrockGetNumberGratings(self, device: int = DEVICE) -> Tuple[int, int]:
         return (SHAMROCK_SUCCESS, 3)
@@ -91,19 +119,27 @@ class _MockShamrock:
         return (SHAMROCK_SUCCESS, lines_map.get(grating, 150.0), blaze_map.get(grating, "500nm"), 0, 0)
 
     def ShamrockGetWavelength(self, device: int = DEVICE) -> Tuple[int, float]:
-        return (SHAMROCK_SUCCESS, float(self._wavelength))
+        with self._lock:
+            return (SHAMROCK_SUCCESS, float(self._wavelength))
 
     def ShamrockSetWavelength(self, device: int = DEVICE, wavelength: float = 532.0) -> int:
-        self._wavelength = round(float(wavelength), 2)
-        time.sleep(0.02)  # Simula movimiento del motor de paso
-        return SHAMROCK_SUCCESS
+        with self._lock:
+            self._wavelength = round(float(wavelength), 2)
+            self._settling_until = time.time() + (0.02 if SAFE_MODE else WAVELENGTH_SETTLING_TIME_S)
+            self._last_motion_type = "wavelength"
+            time.sleep(0.02)  # Simula movimiento del motor de paso
+            return SHAMROCK_SUCCESS
 
     def ShamrockGetSlit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, float]:
-        return (SHAMROCK_SUCCESS, float(self._slit_width))
+        with self._lock:
+            return (SHAMROCK_SUCCESS, float(self._slit_width))
 
     def ShamrockSetSlit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT, width: float = 50.0) -> int:
-        self._slit_width = max(10.0, min(2500.0, float(width)))
-        return SHAMROCK_SUCCESS
+        with self._lock:
+            self._slit_width = max(10.0, min(2500.0, float(width)))
+            self._settling_until = time.time() + (0.02 if SAFE_MODE else SLIT_SETTLING_TIME_S)
+            self._last_motion_type = "slit"
+            return SHAMROCK_SUCCESS
 
     def ShamrockGetShutter(self, device: int = DEVICE) -> Tuple[int, int]:
         return (SHAMROCK_SUCCESS, self._shutter_mode)
@@ -203,9 +239,26 @@ class ShamrockDriver:
     is_mock = False
 
     def __init__(self):
+        self._lock = threading.RLock()
         self._dll = None
         self._connected = False
+        self._settling_until = 0.0
+        self._last_motion_type = ""
         self._init_dll()
+
+    def is_moving(self) -> bool:
+        """Indica si el actuador mecánico (red, rendija o tornillo) está en movimiento o asentamiento."""
+        with self._lock:
+            return time.time() < self._settling_until
+
+    def wait_until_ready(self, timeout_s: float = 6.0) -> bool:
+        """Bloquea hasta que cesen las vibraciones y el actuador termine de asentarse."""
+        t0 = time.time()
+        while time.time() < self._settling_until:
+            if time.time() - t0 > timeout_s:
+                return False
+            time.sleep(0.01)
+        return True
 
     def is_hardware_alive(self, device: int = DEVICE) -> bool:
         if not self._connected or self._dll is None:
@@ -299,7 +352,12 @@ class ShamrockDriver:
     def set_grating(self, device: int = DEVICE, grating: int = 1) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
-        return self._dll.ShamrockSetGrating(c_int(device), c_int(grating))
+        with self._lock:
+            ret = self._dll.ShamrockSetGrating(c_int(device), c_int(grating))
+            if ret == SHAMROCK_SUCCESS:
+                self._settling_until = time.time() + GRATING_SETTLING_TIME_S
+                self._last_motion_type = "grating"
+            return ret
 
     def ShamrockSetGrating(self, device: int = DEVICE, grating: int = 1) -> int:
         return self.set_grating(device, grating)
@@ -307,9 +365,10 @@ class ShamrockDriver:
     def get_wavelength(self, device: int = DEVICE) -> Tuple[int, float]:
         if not self._connected or self._dll is None:
             return (SHAMROCK_NOT_INITIALIZED, 532.0)
-        c_wl = c_float()
-        ret = self._dll.ShamrockGetWavelength(c_int(device), byref(c_wl))
-        return (ret, float(c_wl.value))
+        with self._lock:
+            c_wl = c_float()
+            ret = self._dll.ShamrockGetWavelength(c_int(device), byref(c_wl))
+            return (ret, float(c_wl.value))
 
     def ShamrockGetWavelength(self, device: int = DEVICE) -> Tuple[int, float]:
         return self.get_wavelength(device)
@@ -317,7 +376,12 @@ class ShamrockDriver:
     def set_wavelength(self, device: int = DEVICE, wavelength: float = 532.0) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
-        return self._dll.ShamrockSetWavelength(c_int(device), c_float(wavelength))
+        with self._lock:
+            ret = self._dll.ShamrockSetWavelength(c_int(device), c_float(wavelength))
+            if ret == SHAMROCK_SUCCESS:
+                self._settling_until = time.time() + WAVELENGTH_SETTLING_TIME_S
+                self._last_motion_type = "wavelength"
+            return ret
 
     def ShamrockSetWavelength(self, device: int = DEVICE, wavelength: float = 532.0) -> int:
         return self.set_wavelength(device, wavelength)
@@ -325,9 +389,10 @@ class ShamrockDriver:
     def get_slit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, float]:
         if not self._connected or self._dll is None:
             return (SHAMROCK_NOT_INITIALIZED, 50.0)
-        c_w = c_float()
-        ret = self._dll.ShamrockGetSlit(c_int(device), c_int(index), byref(c_w))
-        return (ret, float(c_w.value))
+        with self._lock:
+            c_w = c_float()
+            ret = self._dll.ShamrockGetSlit(c_int(device), c_int(index), byref(c_w))
+            return (ret, float(c_w.value))
 
     def ShamrockGetSlit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, float]:
         return self.get_slit(device, index)
@@ -335,7 +400,12 @@ class ShamrockDriver:
     def set_slit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT, width: float = 50.0) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
-        return self._dll.ShamrockSetSlit(c_int(device), c_int(index), c_float(width))
+        with self._lock:
+            ret = self._dll.ShamrockSetSlit(c_int(device), c_int(index), c_float(width))
+            if ret == SHAMROCK_SUCCESS:
+                self._settling_until = time.time() + SLIT_SETTLING_TIME_S
+                self._last_motion_type = "slit"
+            return ret
 
     def ShamrockSetSlit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT, width: float = 50.0) -> int:
         return self.set_slit(device, index, width)
@@ -529,13 +599,14 @@ def get_shamrock(force_mock: bool = False, reset: bool = False) -> _MockShamrock
                 pass
             _shamrock_instance = None
 
-    if force_mock or SAFE_MODE:
-        return _MockShamrock()
     if _shamrock_instance is None:
-        drv = ShamrockDriver()
-        if drv.initialize():
-            _shamrock_instance = drv
-        else:
-            print("[Shamrock] No fue posible inicializar hardware físico. Recurriendo a _MockShamrock.")
+        if force_mock or SAFE_MODE:
             _shamrock_instance = _MockShamrock()
+        else:
+            drv = ShamrockDriver()
+            if drv.initialize():
+                _shamrock_instance = drv
+            else:
+                print("[Shamrock] No fue posible inicializar hardware físico. Recurriendo a _MockShamrock.")
+                _shamrock_instance = _MockShamrock()
     return _shamrock_instance

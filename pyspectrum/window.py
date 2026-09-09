@@ -17,6 +17,7 @@ from core.nanopositioning import Frontend as NanoFrontend, Backend as NanoBacken
 from core.shutters import Frontend as ShuttersFrontend, Backend as ShuttersBackend
 from pyspectrum.drivers.shamrock_driver import get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.modules.hardware_session import hardware_session
 
 from pyspectrum.modules.spectrum_control import Frontend as SpectrumFrontend, Backend as SpectrumBackend
 from pyspectrum.modules.camera_andor import Frontend as CameraFrontend, Backend as CameraBackend
@@ -45,6 +46,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         self._setup_styles()
         self._setup_menu()
+        self._setup_toolbar()
         self._setup_ui()
         self._setup_threads_and_backends()
 
@@ -143,6 +145,197 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         act_dimers.triggered.connect(self._open_dimers)
         routines_menu.addAction(act_dimers)
 
+    def _setup_toolbar(self):
+        """Barra de seguridad de hardware e instrumentación con botón E-STOP y estado de sesión."""
+        toolbar = QtWidgets.QToolBar("Barra de Seguridad e Instrumentación", self)
+        toolbar.setMovable(False)
+        toolbar.setStyleSheet("""
+            QToolBar {
+                background-color: #181825;
+                border-bottom: 1px solid #313244;
+                padding: 4px;
+                spacing: 10px;
+            }
+        """)
+        self.addToolBar(QtCore.Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+        # 🚨 Botón E-STOP Global
+        self.btn_estop = QtWidgets.QPushButton("🚨 PARADA DE EMERGENCIA (E-STOP)")
+        self.btn_estop.setStyleSheet("""
+            QPushButton {
+                background-color: #F38BA8;
+                color: #11111B;
+                font-weight: bold;
+                font-size: 10pt;
+                padding: 6px 14px;
+                border-radius: 4px;
+                border: 1px solid #eba0ac;
+            }
+            QPushButton:hover {
+                background-color: #eba0ac;
+            }
+        """)
+        self.btn_estop.setToolTip("Cierra inmediatamente todos los láseres y aborta la adquisición del detector")
+        self.btn_estop.clicked.connect(self._on_emergency_stop_clicked)
+        toolbar.addWidget(self.btn_estop)
+
+        # 🔄 Botón Rearmar
+        self.btn_reset_estop = QtWidgets.QPushButton("🔄 Rearmar Sistema")
+        self.btn_reset_estop.setStyleSheet("""
+            QPushButton {
+                background-color: #313244;
+                color: #CDD6F4;
+                font-weight: bold;
+                padding: 6px 10px;
+                border-radius: 4px;
+                border: 1px solid #45475A;
+            }
+            QPushButton:hover {
+                background-color: #45475A;
+                color: #A6E3A1;
+            }
+            QPushButton:disabled {
+                background-color: #181825;
+                color: #585B70;
+                border: 1px solid #313244;
+            }
+        """)
+        self.btn_reset_estop.setEnabled(False)
+        self.btn_reset_estop.clicked.connect(self._on_reset_estop_clicked)
+        toolbar.addWidget(self.btn_reset_estop)
+
+        toolbar.addSeparator()
+
+        # Badge de Estado de Sesión de Hardware
+        self.lbl_hw_status = QtWidgets.QLabel("🟢 Sesión: Hardware Disponible")
+        self.lbl_hw_status.setStyleSheet("""
+            QLabel {
+                color: #A6E3A1;
+                font-weight: bold;
+                font-size: 9.5pt;
+                padding: 4px 10px;
+                background-color: #1E1E2E;
+                border: 1px solid #313244;
+                border-radius: 4px;
+            }
+        """)
+        toolbar.addWidget(self.lbl_hw_status)
+
+        # Espaciador elástico
+        spacer = QtWidgets.QWidget()
+        spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+
+        # Acceso rápido a obturadores
+        btn_quick_shutters = QtWidgets.QPushButton("⚡ Obturadores")
+        btn_quick_shutters.setStyleSheet("""
+            QPushButton {
+                background-color: #313244;
+                color: #CDD6F4;
+                border: 1px solid #45475A;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45475A;
+                color: #89B4FA;
+            }
+        """)
+        btn_quick_shutters.clicked.connect(self._open_shutters_dialog)
+        toolbar.addWidget(btn_quick_shutters)
+
+        # Acceso rápido a tablero de hardware
+        btn_quick_hw = QtWidgets.QPushButton("🔧 Tablero Hardware")
+        btn_quick_hw.setStyleSheet("""
+            QPushButton {
+                background-color: #313244;
+                color: #CDD6F4;
+                border: 1px solid #45475A;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45475A;
+                color: #FAB387;
+            }
+        """)
+        btn_quick_hw.clicked.connect(self._open_hardware_dashboard)
+        toolbar.addWidget(btn_quick_hw)
+
+    def _on_emergency_stop_clicked(self):
+        hardware_session.emergency_stop()
+        self.lbl_hw_status.setText("🚨 E-STOP ACTIVO (Láseres cerrados)")
+        self.lbl_hw_status.setStyleSheet("""
+            QLabel {
+                color: #F38BA8;
+                font-weight: bold;
+                font-size: 9.5pt;
+                padding: 4px 10px;
+                background-color: #311B24;
+                border: 1px solid #F38BA8;
+                border-radius: 4px;
+            }
+        """)
+        self.btn_reset_estop.setEnabled(True)
+        QtWidgets.QMessageBox.critical(
+            self,
+            "🚨 PARADA DE EMERGENCIA",
+            "Se ha ejecutado la PARADA DE EMERGENCIA GLOBAL:\n\n"
+            "• Todos los obturadores láser han sido cerrados de inmediato.\n"
+            "• Las adquisiciones de la cámara Andor CCD han sido abortadas.\n"
+            "• Todas las rutinas activas han sido canceladas.\n\n"
+            "Para continuar, verifique la seguridad física y presione 'Rearmar Sistema'."
+        )
+
+    def _on_reset_estop_clicked(self):
+        hardware_session.clear_emergency()
+        self.lbl_hw_status.setText("🟢 Sesión: Hardware Disponible")
+        self.lbl_hw_status.setStyleSheet("""
+            QLabel {
+                color: #A6E3A1;
+                font-weight: bold;
+                font-size: 9.5pt;
+                padding: 4px 10px;
+                background-color: #1E1E2E;
+                border: 1px solid #313244;
+                border-radius: 4px;
+            }
+        """)
+        self.btn_reset_estop.setEnabled(False)
+        self.statusBar().showMessage("Sistema rearmado y listo para operar.", 4000)
+
+    def _on_session_changed(self, owner: str, is_busy: bool):
+        if hardware_session.is_emergency_stopped:
+            return
+        if is_busy and owner:
+            self.lbl_hw_status.setText(f"🟠 En Ejecución: {owner}")
+            self.lbl_hw_status.setStyleSheet("""
+                QLabel {
+                    color: #FAB387;
+                    font-weight: bold;
+                    font-size: 9.5pt;
+                    padding: 4px 10px;
+                    background-color: #2E251E;
+                    border: 1px solid #FAB387;
+                    border-radius: 4px;
+                }
+            """)
+        else:
+            self.lbl_hw_status.setText("🟢 Sesión: Hardware Disponible")
+            self.lbl_hw_status.setStyleSheet("""
+                QLabel {
+                    color: #A6E3A1;
+                    font-weight: bold;
+                    font-size: 9.5pt;
+                    padding: 4px 10px;
+                    background-color: #1E1E2E;
+                    border: 1px solid #313244;
+                    border-radius: 4px;
+                }
+            """)
+
     def _setup_ui(self):
         self.dock_area = DockArea()
         self.setCentralWidget(self.dock_area)
@@ -239,6 +432,26 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         self.hw_dashboard = None
 
+        # Registrar controladores Live en el HardwareSessionManager
+        def pause_camera_live():
+            if self.cam_widget.btn_live.isChecked():
+                self.cam_widget.btn_live.setChecked(False)
+                self.cam_widget.btn_live.setText("▶️ Iniciar Live View")
+                self.cam_widget.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+            self.cam_backend.toggle_live(False)
+
+        def pause_raman_live():
+            if self.raman_widget.btn_live.isChecked():
+                self.raman_widget.btn_live.setChecked(False)
+                self.raman_widget.btn_live.setText("▶️ Iniciar Live Raman")
+                self.raman_widget.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+            self.raman_backend.toggle_live(False)
+
+        hardware_session.register_live_controller("Live CCD", pause_camera_live)
+        hardware_session.register_live_controller("Live Raman", pause_raman_live)
+        hardware_session.sessionChangedSignal.connect(self._on_session_changed)
+        hardware_session.statusWarningSignal.connect(lambda msg: self.statusBar().showMessage(msg, 6000))
+
     def _select_directory(self):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta de Trabajo", str(self.work_dir))
         if d:
@@ -286,6 +499,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No
         )
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
+            hardware_session.emergency_stop()
             self.cam_backend.toggle_live(False)
             self.raman_backend.toggle_live(False)
             self.confocal_backend.stop_scan()

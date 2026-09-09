@@ -14,6 +14,7 @@ from config import SHUTTERS
 from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.modules.hardware_session import hardware_session
 
 
 class LuminescenceWidget(QtWidgets.QDialog):
@@ -171,6 +172,7 @@ class LuminescenceBackend(QtCore.QObject):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._step)
+        hardware_session.emergencyStopSignal.connect(self.stop_luminescence)
 
     def make_connection(self, widget: LuminescenceWidget):
         widget.startLuminescenceSignal.connect(self.start_luminescence)
@@ -179,6 +181,10 @@ class LuminescenceBackend(QtCore.QObject):
 
     @pyqtSlot(str, float, int, float)
     def start_luminescence(self, laser: str, exp_time: float, n_frames: int, interval: float):
+        if not hardware_session.acquire_session("Fotoluminiscencia"):
+            self.stop_luminescence()
+            return
+
         self.laser_in_use = laser
         self.total_frames = n_frames
         self.curr_frame = 0
@@ -200,9 +206,15 @@ class LuminescenceBackend(QtCore.QObject):
         self.timer.stop()
         if self.laser_in_use:
             close_shutter(self.laser_in_use)
+            self.laser_in_use = ""
+        hardware_session.release_session("Fotoluminiscencia")
         self.dataUpdatedSignal.emit(np.array([]), np.array([]), np.array(self.t_points), np.array(self.i_points), 100)
 
     def _step(self):
+        if hardware_session.is_emergency_stopped:
+            self.stop_luminescence()
+            return
+
         if self.curr_frame >= self.total_frames:
             self.stop_luminescence()
             return

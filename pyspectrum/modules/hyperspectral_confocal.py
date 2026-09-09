@@ -13,6 +13,7 @@ import pyqtgraph as pg
 from config import pi
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.modules.hardware_session import hardware_session
 from pyspectrum.ui.viewbox_tools import LinePlotWidget
 
 
@@ -187,6 +188,7 @@ class Backend(QtCore.QObject):
         self.scan_timer = QTimer(self)
         self.scan_timer.setInterval(20)
         self.scan_timer.timeout.connect(self._scan_step)
+        hardware_session.emergencyStopSignal.connect(self.stop_scan)
 
     def make_connection(self, frontend: Frontend):
         frontend.startScanSignal.connect(self.start_scan)
@@ -197,6 +199,10 @@ class Backend(QtCore.QObject):
 
     @pyqtSlot(float, float, float, float, float, float)
     def start_scan(self, xmin: float, xmax: float, ymin: float, ymax: float, step: float, exp_time: float):
+        if not hardware_session.acquire_session("Mapeo Confocal"):
+            self.stop_scan()
+            return
+
         # Clampear límites al rango físico de la platina piezoeléctrica (0 a 100 µm)
         xmin = max(0.0, min(100.0, float(xmin)))
         xmax = max(0.0, min(100.0, float(xmax)))
@@ -228,12 +234,18 @@ class Backend(QtCore.QObject):
 
     @pyqtSlot()
     def stop_scan(self):
-        self._scanning = False
-        self.scan_timer.stop()
-        self.progressSignal.emit(100)
+        if self._scanning:
+            self._scanning = False
+            self.scan_timer.stop()
+            hardware_session.release_session("Mapeo Confocal")
+            self.progressSignal.emit(100)
+            self.scanFinishedSignal.emit()
 
     def _scan_step(self):
         if not self._scanning:
+            return
+        if hardware_session.is_emergency_stopped:
+            self.stop_scan()
             return
 
         x = self.xs[self.curr_ix]

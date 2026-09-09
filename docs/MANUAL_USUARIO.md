@@ -629,6 +629,35 @@ Ubicado como pestaña en el área de trabajo (junto a Step & Glue y Raman) y en 
 4. **Respuesta Instrumental Halógena**:
    - Carga y verificación de curvas de corrección de sensibilidad óptica espectral.
 
+### 4.4 Sistema Integral de Seguridad Física e Instrumentación
+
+Para garantizar la integridad mecánica y óptica del espectrómetro Shamrock 500i y el detector Andor iXon3 EMCCD, PySpectrum 3.0 incorpora un subsistema de seguridad multinivel:
+
+1. **Árbitro Central de Hardware (`HardwareSessionManager`)**:
+   - **Exclusión Mutua**: Evita colisiones por acceso concurrente entre rutinas (Step & Glue, Mapeo Confocal, Fotoluminiscencia, Cinética, Dímeros y Calibraciones). Solo un módulo puede poseer el control del hardware a la vez.
+   - **Auto-Pausa de Previsualización Live**: Al iniciar cualquier rutina de medición batch, el árbitro pausa automáticamente las vistas en vivo activas (`Live CCD` y `Live Raman`), evitando conflictos de lectura en el buffer del detector.
+   - **Badge de Estado en Tiempo Real**: Informa visualmente el estado del instrumento (`🟢 Sesión: Hardware Disponible`, `🟠 En Ejecución: [Rutina]`, `🚨 E-STOP ACTIVO`).
+
+2. **Parada de Emergencia Global (🚨 E-STOP)**:
+   - Botón rojo de alta visibilidad ubicado en la barra de herramientas superior de PySpectrum 3.0.
+   - **Acción Inmediata**: Cierra instantáneamente todos los obturadores láser vía NI-DAQmx (`close_all_shutters()`), aborta la adquisición del sensor Andor CCD y cancela las rutinas en curso.
+   - **Enclavamiento de Seguridad**: Impide iniciar cualquier adquisición posterior hasta que el operador verifique la seguridad física y presione explícitamente `🔄 Rearmar Sistema`.
+
+3. **Regla de Clampeo de Fotoflux (Protección del Registro EMCCD)**:
+   - Para prevenir la degradación acelerada del registro de multiplicación por avalancha del detector Andor iXon3, el sistema aplica un límite estricto: **la ganancia EM no puede superar $5\times$ si el tiempo de exposición es mayor a $1.0\ \text{s}$**.
+   - Si el usuario incrementa la exposición por encima de $1.0\ \text{s}$ teniendo una ganancia mayor, el controlador reduce de forma transparente la ganancia a $5\times$ y emite una alerta de seguridad.
+
+4. **Interlock Óptico de Orden Cero (0.0 nm y Posición Espejo)**:
+   - Al posicionar la longitud de onda central en $0.0\ \text{nm}$ o seleccionar la posición de espejo plano (reflexión especular completa sin dispersión angular), el sistema fuerza automáticamente la ganancia EM a $0\times$ y cierra todos los obturadores láser para evitar quemaduras irreversibles en el chip CCD.
+
+5. **Tiempos de Asentamiento Mecánico y Exclusión Multihilo (`RLock`)**:
+   - Bloqueo reentrante de hilo (`threading.RLock`) en los controladores de bajo nivel para Shamrock y Andor CCD.
+   - Tiempos de amortiguación física calibrados:
+     - Rotación de torreta de redes: **$4.0\ \text{s}$** (`GRATING_SETTLING_TIME_S`).
+     - Traslación de ranuras micrométricas: **$0.8\ \text{s}$** (`SLIT_SETTLING_TIME_S`).
+     - Desplazamiento de longitud de onda: **$0.3\ \text{s}$** (`WAVELENGTH_SETTLING_TIME_S`).
+   - Métodos `is_moving()` y `wait_until_ready()` para garantizar que ninguna adquisición comience mientras los componentes ópticos se encuentren vibrando o en transición motriz.
+
 ---
 
 ## 5. Módulo 3: Microscopio Contrapropagante (`contrapropagante.py`)

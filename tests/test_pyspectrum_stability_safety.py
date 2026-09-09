@@ -32,11 +32,14 @@ from core.nidaq import (
     heartbeat_shutter, is_watchdog_armed, get_watchdog_remaining_time
 )
 from pyspectrum.drivers.shamrock_driver import (
-    DEVICE, _MockShamrock, get_shamrock
+    DEVICE, _MockShamrock, get_shamrock,
+    GRATING_SETTLING_TIME_S, SLIT_SETTLING_TIME_S, WAVELENGTH_SETTLING_TIME_S
 )
 from pyspectrum.drivers.andor_ccd_driver import (
     _MockAndorCCD, get_andor_ccd, DRV_SUCCESS
 )
+from pyspectrum.modules.hardware_session import hardware_session
+from pyspectrum.modules import spectrum_control
 from pyspectrum.modules import step_and_glue
 from pyspectrum.modules import camera_andor
 from pyspectrum.modules import hyperspectral_confocal
@@ -316,9 +319,15 @@ class TestPySpectrumSafety(unittest.TestCase):
     def setUp(self):
         self.camera = get_andor_ccd(force_mock=True)
         self.spectrometer = get_shamrock(force_mock=True)
+        hardware_session.clear_emergency()
+        if hardware_session.is_busy:
+            hardware_session.release_session(hardware_session.current_owner)
         close_all_shutters()
 
     def tearDown(self):
+        hardware_session.clear_emergency()
+        if hardware_session.is_busy:
+            hardware_session.release_session(hardware_session.current_owner)
         close_all_shutters()
 
     def test_shutter_failsafe_on_routine_lifecycle(self):
@@ -413,6 +422,136 @@ class TestPySpectrumSafety(unittest.TestCase):
         self.assertEqual(self.camera.get_emccd_gain(), 1000)
         self.camera.set_emccd_gain(-50)
         self.assertEqual(self.camera.get_emccd_gain(), 0)
+
+    def test_hardware_session_arbitration_and_mutual_exclusion(self):
+        """Verifica que el Árbitro Central de Hardware impida colisiones de rutinas simultáneas."""
+        # 1. Rutina A adquiere sesión
+        res_a = hardware_session.acquire_session("Rutina Alpha")
+        self.assertTrue(res_a)
+        self.assertEqual(hardware_session.current_owner, "Rutina Alpha")
+        self.assertTrue(hardware_session.is_busy)
+
+        # 2. Rutina B intenta adquirir sesión simultáneamente -> Rechazada
+        res_b = hardware_session.acquire_session("Rutina Beta")
+        self.assertFalse(res_b)
+        self.assertEqual(hardware_session.current_owner, "Rutina Alpha")
+
+        # 3. Rutina A libera sesión
+        hardware_session.release_session("Rutina Alpha")
+        self.assertFalse(hardware_session.is_busy)
+        self.assertEqual(hardware_session.current_owner, "")
+
+        # 4. Ahora Rutina B puede adquirir sesión
+        res_b2 = hardware_session.acquire_session("Rutina Beta")
+        self.assertTrue(res_b2)
+        self.assertEqual(hardware_session.current_owner, "Rutina Beta")
+        hardware_session.release_session("Rutina Beta")
+
+    def test_hardware_session_auto_pause_live(self):
+        """Verifica que iniciar una rutina batch pause automáticamente los modos Live registrados."""
+        live_paused = [False]
+        def dummy_pause():
+            live_paused[0] = True
+
+        hardware_session.register_live_controller("TestLive", dummy_pause)
+        self.assertFalse(live_paused[0])
+
+        # Adquirir sesión de rutina batch
+        res = hardware_session.acquire_session("Batch Test", auto_pause_live=True)
+        self.assertTrue(res)
+        self.assertTrue(live_paused[0], "El modo Live no fue pausado automáticamente")
+        hardware_session.release_session("Batch Test")
+
+    def test_photoflux_gain_clamping_safety(self):
+        """
+        Regla de Fotoflux:
+        Impedir que la ganancia EM supere 5x si el tiempo de exposición es superior a 1.0 s.
+        """
+        # Caso 1: Exposición corta (<= 1.0s) permite ganancia alta
+        self.camera.set_exposure_time(0.2)
+        self.camera.set_emccd_gain(150)
+        self.assertEqual(self.camera.get_emccd_gain(), 150)
+
+        # Caso 2: Exposición > 1.0s clampea ganancia existente a <= 5x
+        self.camera.set_exposure_time(2.0)
+        self.assertLessEqual(self.camera.get_emccd_gain(), 5)
+
+        # Caso 3: Intentar setear ganancia > 5x con exposición > 1.0s se rechaza/clampea a 5
+        self.camera.set_emccd_gain(200)
+        self.assertEqual(self.camera.get_emccd_gain(), 5)
+
+        # Caso 4: Regresar a exposición corta permite nuevamente setear ganancia alta
+        self.camera.set_exposure_time(0.5)
+        self.camera.set_emccd_gain(80)
+        self.assertEqual(self.camera.get_emccd_gain(), 80)
+
+    def test_zero_order_interlock_detector_safeguard(self):
+        """
+        Interlock de Orden Cero:
+        Al posicionar 0.0 nm (o modo espejo), fuerza ganancia EM a 0 y cierra todos los obturadores láser.
+        """
+        fe = spectrum_control.Frontend()
+        be = spectrum_control.Backend(self.spectrometer)
+        be.make_connection(fe)
+
+        # Configurar detector con ganancia EM alta y un obturador abierto
+        self.camera.set_exposure_time(0.1)
+        self.camera.set_emccd_gain(250)
+        laser = SHUTTERS[0]
+        open_shutter(laser)
+        self.assertEqual(self.camera.get_emccd_gain(), 250)
+        self.assertEqual(nidaq._shutter_signal[SHUTTERS.index(laser)], SHUTTER_POLARITY[laser])
+
+        # Solicitar 0.0 nm
+        be.set_wavelength(0.0)
+
+        # Interlock de Orden Cero debe haberse activado
+        self.assertEqual(self.camera.get_emccd_gain(), 0, "La ganancia EM no fue forzada a 0 en orden cero")
+        for s in SHUTTERS:
+            idx = SHUTTERS.index(s)
+            self.assertEqual(nidaq._shutter_signal[idx], not SHUTTER_POLARITY[s], f"Obturador {s} no se cerró en orden cero")
+
+    def test_shamrock_mechanical_settling_times_and_locks(self):
+        """Verifica que el espectrógrafo Shamrock tenga tiempos de asentamiento y sincronización de hilos."""
+        # Constantes de asentamiento físico
+        self.assertEqual(GRATING_SETTLING_TIME_S, 4.0)
+        self.assertEqual(SLIT_SETTLING_TIME_S, 0.8)
+        self.assertEqual(WAVELENGTH_SETTLING_TIME_S, 0.3)
+
+        # Métodos de sincronización
+        self.assertTrue(hasattr(self.spectrometer, "is_moving"))
+        self.assertTrue(hasattr(self.spectrometer, "wait_until_ready"))
+
+        # Movimiento de red y verificación de estado
+        self.spectrometer.ShamrockSetGrating(DEVICE, 2)
+        self.assertFalse(self.spectrometer.is_moving())  # En mock avanza en simulación inmediata
+
+    def test_global_estop_execution_and_reset(self):
+        """Verifica el funcionamiento de la PARADA DE EMERGENCIA (E-STOP) global y su rearmado."""
+        # 1. Abrir láser y verificar estado inicial
+        open_shutter(SHUTTERS[0])
+        self.assertEqual(nidaq._shutter_signal[0], SHUTTER_POLARITY[SHUTTERS[0]])
+        self.assertFalse(hardware_session.is_emergency_stopped)
+
+        # 2. Ejecutar E-STOP
+        hardware_session.emergency_stop()
+        self.assertTrue(hardware_session.is_emergency_stopped)
+
+        # Todos los shutters deben haberse cerrado de inmediato
+        for s in SHUTTERS:
+            idx = SHUTTERS.index(s)
+            self.assertEqual(nidaq._shutter_signal[idx], not SHUTTER_POLARITY[s])
+
+        # Intentar iniciar una rutina bajo E-STOP activo debe ser rechazado
+        self.assertFalse(hardware_session.acquire_session("Test Under E-Stop"))
+
+        # 3. Rearmar el sistema
+        hardware_session.clear_emergency()
+        self.assertFalse(hardware_session.is_emergency_stopped)
+
+        # Ahora sí se puede adquirir sesión
+        self.assertTrue(hardware_session.acquire_session("Test After Reset"))
+        hardware_session.release_session("Test After Reset")
 
     def test_mock_hardware_isolation_safety(self):
         """Verifica que en SAFE_MODE los drivers mock informen is_mock=True y no invoquen DLLs nativas."""

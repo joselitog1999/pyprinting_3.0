@@ -9,6 +9,7 @@ import sys
 import time
 from ctypes import c_int, c_long, c_float, byref, create_string_buffer, windll
 from pathlib import Path
+import threading
 from typing import Tuple, Optional
 import numpy as np
 
@@ -44,6 +45,7 @@ class _MockAndorCCD:
     is_mock = True
 
     def __init__(self, temperature: float = -65.0, fan_mode: str = "low"):
+        self._lock = threading.RLock()
         self.width = 1002
         self.height = 1002
         self._target_temp = float(temperature)
@@ -65,68 +67,91 @@ class _MockAndorCCD:
         return False
 
     def initialize(self) -> int:
-        self._cooler_on = True
-        return DRV_SUCCESS
+        with self._lock:
+            self._cooler_on = True
+            return DRV_SUCCESS
 
     def close(self) -> int:
-        self._acquiring = False
-        if self._cooler_mode == 0:
-            self._cooler_on = False
-        return DRV_SUCCESS
+        with self._lock:
+            self._acquiring = False
+            if self._cooler_mode == 0:
+                self._cooler_on = False
+            return DRV_SUCCESS
 
     def set_temperature(self, temp: float) -> int:
-        self._target_temp = max(-100.0, min(25.0, float(temp)))
-        self.cooler_on()
-        return DRV_SUCCESS
+        with self._lock:
+            self._target_temp = max(-100.0, min(25.0, float(temp)))
+            self.cooler_on()
+            return DRV_SUCCESS
 
     def get_temperature(self) -> Tuple[int, float]:
-        # Simula enfriamiento suave hacia el setpoint (-65 °C típico de iXon3)
-        if self._cooler_on:
-            diff = self._target_temp - self._current_temp
-            self._current_temp += diff * 0.15
-        else:
-            self._current_temp += (20.0 - self._current_temp) * 0.05
+        with self._lock:
+            # Simula enfriamiento suave hacia el setpoint (-65 °C típico de iXon3)
+            if self._cooler_on:
+                diff = self._target_temp - self._current_temp
+                self._current_temp += diff * 0.15
+            else:
+                self._current_temp += (20.0 - self._current_temp) * 0.05
 
-        status = DRV_TEMP_STABILIZED if abs(self._current_temp - self._target_temp) < 0.5 else DRV_TEMP_NOT_REACHED
-        return (status, round(self._current_temp, 1))
+            status = DRV_TEMP_STABILIZED if abs(self._current_temp - self._target_temp) < 0.5 else DRV_TEMP_NOT_REACHED
+            return (status, round(self._current_temp, 1))
 
     def cooler_on(self) -> int:
-        self._cooler_on = True
-        return DRV_SUCCESS
+        with self._lock:
+            self._cooler_on = True
+            return DRV_SUCCESS
 
     def cooler_off(self) -> int:
-        self._cooler_on = False
-        return DRV_SUCCESS
+        with self._lock:
+            self._cooler_on = False
+            return DRV_SUCCESS
 
     def set_cooler_mode(self, mode: int) -> int:
-        self._cooler_mode = int(mode)
-        return DRV_SUCCESS
+        with self._lock:
+            self._cooler_mode = int(mode)
+            return DRV_SUCCESS
 
     def set_output_amplifier(self, typ: int) -> int:
-        # 0: EMCCD (High Gain), 1: Conventional CCD (Ultra-low noise)
-        self._output_amplifier = 0 if int(typ) == 0 else 1
-        return DRV_SUCCESS
+        with self._lock:
+            # 0: EMCCD (High Gain), 1: Conventional CCD (Ultra-low noise)
+            self._output_amplifier = 0 if int(typ) == 0 else 1
+            return DRV_SUCCESS
 
     def get_output_amplifier(self) -> int:
-        return self._output_amplifier
+        with self._lock:
+            return self._output_amplifier
 
     def set_exposure_time(self, t_sec: float) -> int:
-        self._exposure_time = max(0.001, min(60.0, float(t_sec)))
-        return DRV_SUCCESS
+        with self._lock:
+            self._exposure_time = max(0.001, min(60.0, float(t_sec)))
+            # Salvaguarda EMCCD: si exposición > 1.0 s, clampear ganancia EM a máximo 5x para proteger el registro
+            if self._exposure_time > 1.0 and self._emccd_gain > 5:
+                print(f"[Andor CCD Safety] Ganancia EM reducida automáticamente de {self._emccd_gain}x a 5x por exposición > 1.0s.")
+                self._emccd_gain = 5
+            return DRV_SUCCESS
 
     def get_exposure_time(self) -> float:
-        return self._exposure_time
+        with self._lock:
+            return self._exposure_time
 
     def set_emccd_gain(self, gain: int) -> int:
-        self._emccd_gain = max(0, min(1000, int(gain)))
-        return DRV_SUCCESS
+        with self._lock:
+            g = max(0, min(1000, int(gain)))
+            # Salvaguarda EMCCD: si tiempo de exposición > 1.0 s, impedir superar 5x
+            if self._exposure_time > 1.0 and g > 5:
+                print(f"[Andor CCD Safety] Ganancia EM clampeada a 5x: exposición actual ({self._exposure_time:.2f}s) > 1.0s.")
+                g = 5
+            self._emccd_gain = g
+            return DRV_SUCCESS
 
     def get_emccd_gain(self) -> int:
-        return self._emccd_gain
+        with self._lock:
+            return self._emccd_gain
 
     def set_read_mode(self, mode: int) -> int:
-        self._read_mode = int(mode)
-        return DRV_SUCCESS
+        with self._lock:
+            self._read_mode = int(mode)
+            return DRV_SUCCESS
 
     def get_read_mode(self) -> int:
         return self._read_mode
@@ -217,11 +242,13 @@ class AndorCCDDriver:
     is_mock = False
 
     def __init__(self):
+        self._lock = threading.RLock()
         self._dll = None
         self._connected = False
         self._read_mode = READ_MODE_IMAGE
         self._track_center = 501
         self._track_height = 40
+        self._current_exposure_time = 0.05
         self._init_dll()
 
     def is_hardware_alive(self) -> bool:
@@ -253,97 +280,121 @@ class AndorCCDDriver:
     def initialize(self, dir_path: str = "") -> bool:
         if self._dll is None:
             return False
-        try:
-            ret = self._dll.Initialize(dir_path.encode("ascii") if dir_path else b"")
-            if ret == DRV_SUCCESS:
-                self._connected = True
-                try:
-                    self._dll.SetCoolerMode(c_int(0))  # 0: vuelve a ambiente al apagar (seguro)
-                except Exception:
-                    pass
-                return True
-            print(f"[Andor CCD] Initialize retorno código: {ret}")
-            return False
-        except Exception as e:
-            print(f"[Andor CCD] Excepción al inicializar cámara: {e}")
-            return False
+        with self._lock:
+            try:
+                ret = self._dll.Initialize(dir_path.encode("ascii") if dir_path else b"")
+                if ret == DRV_SUCCESS:
+                    self._connected = True
+                    try:
+                        self._dll.SetCoolerMode(c_int(0))  # 0: vuelve a ambiente al apagar (seguro)
+                    except Exception:
+                        pass
+                    return True
+                print(f"[Andor CCD] Initialize retorno código: {ret}")
+                return False
+            except Exception as e:
+                print(f"[Andor CCD] Excepción al inicializar cámara: {e}")
+                return False
 
     def close(self):
-        if self._dll is not None and self._connected:
-            try:
-                self._dll.ShutDown()
-            except Exception:
-                pass
-        self._connected = False
+        with self._lock:
+            if self._dll is not None and self._connected:
+                try:
+                    self._dll.ShutDown()
+                except Exception:
+                    pass
+            self._connected = False
 
     def set_temperature(self, temp: float) -> int:
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        ret = self._dll.SetTemperature(c_int(int(temp)))
-        # Asegurar que el enfriador Peltier esté activado al definir temperatura
-        self.cooler_on()
-        return ret
+        with self._lock:
+            ret = self._dll.SetTemperature(c_int(int(temp)))
+            # Asegurar que el enfriador Peltier esté activado al definir temperatura
+            self.cooler_on()
+            return ret
 
     def get_temperature(self) -> Tuple[int, float]:
         if not self._connected or self._dll is None:
             return (DRV_NOT_INITIALIZED, 20.0)
-        c_temp = c_int()
-        ret = self._dll.GetTemperature(byref(c_temp))
-        return (ret, float(c_temp.value))
+        with self._lock:
+            c_temp = c_int()
+            ret = self._dll.GetTemperature(byref(c_temp))
+            return (ret, float(c_temp.value))
 
     def cooler_on(self) -> int:
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        return self._dll.CoolerON()
+        with self._lock:
+            return self._dll.CoolerON()
 
     def cooler_off(self) -> int:
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        return self._dll.CoolerOFF()
+        with self._lock:
+            return self._dll.CoolerOFF()
 
     def set_cooler_mode(self, mode: int) -> int:
         """0: Retorna a temperatura ambiente al cerrar; 1: Mantiene temperatura."""
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        try:
-            return self._dll.SetCoolerMode(c_int(int(mode)))
-        except Exception:
-            return DRV_SUCCESS
+        with self._lock:
+            try:
+                return self._dll.SetCoolerMode(c_int(int(mode)))
+            except Exception:
+                return DRV_SUCCESS
 
     def set_output_amplifier(self, typ: int) -> int:
         """0: Multiplicador de electrones EMCCD; 1: Convencional bajo ruido CCD."""
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        try:
-            return self._dll.SetOutputAmplifier(c_int(int(typ)))
-        except Exception as e:
-            print(f"[Andor CCD] Error SetOutputAmplifier: {e}")
-            return DRV_NOT_INITIALIZED
+        with self._lock:
+            try:
+                return self._dll.SetOutputAmplifier(c_int(int(typ)))
+            except Exception as e:
+                print(f"[Andor CCD] Error SetOutputAmplifier: {e}")
+                return DRV_NOT_INITIALIZED
 
     def set_emccd_gain(self, gain: int) -> int:
-        """Fija la ganancia EM (0 a 1000)."""
+        """Fija la ganancia EM (0 a 1000) con protección estricta contra envejecimiento."""
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        try:
-            return self._dll.SetEMCCDGain(c_int(int(gain)))
-        except Exception as e:
-            print(f"[Andor CCD] Error SetEMCCDGain: {e}")
-            return DRV_NOT_INITIALIZED
+        with self._lock:
+            g = max(0, min(1000, int(gain)))
+            # Salvaguarda EMCCD: si tiempo de exposición > 1.0 s, impedir superar 5x
+            if self._current_exposure_time > 1.0 and g > 5:
+                print(f"[Andor CCD Safety] Ganancia EM clampeada a 5x: exposición actual ({self._current_exposure_time:.2f}s) > 1.0s.")
+                g = 5
+            try:
+                return self._dll.SetEMCCDGain(c_int(g))
+            except Exception as e:
+                print(f"[Andor CCD] Error SetEMCCDGain: {e}")
+                return DRV_NOT_INITIALIZED
 
     def get_emccd_gain(self) -> Tuple[int, int]:
         if not self._connected or self._dll is None:
             return (DRV_NOT_INITIALIZED, 0)
-        try:
-            c_gain = c_int()
-            ret = self._dll.GetEMCCDGain(byref(c_gain))
-            return (ret, c_gain.value)
-        except Exception:
-            return (DRV_NOT_INITIALIZED, 0)
+        with self._lock:
+            try:
+                c_gain = c_int()
+                ret = self._dll.GetEMCCDGain(byref(c_gain))
+                return (ret, c_gain.value)
+            except Exception:
+                return (DRV_NOT_INITIALIZED, 0)
 
     def set_exposure_time(self, t_sec: float) -> int:
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
-        return self._dll.SetExposureTime(c_float(float(t_sec)))
+        with self._lock:
+            self._current_exposure_time = float(t_sec)
+            ret = self._dll.SetExposureTime(c_float(float(t_sec)))
+            # Salvaguarda EMCCD: si exposición > 1.0 s, clampear ganancia EM si supera 5x
+            if self._current_exposure_time > 1.0:
+                ret_g, g = self.get_emccd_gain()
+                if g > 5:
+                    print(f"[Andor CCD Safety] Ganancia EM reducida automáticamente de {g}x a 5x por exposición > 1.0s.")
+                    self.set_emccd_gain(5)
+            return ret
 
     def start_acquisition(self) -> int:
         if not self._connected or self._dll is None:
@@ -451,13 +502,14 @@ def get_andor_ccd(force_mock: bool = False, reset: bool = False) -> _MockAndorCC
                 pass
             _andor_instance = None
 
-    if force_mock or SAFE_MODE:
-        return _MockAndorCCD()
     if _andor_instance is None:
-        drv = AndorCCDDriver()
-        if drv.initialize():
-            _andor_instance = drv
-        else:
-            print("[Andor CCD] Hardware no detectado. Recurriendo a _MockAndorCCD.")
+        if force_mock or SAFE_MODE:
             _andor_instance = _MockAndorCCD()
+        else:
+            drv = AndorCCDDriver()
+            if drv.initialize():
+                _andor_instance = drv
+            else:
+                print("[Andor CCD] Hardware no detectado. Recurriendo a _MockAndorCCD.")
+                _andor_instance = _MockAndorCCD()
     return _andor_instance

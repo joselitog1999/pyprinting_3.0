@@ -177,6 +177,7 @@ class Backend(QtCore.QObject):
 
     calibrationUpdatedSignal = pyqtSignal(float, float, float)
     wavelengthAxisSignal = pyqtSignal(np.ndarray)
+    statusMessageSignal = pyqtSignal(str)
 
     def __init__(self, spectrometer=None, parent=None):
         super().__init__(parent)
@@ -193,20 +194,30 @@ class Backend(QtCore.QObject):
         frontend.requestCalibrationSignal.connect(self.update_calibration)
 
         self.calibrationUpdatedSignal.connect(frontend.update_calibration_display)
+        self.statusMessageSignal.connect(lambda msg: frontend.lbl_info.setText(f"ℹ️ {msg}"))
         self.update_calibration()
 
     @pyqtSlot(int)
     def set_grating(self, grating: int):
+        # Interlock de seguridad si se selecciona espejo (reflexión especular completa)
+        if grating == GRATING_MIRROR:
+            self._apply_zero_order_detector_safeguard("Posición Espejo")
+
+        self.statusMessageSignal.emit(f"⚙️ Cambiando red a {NAME_GRATINGS[grating - 1]}... (asentamiento 4.0s)")
         self.spectrometer.ShamrockSetGrating(DEVICE, grating)
         self.update_calibration()
 
     @pyqtSlot(float)
     def set_wavelength(self, wl: float):
+        if wl <= 0.05:
+            self._apply_zero_order_detector_safeguard("0.0 nm (Orden Cero)")
+
         self.spectrometer.ShamrockSetWavelength(DEVICE, wl)
         self.update_calibration()
 
     @pyqtSlot(int, float)
     def set_slit(self, index: int, width: float):
+        self.statusMessageSignal.emit(f"⚙️ Ajustando ranura a {width:.1f} µm (asentamiento 0.8s)...")
         self.spectrometer.ShamrockSetSlit(DEVICE, index, width)
 
     @pyqtSlot(int)
@@ -217,8 +228,31 @@ class Backend(QtCore.QObject):
     def set_flipper(self, flipper: int, port: int):
         self.spectrometer.ShamrockSetFlipper(DEVICE, flipper, port)
 
+    def _apply_zero_order_detector_safeguard(self, reason: str):
+        """Interlock crítico: reduce EM gain a 0 y cierra láseres ante reflexión especular directa."""
+        try:
+            from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+            cam = get_andor_ccd()
+            cam.set_emccd_gain(0)
+        except Exception:
+            pass
+
+        try:
+            from core.nidaq import close_all_shutters
+            close_all_shutters()
+        except Exception:
+            pass
+
+        msg = f"🛡️ Salvaguarda {reason}: Ganancia EM forzada a 0x y láseres cerrados por protección del chip CCD."
+        print(f"[SpectrumControl Safety] {msg}")
+        self.statusMessageSignal.emit(msg)
+
     @pyqtSlot()
     def goto_zero_order(self):
+        # 1. Aplicar salvaguarda de fotoflux
+        self._apply_zero_order_detector_safeguard("Orden Cero (0.0 nm)")
+
+        # 2. Desplazar a orden cero
         if hasattr(self.spectrometer, "goto_zero_order"):
             self.spectrometer.goto_zero_order(DEVICE)
         else:

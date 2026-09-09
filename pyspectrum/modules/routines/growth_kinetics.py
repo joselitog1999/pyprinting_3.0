@@ -14,6 +14,7 @@ from config import SHUTTERS
 from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.modules.hardware_session import hardware_session
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
 
 
@@ -155,6 +156,7 @@ class GrowthKineticsBackend(QtCore.QObject):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._step)
+        hardware_session.emergencyStopSignal.connect(self.stop_growth)
 
     def make_connection(self, widget: GrowthKineticsWidget):
         widget.startGrowthSignal.connect(self.start_growth)
@@ -163,6 +165,10 @@ class GrowthKineticsBackend(QtCore.QObject):
 
     @pyqtSlot(str, float, int, float)
     def start_growth(self, laser: str, exp_time: float, n_frames: int, interval: float):
+        if not hardware_session.acquire_session("Cinética de Crecimiento"):
+            self.stop_growth()
+            return
+
         self.laser_in_use = laser
         self.total_frames = n_frames
         self.curr_frame = 0
@@ -182,8 +188,14 @@ class GrowthKineticsBackend(QtCore.QObject):
         self.timer.stop()
         if self.laser_in_use:
             close_shutter(self.laser_in_use)
+            self.laser_in_use = ""
+        hardware_session.release_session("Cinética de Crecimiento")
 
     def _step(self):
+        if hardware_session.is_emergency_stopped:
+            self.stop_growth()
+            return
+
         if self.curr_frame >= self.total_frames:
             self.stop_growth()
             return

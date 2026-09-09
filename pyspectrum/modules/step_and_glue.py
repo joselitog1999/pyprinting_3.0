@@ -294,72 +294,79 @@ class Backend(QtCore.QObject):
 
     @pyqtSlot(float, float, float, float, bool)
     def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap: float, exp_time: float, normalize: bool):
-        # Cálculo de los centros espectrales según el ancho de dispersión (~300 nm para red 1)
-        step_span = 240.0 * (1.0 - overlap)
-        centers = []
-        c = start_wl + 120.0
-        while c <= end_wl + 50.0:
-            centers.append(c)
-            c += step_span
-
-        if not centers:
-            centers = [0.5 * (start_wl + end_wl)]
-
-        raw_waves = []
-        raw_specs = []
-
-        self._abort_requested = False
-        self.camera.set_exposure_time(exp_time)
-
-        for wl_c in centers:
-            if self._abort_requested:
-                print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por el usuario.")
-                break
-            self.spectrometer.ShamrockSetWavelength(DEVICE, wl_c)
-            time.sleep(0.05)
-            if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
-            else:
-                ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
-
-            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
-                s_1d = self.camera.get_1d_spectrum()
-            else:
-                frame = self.camera.get_most_recent_image()
-                s_1d = np.mean(frame, axis=0)
-
-            raw_waves.append(w_cal)
-            raw_specs.append(s_1d)
-
-        # Cosido continuo con algoritmo Step & Glue
-        if not raw_waves:
-            print("[Step & Glue] Adquisición abortada sin datos.")
+        from pyspectrum.modules.hardware_session import hardware_session
+        if not hardware_session.acquire_session("Step & Glue", auto_pause_live=True):
             return
 
-        concat_w = np.concatenate(raw_waves)
-        concat_s = np.concatenate(raw_specs)
+        try:
+            # Cálculo de los centros espectrales según el ancho de dispersión (~300 nm para red 1)
+            step_span = 240.0 * (1.0 - overlap)
+            centers = []
+            c = start_wl + 120.0
+            while c <= end_wl + 50.0:
+                centers.append(c)
+                c += step_span
 
-        glued_w, glued_s = glue_steps(concat_w, concat_s, number_pixel=1002, grade=2.0)
+            if not centers:
+                centers = [0.5 * (start_wl + end_wl)]
 
-        # Normalización con lámpara halógena
-        norm_w, norm_s = np.array([]), np.array([])
-        lambda_max = 0.0
+            raw_waves = []
+            raw_specs = []
 
-        if normalize:
-            norm_w = glued_w
-            norm_s = self.lamp_calib.normalize_spectrum(glued_w, glued_s)
-            target_w, target_s = norm_w, norm_s
-        else:
-            target_w, target_s = glued_w, glued_s
+            self._abort_requested = False
+            self.camera.set_exposure_time(exp_time)
 
-        # Ajuste de SPR
-        wave_fit, spec_fit, lambda_max = fit_signal_polynomial(target_w, target_s, ends_notch=start_wl + 10, final_wave=end_wl - 10)
-        if len(wave_fit) > 0:
-            self.fitFinishedSignal.emit(wave_fit, spec_fit)
+            for wl_c in centers:
+                if self._abort_requested:
+                    print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por el usuario.")
+                    break
+                self.spectrometer.ShamrockSetWavelength(DEVICE, wl_c)
+                time.sleep(0.05)
+                if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+                    ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
+                else:
+                    ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
 
-        # Cachear último resultado
-        self._last_wave = glued_w
-        self._last_spec = glued_s
-        self._last_norm = norm_s
+                if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
+                    s_1d = self.camera.get_1d_spectrum()
+                else:
+                    frame = self.camera.get_most_recent_image()
+                    s_1d = np.mean(frame, axis=0)
 
-        self.spectrumFinishedSignal.emit(glued_w, glued_s, norm_w, norm_s, lambda_max)
+                raw_waves.append(w_cal)
+                raw_specs.append(s_1d)
+
+            # Cosido continuo con algoritmo Step & Glue
+            if not raw_waves:
+                print("[Step & Glue] Adquisición abortada sin datos.")
+                return
+
+            concat_w = np.concatenate(raw_waves)
+            concat_s = np.concatenate(raw_specs)
+
+            glued_w, glued_s = glue_steps(concat_w, concat_s, number_pixel=1002, grade=2.0)
+
+            # Normalización con lámpara halógena
+            norm_w, norm_s = np.array([]), np.array([])
+            lambda_max = 0.0
+
+            if normalize:
+                norm_w = glued_w
+                norm_s = self.lamp_calib.normalize_spectrum(glued_w, glued_s)
+                target_w, target_s = norm_w, norm_s
+            else:
+                target_w, target_s = glued_w, glued_s
+
+            # Ajuste de SPR
+            wave_fit, spec_fit, lambda_max = fit_signal_polynomial(target_w, target_s, ends_notch=start_wl + 10, final_wave=end_wl - 10)
+            if len(wave_fit) > 0:
+                self.fitFinishedSignal.emit(wave_fit, spec_fit)
+
+            # Cachear último resultado
+            self._last_wave = glued_w
+            self._last_spec = glued_s
+            self._last_norm = norm_s
+
+            self.spectrumFinishedSignal.emit(glued_w, glued_s, norm_w, norm_s, lambda_max)
+        finally:
+            hardware_session.release_session("Step & Glue")

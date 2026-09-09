@@ -11,6 +11,7 @@ import pyqtgraph as pg
 
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.modules.hardware_session import hardware_session
 
 
 class DimersWidget(QtWidgets.QDialog):
@@ -115,20 +116,25 @@ class DimersBackend(QtCore.QObject):
 
     @pyqtSlot(str, float)
     def acquire_polarization(self, mode: str, exp_time: float):
-        self.camera.set_exposure_time(exp_time)
-        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+        if not hardware_session.acquire_session("Dímeros Plasmónicos"):
+            return
+        try:
+            self.camera.set_exposure_time(exp_time)
+            ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
 
-        frame = self.camera.get_most_recent_image()
-        spec = np.mean(frame, axis=0)
+            frame = self.camera.get_most_recent_image()
+            spec = np.mean(frame, axis=0)
 
-        diff = np.array([])
-        if mode == "parallel":
-            self.spec_par = spec
-            if self.spec_perp is not None and len(self.spec_perp) == len(spec):
-                diff = self.spec_par - self.spec_perp
-        else:
-            self.spec_perp = spec
-            if self.spec_par is not None and len(self.spec_par) == len(spec):
-                diff = self.spec_par - self.spec_perp
+            diff = np.array([])
+            if mode == "parallel":
+                self.spec_par = spec
+                if self.spec_perp is not None and len(self.spec_perp) == len(spec):
+                    diff = self.spec_par - self.spec_perp
+            else:
+                self.spec_perp = spec
+                if self.spec_par is not None and len(self.spec_par) == len(spec):
+                    diff = self.spec_par - self.spec_perp
 
-        self.dimerDataSignal.emit(mode, self.wave_axis, spec, diff)
+            self.dimerDataSignal.emit(mode, self.wave_axis, spec, diff)
+        finally:
+            hardware_session.release_session("Dímeros Plasmónicos")
