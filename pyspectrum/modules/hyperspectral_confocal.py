@@ -197,6 +197,17 @@ class Backend(QtCore.QObject):
 
     @pyqtSlot(float, float, float, float, float, float)
     def start_scan(self, xmin: float, xmax: float, ymin: float, ymax: float, step: float, exp_time: float):
+        # Clampear límites al rango físico de la platina piezoeléctrica (0 a 100 µm)
+        xmin = max(0.0, min(100.0, float(xmin)))
+        xmax = max(0.0, min(100.0, float(xmax)))
+        ymin = max(0.0, min(100.0, float(ymin)))
+        ymax = max(0.0, min(100.0, float(ymax)))
+        step = max(0.01, float(step))
+        if xmin > xmax:
+            xmin, xmax = xmax, xmin
+        if ymin > ymax:
+            ymin, ymax = ymax, ymin
+
         self.xs = np.arange(xmin, xmax + step * 0.5, step)
         self.ys = np.arange(ymin, ymax + step * 0.5, step)
         self.nx = len(self.xs)

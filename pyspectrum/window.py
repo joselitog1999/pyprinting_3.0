@@ -291,6 +291,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             self.confocal_backend.stop_scan()
             self.lumin_backend.stop_luminescence()
             self.growth_backend.stop_growth()
+            from core.nidaq import close_all_shutters
+            close_all_shutters()
             event.accept()
         else:
             event.ignore()

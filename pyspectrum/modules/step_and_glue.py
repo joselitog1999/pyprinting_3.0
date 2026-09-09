@@ -332,6 +332,10 @@ class Backend(QtCore.QObject):
             raw_specs.append(s_1d)
 
         # Cosido continuo con algoritmo Step & Glue
+        if not raw_waves:
+            print("[Step & Glue] Adquisición abortada sin datos.")
+            return
+
         concat_w = np.concatenate(raw_waves)
         concat_s = np.concatenate(raw_specs)
 

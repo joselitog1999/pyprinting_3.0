@@ -294,6 +294,75 @@ def run_tests():
     nano_fe.close()
     assert_test("Telemetría y Reconexión en Nanopositioning Dock", nano_ok)
 
+    # ── 11. Batería PySpectrum 3.0: Estabilidad, Legacy y Seguridad ───────────
+    print("\n11. Batería PySpectrum 3.0 (Estabilidad, Legacy y Seguridad)")
+    from pyspectrum.modules.routines.luminescence import LuminescenceBackend
+    from pyspectrum.modules.routines.growth_kinetics import GrowthKineticsBackend
+    from pyspectrum.modules.routines.dimers import DimersBackend
+    from pyspectrum.modules import hyperspectral_confocal, step_and_glue, camera_andor
+    from pyspectrum.drivers.shamrock_driver import get_shamrock
+    from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+    from core.nidaq import open_shutter, close_shutter, close_all_shutters, heartbeat_shutter, is_watchdog_armed
+
+    # 1. Stress de Adquisición y Memoria
+    cam_stress = get_andor_ccd(force_mock=True)
+    frames_ok = all(cam_stress.get_most_recent_image().shape == (1002, 1002) for _ in range(25))
+    assert_test("PySpectrum Stress Adquisición Rápida (25 frames)", frames_ok)
+
+    # 2. Resiliencia de Start/Stop en Rutinas
+    l_be = LuminescenceBackend(cam_stress, get_shamrock(force_mock=True))
+    g_be = GrowthKineticsBackend(cam_stress, get_shamrock(force_mock=True))
+    l_be.start_luminescence(config.SHUTTERS[0], 0.05, 10, 0.1)
+    l_running = l_be.timer.isActive()
+    l_be.stop_luminescence()
+    l_stopped = not l_be.timer.isActive()
+    g_be.start_growth(config.SHUTTERS[1], 0.05, 10, 0.1)
+    g_running = g_be.timer.isActive()
+    g_be.stop_growth()
+    g_stopped = not g_be.timer.isActive()
+    assert_test("Ciclo Start/Stop Seguro en Rutinas Espectrales", l_running and l_stopped and g_running and g_stopped)
+
+    # 3. Resiliencia al Aborto en Step & Glue
+    sg_be = step_and_glue.Backend(cam_stress, get_shamrock(force_mock=True))
+    sg_be._abort_requested = True
+    abort_ok = True
+    try:
+        sg_be.measure_step_and_glue(450.0, 750.0, 0.2, 0.05, normalize=False)
+    except Exception:
+        abort_ok = False
+    assert_test("Resiliencia a Aborto Inmediato en Step & Glue", abort_ok)
+
+    # 4. Seguridad: Clampeo Platina Confocal [0, 100] µm
+    c_be = hyperspectral_confocal.Backend(cam_stress, get_shamrock(force_mock=True))
+    c_be.start_scan(-50.0, 150.0, -20.0, 200.0, 10.0, 0.01)
+    stage_safe = (c_be.xs[0] >= 0.0) and (c_be.xs[-1] <= 100.0) and (c_be.ys[0] >= 0.0) and (c_be.ys[-1] <= 100.0)
+    c_be.stop_scan()
+    assert_test("Salvaguarda Límites Platina PI Confocal [0-100 µm]", stage_safe)
+
+    # 5. Seguridad: Alertas Ganancia EM (>200x y >300x)
+    cam_fe = camera_andor.Frontend()
+    cam_fe.slider_gain.setValue(220)
+    warn_200 = "⚠️" in cam_fe.lbl_gain_badge.text()
+    cam_fe.slider_gain.setValue(350)
+    warn_300 = "🔥" in cam_fe.lbl_gain_badge.text()
+    cam_fe.cmb_amp.setCurrentIndex(1)
+    gain_disabled = not cam_fe.slider_gain.isEnabled()
+    assert_test("Salvaguarda y Alertas Ganancia iXon3 EMCCD", warn_200 and warn_300 and gain_disabled)
+
+    # 6. Seguridad: Watchdog Heartbeat y Cierre Forzado
+    heartbeat_shutter(30.0)
+    armed = is_watchdog_armed()
+    close_all_shutters()
+    disarmed = not is_watchdog_armed()
+    assert_test("Watchdog Heartbeat & Cierre Fail-Safe de Láseres", armed and disarmed)
+
+    # 7. Rutina Legacy: Dímeros Plasmónicos
+    d_be = DimersBackend(cam_stress, get_shamrock(force_mock=True))
+    d_be.acquire_polarization("parallel", 0.05)
+    d_be.acquire_polarization("perpendicular", 0.05)
+    dimers_ok = d_be.spec_par is not None and d_be.spec_perp is not None
+    assert_test("Rutina Legacy Dímeros Plasmónicos (∥ - ⟂)", dimers_ok)
+
 
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
