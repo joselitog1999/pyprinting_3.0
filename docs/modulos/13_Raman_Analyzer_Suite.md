@@ -219,3 +219,25 @@ Para satisfacer los requerimientos de edición de publicaciones científicas y c
 - **Exportación Fiel de Imágenes (PNG 600 DPI / 2400 px)**:
   Las imágenes exportadas respetan con fidelidad absoluta el fondo seleccionado (blanco editorial `#FFFFFF` o modo oscuro `#181825`), incluyendo la composición integrada de la pestaña PCA.
 
+---
+
+## 4. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo Espectral / Quimiométrico) | Firma Experimental (Perfil Raman / Gráfico) | Acción Correctiva Física / Paramétrica |
+| :--- | :--- | :--- |
+| **Saturación del Detector CCD por Línea Elástica Láser** ($I \ge 65535\ \text{cuentas}$). | El espectro presenta una meseta horizontal plana a 65535 ADU en las cercanías de la línea de bombeo ($< 200\ \text{cm}^{-1}$). | Usar el botón `⚡ Recortar Rayleigh (< 150 cm⁻¹)` para purgar la dispersión elástica antes de calcular líneas base; si el pico persiste, insertar un filtro Notch de mayor densidad óptica ($\text{OD} > 6$). |
+| **Distorsión de Bandas Estrechas por Exceso de Suavizado AsLS**. | Picos Raman con FWHM sub-estimada o picos estrechos absorbidos dentro de la línea base estimada. | Reducir el parámetro de asimetría $p$ a $10^{-3}$ o $10^{-4}$ y ajustar $\log_{10}(\lambda)$ a valores intermedios ($10^4 - 10^5$), o bien utilizar el modo de **Archivo de Referencia (Modo 1)** con un blanco experimental. |
+| **Inestabilidad en PCA por Diferencias de Rango Espectral entre Archivos**. | Excepción `DimensionMismatch` o deformación de las cargas (Loadings) en los extremos. | La suite interpola automáticamente sobre la grilla común (`common_x`). Asegurar que todos los espectros compartan al menos un solapamiento del $80\%$ de su rango espectral antes de aplicar PCA. |
+| **Artefactos de Rayos Cósmicos en Series Temporales SERS**. | Picos anómalos ultrafinos de un único píxel con intensidades que duplican o triplican las bandas moleculares genuinas. | Activar la función de `Despiking` estadístico por gradiente espacial o podar el espectro individual afectado en la tabla antes de computar el promedio o PCA. |
+
+---
+
+## 5. 🔗 Referencias Cruzadas
+- [📘 Manual de Usuario Principal — Sección 5: Raman Analyzer Suite](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#14-suite-de-análisis-espectral-y-quimiometría-raman-raman_analyzerpy)
+- [🌈 Guía Modular: PySpectrum 3.0 (Módulo 09)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/09_PySpectrum_Espectroscopia.md)
+- [📑 Reporte de Sistema Espectrómetro Shamrock 500i / iXon3](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md)
+- [📊 Reporte Comparativo Andor Solis vs PySpectrum 3.0](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Comparativo_Andor_Solis_vs_PySpectrum.md)
+- [🔬 Reporte de Arquitectura Óptica y Espectrometría](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md)
+- [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
+
+

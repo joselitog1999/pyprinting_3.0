@@ -107,7 +107,6 @@ def _watchdog_loop():
                 _watchdog_deadline = None
             try:
                 close_all_shutters()
-                up_flipper()
             except Exception as err:
                 try: print(f"[WATCHDOG Error] Error en cierre forzado: {err}")
                 except Exception: pass
@@ -224,6 +223,24 @@ def _get_flipper_tasks():
             return _MockNITask(1, 1), _MockNITask(1, 1)
     except Exception:
         pass
+
+    # Validar si las tareas existentes siguen abiertas/activas
+    if _flipper_task0 is not None:
+        try:
+            _ = _flipper_task0.is_task_done()
+        except Exception:
+            try: _flipper_task0.close()
+            except Exception: pass
+            _flipper_task0 = None
+
+    if _flipper_task1 is not None:
+        try:
+            _ = _flipper_task1.is_task_done()
+        except Exception:
+            try: _flipper_task1.close()
+            except Exception: pass
+            _flipper_task1 = None
+
     try:
         if _flipper_task0 is None:
             _flipper_task0 = nidaqmx.Task()
@@ -247,6 +264,15 @@ def _get_flipper532_task():
             return _MockNITask(1, 1)
     except Exception:
         pass
+
+    if _flipper532_task is not None:
+        try:
+            _ = _flipper532_task.is_task_done()
+        except Exception:
+            try: _flipper532_task.close()
+            except Exception: pass
+            _flipper532_task = None
+
     try:
         if _flipper532_task is None:
             _flipper532_task = nidaqmx.Task()
@@ -329,7 +355,7 @@ def close_all_shutters() -> None:
 
 
 def up_flipper() -> None:
-    global _flipper_high_power
+    global _flipper_high_power, _flipper_task0, _flipper_task1
     _flipper_high_power = False
     for cb in list(_flipper_callbacks):
         try:
@@ -340,16 +366,32 @@ def up_flipper() -> None:
         if SAFE_MODE:
             print("[NI MOCK] up_flipper()"); return
         try:
+            from core.hardware_manager import hardware_manager
+            if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+                print("[NI MOCK (Aislado)] up_flipper()"); return
+        except Exception:
+            pass
+        try:
             t0, t1 = _get_flipper_tasks()
             if isinstance(t1, _MockNITask):
                 print("[NI MOCK] up_flipper()"); return
-            t1.write(5); time.sleep(0.003); t1.write(0)
+            t1.write(5.0); time.sleep(0.005); t1.write(0.0)
         except Exception as e:
-            print(f"[NI-DAQ Error] up_flipper: {e}")
+            print(f"[NI-DAQ Warning] Error en up_flipper ({e}). Reintentando con nueva tarea...")
+            try:
+                if _flipper_task1 is not None:
+                    try: _flipper_task1.close()
+                    except Exception: pass
+                    _flipper_task1 = None
+                t0, t1 = _get_flipper_tasks()
+                if not isinstance(t1, _MockNITask):
+                    t1.write(5.0); time.sleep(0.005); t1.write(0.0)
+            except Exception as e2:
+                print(f"[NI-DAQ Error] up_flipper falló: {e2}")
 
 
 def down_flipper() -> None:
-    global _flipper_high_power
+    global _flipper_high_power, _flipper_task0, _flipper_task1
     _flipper_high_power = True
     for cb in list(_flipper_callbacks):
         try:
@@ -360,12 +402,28 @@ def down_flipper() -> None:
         if SAFE_MODE:
             print("[NI MOCK] down_flipper()"); return
         try:
+            from core.hardware_manager import hardware_manager
+            if hardware_manager.is_isolated("NI-DAQmx (Dev1)"):
+                print("[NI MOCK (Aislado)] down_flipper()"); return
+        except Exception:
+            pass
+        try:
             t0, t1 = _get_flipper_tasks()
             if isinstance(t0, _MockNITask):
                 print("[NI MOCK] down_flipper()"); return
-            t0.write(5); time.sleep(0.003); t0.write(0)
+            t0.write(5.0); time.sleep(0.005); t0.write(0.0)
         except Exception as e:
-            print(f"[NI-DAQ Error] down_flipper: {e}")
+            print(f"[NI-DAQ Warning] Error en down_flipper ({e}). Reintentando con nueva tarea...")
+            try:
+                if _flipper_task0 is not None:
+                    try: _flipper_task0.close()
+                    except Exception: pass
+                    _flipper_task0 = None
+                t0, t1 = _get_flipper_tasks()
+                if not isinstance(t0, _MockNITask):
+                    t0.write(5.0); time.sleep(0.005); t0.write(0.0)
+            except Exception as e2:
+                print(f"[NI-DAQ Error] down_flipper falló: {e2}")
 
 
 def flipper_notch532(desired: str) -> None:
@@ -454,6 +512,7 @@ def set_laser532_voltage(v: float) -> None:
 
 
 def close_all_tasks() -> None:
+    global _shutter_task, _flipper_task0, _flipper_task1, _flipper532_task, _laser532_task
     if SAFE_MODE:
         return
     for var in ("_shutter_task", "_flipper_task0", "_flipper_task1",
@@ -461,6 +520,8 @@ def close_all_tasks() -> None:
         task = globals().get(var)
         if task is not None:
             try:
-                task.stop(); task.close()
+                task.stop()
+                task.close()
             except Exception:
                 pass
+            globals()[var] = None

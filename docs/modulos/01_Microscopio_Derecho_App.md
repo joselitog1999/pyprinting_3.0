@@ -79,6 +79,7 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 | `Modo Scan` | `QComboBox` | `2D Fast`, `2D Slow`, `3D Stack` | Configura el tipo de rampa analógica en el eje X y paso escalonado en Y/Z. |
 | `Rango X/Y` | `QLineEdit` | $0.1$ a $50.0\ \mu\text{m}$ | Ancho físico del área de escaneo sobre la platina piezoeléctrica. |
 | `Nx / Ny` | `QLineEdit` | $10$ a $200\ \text{píxeles}$ | Número de píxeles por línea y número de líneas de barrido. |
+| `📐 Inclinación Z` | `QCheckBox` | `ON / OFF` | Activa la compensación de inclinación en 4 esquinas (*Confocal Tilt*). Mide el foco axial con autocorrelación en los vértices del área y ajusta dinámicamente el eje Z de la platina piezoeléctrica durante el escaneo. Requiere Lock Focus (F9) previo. |
 | `Start Scan` | `QPushButton` | — | Inicia la generación de rampa `pi.WAV_LIN` y adquisición por `Dev1/ai0:3`. |
 | `Stop Scan` | `QPushButton` | — | Detiene inmediatamente el escaneo y cierra los obturadores por seguridad. |
 | `Go to Max` | `QPushButton` | — | Calcula el baricentro 2D o píxel máximo y desplaza la platina al centro óptico. |
@@ -93,13 +94,13 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 ### Dock Shutters / Flipper (Seguridad Óptica & Modo Alineación)
 | Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
 |---|---|---|---|
-| `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line0:3` con reactividad por señal `toggled`. |
-| `Power Flipper` | `QCheckBox` | `Low / High power` | Actuador biestable que conmuta el atenuador de densidad óptica. Reactivo a clics, señales externas (`set_power`, `setChecked`), sincronizado bidireccionalmente con hardware y watchdog. |
-| `Notch 532 Flipper` | `QCheckBox` | `Mirror Up / Down` | Inserta o retira el espejo de desviación hacia el filtro Notch de 532 nm (`set_notch532`). |
+| `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line0:3` gestionados con matriz de polaridades (532 nm invertido en relé). |
+| `Power Flipper` | `QCheckBox` | `Low / High power` | Actuador biestable que conmuta el filtro de densidad neutra (atenuador OD) con pulsos de $5\ \text{V} \times 100\ \text{ms}$ en `Dev1/ao0`/`ao1`. Conectado a `clicked` para interacción de usuario, desacoplado del watchdog de obturadores y con auto-recuperación de tareas zombi DAQ. |
+| `Notch 532 Flipper` | `QCheckBox` | `Mirror Up / Down` | Inserta o retira el espejo de desviación hacia el filtro Notch de 532 nm vía `Dev1/port0/line7` (`set_notch532`). |
 | `Auto-cierre Check` | `QCheckBox` | `True / False` | Habilita o inhabilita el temporizador de auto-apagado de seguridad. |
 | `Selector Timeout` | `QComboBox` | `30s`, `60s`, `5m`, `10m`, `Sin límite` | Define el tiempo de radiación máxima continua antes de cierre automático. |
 | `Estado Seguridad` | `QLabel` | Dinámico | Visualiza cuenta regresiva (`⏱️ Auto-cierre en: Xs`), modo seguro o modo alineación continua. |
-| `🚨 Cerrar Todos` | `QPushButton` | Corte | Fuerza el apagado inmediato de los 4 obturadores y pone las líneas digitales a nivel bajo. |
+| `🚨 Cerrar Todos` | `QPushButton` | Corte | Fuerza el apagado inmediato de los 4 obturadores digitales preservando el estado del atenuador. |
 
 ### Dock Nanopositioning (Platina Piezoeléctrica PI)
 | Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
@@ -163,7 +164,9 @@ flowchart TD
 ```
 
 - **Mapeo Confocal Continuo**: Utiliza el generador de formas de onda `pi.WAV_LIN` coordinado con triggers digitales de hardware (`CTO`) en el eje X, eliminando el retardo de comunicación por comandos serie/USB paso a paso.
+- **Compensación de Inclinación Z en 4 Esquinas (*Confocal Tilt*)**: Antes de iniciar el barrido, el sistema visita los vértices perimetrales $(TL, TR, BR, BL)$, mide el foco axial mediante correlación lineal (`_focus_autocorr_lin`) y ajusta por mínimos cuadrados el plano $z(x,y) = z_0 + \alpha(x - x_c) + \beta(y - y_c)$. Durante el escaneo, la platina ajusta dinámicamente $Z$ en tiempo real, garantizando que el haz permanezca dentro del rango de Rayleigh ($\pm 350\ \text{nm}$) en todo el campo visual.
 - **Trazas Fototérmicas Multicanal**: El búfer circular de `TraceBackend` calcula la media móvil $I_{\text{old}}$ e $I_{\text{new}}$, monitorea la señal de potencia del divisor de haz (BS) y computa la FFT en tiempo real para alertar sobre vibraciones mecánicas del laboratorio.
+- **Actuación Resiliente del Flipper**: El control del atenuador OD opera de forma desacoplada del watchdog de obturadores, utilizando pulsos de $5\ \text{V} \times 100\ \text{ms}$ y auto-recuperación de tareas zombi ante fallos de reconexión.
 
 ---
 
@@ -175,13 +178,17 @@ flowchart TD
 | **Desalineación Mecánica del Pinhole Confocal** ($r_{\text{pinhole}} > 50\ \mu\text{m}$). | Fondo de dispersión elevado con relación señal/ruido degradada ($SNR < 3$), PSF 2D asimétrica o comática y pérdida del $70\%$ de la intensidad máxima esperada. | Ajustar micrométricamente los tornillos $X-Y$ de la montura del pinhole bajo iluminación continua de una nanopartícula patrón de Au 60 nm fija, hasta maximizar la tensión leída en el fotodiodo. |
 | **Pérdida de Comunicación USB/RS232 con Platina PI** (Timeout de controladora E-517/E-736). | Diálogo modal de error `PI Timeout / Controller not responding`, los ejes no responden a los botones de movimiento en la GUI. | Apagar la fuente de alimentación de la controladora PI durante 5 segundos, encenderla nuevamente, verificar la conexión del cable USB y pulsar `Reset All / Conectar PI` en el Tablero de Hardware. |
 | **Deriva Térmica Axial Severa durante Autofoco Z** ($v_z > 50\ \text{nm/s}$). | Curva de autofoco $I(z)$ deformada o no convergente; el ajuste cuadrático ubica el foco en los bordes del rango ($z = 0\ \mu\text{m}$ o $z = 2\ \mu\text{m}$). | Comprobar que no haya corrientes de aire directo sobre la platina; encender el sistema de aire acondicionado del laboratorio a $21\ ^\circ\text{C}$ con $30\ \text{min}$ de anticipación y ampliar el rango axial de búsqueda a $3.0\ \mu\text{m}$. |
+| **Escaneo Confocal Tilt sin Lock Focus Previo**. | Cuadro de advertencia: *"Debe realizar Lock Focus (F9) sobre vidrio limpio antes de escanear con corrección de inclinación Z"*. | Colocar el láser sobre una zona limpia de vidrio, presionar F9 para registrar la curva de referencia y luego iniciar el escaneo con la casilla de inclinación Z activada. |
 
 ---
 
 ## 8. 🔗 Referencias Cruzadas
 - [📘 Manual de Usuario — Sección 3: Microscopio Derecho (`app.py`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#3-módulo-1-microscopio-derecho-apppy--pyprinting-30-suite-completa)
 - [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
+- [📐 Reporte Científico: Confocal Tilt y Healing Pass](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md)
+- [⚡ Reporte Técnico: Actuación del Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md)
+- [🛡️ Reporte de Seguridad Óptica y Watchdog](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md)
 - [📐 Diseñador Universal de Redes 2D (Módulo 11)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/11_Disenador_Redes_2D_Grid_Generator.md)
 - [📋 Protocolos y SOP de Laboratorio (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md)
-- [📑 Reporte de Metrología y Calibración (`reportes/sistema/Calibracion_Metrologica_y_Exactitud_Posicionamiento.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Calibracion_Metrologica_y_Exactitud_Posicionamiento.md)
+- [📑 Arquitectura Óptica del Microscopio Derecho](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md)
 

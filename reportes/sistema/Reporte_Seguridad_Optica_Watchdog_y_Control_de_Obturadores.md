@@ -80,7 +80,7 @@ flowchart TD
         end
         
         R --> S[Escritura Digital Ceros: line0:3 = 0]
-        R --> T[Subir Flipper: line4 = 0]
+        R --> T[Independencia de Flipper: Estado de Atenuación Preservado]
         R --> U[Ejecución de Callbacks Registrados]
     end
 
@@ -123,15 +123,14 @@ Para evitar que la GUI muestre un casillero marcado (`Checked = True`) mientras 
 2. El frontend de `core/shutters.py` recibe la llamada y emite la señal Qt `watchdog_triggered_signal`.
 3. El slot `_on_watchdog_triggered()` bloquea temporalmente las señales de los widgets (`blockSignals(True)`), desmarca las casillas de los obturadores y refresca la leyenda de seguridad.
 
-### 4.4 Sincronización Bidireccional y Reactividad del Flipper de Potencia (Low/High Power)
-El flipper electromecánico conmuta entre una atenuación alta (filtro de densidad neutra insertado, Low Power) y haz directo no atenuado (espejo/filtro retirado, High Power). En situaciones de seguridad óptica crítica:
-1. **Corte por Watchdog (`_emergency_shutdown`)**: Además de cerrar digitalmente todos los obturadores (`close_all_shutters()`), el daemon de hardware ejecuta inmediatamente `up_flipper()`, forzando el retorno al estado seguro de baja potencia.
-2. **Puente de Callbacks de Hardware (`register_flipper_callback`)**: 
-   Dado que `core/nidaq.py` opera en un hilo demonio (`threading.Thread`) completamente aislado del bucle de eventos de PyQt6, las funciones de hardware notifican a los observadores registrados mediante una lista thread-safe (`_flipper_callbacks`).
-3. **Recepción en GUI y Desacoplamiento Visual**:
-   En `core/shutters.py`, el callback invoca `flipper_hardware_signal.emit(is_high)`. En el hilo de la GUI, el slot `update_power_ui(is_high)` actualiza el estado visual de `powerbutton` (`setChecked(is_high)`) de forma síncrona sin disparar señales redundantes de re-escritura en la tarjeta NI-DAQmx (`blockSignals(True)` / `blockSignals(False)`).
-4. **Reactividad de Usuario en PyQt6 (`toggled` vs `clicked`)**:
-   En PyQt6, las llamadas programáticas (`setChecked(bool)`) y las pulsaciones de teclado únicamente disparan el evento `toggled(bool)`. El acoplamiento a `toggled` con un slot formal `@pyqtSlot(bool) set_power(high)` y soporte polimórfico de argumentos (`_power_check(self, checked=None)`) garantiza que la interfaz responda con latencia cero a cualquier cambio de estado originado tanto por el operador como por el sistema de seguridad o el watchdog.
+### 4.4 Desacoplamiento del Flipper de Potencia (Low/High Power) y Seguridad Óptica
+A diferencia de los obturadores de radiación láser (`Dev1/port0/line0:3`), cuya función es el corte binario completo de fotones ($T \approx 0\%$), el **Flipper de Potencia** es una montura motorizada con un filtro de densidad neutra calibrado ($\text{OD} = 2.0 - 3.0$) gobernada por pulsos analógicos de $5\ \text{V}$ en `Dev1/ao0` y `Dev1/ao1`.
+
+En la arquitectura definitiva de PyPrinting 3.0:
+1. **Desacoplamiento Estricto del Watchdog**: El daemon de seguridad (`_watchdog_loop`) cierra **únicamente** los obturadores activos cuando vence el tiempo límite (`close_all_shutters()`). El flipper **no se modifica de forma forzada**, preservando la configuración elegida por el operador y evitando disparos analógicos concurrentes sobre la tarjeta NI-DAQmx.
+2. **Puente de Notificación Thread-Safe (`register_flipper_callback`)**: Los cambios de estado de la montura analógica notifican a los observadores registrados mediante una lista protegida por cerrojos reentrantes (`_flipper_lock`).
+3. **Manejo de Eventos en PyQt6 (`clicked` vs `setChecked`)**: En [`core/shutters.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py), la acción del operador se conecta a la señal `powerbutton.clicked`, garantizando que únicamente los clics directos del usuario emitan órdenes al hardware. Para la sincronización de retorno de hardware a GUI, el método `update_power_ui(is_high)` actualiza visualmente el casillero sin disparar recursiones de señal ni bloqueos.
+4. **Referencia Técnica Exhaustiva**: Para el análisis detallado de causas raíz (tareas zombi en NI-DAQmx, trampa de polaridad en 532 nm y ciclo de vida de tareas), consúltese el documento dedicado: [`Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md).
 
 ---
 
@@ -187,11 +186,12 @@ Se ejecutaron pruebas automatizadas exhaustivas para verificar ausencia de colis
 3. **Sincronización de UI ante Cierre Forzado**: Checkbox de la GUI se desmarca automáticamente tras el corte de hardware.  `PASS`
 4. **Selector Frontend y Botón de Pánico**: Comprobación funcional de todos los presets temporales y del pulsador `🚨 Cerrar Todos`.  `PASS`
 
-### 7.3 Test de Reactividad del Flipper de Potencia (`tests/test_powerbutton_actuation.py`)
-1. **Actuación Programática y Manual vía `toggled`**: Disparo verificado con `@pyqtSlot(bool)` y argumentos polimórficos.  `PASS`
+### 7.3 Test de Reactividad y Desacoplamiento del Flipper (`tests/test_powerbutton_actuation.py`)
+1. **Actuación Manual vía `clicked`**: Verificación de emisión analógica $5\ \text{V} \times 100\ \text{ms}$ ante clic de usuario.  `PASS`
 2. **Puente de Callbacks de Hardware (`register_flipper_callback`)**: Notificación asíncrona desde el hilo de hardware hacia la GUI.  `PASS`
-3. **Desacoplamiento Visual `update_power_ui`**: Actualización de casillero sin re-escritura ni bucles de señal.  `PASS`
-4. **Retorno a Baja Potencia ante Emergencia**: El watchdog fuerza `up_flipper()` y la GUI se desmarca síncronamente.  `PASS`
+3. **Desacoplamiento Visual `update_power_ui`**: Actualización de casillero sin re-escritura ni recursión de eventos.  `PASS`
+4. **Independencia del Watchdog**: El corte forzado de obturadores no altera la selección de potencia del flipper.  `PASS`
+5. **Resiliencia ante Tareas Zombi**: Detección y recreación automática de tareas NI-DAQmx tras `close_all_tasks()`.  `PASS`
 ### 7.4 Suite Integral del Sistema (`tests/run_all_diagnostics.py`)
 - **Total de pruebas**: 49 / 49 superadas (**100.0% de éxito**).
 

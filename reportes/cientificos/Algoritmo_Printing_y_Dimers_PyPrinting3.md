@@ -119,10 +119,11 @@ graph TD
 
 | Componente | Instrumento Físico | Función API Python | Acción |
 |---|---|---|---|
-| **Platina Piezoeléctrica** | Physik Instrumente (PI E-517/E-736) | `pi.MOV([1,2,3], [x,y,z])` | Posicionamiento en bucle cerrado 0-100 µm. |
-| **Obturadores Láser** | NI-DAQmx Dev1 (Digital I/O) | `open_shutter(laser)` / `close_shutter(laser)` | Pulso TTL de apertura/cierre en < 1 ms. |
-| **Espejo Flipper** | NI-DAQmx Dev1 (Digital I/O) | `up_flipper()` / `down_flipper()` | Conmutación del espejo del filtro Notch. |
-| **Adquisición Fotodiodo** | NI-DAQmx Dev1 (Analog Input) | `grid_trace_detect(data)` | Muestreo continuo de intensidad $I(t)$ e $I_{\text{BS}}(t)$. |
+| **Platina Piezoeléctrica** | Physik Instrumente (PI E-517/E-736) | `pi.MOV([1,2,3], [x,y,z])` | Posicionamiento en bucle cerrado 0-100 µm con corrección de tilt. |
+| **Obturadores Láser** | NI-DAQmx Dev1 (Digital I/O `line0:3`) | `open_shutter(laser)` / `close_shutter(laser)` | Pulso TTL de apertura/cierre en < 1 ms con protección por watchdog. |
+| **Power Flipper (Atenuador OD)** | NI-DAQmx Dev1 (Analog Output `ao0`/`ao1`) | `down_flipper()` / `up_flipper()` | Pulso de $5\ \text{V} \times 100\ \text{ms}$ para conmutar filtro de densidad neutra (Low/High Power). |
+| **Flipper Notch 532 nm (Espejo)** | NI-DAQmx Dev1 (Digital Output `port0/line7`) | `flipper_notch532(state)` | Conmutación del espejo rebatible hacia el filtro Notch 532 nm. |
+| **Adquisición Fotodiodo** | NI-DAQmx Dev1 (Analog Input `ai0`/`ai1`) | `grid_trace_detect(data)` | Muestreo continuo de intensidad $I(t)$ e $I_{\text{BS}}(t)$. |
 
 ---
 
@@ -132,8 +133,11 @@ graph TD
 - **Fundamentos Físicos y Nanomateriales**: [Fundamentos Físicos N° 00 (docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
 - **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
 - **Reportes Técnicos Vinculados**:
+  - 📐 [Compensación de Inclinación Z (Confocal Tilt) y Autocompletitud (Healing Pass) (reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md)
+  - ⚡ [Actuación del Flipper de Potencia y Watchdog Desacoplado (reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md)
   - 🔬 [Guía Protocolar Paso a Paso "DO PRINTING" (reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
   - 📍 [Corrección de Deriva Termomecánica por Partícula Ancla (reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)
+  - 🛡️ [Seguridad Óptica, Watchdog de Hardware y Control de Obturadores (reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md)
   - 🔌 [Diagnóstico de Señales y Conexiones (reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)
   - 📊 [Incertidumbre Metrológica ISO/GUM (reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)
 

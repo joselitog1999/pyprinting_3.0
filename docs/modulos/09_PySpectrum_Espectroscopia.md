@@ -186,6 +186,9 @@ Enlace nativo Ctypes con la biblioteca `ShamrockCIF.dll`:
 
 ## 10. 🔗 Referencias Cruzadas
 - [📘 Reporte de Sistema Shamrock 500i, iXon3 y Óptica Confocal](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md)
+- [📑 Reporte de Calibración Espectral, Offsets Ctypes y Flippers](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Calibracion_Espectral_y_Actuacion_Flippers_PyPrinting3.md)
+- [📊 Reporte Comparativo Andor Solis vs PySpectrum 3.0](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Comparativo_Andor_Solis_vs_PySpectrum.md)
+- [🔬 Reporte de Arquitectura Óptica y Espectrometría](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md)
 - [📘 Manual de Usuario Principal — Sección 4: PySpectrum 3.0](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
 - [🔬 Fundamentos Físicos & Nanomateriales (Módulo 00)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
 - [📋 Protocolos y SOP de Laboratorio (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md)

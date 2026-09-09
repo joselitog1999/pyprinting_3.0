@@ -15,6 +15,7 @@
    - [1.1 Visión General, Filosofía de Diseño y Arquitectura Multihilo](#11-visión-general-filosofía-de-diseño-y-arquitectura-multihilo)
    - [1.2 Selección Global de Modo Seguro (`SAFE_MODE`) vs. Modo Laboratorio Real](#12-selección-global-de-modo-seguro-safe_mode-vs-modo-laboratorio-real)
    - [1.3 Navegación e Índice de Módulos en Grilla Simétrica $3 \times 3$](#13-navegación-e-índice-de-módulos-en-grilla-simétrica-3-times-3)
+   - [1.4 Ruta Pedagógica de Aprendizaje Gradual (3 Niveles de Usuario)](#14-ruta-pedagógica-de-aprendizaje-gradual-3-niveles-de-usuario)
 2. [Fundamentos Físicos, Formulación Matemática & Mapeo de Hardware](#2-fundamentos-físicos-formulación-matemática--mapeo-de-hardware)
    - [2.1 Impresión Óptica Fototérmica de Nanopartículas Coloidales](#21-impresión-óptica-fototérmica-de-nanopartículas-coloidales)
    - [2.2 Ensamblado Guiado de Nanodímeros Plasmónicos y Campo Cercano](#22-ensamblado-guiado-de-nanodímeros-plasmónicos-y-campo-cercano)
@@ -33,7 +34,7 @@
    - [3.4 Dock: Focus z (Autofoco Axial Dinámico)](#34-dock-focus-z-autofoco-axial-dinámico)
    - [3.5 Dock: Shutters / Flipper (Seguridad Óptica & Modo Alineación)](#35-dock-shutters--flipper-seguridad-óptica--modo-alineación)
    - [3.6 Dock: Nanopositioning (Platina Piezoeléctrica PI)](#36-dock-nanopositioning-platina-piezoeléctrica-pi)
-   - [3.7 Ventana de Mediciones (Printing Automatizado de Grillas & Dímeros)](#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
+   - [3.7 Ventana de Mediciones (Printing Automatizado de Grillas, Healing Pass & Dímeros)](#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
 4. [Módulo 2: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)](#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
 5. [Módulo 3: Microscopio Contrapropagante (`contrapropagante.py`)](#5-módulo-3-microscopio-contrapropagante-contrapropagantepy)
 6. [Módulo 4: PyPrinting 2 (Legacy — `PyPrinting_UNSAM.py`)](#6-módulo-4-pyprinting-2-legacy--pyprinting_unsampy)
@@ -45,13 +46,15 @@
 12. [Módulo 9: Documentación y Créditos del Autor](#12-módulo-9-documentación-y-créditos-del-autor)
 13. [Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)](#13-módulo-11-diseñador-universal-de-redes-cristalinas-2d-grid_generatorpy)
 14. [Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso](#14-módulo-12-procedimientos-operativos-estandarizados-sop-y-protocolos-paso-a-paso)
-14. [Tabla Completa de Parámetros Globales (`config.py`)](#14-tabla-completa-de-parámetros-globales-configpy)
-15. [Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)](#15-modelo-metrológico-de-incertidumbre-y-criterios-sub-píxel-norma-isogum)
-16. [Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)](#16-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
-17. [Tabla de Atajos de Teclado (Shortcuts)](#17-tabla-de-atajos-de-teclado-shortcuts)
-18. [Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)](#18-guía-de-resolución-de-problemas-y-diagnóstico-troubleshooting)
-19. [Preguntas Frecuentes (FAQ)](#19-preguntas-frecuentes-faq)
-20. [Guía de Referencia de Archivos y Reportes Metrológicos](#20-guía-de-referencia-de-archivos-y-reportes-metrológicos)
+15. [Tabla Completa de Parámetros Globales (`config.py`)](#15-tabla-completa-de-parámetros-globales-configpy)
+16. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#16-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
+17. [Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)](#17-modelo-metrológico-de-incertidumbre-y-criterios-sub-píxel-norma-isogum)
+18. [Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)](#18-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
+19. [Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real](#19-arquitectura-de-hilos-concurrencia-y-estabilidad-en-tiempo-real)
+20. [Tabla de Atajos de Teclado (Shortcuts)](#20-tabla-de-atajos-de-teclado-shortcuts)
+21. [Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)](#21-guía-de-resolución-de-problemas-y-diagnóstico-troubleshooting)
+22. [Preguntas Frecuentes (FAQ)](#22-preguntas-frecuentes-faq)
+23. [Guía de Referencia de Archivos y Reportes Metrológicos](#23-guía-de-referencia-de-archivos-y-reportes-metrológicos)
 
 ---
 
@@ -69,7 +72,7 @@ graph TD
     Launcher --> Laser[Laser532Window Modulación Láser]
     Launcher --> Img[image_analyzer.py Analizador Fotos]
     Launcher --> P2[PyPrinting_UNSAM.py PyPrinting 2]
-    Launcher --> Spectrum[PySpectrum - En construcción]
+    Launcher --> Spectrum[PySpectrum 3.0 - Operativo]
 
     App --> UIThread[Hilo Principal GUI PyQt6]
     App --> WorkerThread[Hilo de Control Backend QThread]
@@ -101,8 +104,8 @@ El lanzador organiza los 9 módulos del laboratorio en una grilla simétrica de 
 ```
 ┌─────────────────────────┬─────────────────────────┬─────────────────────────┐
 │ 🔬 Fila 1 - Columna 1   │ 🔮 Fila 1 - Columna 2   │ 🔍 Fila 1 - Columna 3   │
-│ Microscopio Derecho     │ PySpectrum              │ Microscopio             │
-│ (app.py)                │ (En desarrollo)         │ Contrapropagante (Const)│
+│ Microscopio Derecho     │ PySpectrum 3.0          │ Microscopio             │
+│ (app.py)                │ (Operativo Shamrock+CCD)│ Contrapropagante (Dual) │
 ├─────────────────────────┼─────────────────────────┼─────────────────────────┤
 │ 🏛️ Fila 2 - Columna 1   │ 📷 Fila 2 - Columna 2   │ ⚡ Fila 2 - Columna 3   │
 │ PyPrinting 2 (Legacy)   │ Cámara Live View        │ Modulación Láser        │
@@ -115,6 +118,38 @@ El lanzador organiza los 9 módulos del laboratorio en una grilla simétrica de 
 ```
 
 ---
+
+### 1.4 Ruta Pedagógica de Aprendizaje Gradual (3 Niveles de Usuario)
+
+Para garantizar la autosuficiencia formativa del laboratorio, el manual y la arquitectura de PyPrinting 3.0 están diseñados para acompañar al operador en tres fases de madurez experimental:
+
+#### 🟢 Nivel 1: Principiante / Becario Inicial
+* **Enfoque**: Adquisición visual intuitiva, aprendizaje seguro sin riesgo de daño y familiarización con el instrumental.
+* **Flujo Recomendado**:
+  1. Iniciar el software en **Modo Seguro** (`SAFE_MODE = True`).
+  2. Explorar el lanzador `main.py` y abrir la **Cámara Live View** (`camera.py`).
+  3. Practicar el centrado de muestras con las reglas en micrómetros.
+  4. Abrir el **Microscopio Derecho** (`app.py`), observar trazas en vivo con **F1** y ejecutar un autofoco Z con **F8**.
+  5. Cargar un preset básico en la ventana de **Printing** y seguir el [Protocolo Básico de Impresión (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md).
+
+#### 🟡 Nivel 2: Intermedio / Investigador Experimental
+* **Enfoque**: Operación de nanofabricación en laboratorio real, optimización de parámetros y caracterización espectral.
+* **Flujo Recomendado**:
+  1. Conmutar a **Modo Real** tras estabilizar la temperatura del laboratorio ($21\ ^\circ\text{C}$).
+  2. Ejecutar **Lock Focus (F9)** en vidrio limpio y activar la casilla **`📐 Inclinación Z (4 esquinas)`** en el Dock Confocal para corregir cubreobjetos inclinados.
+  3. En la ventana de impresión, activar **`🔄 Autocompletitud de redes (Healing Pass)`** para garantizar redes al $100\%$ sin vacancias.
+  4. Seleccionar el criterio de parada adecuado: **Modo 1** (salto relativo + absoluto + filtro anti-paso $N_{\text{hold}}$) o **Modo 4** (híbrido tri-factor).
+  5. En **PySpectrum 3.0**, verificar el centrado de orden cero de la ranura y ejecutar **Step & Glue** con normalización por lámpara halógena.
+  6. Procesar espectros Raman en **Raman Analyzer** con sustracción de línea base (Modo 1 de blanco o Modo 2 AsLS/AirPLS).
+
+#### 🔴 Nivel 3: Avanzado / Físico e Ingeniero de Instrumentación
+* **Enfoque**: Metrología de alta precisión, calibración a bajo nivel, análisis quimiométrico y diagnóstico del sistema.
+* **Flujo Recomendado**:
+  1. Ajuste analítico no lineal de PSF (Gaussiana elíptica 2D de 7 parámetros y Donut Laguerre-Gauss $LG_{01}$) en `psf_analyzer.py`.
+  2. Evaluación del balance de incertidumbre según norma **ISO/GUM** ($u_c \le 6.55\ \text{nm}$).
+  3. Calibración fina del espectrógrafo Shamrock mediante offsets de rejilla y detector por Ctypes nativas (`ShamrockSetGratingOffset`, `ShamrockSetDetectorOffset`) en el dock de calibración.
+  4. Diagnóstico de la arquitectura de señales multihilo, gestión de tareas analógicas y digitales NI-DAQmx (resiliencia ante tareas zombi en `nidaq.py`) y sincronización por triggers CTO a 10 kHz.
+  5. Análisis multivariado de series temporales SERS mediante **PCA** (Scores y Loadings) y termometría óptica Anti-Stokes / Stokes.
 
 ## 2. Fundamentos Físicos, Formulación Matemática & Mapeo de Hardware
 
@@ -304,6 +339,7 @@ donde $\bar{t}_{\text{raw}}$ es la media móvil del tiempo de tránsito/fijació
 | **`Scan Image`** | `QComboBox` | `NPs maximum`, `NPs minimum` | `NPs maximum`: Partículas brillantes (fluorescencia/scattering). `NPs minimum`: Partículas oscuras (absorción). |
 | **`method_center`** | `QComboBox` | `center of mass`, `center of gauss`, `two NP: center of gauss`, `donut (Laguerre-Gauss)` | Algoritmo de centrado analítico para calcular la posición de la partícula. |
 | **`Auto CM`** | `QCheckBox` | `True` / `False` | Si está marcado, desplaza automáticamente la platina PI al centro calculado tras finalizar el escaneo. |
+| **`📐 Inclinación Z`**| `QCheckBox` | `True` / `False` | Activa la compensación de inclinación del cubreobjetos (*Confocal Tilt*). Mide el foco axial con autocorrelación en las 4 esquinas del área perimetral y modula dinámicamente el eje Z durante el barrido raster para mantener el plano focal dentro del rango de Rayleigh ($\pm 350\ \text{nm}$). Requiere Lock Focus (F9) previo sobre vidrio limpio. |
 | **`Filtro (%)`** | `QLineEdit` | $0.0 - 99.0\%$ | Porcentaje de umbral de filtrado de ruido para la eliminación de fondo. |
 | **`Start Scan`** | `QPushButton` | Exec | Inicia la rutina de escaneo confocal síncrono. |
 
@@ -338,12 +374,13 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
   - **`Shutter 637 nm`**: Conmuta el obturador del láser rojo ($\lambda = 637\ \text{nm}$, excitación confocal/Raman).
   - **`Shutter 592 nm`**: Conmuta el obturador del láser amarillo ($\lambda = 592\ \text{nm}$).
   - **`Shutter 808 nm`**: Conmuta el obturador del láser infrarrojo ($\lambda = 808\ \text{nm}$, pinzas ópticas/termometría).
-* **Flippers Motorizados (Actuadores Biestables `port0/line4:5`)**:
-  - **`Power Flipper (Low/High power)`**: Checkbox reactivo con retroalimentación cromática (rojo = alta potencia, celeste = baja potencia). Totalmente reactivo a clics de usuario, llamadas programáticas y señales Qt externas (`set_power`, `set_flipper`, `setChecked`).
-  - **Sincronización Bidireccional de Hardware (`register_flipper_callback`)**: Si cualquier rutina de medición (`measurements.py`, `dimers.py`) o el Watchdog de seguridad conmuta el flipper directamente en la tarjeta NI-DAQmx, un puente de señales thread-safe (`flipper_hardware_signal`) actualiza instantáneamente el checkbox en pantalla.
-  - **`Notch 532 Flipper (Mirror up/down)`**: Sube o baja el espejo de desviación hacia el filtro Notch de 532 nm para conmutar entre detección de fluorescencia y dispersión elástica/Raman (`set_notch532`).
+* **Flippers Motorizados (Actuadores Biestables `Dev1/ao0`, `Dev1/ao1` y `line7`)**:
+  - **`Power Flipper (Low/High power)`**: Checkbox reactivo con retroalimentación cromática (rojo = alta potencia, normal = baja potencia con filtro ND). Conectado a la señal `clicked` de PyQt6 para responder exclusivamente a acciones directas del usuario, evitando bucles recursivos de señal. Actúa mediante pulsos analógicos de $5\ \text{V} \times 100\ \text{ms}$ en `Dev1/ao0` (Up/Low) y `Dev1/ao1` (Down/High).
+  - **Desacoplamiento Estricto del Watchdog**: El flipper de potencia es un atenuador de densidad óptica y **no un obturador de corte de radiación**. Por tanto, el disparo del watchdog cierra los obturadores pero no altera la posición del flipper, preservando la configuración deseada por el operador.
+  - **Auto-Recuperación de Tareas Zombi DAQ**: `core/nidaq.py` valida activamente el estado de las tareas de National Instruments (`is_task_done()`) y resetea las referencias a `None` tras `close_all_tasks()`, permitiendo reintentos automáticos sin lanzar excepciones `-200088`.
+  - **`Notch 532 Flipper (Mirror up/down)`**: Conmuta el espejo de desviación hacia el filtro Notch de 532 nm mediante la línea digital `Dev1/port0/line7` (`set_notch532`).
 * **Sistema de Auto-Cierre de Seguridad & Watchdog**:
-  - **Casilla `Auto-cierre de seguridad`**: Activa o desactiva la protección contra radiación desatendida.
+  - **Casilla `Auto-cierre de seguridad`**: Activa o desactiva la protección contra radiación desatendida mediante un daemon independiente (`daemon=True`) que no se bloquea ante cálculos intensivos en la GUI.
   - **Selector de Tiempo Máximo**: Menú desplegable con tiempos límite de radiación continua:
     - `30s (Estándar)`: Protección estricta contra evaporación y foto-daño.
     - `60s (1 min)`: Procedimientos de inspección rápida.
@@ -351,8 +388,8 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
     - `600s (10 min)`: Búsqueda exploratoria extensa.
     - `Sin límite (Modo Alineación)`: Desactiva el corte por tiempo para sesiones de alineación óptica manual y colimación de cavidades.
   - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⏱️ Auto-cierre en: Xs`), el modo seguro armado (`⏱️ Auto-cierre activo (Xs)`) o el modo alineación continua (`⚠️ MODO ALINEACIÓN (Sin auto-cierre)`).
-  - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores y pone a cero las tareas digitales.
-  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos y conmuta el flipper a `Low power`, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
+  - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores digitales.
+  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos de obturador, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
 * **Modulación Analógica de Potencia**: El control de voltaje analógico DAC ($0.0 - 5.0\ \text{V}$, canal `ao2`) para el láser verde se encuentra desacoplado de este panel y se opera desde su ventana especializada **`Laser532Window`** (disponible desde el Lanzador Principal y menú **`Tools → Láser 532`**).
 
 ---
@@ -396,6 +433,11 @@ La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresió
     - `[ 🛤️ Camino ]`: Muestra u oculta la línea de trayectoria.
     - `[ 🎯 Reset View ]`: Auto-centrado y ajuste de escala 1:1.
     - **Click en Nodo**: Al presionar cualquier partícula en la gráfica 2D, el casillero `Target Index` se actualiza inmediatamente a ese nodo.
+- **`🔄 Autocompletitud de redes (Healing Pass)`**:
+  - Casilla de verificación interactiva que activa el algoritmo de dos fases para la fabricación de redes sin vacancias.
+  - Si al concluir el recorrido primario de la grilla existen nodos donde se agotó $T_{\text{max}}$ sin registrar deposición, el sistema encola automáticamente los nodos no impresos en `healing_failed_queue` y ejecuta un reintento focalizado.
+  - Durante el Healing Pass, cada nodo recibe: (1) extensión de tiempo de captura a $\tau_{\text{safe}} = 30\ \text{s}$, (2) autofoco local in-situ en las coordenadas de la celda antes de abrir el obturador, y (3) compensación de deriva cruzada con la Partícula Ancla $P_0$.
+  - En la gráfica 2D, las celdas en proceso de curación se destacan en color naranja cálido (`#fab387`), consolidando el estado final en el archivo `reporte_parametros_<red>.txt`.
 - **`Barra de Progreso`**: Indicador gráfico (`QProgressBar`) del avance porcentual del lote ($i / N_{\text{total}}$).
 - **`T max (s)`**: Tiempo máximo de residencia por nodo (segundos) antes de abortar por tiempo agotado (*timeout*) si no se gatilla la condición de parada.
   - *Fundamento Físico (Tesis Gargiulo 2017, Cap. 3)*: A concentraciones coloidales nominales ($C \sim 5 \times 10^9\ \text{NP/mL}$), el tiempo medio de arribo por difusión browniana de Smoluchowski es $\langle \tau_{\text{wait}} \rangle = (4\pi D C R_{\text{cap}})^{-1} \approx 8.9\ \text{s}$. Un valor de $T_{\text{max}} = 20.0\ \text{s}$ cubre el $89\%$ de la distribución acumulada de Poisson, evitando tiempos muertos prolongados y derivando los nodos rezagados al *Healing Pass*.
@@ -772,7 +814,7 @@ Diseñada para cinéticas químicas, series temporales SERS y comparaciones de l
 
 ---
 
-## 11. Módulo 9: Documentación y Créditos del Autor
+## 12. Módulo 9: Documentación y Créditos del Autor
 
 El botón **`📚 Documentación y Créditos`** (Fila 3, Columna 3 del lanzador `main.py`) despliega el acceso rápido a los manuales del sistema y los créditos del autor:
 * **Manual de Usuario**: Abre el presente archivo `MANUAL_USUARIO.md`.
@@ -783,7 +825,7 @@ El botón **`📚 Documentación y Créditos`** (Fila 3, Columna 3 del lanzador 
 
 ---
 
-## 12. Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)
+## 13. Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)
 
 El botón **`📐 Diseñador de Redes 2D`** (en la tarjeta del lanzador `main.py` o menú `Tools -> Diseñador de Redes 2D` en `app.py` con `Ctrl+G`) abre la aplicación especializada para la síntesis de redes periódicas:
 
@@ -796,7 +838,7 @@ El botón **`📐 Diseñador de Redes 2D`** (en la tarjeta del lanzador `main.py
 
 ---
 
-## 13. Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso
+## 14. Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso
 
 Para la operación completa del setup experimental en laboratorio, consulte el manual protocolar dedicado:
 [Procedimientos Operativos Estandarizados (SOP) — Protocolo Paso a Paso (`docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md).
@@ -812,7 +854,7 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 
 ---
 
-## 14. Tabla Completa de Parámetros Globales (`config.py`)
+## 15. Tabla Completa de Parámetros Globales (`config.py`)
 
 | Parámetro | Valor Típico | Unidad | Descripción |
 |---|---|---|---|
@@ -826,9 +868,9 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 
 ---
 
-## 13. Flujos de Trabajo Experimentales (Protocolos Paso a Paso)
+## 16. Flujos de Trabajo Experimentales (Protocolos Paso a Paso)
 
-### 13.1 Protocolo de Impresión Óptica de Grillas Nanoparticuladas
+### 16.1 Protocolo de Impresión Óptica de Grillas Nanoparticuladas
 1. Lanzar `main.py` y presionar **`🚀 Iniciar Microscopio Derecho (app.py)`**.
 2. En el menú `Files`, presionar `Create Daily Dir (Ctrl+S)` para establecer la carpeta de guardado del día.
 3. En el Dock `Nanopositioning`, desplazar la platina PI a la coordenada inicial de trabajo $(X_0, Y_0, Z_0)$.
@@ -838,7 +880,7 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 7. Definir el **`Umbral`** de salto de intensidad (ej. $1.5$) y el tiempo máximo de exposición **`T max`** (ej. $10\ \text{s}$).
 8. Presionar **`Play ►`** para ejecutar la secuencia de impresión fototérmica automatizada.
 
-### 13.2 Protocolo de Alineación Confocal y Caracterización de PSF
+### 16.2 Protocolo de Alineación Confocal y Caracterización de PSF
 1. Lanzar `main.py` y presionar **`🔍 Iniciar Microscopio Contrapropagante`**.
 2. Definir el rango de escaneo en $5.0\ \mu\text{m}$ con $100 \times 100$ píxeles.
 3. Presionar **`Start Dual Scan`** para registrar las confocales síncronas TOP y BOT.
@@ -848,7 +890,7 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 
 ---
 
-## 15. Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)
+## 17. Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)
 
 Para consultar el análisis físico formal y las derivaciones según la norma internacional **ISO/IEC Guide 98-3 (GUM)**, remítase al informe técnico del repositorio:
 [Incertidumbre Metrológica ISO/GUM (`reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md).
@@ -878,7 +920,7 @@ Para consultar el análisis físico formal y las derivaciones según la norma in
 
 ---
 
-## 16. Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)
+## 18. Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)
 
 Cuando la casilla **`Modo Seguro (Simulación)`** en `main.py` se encuentra **desmarcada** (Modo Laboratorio):
 * El sistema activa una regla de **exclusión mutua** entre `app.py` (Microscopio Derecho) y `contrapropagante.py` (Microscopio Contrapropagante).
@@ -887,10 +929,10 @@ Cuando la casilla **`Modo Seguro (Simulación)`** en `main.py` se encuentra **de
 
 ---
 
-## 17. Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real
+## 19. Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real
 
 Para un análisis detallado de la topología de hilos, consulte el reporte formal:  
-[Arquitectura de Hilos y Concurrencia (reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
+[Arquitectura de Hilos y Concurrencia (reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
 
 ### Resumen de la Topología Multihilo:
 * **Main UI Thread (Hilo Principal)**: Maneja la interfaz gráfica PyQt6, gráficos PyQtGraph y eventos de usuario.
@@ -903,7 +945,7 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 
 ---
 
-## 18. Tabla de Atajos de Teclado (Shortcuts)
+## 20. Tabla de Atajos de Teclado (Shortcuts)
 
 | Tecla de Acceso Directo | Acción Asociada | Ámbito / Módulo |
 |---|---|---|
@@ -922,9 +964,9 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 
 ---
 
-## 19. Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)
+## 21. Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)
 
-### 19.1 La platina PI no responde, aparece desconectada o los números se mueven pero la platina física no se desplaza
+### 21.1 La platina PI no responde, aparece desconectada o los números se mueven pero la platina física no se desplaza
 * **Causa 1 (Modo Virtual Fantasma)**: Si el software se abrió con la controladora E-517 apagada o el cable USB desconectado, el driver entra en modo virtual interno. El badge en el dock de Nanoposicionamiento mostrará `🟡 Modo Virtual (Desconectada)` y la consola imprimirá `[PI VIRTUAL] MOV ...`.
   * **Solución**: Encienda la controladora física en la mesa óptica y presione el botón **`🔌 Reconectar`** directamente en el dock de Nanoposicionamiento (o en el Tablero de Hardware `Ctrl+H`). El badge cambiará inmediatamente a `🟢 PI Física (SN: 0119048050)`.
 * **Causa 2 (Colisión por Puerto USB Ocupado)**: El driver FTDI/GCS requiere acceso exclusivo al puerto USB. Si intenta abrir el Tablero de Hardware o una segunda instancia mientras la ventana principal de `PyPrinting` tiene tomada la platina, el Tablero mostrará: `🔴 Desconectada — Puerto USB ocupado por otra ventana activa de PyPrinting`.
@@ -932,40 +974,55 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 * **Causa 3 (Aislamiento por Perfil)**: Si abrió la app de Cámara (`camera.py`), la platina está desconectada por el perfil por defecto `camera`.
   * **Solución**: Si necesita la platina mientras usa la cámara, pulse **`Ctrl+H`** para abrir el Tablero de Hardware y presione el botón **`🔌 Conectar`** de la Platina PI para vincularla en caliente.
 
-### 19.2 La cámara réflex Canon no inicia Live View o arroja error de sesión
+### 21.2 La cámara réflex Canon no inicia Live View o arroja error de sesión
 * **Causa**: La cámara se apaga automáticamente por ahorro de energía o la sesión USB EDSDK se cerró incorrectamente.
 * **Solución**: Apague y encienda la cámara Canon EOS 500D, verifique que el dial esté en modo **M (Manual)** y vuelva a presionar **`Iniciar Cámara Canon`**.
 
-### 19.3 La foto tomada reporta un aviso pero se guarda en disco
+### 21.3 La foto tomada reporta un aviso pero se guarda en disco
 * **Causa**: El sensor réflex tardó en liberar el evento de creación de archivo USB.
 * **Solución**: El módulo unificado `camera.py` ejecuta automáticamente la exploración directa del volumen de la cámara réflex (`_download_newest_photo_from_camera`) y recupera la foto nativa en la PC sin pérdida de datos.
 
-### 19.4 Al disparar una foto, el video en vivo se acelera brevemente
+### 21.4 Al disparar una foto, el video en vivo se acelera brevemente
 * **Causa**: Reinicio abrupto del reloj de cuadros en el hilo de trabajo.
 * **Solución**: La versión actual resetea `_connect_time` y aplica una pausa de 400 ms post-captura, asegurando que la transmisión retome suavemente a 25 FPS sin ráfagas de aceleración.
 
-### 19.5 El ajuste Gaussiano o Donut en PSF Analyzer devuelve valores irreales
+### 21.5 El ajuste Gaussiano o Donut en PSF Analyzer devuelve valores irreales
 * **Causa**: Ruido de fondo lejano distorsionando la optimización por mínimos cuadrados.
 * **Solución**: Incremente el porcentaje en el casillero **`Filtro (%)`** (ej. de $10\%$ a $30\%$) y presione **`Enter`** para eliminar el fondo aleatorio.
 
+### 21.6 El Flipper Óptico no conmuta o arroja error de recurso ocupado NI-DAQmx (-200088)
+* **Causa 1 (Puntero C zombi en PyDAQmx)**: Tras invocar `task.close()`, el handle C subyacente es liberado pero la variable Python aún referencia el objeto primitivo. Al intentar reasignar canales analógicos `Dev1/ao0` o `Dev1/ao1`, el driver arroja `DAQmxError -200088: Task cannot be performed because specified resource is reserved`.
+  * **Solución**: La arquitectura desacoplada de PyPrinting 3.0 gestiona esto reseteando explícitamente `_task_flipper_up = None` y `_task_flipper_down = None`, invocando `close_all_tasks()` de forma segura y validando el estado con `task.is_task_done()` antes de despachar el pulso de 5V x 100 ms. Para más detalles, consulte [Reporte Técnico: Actuación de Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md).
+* **Causa 2 (Bucle infinito de señales Qt)**: Si el flipper se conmuta mediante `powerbutton.setChecked()`, Qt emite automáticamente la señal `toggled`, disparando un ciclo recursivo si el callback manipula el botón.
+  * **Solución**: Utilice siempre la señal de usuario desacoplada `powerbutton.clicked` en lugar de `toggled`.
+* **Causa 3 (Confusión de Canales Flipper vs Shutter)**: El Flipper de Potencia opera por pulsos analógicos de 5V en `ao0`/`ao1` (atenuador OD), mientras que los obturadores de seguridad operan en líneas digitales `port0/line0:3`. Nunca deben mezclarse en el software ni atarse al corte de emergencia del watchdog.
+
+### 21.7 Advertencia "Lock Focus Requerido" al activar Compensación de Inclinación Z (Confocal Tilt)
+* **Causa**: El usuario presiona el botón `📐 Inclinación Z` en el Dock Confocal sin haber calibrado previamente un perfil de enfoque de referencia mediante `Lock Focus` (`F9`).
+  * **Solución**: El algoritmo de plano inclinado $z(x,y) = z_0 + \alpha(x-x_c) + \beta(y-y_c)$ requiere conocer la cota de máxima reflexión en el centro de la grilla ($z_0$) para calcular los desplazamientos relativos de las 4 esquinas. Ejecute primero `Go to max` (`F8`) sobre la interfaz vidrio-agua, luego `Lock focus` (`F9`), y finalmente presione `📐 Inclinación Z`. Consulte el informe [Compensación de Inclinación Confocal Tilt y Healing Pass](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md).
+
+### 21.8 Nodos faltantes o timeout difusivo durante impresión de grillas (Uso del Healing Pass)
+* **Causa**: Fluctuación local de concentración coloidal provocando que el tiempo browniano de llegada de una partícula exceda el límite de seguridad $\tau_{\text{safe}} = 10\ \text{s}$.
+  * **Solución**: No aborte la impresión ni modifique manualmente la receta. Tras finalizar el barrido nominal, active la casilla `[X] Autocompletitud (Healing Pass)` en la pestaña de `Printing`. El sistema orquestará un segundo pase focalizado exclusivamente en los nodos omitidos, duplicando el tiempo de espera ($\tau_{\text{safe}} = 30\ \text{s}$), compensando la deriva térmica respecto a $P_0$ y ejecutando autofoco Z in-situ para garantizar el 100% de ocupación de la grilla.
+
 ---
 
-## 20. Preguntas Frecuentes (FAQ)
+## 22. Preguntas Frecuentes (FAQ)
 
-### 20.1 ¿Cómo se determina la posición sub-píxel de una nanopartícula durante el escaneo confocal?
+### 22.1 ¿Cómo se determina la posición sub-píxel de una nanopartícula durante el escaneo confocal?
 El sistema normaliza la matriz de intensidad entre $0.0$ y $1.0$, aplica el filtrado umbral no lineal al $30\%$ ($Z_f = 0$ si $Z_n < 0.30$) e integra un ajuste no lineal por mínimos cuadrados (`scipy.optimize.curve_fit`) sobre la función Gaussiana 2D anisotropica de 7 parámetros. Las coordenadas $(x_0, y_0)$ resultantes poseen precisión sub-nanométrica.
 
-### 20.2 ¿Dónde se documenta el modelo metrológico de incertidumbre?
-Se encuentra detallado en la norma metrológica del laboratorio: [Incertidumbre Metrológica ISO/GUM (reportes/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Incertidumbre_Metrologica_PyPrinting3.md), respaldando la resolución de $0.35\ \text{nm}$.
+### 22.2 ¿Dónde se documenta el modelo metrológico de incertidumbre?
+Se encuentra detallado en la norma metrológica del laboratorio: [Incertidumbre Metrológica ISO/GUM (reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md), respaldando la resolución de $0.35\ \text{nm}$.
 
-### 20.3 ¿Cómo funciona el botón de Shutter 532 nm en la ventana de Modulación Láser?
+### 22.3 ¿Cómo funciona el botón de Shutter 532 nm en la ventana de Modulación Láser?
 En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 2 del lanzador), el botón conmuta dinámicamente:
 - **`► Abrir Shutter 532 nm (Cerrado)`** (Verde): Invoca `open_shutter("532 nm (green)")` enviando un nivel TTL alto a la tarjeta NI-DAQ.
 - **`■ Cerrar Shutter 532 nm (Abierto)`** (Rojo): Invoca `close_shutter("532 nm (green)")` enviando un nivel TTL bajo.
 
 ---
 
-### 20.4 Matriz Maestra de Límites de Validez y Modos de Falla del Sistema ⚠️
+### 22.4 Matriz Maestra de Límites de Validez y Modos de Falla del Sistema ⚠️
 
 Cada módulo individual del sistema cuenta con su sección detallada de modos de falla. A continuación se presenta la **Matriz Maestra de Contingencias y Acciones Físicas Directas de Laboratorio**:
 
@@ -989,9 +1046,9 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 
 ---
 
-## 21. Guía de Referencia de Estructura de Archivos y Reportes Metrológicos
+## 23. Guía de Referencia de Archivos y Reportes Metrológicos
 
-### 21.1 Función y Propósito de Cada Archivo del Sistema
+### 23.1 Función y Propósito de Cada Archivo del Sistema
 
 | Directorio | Archivo | Propósito Técnico y Uso Principal |
 |---|---|---|
@@ -1001,47 +1058,57 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 | **Raíz** | [pyspectrum.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum.py) | **PySpectrum 3.0**: Espectroscopía confocal, Andor Shamrock/CCD, Step & Glue multirrango y calibración de lámpara halógena. |
 | **Raíz** | [contrapropagante.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/contrapropagante.py) | **Microscopio Contrapropagante**: Interfaz para excitación dual superior/inferior y escaneos confocales simétricos. |
 | **Raíz** | [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py) | **Configuración Central**: Constantes de hardware (PI E-517, NI-DAQmx, límites $0-100\ \mu\text{m}$, MOCKs y `SAFE_MODE`). |
-| **`modules/`** | [modules/confocal.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/confocal.py) | **Escaneo Confocal 2D/3D**: Rampa galvo/step por NI-DAQmx, ajuste PSF sub-píxel y centrado de masa/Gauss. |
-| **`modules/`** | [modules/measurements.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/measurements.py) | **Mediciones Automatizadas (Printing & Dimers)**: Generación de grillas, 5 Criterios de Parada, deriva adaptativa y ETA. |
+| **`modules/`** | [modules/confocal.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/confocal.py) | **Escaneo Confocal 2D/3D**: Rampa galvo/step por NI-DAQmx, ajuste PSF sub-píxel, centrado de masa/Gauss y compensación de inclinación Z (Tilt). |
+| **`modules/`** | [modules/measurements.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/measurements.py) | **Mediciones Automatizadas (Printing & Dimers)**: Generación de grillas, 5 Criterios de Parada, deriva adaptativa, ETA y Healing Pass de autocompletitud. |
 | **`modules/`** | [modules/focus.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/focus.py) | **Estabilización de Foco Z**: Barrido axial (`Go to max`), registro de perfil (`Lock focus`) y autocorrelación dinámica ($\times 2$). |
 | **`modules/`** | [modules/trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/trace.py) | **Traza Analógica 10 kHz & Power BS**: Adquisición síncrona continuo de 2 láseres y fotodiodo divisor BS. |
 | **`modules/`** | [modules/camera.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/camera.py) | **Visión por Computadora & Canon EOS 500D**: Live View 25 FPS, foto 15 MP, overlay con reglas en $\mu\text{m}$ y `trackpy`. |
 | **`core/`** | [core/hdf5_container.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/hdf5_container.py) | **Contenedor Científico HDF5 (`.h5`)**: Serialización jerárquica de lotes, compresión lossless `shuffle+gzip` y desempaquetado 1-click. |
 | **`core/`** | [core/lattice_generator.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/lattice_generator.py) | **Motor Cristalográfico 2D**: 15 redes canónicas, bases atómicas fraccionales $(u, v)$, exclusión $d_{\text{min}}$ y particionado multi-paso. |
 | **`core/`** | [core/nanopositioning.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nanopositioning.py) | **Platina Piezoeléctrica PI E-517**: Lectura/escritura capacitiva cerrada ($X, Y, Z$) con límites de seguridad $0-100\ \mu\text{m}$. |
-| **`core/`** | [core/shutters.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py) | **Control de Obturadores & Láser 532 nm**: Conmutación TTL de obturadores (532, 637, 592 nm), flippers y voltaje AO2. |
-| **`core/`** | [core/nidaq.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nidaq.py) | **Capa HAL de National Instruments**: Generación/lectura de formas de onda por NI-DAQmx (multicanal $100\text{ kHz}$). |
+| **`core/`** | [core/shutters.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py) | **Control de Obturadores & Láser 532 nm**: Conmutación TTL de obturadores (`port0/line0:3`), modulación analógica AO2 y flippers desacoplados (`ao0`/`ao1`). |
+| **`core/`** | [core/nidaq.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nidaq.py) | **Capa HAL de National Instruments**: Generación/lectura de formas de onda por NI-DAQmx (multicanal $100\text{ kHz}$) y gestión limpia de tareas. |
 | **`core/`** | [core/canon_edsdk.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/canon_edsdk.py) | **Wrapper C/Python Canon EDSDK**: Integración nativa a bajo nivel con la DLL de Canon (EVF live stream & propiedades ISO/Tv). |
 | **`analysis/`**| [analysis/psf.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf.py) | **Librería de Ajustes Fotométricos**: Modelos Gaussianos 2D, Donut Laguerre-Gauss 01 y estimación de centroide. |
 | **`analysis/`**| [analysis/spiral.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/spiral.py) | **Trayectorias Helicoidales**: Algoritmo de transformación de matriz simétrica a espiral continua en sentido horario/antihorario. |
 | **`analysis/`**| [analysis/image_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/image_analyzer.py) | **Analizador Gráfico de Imágenes**: Herramienta de medición espacial y calibración en $\mu\text{m}/\text{px}$ sobre fotos guardadas. |
 | **`analysis/`**| [analysis/psf_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf_analyzer.py) | **Caracterizador de PSF**: Ajuste no lineal en tiempo real de funciones PSF sobre datos confocales exportados. |
-| **`analysis/`**| [analysis/raman_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/raman_analyzer.py) | **Suite Raman & SERS Analyzer 3.0**: Análisis individual, calibración de láser, desconvolución Voigt/Lorentz, termometría Stokes/Anti-Stokes, suite multi-espectro con pestaña de crudos/líneas de base y exportación contextual dinámica (PNG 600 DPI, CSV, TSV). |
-
+| **`analysis/`**| [analysis/raman_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/raman_analyzer.py) | **Suite Raman & SERS Analyzer 3.0**: Análisis individual, selector tri-modal de unidades (cm⁻¹, nm, eV), sustracción bi-modal de línea de base, recorte ROI CCD, PCA quimiométrico y exportación TSV/CSV/PNG. |
 
 ---
 
-### 21.2 Índice Completo de Informes Metrológicos, Diagnósticos y Evaluación Arquitectónica
+### 23.2 Índice Completo de Informes Metrológicos, Diagnósticos y Evaluación Arquitectónica
 
 El laboratorio cuenta con un repositorio documental completo organizado en las carpetas [`reportes/sistema/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/) y [`reportes/cientificos/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/) (ver índice general en [`reportes/README.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/README.md)):
 
 #### 🔬 A. Reportes Científicos, Físicos y Protocolos Experimentales (`reportes/cientificos/`)
-1. 🔬 [Guía Protocolar Paso a Paso "DO PRINTING" (reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md): Procedimiento completo para la fabricación de grillas ordenadas y uso de presets.
-2. 📊 [Incertidumbre Metrológica ISO/GUM (reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md): Evaluación formal del presupuesto de incertidumbre ($u_c = 0.35\ \text{nm}$).
-3. 🧮 [Algoritmo de Parada e Impresión de Grillas (reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md): Formulación matemática de los 5 criterios de parada (Modos 0 a 4) y ensamblado de nanodímeros.
-4. 📍 [Corrección de Deriva Termomecánica (reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md): Método de partícula ancla P0 para compensación X-Y sub-nanométrica post-autofoco Z.
-5. 🖼️ [Deconvolución Richardson-Lucy, Trackpy y Picasso (reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md): Modelo bayesiano MLE, calibración de PSF y seguimiento centroidal.
-6. 📦 [Contenedor Científico Unificado HDF5 (reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md): Serialización jerárquica, compresión lossless `shuffle+gzip` y compatibilidad FAIR.
+1. 🔬 [Guía Protocolar Paso a Paso "DO PRINTING"](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md): Procedimiento completo para alineación, enfoque, origen de coordenadas, presets y ejecución de grillas regulares y personalizadas.
+2. 📐 [Diseño y Generación de Redes Cristalinas 2D](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Diseno_y_Generacion_de_Redes_Cristalinas_2D_PyPrinting3.md): Síntesis cristalográfica de 15 familias, bases fraccionales $(u,v)$, restricción $d_{\text{min}}$ y recetas multi-paso $P_0$.
+3. 📊 [Incertidumbre Metrológica ISO/GUM](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md): Evaluación formal del presupuesto de incertidumbre, ajuste Gaussiano 2D / Donut LG01 y resolución sub-píxel ($u_c \approx 0.35\ \text{nm}$).
+4. 🧮 [Algoritmo de Parada e Impresión de Grillas](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md): Formulación matemática de los 5 criterios de parada (Modos 0 a 4), filtro anti-paso $N_{\text{hold}}$ y dímeros sub-100 nm.
+5. 📐 [Compensación de Inclinación Confocal Tilt y Healing Pass](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md): Geometría de 4 esquinas para compensación axial $Z(x,y)$, rango de Rayleigh y algoritmo de autocompletitud de redes con autofoco in-situ.
+6. 📍 [Corrección de Deriva Termomecánica (Drift Correction)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md): Método de partícula ancla P0 para compensación $X-Y$ en tiempo real post-autofoco Z.
+7. ⏱️ [Control Adaptativo de Frecuencia de Autofoco y Deriva](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Control_Adaptativo_de_Frecuencia_de_Autofoco_y_Deriva_PyPrinting3.md): Lazo cerrado de modulación de frecuencia ($N_{\text{adaptive}}, \tau_{\text{safe}}$) según la velocidad de deriva instantánea $\vec{v}_{\text{drift}}$.
+8. 📈 [Análisis Time-Volt y Tracking Avanzado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Analisis_Time_Volt_y_Tracking_Avanzado_PyPrinting3.md): Ajuste cinético no lineal de trazas de fotodiodo ($V_{\text{low}}, V_{\text{high}}, \Delta V, t_{\text{step}}$), latencias y reportes estadísticos.
+9. 🖼️ [Deconvolución Richardson-Lucy y Trackpy](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md): Modelo bayesiano MLE, calibración de PSF y seguimiento centroidal de partículas coloidales.
+10. 📦 [Contenedor Científico Unificado HDF5 (.h5)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md): Serialización jerárquica de lotes, compresión lossless `shuffle+gzip` y compatibilidad FAIR.
 
 #### ⚙️ B. Reportes de Estado del Sistema y Mantenimiento Técnico (`reportes/sistema/`)
-1. 📝 [Informe de Estado, Evaluación Multidimensional y Estándares (reportes/sistema/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md): Resumen técnico, matriz de módulos y 5 Estándares de Diseño.
-2. 📄 [Matriz de Intercambio de Archivos entre Programas (reportes/sistema/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md): Mapa completo de formatos `.tiff`, `.npy`, `.csv`, `.txt` y presets.
-3. 🧵 [Arquitectura de Hilos y Concurrencia (reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md): Diagnóstico de seguridad multihilo y tiempos de procesador.
-4. 🔌 [Diagnóstico de Señales y Conexiones Frontend-Backend (reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md): Auditoría completa de la red de comunicación Qt (`pyqtSignal` / `pyqtSlot`).
-5. 🔍 [Diagnóstico Integral Comparativo frente a PyPrinting 2 (reportes/sistema/Diagnostico_Integral_y_Comparativo_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_Integral_y_Comparativo_PyPrinting3.md): Evaluación profunda de flujos de trabajo e integridad lógica.
-6. 🐞 [Reporte de Bugs y Errores de Rutinas (reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md): Auditoría histórica de correcciones y plan de acción de desarrollo.
-7. 📷 [Módulo Cámara Canon EOS 500D (reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md): Integración EDSDK, Live View a 25 FPS y Trackpy.
-8. 🌳 [Respuestas de Arquitectura y Evaluación de Graphify (reportes/sistema/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md): Análisis del grafo de conocimiento Graphify.
+1. 📝 [Informe de Estado, Evaluación Multidimensional y Estándares de Diseño](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md): Resumen técnico, matriz de módulos, métricas de Graphify y los 5 Estándares de Diseño.
+2. 🧵 [Arquitectura de Hilos y Concurrencia](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md): Diagnóstico de concurrencia multihilo PyQt6 (`instrumentThread`, `confocalThread`, `cameraThread`) y seguridad de hilos.
+3. 🔌 [Diagnóstico de Señales y Conexiones Frontend-Backend](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md): Auditoría completa de la red de comunicación Qt (`pyqtSignal` / `@pyqtSlot`) y temporización de hardware.
+4. 🔍 [Diagnóstico Integral Comparativo frente a PyPrinting 2](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_Integral_y_Comparativo_PyPrinting3.md): Evaluación profunda de flujos de trabajo, mejoras arquitectónicas e integridad lógica.
+5. 🐞 [Reporte de Bugs y Plan de Acción de Desarrollo](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md): Auditoría histórica de correcciones, excepciones resueltas y evolución del software.
+6. 📄 [Matriz de Intercambio de Archivos entre Programas](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md): Mapa completo de formatos `.tiff`, `.npy`, `.csv`, `.txt`, presets y serialización de posiciones.
+7. 🌳 [Respuestas de Arquitectura y Evaluación de Graphify](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md): Análisis estático AST de Graphify, desacoplamiento y topología de comunidades de código.
+8. 📷 [Módulo Cámara Canon EOS 500D](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md): Integración nativa EDSDK C++/Python, Live View a 25 FPS, búferes RAM y Trackpy.
+9. 🛡️ [Seguridad Óptica, Watchdog y Control de Obturadores](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md): Fail-safe activo con latido (*heartbeat*), conmutación de obturadores (`line0:3`) y corte de emergencia NI-DAQmx.
+10. 🔧 [Actuación de Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md): Análisis de causa raíz, ciclo de vida de tareas NI-DAQmx (evasión de -200088), pulso de 5V y desacoplamiento de seguridad.
+11. 🌈 [Calibración Espectral y Actuación de Flippers](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Calibracion_Espectral_y_Actuacion_Flippers_PyPrinting3.md): Ajuste gaussiano sub-píxel orden 0, offsets Ctypes Shamrock SDK, reactividad flipper Qt y Step & Glue.
+12. 🔬 [Espectrómetro Shamrock 500i y Cámara iXon3 en PySpectrum](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md): Arquitectura completa de espectrometría PySpectrum, calibraciones EEPROM y modos de adquisición.
+13. 📐 [Arquitectura Óptica del Microscopio Derecho y Espectrometría](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md): Trazado optomecánico completo, 3 canales confocales con filtros Notch, pinholes dedicados y 10 técnicas operativas.
+14. 💡 [Control y Comunicación de Láseres Excelsior, OBIS y MPBC](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Analisis_Control_Laseres_Excelsior_OBIS_MPBC.md): Comunicación serie RS-232/USB, comandos SCPI, calibración analógica de potencia y modulación en BFP.
+15. ⚖️ [Comparativo Andor Solis vs PySpectrum](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Comparativo_Andor_Solis_vs_PySpectrum.md): Auditoría integral feature-by-feature frente a la suite comercial Solis, ventajas de calibración y flujo de investigación.
 
 #### 📚 C. Bibliografía Científica Fundacional (`docs/bibliografia/`)
 1. 🎓 **Dr. Julián Gargiulo (2017)**: *Impresión óptica de nanopartículas metálicas*. Tesis Doctoral, FCEN, Universidad de Buenos Aires / CIBION-CONICET. [Archivo local: `docs/bibliografia/Julian_Gargiulo_2017.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Julian_Gargiulo_2017.pdf).

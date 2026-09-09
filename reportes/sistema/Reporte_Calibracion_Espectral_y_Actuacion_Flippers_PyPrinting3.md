@@ -137,46 +137,47 @@ self._shamrock.ShamrockGetSlitZeroPosition.restype = ctypes.c_int
 
 ---
 
-## 4. 🧵 Arquitectura de Reactividad del Flipper y Concurrencia de Hardware
+## 4. 🧵 Arquitectura Definitiva del Flipper, Concurrencia de Hardware y Desacoplamiento del Watchdog
 
-### 4.1 Diagnóstico de la Falla Histórica de la Señal `powerbutton`
-En versiones anteriores de PyPrinting, el checkbox `Power Flipper` (conmutador Low/High Power) exhibía pérdida de respuesta tras ciertas operaciones o durante la carga inicial. La causa raíz identificada fue triple:
+### 4.1 Diagnóstico de Causa Raíz de la Conmutación de Potencia
+En campañas de nanofabricación, el checkbox `Power Flipper` (conmutador Low/High Power) exhibió fallas de reactividad tras ciertas operaciones del watchdog o al pulsar el botón de corte de emergencia. Una auditoría integral de instrumentación demostró que el problema involucraba **cuatro factores acoplados**:
 
-1. **Incompatibilidad de Evento en PyQt6**:
-   - El widget estaba acoplado a la señal `clicked`.
-   - En PyQt6, el método programático `setChecked(bool)` **NO** emite la señal `clicked`, sino exclusivamente `toggled(bool)`.
-   - Cuando el watchdog o la inicialización forzaban un cambio de estado, los slots de actualización no se disparaban.
-2. **Discrepancia en la Firma de Argumentos de Señal**:
-   - `toggled` emite un valor booleano (`checked: bool`).
-   - El slot receptor `_power_check(self)` no aceptaba argumentos, arrojando silenciosamente excepciones de tipo `TypeError: _power_check() takes 1 positional argument but 2 were given` dentro del despachador de eventos de Qt.
-3. **Aislamiento de Hilos (Watchdog Daemon vs GUI Thread)**:
-   - El temporizador de seguridad de obturadores en `core/nidaq.py` corre en un hilo daemon nativo (`threading.Thread(daemon=True)`).
-   - Cuando el watchdog cortaba el láser y forzaba `up_flipper()` (Low Power), no existía un mecanismo thread-safe para notificar a la interfaz gráfica.
+1. **Acoplamiento Erróneo Flipper-Watchdog**:
+   - El daemon de seguridad (`_emergency_shutdown`) forzaba `up_flipper()` al expirar el temporizador.
+   - Dado que el flipper es un atenuador de haz (*OD filter* en salidas analógicas `Dev1/ao0` y `Dev1/ao1`) y no un obturador de corte de radiación (*safety shutter* en líneas digitales), este acoplamiento generaba conflictos de estado y llamadas I/O innecesarias.
+2. **Ciclo de Vida NI-DAQmx y Tareas Zombi**:
+   - Al invocar `close_all_tasks()`, las tareas analógicas eran cerradas en el driver C (`task.close()`), pero las referencias globales `_task_flipper_up` y `_task_flipper_down` no se seteaban a `None`.
+   - Las llamadas subsiguientes intentaban escribir sobre punteros cerrados, provocando `DaqError: Task specified is invalid or does not exist (-200088)`.
+3. **Manejo de Eventos en PyQt6 (`clicked` vs `toggled`)**:
+   - El acoplamiento a `toggled` creaba bucles de señal cuando la GUI intentaba actualizarse programáticamente.
+   - La arquitectura definitiva emplea `powerbutton.clicked.connect(self._power_clicked)` como canal primario de interacción del usuario (los clics físicos nunca se confunden con actualizaciones del sistema), mientras que `update_power_ui(is_high)` actualiza el estado visual con `setChecked()` sin re-disparar eventos de clic.
+4. **Resiliencia con Auto-Recuperación**:
+   - `_get_flipper_tasks()` valida proactivamente la integridad de las tareas mediante `task.is_task_done()`. Si la tarea fue cerrada o invalidada por el sistema operativo, se recrea limpiamente en caliente.
+   - Tanto `down_flipper()` como `up_flipper()` incorporan reintento automático ante fallas de bus.
 
-### 4.2 Arquitectura del Puente de Callbacks y Desacoplamiento
+Para un desglose matemático, cronometría del pulso de $5\ \text{V} \times 100\ \text{ms}$ y matriz de polaridades, véase el documento especializado: [`Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md).
+
+### 4.2 Diagrama de Flujo Desacoplado Hardware-GUI
 
 ```
 Hilo Demonio Hardware (nidaq.py)           Hilo Principal GUI (shutters.py)
  ┌───────────────────────────────┐          ┌──────────────────────────────────┐
  │ Watchdog _emergency_shutdown  │          │  Power Flipper QCheckBox         │
  │   - close_all_shutters()      │          │  (powerbutton)                   │
- │   - up_flipper()              │          └────────────────┬─────────────────┘
- │   - _notify_flipper_callbacks │                           │ toggled(bool)
- └──────────────┬────────────────┘                           ▼
-                │                          ┌───────────────────────────────────┐
-                │ Thread-Safe Callback     │  Slot: set_power(high: bool)      │
-                ▼                          │    - emite flipper_signal(high)   │
- ┌───────────────────────────────┐         └─────────────────┬─────────────────┘
- │ Callback Bridge en Shutters   │                           │
- │   - flipper_hardware_signal   │                           ▼
- └──────────────┬────────────────┘         ┌───────────────────────────────────┐
-                │ pyqtSignal (Queued)      │  Worker: set_flipper_power(high)  │
-                ▼                          │    - nidaq.down_flipper() / up    │
- ┌───────────────────────────────┐         └───────────────────────────────────┘
+ │   (Flipper NO es afectado)    │          └────────────────┬─────────────────┘
+ └───────────────────────────────┘                           │ clicked() [Usuario]
+                                                             ▼
+ ┌───────────────────────────────┐          ┌──────────────────────────────────┐
+ │ Tareas DAQ Resilientes        │          │ Slot: _power_clicked()           │
+ │   - auto-recuperación C-level │◄─────────│   - emite flipper_signal(high)   │
+ │   - pulso 5V x 100 ms (ao0/1) │          └──────────────────────────────────┘
+ └──────────────┬────────────────┘
+                │ Callback Bridge (thread-safe)
+                ▼
+ ┌───────────────────────────────┐
  │ Slot: update_power_ui(high)   │
- │   - blockSignals(True)        │  (Evita bucles de re-escritura)
- │   - setChecked(high)          │
- │   - blockSignals(False)       │
+ │   - setChecked(high)          │  (Actualización visual limpia sin clics)
+ │   - styleSheet dinámico       │
  └───────────────────────────────┘
 ```
 
@@ -243,10 +244,11 @@ Para validar de forma automatizada las correcciones y la nueva funcionalidad, se
 ### 6.1 Suite `tests/test_powerbutton_actuation.py`
 | Test Case | Función Evaluada | Resultado |
 |---|---|:---:|
-| `test_powerbutton_toggled_signal` | Verificación de emisión de `flipper_signal` ante `setChecked(True/False)` usando `toggled`. | **PASS** |
+| `test_powerbutton_clicked_actuation` | Verificación de emisión de `flipper_signal` ante clic del usuario en `powerbutton`. | **PASS** |
 | `test_powerbutton_hardware_callback_bridge` | Disparo de `register_flipper_callback` desde hilo externo y recepción en `update_power_ui`. | **PASS** |
-| `test_powerbutton_decoupled_ui_update` | Comprobación de que `update_power_ui` no emite señales secundarias de re-escritura. | **PASS** |
-| `test_powerbutton_watchdog_reset_sync` | Desactivación forzada por watchdog (`up_flipper`) y reflejo síncrono en el casillero de la GUI. | **PASS** |
+| `test_powerbutton_decoupled_ui_update` | Comprobación de que `update_power_ui` no genera eventos secundarios de clic ni bucles. | **PASS** |
+| `test_flipper_independent_from_watchdog` | Comprobación de que el corte de obturadores por watchdog preserva la posición del flipper. | **PASS** |
+| `test_flipper_task_auto_recovery` | Detección de tareas zombi tras `close_all_tasks()` y regeneración transparente sin excepciones. | **PASS** |
 
 ### 6.2 Suite `tests/test_pyspectrum_calibration_and_fixes.py`
 | Test Case | Función Evaluada | Resultado |
@@ -271,8 +273,8 @@ Para validar de forma automatizada las correcciones y la nueva funcionalidad, se
    - PySpectrum 3.0 dispone ahora de una suite integrada de calibraciones que permite prescindir por completo del software propietario Andor Solis para las rutinas cotidianas de verificación del espectrógrafo.
    - El ajuste gaussiano en orden cero provee una referencia sub-píxel rigurosa para la correlación entre el eje óptico del microscopio y el centroide de la rendija del espectrógrafo.
 2. **Seguridad y Reactividad de Interfaz**:
-   - La migración a `toggled` y la introducción del puente de callbacks de hardware eliminan definitivamente los fallos de sincronización entre el estado físico de los atenuadores y su representación en pantalla.
-   - La actuación del Watchdog mantiene la integridad física de la muestra coloidal cerrando los obturadores y retornando el flipper a baja potencia de forma garantizada e inmediata.
+   - La arquitectura basada en `clicked` para la entrada de usuario y `update_power_ui` para la sincronización de retorno elimina definitivamente los bucles recursivos y la pérdida de reactividad.
+   - El desacoplamiento del flipper respecto del watchdog preserva la condición experimental deseada por el operador sin comprometer la seguridad radiológica de la muestra.
 3. **Protocolo Recomendado al Iniciar la Jornada Experimental**:
    - Encender el refrigerador termoeléctrico de la cámara iXon3 hasta alcanzar $-70\ ^\circ\text{C}$ o $-80\ ^\circ\text{C}$.
    - En PySpectrum, seleccionar la pestaña `Calibración del Sistema` en el dock lateral.

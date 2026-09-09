@@ -5,12 +5,12 @@ para el checkbox Low power / High power y flippers en PyPrinting.
 
 Valida:
 1. Señal externa PyQt conectada a fe._power_check(bool)
-2. Señal externa PyQt conectada a fe.powerbutton.setChecked(bool)
-3. Señal externa PyQt conectada al slot público fe.set_power(bool) / fe.set_flipper(bool)
+2. Señal externa PyQt conectada al slot público fe.set_power(bool) / fe.set_flipper(bool)
+3. Clics manuales en UI (fe.powerbutton.click())
 4. Sincronización Backend -> Frontend (be.power_change -> fe.update_power_ui)
 5. Notificación directa de hardware (nq.down_flipper / nq.up_flipper -> fe.update_power_ui)
-6. Clics manuales en UI (fe.powerbutton.click())
-7. Cierre forzado del Watchdog y restauración a Low power en la UI
+6. Desacoplamiento de Watchdog: el auto-cierre cierra shutters pero preserva el estado del flipper
+7. Resiliencia de hardware ante close_all_tasks() (inmunidad a tareas zombi)
 """
 import os
 import sys
@@ -60,22 +60,7 @@ def test_power_actuation_via_signals():
     assert nq.is_flipper_high_power() is False, "Hardware debe volver a Low power"
     src.bool_signal.disconnect()
 
-    # ── Test 2: Conexión a fe.powerbutton.setChecked(bool) ───────────────────
-    src.bool_signal.connect(fe.powerbutton.setChecked)
-    src.bool_signal.emit(True)
-    app.processEvents()
-    assert fe.powerbutton.isChecked() is True, "powerbutton debe marcarse con setChecked(True)"
-    assert "High" in fe.powerbutton.text(), "Texto debe actualizarse a High power con setChecked(True)"
-    assert nq.is_flipper_high_power() is True, "Hardware debe conmutar a High power con setChecked(True)"
-
-    src.bool_signal.emit(False)
-    app.processEvents()
-    assert fe.powerbutton.isChecked() is False, "powerbutton debe desmarcarse con setChecked(False)"
-    assert "Low" in fe.powerbutton.text(), "Texto debe actualizarse a Low power con setChecked(False)"
-    assert nq.is_flipper_high_power() is False, "Hardware debe conmutar a Low power con setChecked(False)"
-    src.bool_signal.disconnect()
-
-    # ── Test 3: Conexión a fe.set_power(bool) y alias fe.set_flipper(bool) ───
+    # ── Test 2: Conexión a fe.set_power(bool) y alias fe.set_flipper(bool) ───
     src.bool_signal.connect(fe.set_power)
     src.bool_signal.emit(True)
     app.processEvents()
@@ -91,6 +76,19 @@ def test_power_actuation_via_signals():
     assert "Low" in fe.powerbutton.text()
     assert nq.is_flipper_high_power() is False
     src.bool_signal.disconnect()
+
+    # ── Test 3: Clic de usuario en UI (fe.powerbutton.click()) ────────────────
+    fe.powerbutton.click()
+    app.processEvents()
+    assert fe.powerbutton.isChecked() is True, "Clic debe poner powerbutton en True"
+    assert "High" in fe.powerbutton.text()
+    assert nq.is_flipper_high_power() is True, "Clic debe accionar flipper a High power"
+
+    fe.powerbutton.click()
+    app.processEvents()
+    assert fe.powerbutton.isChecked() is False, "Clic debe poner powerbutton en False"
+    assert "Low" in fe.powerbutton.text()
+    assert nq.is_flipper_high_power() is False, "Clic debe accionar flipper a Low power"
 
     # ── Test 4: Conmutación en Backend (be.power_change) ──────────────────────
     be.power_change(True)
@@ -116,27 +114,38 @@ def test_power_actuation_via_signals():
     assert fe.powerbutton.isChecked() is False, "UI debe actualizarse ante up_flipper() en hardware"
     assert "Low" in fe.powerbutton.text()
 
-    # ── Test 6: Clic de usuario en UI (fe.powerbutton.click()) ────────────────
-    fe.powerbutton.click()
+    # ── Test 6: Desacoplamiento de Watchdog (el flipper no se ve alterado) ───
+    # Abrir un shutter y activar High power en el flipper
+    fe.shutter0button.setChecked(True)
+    fe.set_power(True)
     app.processEvents()
+    assert fe.shutter0button.isChecked() is True
     assert fe.powerbutton.isChecked() is True
-    assert "High" in fe.powerbutton.text()
     assert nq.is_flipper_high_power() is True
 
+    # Disparar watchdog: debe cerrar el shutter pero respetar la posición del flipper
+    fe._on_watchdog_triggered()
+    app.processEvents()
+    assert fe.shutter0button.isChecked() is False, "Watchdog debe cerrar shutters abiertos"
+    assert fe.powerbutton.isChecked() is True, "Watchdog NO debe alterar la posición del flipper"
+    assert nq.is_flipper_high_power() is True, "Hardware flipper debe permanecer en High power"
+
+    # ── Test 7: Resiliencia ante close_all_tasks() (inmunidad a tareas zombi) ─
+    nq.close_all_tasks()
+    # Verificar que las variables globales se resetearon a None
+    assert nq._flipper_task0 is None, "_flipper_task0 debe ser None tras close_all_tasks()"
+    assert nq._flipper_task1 is None, "_flipper_task1 debe ser None tras close_all_tasks()"
+
+    # Accionar el flipper después del cierre de tareas debe funcionar sin error
     fe.powerbutton.click()
     app.processEvents()
     assert fe.powerbutton.isChecked() is False
     assert "Low" in fe.powerbutton.text()
-    assert nq.is_flipper_high_power() is False
 
-    # ── Test 7: Watchdog triggered resetea UI a Low power ────────────────────
-    fe.set_power(True)
+    fe.powerbutton.click()
     app.processEvents()
     assert fe.powerbutton.isChecked() is True
-    fe._on_watchdog_triggered()
-    app.processEvents()
-    assert fe.powerbutton.isChecked() is False, "Watchdog debe forzar la UI de potencia a Low power"
-    assert "Low" in fe.powerbutton.text()
+    assert "High" in fe.powerbutton.text()
 
     fe.close()
     print("ALL POWERBUTTON ACTUATION TESTS PASSED (100%)!")

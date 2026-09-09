@@ -21,7 +21,7 @@ if __name__ == "core.shutters":
 elif __name__ == "shutters":
     sys.modules["core.shutters"] = sys.modules[__name__]
 
-from config  import SHUTTERS, LASER_532_V_MIN, LASER_532_V_MAX
+from config  import SHUTTERS, SHUTTER_POLARITY, LASER_532_V_MIN, LASER_532_V_MAX
 try:
     from core.nidaq import (open_shutter, close_shutter, close_all_shutters, up_flipper, down_flipper,
                             flipper_notch532, set_laser532_voltage, close_all_tasks,
@@ -93,7 +93,6 @@ class Frontend(QFrame):
                 btn.blockSignals(True)
                 btn.setChecked(False)
                 btn.blockSignals(False)
-        self.update_power_ui(False)
         self._update_security_status()
 
     # ── Handlers de botones y Slots de Actuación ──────────────────────────────
@@ -147,30 +146,13 @@ class Frontend(QFrame):
             self.shutter3_signal.emit(checked)
             self._update_security_status()
 
-    @pyqtSlot(bool)
-    @pyqtSlot()
-    def _power_check(self, checked: bool | None = None):
-        """Maneja el accionamiento del flipper de potencia (High/Low).
-        Soporta clics en UI, llamadas de slots Qt y señales booleanas externas."""
-        if checked is None:
-            checked = self.powerbutton.isChecked()
-        else:
-            if self.powerbutton.isChecked() != checked:
-                self.powerbutton.blockSignals(True)
-                self.powerbutton.setChecked(checked)
-                self.powerbutton.blockSignals(False)
-
-        self.update_power_ui(checked)
+    def _power_clicked(self):
+        """Maneja el clic directo del usuario en el checkbox de potencia (Low/High)."""
+        checked = self.powerbutton.isChecked()
+        self._apply_power_style(checked)
         self.flipper_signal.emit(checked)
 
-    @pyqtSlot(bool)
-    def update_power_ui(self, high: bool):
-        """Actualiza exclusivamente el estado visual, texto y color del checkbox sin re-emitir señal."""
-        if self.powerbutton.isChecked() != high:
-            self.powerbutton.blockSignals(True)
-            self.powerbutton.setChecked(high)
-            self.powerbutton.blockSignals(False)
-
+    def _apply_power_style(self, high: bool):
         if high:
             self.powerbutton.setText("High\npower")
             self.powerbutton.setStyleSheet("color: rgb(200, 80, 40); font-weight: bold;")
@@ -179,11 +161,34 @@ class Frontend(QFrame):
             self.powerbutton.setStyleSheet("color: rgb(12, 183, 242); font-weight: bold;")
 
     @pyqtSlot(bool)
+    def update_power_ui(self, high: bool):
+        """Actualiza exclusivamente el estado visual, texto y color del checkbox sin re-emitir señal."""
+        if self.powerbutton.isChecked() != high:
+            self.powerbutton.blockSignals(True)
+            self.powerbutton.setChecked(high)
+            self.powerbutton.blockSignals(False)
+        self._apply_power_style(high)
+
+    @pyqtSlot(bool)
     def set_power(self, high: bool):
         """Slot público para conmutar la potencia vía señal externa o llamada programática."""
-        self._power_check(high)
+        if self.powerbutton.isChecked() != high:
+            self.powerbutton.blockSignals(True)
+            self.powerbutton.setChecked(high)
+            self.powerbutton.blockSignals(False)
+        self._apply_power_style(high)
+        self.flipper_signal.emit(high)
 
     set_flipper = set_power
+
+    @pyqtSlot(bool)
+    @pyqtSlot()
+    def _power_check(self, checked: bool | None = None):
+        """Soporta llamadas de slots Qt y señales booleanas externas."""
+        if checked is None:
+            checked = self.powerbutton.isChecked()
+        self.set_power(checked)
+
     powerbutton_check = _power_check
 
     @pyqtSlot(bool)
@@ -288,7 +293,7 @@ class Frontend(QFrame):
 
         # ── Flippers ─────────────────────────────────────────────────────────
         self.powerbutton = QCheckBox("Low\npower")
-        self.powerbutton.toggled.connect(self._power_check)
+        self.powerbutton.clicked.connect(self._power_clicked)
         self.powerbutton.setStyleSheet("color: rgb(12, 183, 242); font-weight: bold;")
         self.powerbutton.setToolTip("Conmutar potencia del láser (Low power / High power)")
 
@@ -397,7 +402,8 @@ class Backend(QObject):
         self.current_timeout = timeout_val
         # Si hay obturadores abiertos en hardware, actualizar el watchdog inmediatamente
         try:
-            if any(_shutter_signal):
+            any_open = any(s == SHUTTER_POLARITY[sh] for s, sh in zip(_shutter_signal, SHUTTERS))
+            if any_open:
                 heartbeat_shutter(timeout_val)
         except Exception:
             pass
