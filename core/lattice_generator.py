@@ -511,21 +511,38 @@ class CrystalGridExporter:
     """Exporta patrones cristalinos a formatos compatibles con PyPrinting y multi-paso."""
 
     @staticmethod
-    def export_single_txt(filepath: str, result: Dict, include_anchor: bool = True) -> str:
-        """Exporta un archivo .txt estándar de 2 columnas [X, Y] en µm."""
+    def export_single_txt(filepath: str, result: Dict, include_anchor: bool = True, regime: str = "laser_ref") -> str:
+        """Exporta un archivo .txt estándar de 2 columnas [X, Y] en µm compatible con np.loadtxt y con encabezado metrológico comentado."""
         nodes = result.get("nodes", [])
         anchor = result.get("anchor")
+        has_anc = bool(include_anchor and anchor)
+        total_pts = len(nodes) + (1 if has_anc else 0)
+
+        # Determinar nombres de columnas según el régimen
+        try:
+            from core.nanopositioning import COORDINATE_NOMENCLATURE
+            nomen = COORDINATE_NOMENCLATURE.get(regime, COORDINATE_NOMENCLATURE.get("laser_ref", {}))
+            col1_lbl = nomen.get("grid_plot_bottom", "X (Horiz) [µm]")
+            col2_lbl = nomen.get("grid_plot_left", "Y (Vert) [µm]")
+        except Exception:
+            col1_lbl = "X [µm]"
+            col2_lbl = "Y [µm]"
         
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
-            if include_anchor and anchor:
+            f.write(f"# PyPrinting 3.0 - 2D Crystal Grid Generator\n")
+            f.write(f"# Coordinate Regime: {regime}\n")
+            f.write(f"# Column 1 (Horizontal): {col1_lbl}\n")
+            f.write(f"# Column 2 (Vertical): {col2_lbl}\n")
+            f.write(f"# Total Particles: {total_pts} (Anchor P0 included: {has_anc})\n")
+            if has_anc and anchor:
                 f.write(f"{anchor['x']:.4f}\t{anchor['y']:.4f}\n")
             for n in nodes:
                 f.write(f"{n['x']:.4f}\t{n['y']:.4f}\n")
         return filepath
 
     @staticmethod
-    def export_multipass_package(output_dir: str, prefix: str, result: Dict) -> Dict[str, str]:
+    def export_multipass_package(output_dir: str, prefix: str, result: Dict, regime: str = "laser_ref") -> Dict[str, str]:
         """
         Genera el paquete completo de recetas para nanofabricación secuencial:
         - Layer1_MatA_con_P0.txt (Imprime P0 + Capa 1 con ruta optimizada para Mat 1)
@@ -539,9 +556,18 @@ class CrystalGridExporter:
         stats = result.get("stats", {})
         generated_files = {}
 
+        try:
+            from core.nanopositioning import COORDINATE_NOMENCLATURE
+            nomen = COORDINATE_NOMENCLATURE.get(regime, COORDINATE_NOMENCLATURE.get("laser_ref", {}))
+            col1_lbl = nomen.get("grid_plot_bottom", "X (Horiz) [µm]")
+            col2_lbl = nomen.get("grid_plot_left", "Y (Vert) [µm]")
+        except Exception:
+            col1_lbl = "X [µm]"
+            col2_lbl = "Y [µm]"
+
         # 1. Archivo Global Unificado (Single-Pass)
         unified_path = os.path.join(output_dir, f"{prefix}_ALL_LAYERS_con_P0.txt")
-        CrystalGridExporter.export_single_txt(unified_path, result, include_anchor=True)
+        CrystalGridExporter.export_single_txt(unified_path, result, include_anchor=True, regime=regime)
         generated_files["unified"] = unified_path
 
         # 2. Sub-archivos por cada Material / Capa con su ruta optimizada individual
@@ -552,7 +578,16 @@ class CrystalGridExporter:
             file_name = f"{prefix}_Pass{mat_id}_{mat_name}_ref_P0.txt"
             mat_path = os.path.join(output_dir, file_name)
 
+            has_anc = bool(anchor)
+            total_pass_pts = len(mat_nodes) + (1 if has_anc else 0)
+
             with open(mat_path, "w", encoding="utf-8") as f:
+                f.write(f"# PyPrinting 3.0 - Multi-Pass Sequential Recipe\n")
+                f.write(f"# Pass: {mat_id} ({mat_name})\n")
+                f.write(f"# Coordinate Regime: {regime}\n")
+                f.write(f"# Column 1 (Horizontal): {col1_lbl}\n")
+                f.write(f"# Column 2 (Vertical): {col2_lbl}\n")
+                f.write(f"# Total Particles in Pass: {total_pass_pts} (Row 0 is Anchor P0: {has_anc})\n")
                 # La Partícula Ancla siempre va en la primera fila como referencia (nodo 0)
                 if anchor:
                     f.write(f"{anchor['x']:.4f}\t{anchor['y']:.4f}\n")
@@ -563,6 +598,11 @@ class CrystalGridExporter:
         # 3. Metadatos de la Receta en JSON
         recipe_meta = {
             "prefix": prefix,
+            "coordinate_regime": regime,
+            "columns": {
+                "col1": col1_lbl,
+                "col2": col2_lbl
+            },
             "stats": stats,
             "anchor_particle": anchor,
             "materials_count": len(materials_present),

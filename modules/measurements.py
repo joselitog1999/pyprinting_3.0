@@ -1057,9 +1057,34 @@ class Frontend(QFrame):
         if not hasattr(self, "_gridGenWindow") or self._gridGenWindow is None:
             from grid_generator import GridGeneratorWindow
             self._gridGenWindow = GridGeneratorWindow(self)
+            self._gridGenWindow.gridGeneratedSignal.connect(self._on_grid_generator_emitted)
         self._gridGenWindow.show()
         self._gridGenWindow.raise_()
         self._gridGenWindow.activateWindow()
+
+    @pyqtSlot(dict)
+    def _on_grid_generator_emitted(self, result: dict):
+        """Carga en el frontend de Measurements y en el backend la grilla transferida desde GridGenerator."""
+        nodes = result.get("nodes", [])
+        anchor = result.get("anchor")
+        has_anchor = bool(anchor)
+        pts = ([anchor] if has_anchor else []) + nodes
+        if not pts:
+            return
+        N = len(pts)
+        datos = np.zeros((3, N))
+        for i, p in enumerate(pts):
+            datos[0, i] = p["x"]
+            datos[1, i] = p["y"]
+            datos[2, i] = 0.0
+
+        self.grid_plot(datos)
+        self.particulas = N
+        self.particulasSignal.emit(N)
+        self.grid_name = "2D_Lattice_Designer"
+        self.NPevents.setText(f"0/{N} (0.0%)")
+        self.NPsuccess.setText(f"0/{N} (0.0%)")
+        print(f"[Measurements] Grilla de {N} partículas cargada directamente desde Diseñador 2D.")
 
     def _on_load_grid_clicked(self):
         name, _ = QFileDialog.getOpenFileName(

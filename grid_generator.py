@@ -38,6 +38,13 @@ pg.setConfigOption('background', '#11111b')
 pg.setConfigOption('foreground', '#cdd6f4')
 pg.setConfigOption('antialias', True)
 
+from config import REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF, DEFAULT_COORDINATE_REGIME
+from core.nanopositioning import (
+    COORDINATE_NOMENCLATURE,
+    register_regime_listener,
+    unregister_regime_listener,
+    set_global_coordinate_regime,
+)
 from core.lattice_generator import (
     BasisAtom, LatticeLayer, BoundingGeometry, PathOptimizer,
     AnchorConfig, CrystalGridComposer, CrystalGridExporter
@@ -175,9 +182,14 @@ class GridGeneratorWindow(QMainWindow):
 
         self.composer = CrystalGridComposer()
         self._current_result: Optional[Dict] = None
+        self.current_regime: str = DEFAULT_COORDINATE_REGIME
 
         self._setup_ui()
         self._on_params_changed()
+
+        # Suscripción al Event Bus global de regímenes de coordenadas
+        register_regime_listener(self.on_regime_changed)
+        self.on_regime_changed(self.current_regime)
 
     def _setup_ui(self):
         main_widget = QWidget()
@@ -278,9 +290,15 @@ class GridGeneratorWindow(QMainWindow):
         self.btn_export_png = QPushButton("🖼️ Exportar PNG")
         self.btn_export_png.clicked.connect(self._export_png)
 
+        self.btn_load_into_printing = QPushButton("🚀 Cargar Directo en Measurements")
+        self.btn_load_into_printing.setObjectName("btn_accent")
+        self.btn_load_into_printing.setToolTip("Transfiere la grilla actual generada directamente al módulo de impresión Measurements sin necesidad de guardar archivo intermedio.")
+        self.btn_load_into_printing.clicked.connect(self._load_into_printing)
+
         elo.addWidget(self.btn_export_single, 1, 0, 1, 3)
         elo.addWidget(self.btn_export_multipass, 2, 0, 1, 2)
         elo.addWidget(self.btn_export_png, 2, 2)
+        elo.addWidget(self.btn_load_into_printing, 3, 0, 1, 3)
 
         left_layout.addWidget(export_gb)
         left_layout.addStretch()
@@ -294,7 +312,7 @@ class GridGeneratorWindow(QMainWindow):
         right_layout.setContentsMargins(6, 6, 6, 6)
         right_layout.setSpacing(4)
 
-        # Barra Superior de Control Visual de Trayectorias
+        # Barra Superior de Control Visual de Trayectorias y Régimen
         view_bar = QFrame()
         view_bar.setStyleSheet("background-color: #1e1e2e; border: 1px solid #313244; border-radius: 6px; padding: 2px 6px;")
         vblo = QHBoxLayout(view_bar)
@@ -324,14 +342,25 @@ class GridGeneratorWindow(QMainWindow):
         vblo.addWidget(self.chk_show_path)
 
         vblo.addStretch()
+
+        # Selector de Régimen de Coordenadas (Sincronizado con Nanopositioning / Measurements)
+        vblo.addWidget(QLabel("🌐 <b>Régimen:</b>"))
+        self.combo_regime = QComboBox()
+        self.combo_regime.addItem("Laser Ref (Eje 1=Vert, Eje 2=Horiz)", REGIME_LASER_REF)
+        self.combo_regime.addItem("Legacy (PyPrinting 2 — x=1, y=2)", REGIME_LEGACY)
+        self.combo_regime.addItem("Sample Ref (Eje 1=Vert, Eje 2=-Horiz)", REGIME_SAMPLE_REF)
+        self.combo_regime.setToolTip("Régimen de coordenadas global. Sincronizado automáticamente con Nanopositioning, Confocal y Measurements.")
+        self.combo_regime.currentIndexChanged.connect(self._on_user_regime_selected)
+        vblo.addWidget(self.combo_regime)
+
         right_layout.addWidget(view_bar)
 
-        # Gráfico 2D
+        # Gráfico 2D (Visualización Cartesiana Isomorfa a InteractiveGridWidget)
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setAspectLocked(True)
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.plot_widget.setLabel('bottom', 'Coordenada X', units='µm')
-        self.plot_widget.setLabel('left', 'Coordenada Y', units='µm')
+        self.plot_widget.invertY(False)  # +Y hacia arriba (estándar cartesiano)
+        self.plot_widget.invertX(False)  # +X hacia la derecha (estándar cartesiano)
         self.plot_widget.setTitle("🗺️ Visualización 2D de la Red Cristalina", color='#cba6f7', size='11pt')
         right_layout.addWidget(self.plot_widget)
 
@@ -512,13 +541,15 @@ class GridGeneratorWindow(QMainWindow):
         self.spin_rot.valueChanged.connect(self._on_params_changed)
         alo.addWidget(self.spin_rot, 0, 1)
 
-        alo.addWidget(QLabel("Offset X (µm):"), 1, 0)
+        self.lbl_off_x = QLabel("Offset X (µm):")
+        alo.addWidget(self.lbl_off_x, 1, 0)
         self.spin_off_x = QDoubleSpinBox()
         self.spin_off_x.setRange(-100.0, 100.0); self.spin_off_x.setValue(0.0); self.spin_off_x.setSingleStep(0.5)
         self.spin_off_x.valueChanged.connect(self._on_params_changed)
         alo.addWidget(self.spin_off_x, 1, 1)
 
-        alo.addWidget(QLabel("Offset Y (µm):"), 1, 2)
+        self.lbl_off_y = QLabel("Offset Y (µm):")
+        alo.addWidget(self.lbl_off_y, 1, 2)
         self.spin_off_y = QDoubleSpinBox()
         self.spin_off_y.setRange(-100.0, 100.0); self.spin_off_y.setValue(0.0); self.spin_off_y.setSingleStep(0.5)
         self.spin_off_y.valueChanged.connect(self._on_params_changed)
@@ -811,30 +842,89 @@ class GridGeneratorWindow(QMainWindow):
 
         self._on_params_changed()
 
-    def _on_p0_mode_changed(self, idx: int):
+    def _on_user_regime_selected(self, idx: int):
+        regime = self.combo_regime.itemData(idx)
+        if regime:
+            set_global_coordinate_regime(regime)
+            self.on_regime_changed(regime)
+
+    def on_regime_changed(self, regime: str):
+        """Callback reactivo invocado cuando cambia el régimen de coordenadas global."""
+        self.current_regime = regime
+        nomen = COORDINATE_NOMENCLATURE.get(regime, COORDINATE_NOMENCLATURE.get(REGIME_LEGACY, {}))
+
+        # 1. Sincronizar combo sin disparar eventos recursivos
+        if hasattr(self, "combo_regime"):
+            self.combo_regime.blockSignals(True)
+            for i in range(self.combo_regime.count()):
+                if self.combo_regime.itemData(i) == regime:
+                    self.combo_regime.setCurrentIndex(i)
+                    break
+            self.combo_regime.blockSignals(False)
+
+        # 2. Actualizar etiquetas de ejes del gráfico 2D (isomorfo 1:1 con InteractiveGridWidget)
+        if hasattr(self, "plot_widget"):
+            label_style = {"color": "#cdd6f4", "font-size": "9pt"}
+            col_bot = nomen.get("grid_plot_bottom", "X (µm)")
+            col_left = nomen.get("grid_plot_left", "Y (µm)")
+            self.plot_widget.setLabel("bottom", col_bot, **label_style)
+            self.plot_widget.setLabel("left", col_left, **label_style)
+
+        # 3. Actualizar etiquetas de parámetros afines (Offset X / Y)
+        if hasattr(self, "lbl_off_x"):
+            self.lbl_off_x.setText(nomen.get("grid_gen_off_x", "Offset X (µm):"))
+        if hasattr(self, "lbl_off_y"):
+            self.lbl_off_y.setText(nomen.get("grid_gen_off_y", "Offset Y (µm):"))
+
+        # 4. Actualizar etiquetas de Partícula Ancla (P0) según el modo activo
+        if hasattr(self, "p0_mode_combo"):
+            self._update_p0_labels(self.p0_mode_combo.currentIndex())
+
+        # 5. Actualizar etiquetas de dimensiones geométricas según el tipo activo
+        if hasattr(self, "geom_combo"):
+            self._update_geom_labels(self.geom_combo.currentIndex())
+
+        # 6. Actualizar telemetría inferior de dimensiones
+        if hasattr(self, "lbl_stats_dims") and self._current_result:
+            stats = self._current_result.get("stats", {})
+            w = stats.get('width_um', 0.0)
+            h = stats.get('height_um', 0.0)
+            if self.current_regime == REGIME_LASER_REF:
+                self.lbl_stats_dims.setText(f"Dim: {w:.2f} (Horiz) × {h:.2f} (Vert) µm")
+            elif self.current_regime == REGIME_SAMPLE_REF:
+                self.lbl_stats_dims.setText(f"Dim: {w:.2f} (Muestra X) × {h:.2f} (Muestra Y) µm")
+            else:
+                self.lbl_stats_dims.setText(f"Dim: {w:.2f} × {h:.2f} µm")
+
+    def _update_p0_labels(self, idx: int):
+        if not hasattr(self, "lbl_p0_off_x") or not hasattr(self, "lbl_p0_off_y"):
+            return
+        nomen = COORDINATE_NOMENCLATURE.get(self.current_regime, COORDINATE_NOMENCLATURE.get(REGIME_LEGACY, {}))
         if idx == 0:  # Estándar PyPrinting (P0 en (0,0), red en (startX, startY))
-            self.lbl_p0_off_x.setText("startX Red (µm):")
-            self.lbl_p0_off_y.setText("startY Red (µm):")
+            self.lbl_p0_off_x.setText(nomen.get("grid_gen_start_x", "startX Red (µm):"))
+            self.lbl_p0_off_y.setText(nomen.get("grid_gen_start_y", "startY Red (µm):"))
             self.lbl_p0_off_x.setVisible(True); self.spin_p0_off_x.setVisible(True)
             self.lbl_p0_off_y.setVisible(True); self.spin_p0_off_y.setVisible(True)
-            self.spin_p0_off_x.setToolTip("Posición X de inicio de la primera partícula de la red respecto a P0 (0,0).")
-            self.spin_p0_off_y.setToolTip("Posición Y de inicio de la primera partícula de la red respecto a P0 (0,0).")
+            self.spin_p0_off_x.setToolTip(f"Posición {nomen.get('grid_plot_bottom', 'X')} de inicio de la red respecto a P0 (0,0).")
+            self.spin_p0_off_y.setToolTip(f"Posición {nomen.get('grid_plot_left', 'Y')} de inicio de la red respecto a P0 (0,0).")
         elif idx == 1:  # Offset exterior
-            self.lbl_p0_off_x.setText("Offset Δx (µm):")
-            self.lbl_p0_off_y.setText("Offset Δy (µm):")
+            self.lbl_p0_off_x.setText(nomen.get("grid_gen_delta_x", "Offset Δx (µm):"))
+            self.lbl_p0_off_y.setText(nomen.get("grid_gen_delta_y", "Offset Δy (µm):"))
             self.lbl_p0_off_x.setVisible(True); self.spin_p0_off_x.setVisible(True)
             self.lbl_p0_off_y.setVisible(True); self.spin_p0_off_y.setVisible(True)
         elif idx in (2, 3):  # Centro geométrico o Primer nodo
             self.lbl_p0_off_x.setVisible(False); self.spin_p0_off_x.setVisible(False)
             self.lbl_p0_off_y.setVisible(False); self.spin_p0_off_y.setVisible(False)
         elif idx == 4:  # Coordenadas personalizadas
-            self.lbl_p0_off_x.setText("P0 X (µm):")
-            self.lbl_p0_off_y.setText("P0 Y (µm):")
+            self.lbl_p0_off_x.setText(nomen.get("grid_gen_p0_x", "P0 X (µm):"))
+            self.lbl_p0_off_y.setText(nomen.get("grid_gen_p0_y", "P0 Y (µm):"))
             self.lbl_p0_off_x.setVisible(True); self.spin_p0_off_x.setVisible(True)
             self.lbl_p0_off_y.setVisible(True); self.spin_p0_off_y.setVisible(True)
-        self._on_params_changed()
 
-    def _on_geom_type_changed(self, idx: int):
+    def _update_geom_labels(self, idx: int):
+        if not hasattr(self, "lbl_dim1") or not hasattr(self, "lbl_dim2"):
+            return
+        nomen = COORDINATE_NOMENCLATURE.get(self.current_regime, COORDINATE_NOMENCLATURE.get(REGIME_LEGACY, {}))
         if idx == 0:  # Hexágono por apotema
             self.lbl_dim1.setText("Apotema ap (µm):")
             self.lbl_dim2.setVisible(False); self.spin_dim2.setVisible(False)
@@ -845,8 +935,8 @@ class GridGeneratorWindow(QMainWindow):
             self.lbl_dim1.setText("Radio R (µm):")
             self.lbl_dim2.setVisible(False); self.spin_dim2.setVisible(False)
         elif idx == 3:  # Rectángulo
-            self.lbl_dim1.setText("Ancho Lx (µm):")
-            self.lbl_dim2.setText("Alto Ly (µm):")
+            self.lbl_dim1.setText(nomen.get("grid_gen_dim_lx", "Ancho Lx (µm):"))
+            self.lbl_dim2.setText(nomen.get("grid_gen_dim_ly", "Alto Ly (µm):"))
             self.lbl_dim2.setVisible(True); self.spin_dim2.setVisible(True)
         elif idx == 4:  # Anillo
             self.lbl_dim1.setText("Radio Int R_in (µm):")
@@ -856,10 +946,16 @@ class GridGeneratorWindow(QMainWindow):
             self.lbl_dim1.setText("Lado L (µm):")
             self.lbl_dim2.setVisible(False); self.spin_dim2.setVisible(False)
         elif idx == 6:  # Celdas Nx x Ny
-            self.lbl_dim1.setText("Celdas Nx:")
-            self.lbl_dim2.setText("Celdas Ny:")
+            self.lbl_dim1.setText(nomen.get("grid_gen_cells_nx", "Celdas Nx:"))
+            self.lbl_dim2.setText(nomen.get("grid_gen_cells_ny", "Celdas Ny:"))
             self.lbl_dim2.setVisible(True); self.spin_dim2.setVisible(True)
 
+    def _on_p0_mode_changed(self, idx: int):
+        self._update_p0_labels(idx)
+        self._on_params_changed()
+
+    def _on_geom_type_changed(self, idx: int):
+        self._update_geom_labels(idx)
         self._on_params_changed()
 
     def _apply_preset(self, idx: int):
@@ -1169,7 +1265,15 @@ class GridGeneratorWindow(QMainWindow):
         supp_txt = f" | ⚠️ Excluidos por d_min: {suppressed}" if suppressed > 0 else ""
         self.lbl_stats_total.setText(f"N Total: {total}{anc_txt}{supp_txt}")
         self.lbl_stats_mat.setText(f"Mat 1: {stats.get('mat1', 0)} | Mat 2: {stats.get('mat2', 0)} | Mat 3: {stats.get('mat3', 0)}")
-        self.lbl_stats_dims.setText(f"Dim: {stats.get('width_um', 0.0):.2f} × {stats.get('height_um', 0.0):.2f} µm")
+        
+        w = stats.get('width_um', 0.0)
+        h = stats.get('height_um', 0.0)
+        if self.current_regime == REGIME_LASER_REF:
+            self.lbl_stats_dims.setText(f"Dim: {w:.2f} (Horiz) × {h:.2f} (Vert) µm")
+        elif self.current_regime == REGIME_SAMPLE_REF:
+            self.lbl_stats_dims.setText(f"Dim: {w:.2f} (Muestra X) × {h:.2f} (Muestra Y) µm")
+        else:
+            self.lbl_stats_dims.setText(f"Dim: {w:.2f} × {h:.2f} µm")
 
         if view_mode in (2, 3, 4):
             t_mat = view_mode - 1
@@ -1225,7 +1329,7 @@ class GridGeneratorWindow(QMainWindow):
             ty = [shift_y + r_out, shift_y - r_in, shift_y - r_in, shift_y + r_out]
             self.plot_widget.plot(tx, ty, pen=pen)
 
-    # ── Exportadores ──────────────────────────────────────────────────────────
+    # ── Exportadores y Carga Directa ──────────────────────────────────────────
     def _export_single(self):
         if not self._current_result or not self._current_result.get("nodes"):
             QMessageBox.warning(self, "Aviso", "No hay nodos generados para exportar.")
@@ -1234,10 +1338,11 @@ class GridGeneratorWindow(QMainWindow):
         default_name = f"{self.batch_name_edit.text().strip() or 'Lattice_Grid'}.txt"
         file_path, _ = QFileDialog.getSaveFileName(self, "Exportar Grilla para PyPrinting", default_name, "Archivos de Grilla (*.txt)")
         if file_path:
-            CrystalGridExporter.export_single_txt(file_path, self._current_result, include_anchor=True)
+            CrystalGridExporter.export_single_txt(file_path, self._current_result, include_anchor=True, regime=self.current_regime)
             QMessageBox.information(
                 self, "Exportación Exitosa",
                 f"✅ <b>Grilla exportada exitosamente:</b><br><code>{file_path}</code><br><br>"
+                f"Régimen de Coordenadas: <b>{self.current_regime}</b><br>"
                 f"Contiene <b>{self._current_result['stats']['total']}</b> partículas "
                 f"(incluyendo Partícula Ancla P0 si fue habilitada)."
             )
@@ -1250,11 +1355,12 @@ class GridGeneratorWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta para Paquete Multi-Paso")
         if folder:
             prefix = self.batch_name_edit.text().strip() or "Lattice_Recipe"
-            files = CrystalGridExporter.export_multipass_package(folder, prefix, self._current_result)
+            files = CrystalGridExporter.export_multipass_package(folder, prefix, self._current_result, regime=self.current_regime)
             files_txt = "<br>".join([f"• <code>{os.path.basename(p)}</code>" for p in files.values()])
             QMessageBox.information(
                 self, "Paquete Multi-Paso Generado",
                 f"📦 <b>Paquete de recetas para nanofabricación secuencial generado en:</b><br><code>{folder}</code><br><br>"
+                f"Régimen de Coordenadas: <b>{self.current_regime}</b><br>"
                 f"<b>Archivos creados:</b><br>{files_txt}<br><br>"
                 f"<i>Cada capa incluye la Partícula Ancla P0 en el nodo 0 para permitir cuadratura sub-nanométrica.</i>"
             )
@@ -1268,6 +1374,78 @@ class GridGeneratorWindow(QMainWindow):
             exporter.parameters()['width'] = 1920
             exporter.export(file_path)
             QMessageBox.information(self, "Gráfico Exportado", f"🖼️ Imagen PNG guardada en:\n{file_path}")
+
+    def _load_into_printing(self):
+        """Carga la grilla directamente en Measurements sin requerir guardado de archivo."""
+        if not self._current_result or not self._current_result.get("nodes"):
+            QMessageBox.warning(self, "Aviso", "No hay nodos generados para cargar en Measurements.")
+            return
+
+        nodes = self._current_result.get("nodes", [])
+        anchor = self._current_result.get("anchor")
+        pts = ([anchor] if (anchor and self.composer.anchor_config.enabled) else []) + nodes
+        if not pts:
+            return
+
+        N = len(pts)
+        datos = np.zeros((3, N))
+        for i, p in enumerate(pts):
+            datos[0, i] = p["x"]
+            datos[1, i] = p["y"]
+            datos[2, i] = 0.0
+
+        # Emitir señal para observadores externos
+        self.gridGeneratedSignal.emit(self._current_result)
+
+        # Detectar frontend de Measurements en jerarquía
+        loaded = False
+        target_meas = None
+
+        p = self.parent()
+        if p is not None:
+            if hasattr(p, "interactive_grid") and hasattr(p, "grid_plot"):
+                target_meas = p
+            elif hasattr(p, "printingWidget") and hasattr(p.printingWidget, "interactive_grid"):
+                target_meas = p.printingWidget
+
+        if target_meas is not None:
+            try:
+                target_meas.grid_plot(datos)
+                if hasattr(target_meas, "particulasSignal"):
+                    target_meas.particulasSignal.emit(N)
+                if hasattr(target_meas, "grid_name"):
+                    target_meas.grid_name = self.batch_name_edit.text().strip() or "2D_Lattice"
+                if hasattr(target_meas, "NPevents"):
+                    target_meas.NPevents.setText(f"0/{N} (0.0%)")
+                if hasattr(target_meas, "NPsuccess"):
+                    target_meas.NPsuccess.setText(f"0/{N} (0.0%)")
+                loaded = True
+            except Exception as e:
+                print(f"[GridGenerator] Error transfiriendo a Measurements: {e}")
+
+        if loaded:
+            QMessageBox.information(
+                self, "Grilla Cargada en Measurements",
+                f"🚀 <b>¡Grilla transferida exitosamente a Measurements!</b><br><br>"
+                f"Se cargaron <b>{N}</b> partículas directamente en la memoria del módulo de impresión.<br>"
+                f"Régimen de Coordenadas: <b>{self.current_regime}</b><br>"
+                f"La visualización en <code>InteractiveGridWidget</code> está 100% sincronizada con este visor 2D."
+            )
+        else:
+            QMessageBox.information(
+                self, "Grilla Generada",
+                f"✅ <b>Grilla generada ({N} partículas).</b><br><br>"
+                f"Se emitió la señal interna <code>gridGeneratedSignal</code>.<br>"
+                f"Para guardarla en disco use <i>'💾 Exportar .txt Unificado'</i> y cárguela con <i>'Load grid'</i> en Measurements."
+            )
+
+    def closeEvent(self, event):
+        """Limpia el listener de régimen al cerrar la ventana para evitar fugas de memoria."""
+        try:
+            unregister_regime_listener(self.on_regime_changed)
+        except Exception:
+            pass
+        super().closeEvent(event)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

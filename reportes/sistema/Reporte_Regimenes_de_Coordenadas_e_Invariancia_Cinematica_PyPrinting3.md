@@ -249,6 +249,18 @@ Esto garantiza que cualquier lote procesado en el futuro conserve su trazabilida
 - Se incorporó la sección **Kinematics / Coordinate Regime** en el tablero principal de hardware.
 - Cuenta con un desplegable interactivo y un indicador de descripción dinámico (`lbl_kin_description`) sincronizado bidireccionalmente con el resto de la aplicación.
 
+### 5.6 Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py` y `core/lattice_generator.py`)
+- **Isomorfismo Visual 1:1 con Printing**:
+  - La visualización en el lienzo gráfico 2D del Diseñador adopta exactamente la misma convención cartesiana (`invertY(False)`, `invertX(False)`) que `InteractiveGridWidget` en `measurements.py`.
+  - Lo que el operador diseña en pantalla coincide geométricamente 1:1 con lo que se proyecta en la previsualización del módulo de impresión y en la imagen en vivo de la cámara.
+- **Conmutador de Régimen Integrado (`combo_regime`)**:
+  - Selector desplegable en la barra superior conectado bidireccionalmente al Event Bus global.
+  - Al cambiar de régimen, se actualizan al instante las etiquetas de los ejes (`X (Horiz) [µm]` / `Y (Vert) [µm]`), las etiquetas de offset afín (`Offset X/Y`), los parámetros de partida de la Partícula Ancla $P_0$ (`startX/startY`) y las dimensiones de la figura contenedora.
+- **Acción Rápida de Carga Directa (1-Click)**:
+  - Botón `🚀 Cargar Directo en Measurements` que emite `gridGeneratedSignal` y transfiere instantáneamente la matriz de coordenadas $(3, N)$ a la memoria activa del módulo de impresión sin requerir pasos manuales de guardado ni selección de archivos.
+- **Encabezados Metrológicos Comentados en `.txt` y `.json`**:
+  - `CrystalGridExporter.export_single_txt` y `export_multipass_package` inyectan encabezados comentados `# Coordinate Regime: ...` (compatibles 100% con `np.loadtxt`), registrando además el régimen y significado de columnas en `recipe_metadata.json`.
+
 ---
 
 ## 6. Validación Metrológica y Suite de Pruebas
@@ -256,13 +268,15 @@ Esto garantiza que cualquier lote procesado en el futuro conserve su trazabilida
 Para validar exhaustivamente la implementación y certificar que no existe ninguna regresión cinemática ni fallo de comunicación inter-proceso, se implementó una suite de pruebas automatizadas dedicadas:
 
 ### 6.1 Suite `tests/test_coordinate_nomenclature_sync.py`
-Contiene 4 pruebas unitarias de extremo a extremo:
-1. `test_nanopositioning_nomenclature_switch`: Comprueba que las etiquetas de `Go To` y `Read Position` cambian exactamente de acuerdo a la matriz canónica y que los movimientos `move_abs` siguen dirigidos a los canales correctos de la platina PI.
-2. `test_confocal_psf_mode_and_labels_switch`: Verifica que el cambio de régimen actualiza los textos del desplegable `PSF_mode` y que la señal emitida hacia el backend conserva la clave canónica `"x/y"`.
-3. `test_interactive_grid_axes_switch`: Valida la conmutación en tiempo real de las etiquetas `bottom` y `left` del widget de graficación de grillas.
-4. `test_measurements_grid_info_regime_persistence`: Valida que `grid_info.txt` exporta correctamente el régimen activo y el mapeo de ejes físicos.
+Contiene 6 pruebas unitarias de extremo a extremo:
+1. `test_nanopositioning_nomenclature_switching`: Comprueba que las etiquetas de `Go To` y `Read Position` cambian exactamente de acuerdo a la matriz canónica y que los movimientos `move_abs` siguen dirigidos a los canales correctos de la platina PI.
+2. `test_confocal_nomenclature_switching`: Verifica que el cambio de régimen actualiza los textos del desplegable `PSF_mode` y que la señal emitida hacia el backend conserva la clave canónica `"x/y"`.
+3. `test_measurements_nomenclature_switching`: Valida la conmutación en tiempo real de las etiquetas `bottom` y `left` del widget de graficación de grillas (`InteractiveGridWidget`) y campos de impresión.
+4. `test_metadata_records_physical_and_regime_coordinates`: Valida que `grid_info.txt` exporta correctamente el régimen activo y el mapeo de ejes físicos.
+5. `test_grid_generator_nomenclature_switching`: Comprueba la reactividad del Diseñador 2D (`grid_generator.py`), verificando la actualización inmediata de ejes del gráfico 2D, offsets y ancla $P_0$.
+6. `test_grid_generator_export_compatibility`: Certifica que las recetas `.txt` generadas por `CrystalGridExporter` contienen el encabezado comentado `# Coordinate Regime: ...` y que `np.loadtxt` las carga de forma limpia e impecable sin advertencias ni errores.
 
-**Resultado**: **4/4 PASS (100%)**.
+**Resultado**: **6/6 PASS (100%)**.
 
 ### 6.2 Suite Integral del Sistema (`tests/run_all_diagnostics.py`)
 Se ejecutó la batería completa de 56 diagnósticos del sistema:

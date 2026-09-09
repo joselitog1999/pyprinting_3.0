@@ -36,6 +36,7 @@ El **Diseñador Universal de Redes Cristalinas 2D** (`grid_generator.py`) es una
 3. **Restricción Física de Exclusión ($d_{\text{min}}$)**: Filtra automáticamente partículas candidatas cuya distancia mutua sea inferior al límite de resolución óptica o de coalescencia térmica ($< d_{\text{min}}$).
 4. **Soporte Multimaterial y Multi-Paso**: Permite asignar hasta 3 tipos de nanopartículas (e.g., Au 60nm, Ag 40nm, Au 100nm) a diferentes átomos de la celda o capas sobrepuestas, exportando automáticamente recetas multi-paso con registro espacial estricto mediante **Partícula Ancla ($P_0$)**.
 5. **Optimización de Trayectoria de Platina PI**: Algoritmos de ordenamiento (Snake, Espiral, TSP) para minimizar la fatiga mecánica y la acumulación de deriva durante la impresión.
+6. **Sincronización Multirégimen e Isomorfismo Visual 1:1 con Printing**: Conectado bidireccionalmente al Event Bus de regímenes de coordenadas (`Laser Ref`, `Legacy`, `Sample Ref`). La visualización en el lienzo gráfico 2D coincide geométricamente 1:1 con la previsualización del printing (`InteractiveGridWidget` en `measurements.py`), adaptando dinámicamente las etiquetas de los ejes, parámetros afines, metadatos comentados `#` y permitiendo carga directa 1-click en memoria.
 
 ---
 
@@ -45,32 +46,33 @@ El **Diseñador Universal de Redes Cristalinas 2D** (`grid_generator.py`) es una
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ 📐 Diseñador Universal de Redes Cristalinas 2D — PyPrinting 3.0                                            │
 ├──────────────────────────────────────────────┬──────────────────────────────────────────────────────────────┤
-│ 📚 Presets: [ 🐝 Grafeno en Disco (R=5.0) ▼] │ 🌐 Vista: [ ✨ Rutas Separadas ▼] [x] Trayectoria [ ] Núm    │
+│ 📚 Presets: [ 🐝 Grafeno en Disco (R=5.0) ▼] │ 👁️ Vista: [✨ Rutas Sep▼] [x]Tray [ ]Núm | 🌐 Rég:[Laser Ref▼]│
 ├──────────────────────────────────────────────┼──────────────────────────────────────────────────────────────┤
 │ ┌── Pestañas de Parámetros ────────────────┐ │ ┌── Lienzo Gráfico 2D Interactivo (pyqtgraph) ─────────────┐ │
-│ │ 🔹 Capas │ 📐 Geometría │ ⭐ Ancla │ 🛤️ │ │ │  y(µm) ▲                                                │ │
-│ ├──────────────────────────────────────────┤ │ │        │            · · · · ·                              │ │
-│ │ Capa: [ Capa 1 (Primaria) ▼] [x] Habilit │ │ │        │          ·   🟢     ·                             │ │
-│ │ Red:  [ Grafeno / Honeycomb (2 átom)  ▼] │ │ │        │        ·   🔷   🔷   ·                            │ │
-│ │ a₁ (a): [ 2.500] µm  a₂ (b): [ 2.500] µm │ │ │        │       ·  🟢   P0⭐  🟢 ·                          │ │
-│ │ Ángulo γ: [ 60.0]°  ══════[●]═══════════ │ │ │        │        ·   🔷   🔷   ·                            │ │
-│ │ Distancia Mínima d_min: [ 0.500] µm      │ │ │        │          ·   🟢     ·                             │ │
-│ │ ┌── ⚛️ Base Atómica (2 átomos) ────────┐ │ │ │        │            · · · · ·                              │ │
-│ │ │ A1: u:[ 0.000] v:[ 0.000] [Mat 1-Au▼]│ │ │ │   ───┼─────────────────────────────────────────► x(µm) │ │
-│ │ │ A2: u:[ 0.333] v:[ 0.667] [Mat 2-Ag▼]│ │ │ │      -8             0              +8                     │ │
+│ │ 🔹 Capas │ 📐 Geometría │ ⭐ Ancla │ 🛤️ │ │ │  Y (Vert) [µm] ▲                                          │ │
+│ ├──────────────────────────────────────────┤ │ │                 │            · · · · ·                     │ │
+│ │ Capa: [ Capa 1 (Primaria) ▼] [x] Habilit │ │ │                 │          ·   🟢     ·                    │ │
+│ │ Red:  [ Grafeno / Honeycomb (2 átom)  ▼] │ │ │                 │        ·   🔷   🔷   ·                   │ │
+│ │ a₁ (a): [ 2.500] µm  a₂ (b): [ 2.500] µm │ │ │                 │       ·  🟢   P0⭐  🟢 ·                 │ │
+│ │ Ángulo γ: [ 60.0]°  ══════[●]═══════════ │ │ │                 │        ·   🔷   🔷   ·                   │ │
+│ │ Distancia Mínima d_min: [ 0.500] µm      │ │ │                 │          ·   🟢     ·                    │ │
+│ │ ┌── ⚛️ Base Atómica (2 átomos) ────────┐ │ │ │                 │            · · · · ·                     │ │
+│ │ │ A1: u:[ 0.000] v:[ 0.000] [Mat 1-Au▼]│ │ │ │   ────────────┼────────────────────────► X (Horiz) [µm]   │ │
+│ │ │ A2: u:[ 0.333] v:[ 0.667] [Mat 2-Ag▼]│ │ │ │               -8             0              +8            │ │
 │ │ │ [ ➕ Añadir ] [ ➖ Quitar ] [ 🔄 Res ] │ │ │ └────────────────────────────────────────────────────────┘ │
 │ │ └──────────────────────────────────────┘ │ │ ┌── Telemetría Dinámica de Impresión ──────────────────────┐ │
-│ │ Rotación θ: [ 0.0]°  OffX:[0.0] OffY:[0] │ │ │ N Total: 34 (con Ancla P0⭐) | Mat 1: 17 | Mat 2: 17       │ │
-│ └──────────────────────────────────────────┘ │ │ Dim: 8.66 × 8.66 µm | Trayectoria Paso 1: 0.284 mm (17 n) │ │
+│ │ Rot: [ 0.0]° OffX(Horiz):[0] OffY(Vert):0│ │ │ N Total: 34 (con Ancla P0⭐) | Mat 1: 17 | Mat 2: 17       │ │
+│ └──────────────────────────────────────────┘ │ │ Dim: 8.66 (Horiz) × 8.66 (Vert) µm | Trayectoria: 0.284 mm│ │
 │ ┌── 🔬 Celda Unidad de la Capa Activa ─────┐ │ └────────────────────────────────────────────────────────────┘ │
 │ │    a2 ▲ 🟢 A2 (0.33, 0.67)               │                                                                │
 │ │       │  · · · · · ┐                     │                                                                │
 │ │       └──🔷 A1 ────► a1  (a=2.5, b=2.5)  │                                                                │
 │ └──────────────────────────────────────────┘                                                                │
-│ ┌── 💾 Exportación ────────────────────────┐                                                                │
+│ ┌── 💾 Exportación y Acciones ─────────────┐                                                                │
 │ │ Lote: [ Graphene_Bicolor_Disk_R5um     ] │                                                                │
 │ │ [ 💾 Exportar .txt Unificado           ] │                                                                │
 │ │ [ 📦 Paquete Receta Multi-Paso (P0)    ] │                                                                │
+│ │ [ 🚀 Cargar Directo en Measurements    ] │                                                                │
 │ └──────────────────────────────────────────┘                                                                │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -170,12 +172,22 @@ Muestra un gráfico en tiempo real de la celda unidad microscópica:
   - `🔷 Solo Paso 1 (Material 1)`: Resalta únicamente los nodos del Material 1 y atenúa el resto.
   - `🟢 Solo Paso 2 (Material 2)`: Resalta únicamente los nodos del Material 2.
   - `🌸 Solo Paso 3 (Material 3)`: Resalta únicamente los nodos del Material 3.
+- **Selector de Régimen de Coordenadas (`🌐 Régimen`)**:
+  - Conmutador desplegable sincronizado bidireccionalmente con el Event Bus global de `core/nanopositioning.py`.
+  - `Laser Ref (Eje 1=Vert, Eje 2=Horiz)`: Eje horizontal $X_{\text{Horiz}}$, eje vertical $Y_{\text{Vert}}$. Coincide 1:1 con la percepción de la cámara del microscopio.
+  - `Legacy (PyPrinting 2 — x=1, y=2)`: Ejes históricos de PyPrinting 2 ($X, Y$).
+  - `Sample Ref (Eje 1=Vert, Eje 2=-Horiz)`: Ejes físicos orientados respecto a la muestra ($X_{\text{Muestra}}, Y_{\text{Muestra}}$).
+- **Isomorfismo Visual 1:1 con Printing (`InteractiveGridWidget`)**:
+  - La visualización 2D utiliza pyqtgraph en configuración cartesiana estándar (`invertY(False)`, `invertX(False)`), exactamente igual a `InteractiveGridWidget` en `measurements.py`.
+  - Lo que el operador observa en el Diseñador 2D coincide geométricamente 1:1 con lo que se verá en la previsualización del módulo de impresión y en el desplazamiento físico de la platina PI.
+- **Acción Rápida `🚀 Cargar Directo en Measurements`**:
+  - Emite la señal `gridGeneratedSignal` y transfiere instantáneamente la matriz de coordenadas $(3, N)$ a la memoria activa de `measurements.py` sin pasos manuales intermedios.
 - **Casilla `🔢 Números de Orden`**: Muestra sobre cada nodo su número de secuencia de impresión $(1, 2, 3\dots)$.
 - **Barra de Telemetría Dinámica**:
   - `N Total`: Cantidad total de partículas a imprimir (indicando si incluye $P_0$ ⭐).
   - `⚠️ Excluidos por d_min`: Muestra cuántas partículas candidatas fueron descartadas por violar el límite de distancia mínima.
   - `Mat 1 / Mat 2 / Mat 3`: Conteo individual por material.
-  - `Dim X × Y`: Dimensiones físicas del cristal en $\mu\text{m}$.
+  - `Dim X × Y`: Dimensiones físicas del cristal adaptadas al régimen (ej. `Dim: 8.66 (Horiz) × 8.66 (Vert) µm`).
   - `Longitud de Trayectoria`: Distancia total de desplazamiento de la platina en $\text{mm}$.
 
 ---
@@ -227,20 +239,18 @@ El parámetro **`Distancia Mínima d_min (µm)`**:
 
 ### 6.1 Archivo `.txt` Unificado para `Measurements`
 
-El botón **`💾 Exportar .txt Unificado`** genera un archivo de texto estándar de dos columnas delimitadas por tabulador listo para cargar en la ventana de **Measurements** (`modules/measurements.py`):
+El botón **`💾 Exportar .txt Unificado`** genera un archivo de texto estándar de dos columnas delimitadas por tabulador listo para cargar en la ventana de **Measurements** (`modules/measurements.py`), incorporando un encabezado metrológico auto-documentado con comentarios `#` (100% compatible con `np.loadtxt`):
 
 ```text
-# PyPrinting 3.0 - Grid Recipe File
-# Batch: Graphene_Lattice_Disk_R5um
-# Date: 2026-09-01 10:30:00
-# Total targets: 25
-# X_um	Y_um
--4.3300	-2.5000
--4.3300	0.0000
--2.1650	-3.7500
--2.1650	-1.2500
-0.0000	-2.5000
+# PyPrinting 3.0 - 2D Crystal Grid Generator
+# Coordinate Regime: laser_ref
+# Column 1 (Horizontal): X (Horiz) [µm]
+# Column 2 (Vertical): Y (Vert) [µm]
+# Total Particles: 25 (Anchor P0 included: True)
 0.0000	0.0000
+2.0000	2.0000
+2.0000	4.5000
+4.1650	3.2500
 ...
 ```
 

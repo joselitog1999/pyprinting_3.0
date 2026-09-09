@@ -11,7 +11,12 @@ Verifica que:
 5. Los comandos físicos a hardware sigan siendo 100% invariantes (Eje 1, Eje 2, Eje 3 en pi.MOV).
 """
 import sys
+import os
 import unittest
+
+# Asegurar raíz en sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from PyQt6.QtWidgets import QApplication
 
 # Asegurar QApplication
@@ -136,6 +141,66 @@ class TestCoordinateNomenclatureSync(unittest.TestCase):
         self.assertEqual(info_dict.get("Stage Axis 1 (um):"), "42.500")
         self.assertEqual(info_dict.get("Stage Axis 2 (um):"), "68.200")
         self.assertEqual(info_dict.get("Stage Axis 3 (um):"), "10.050")
+
+    def test_grid_generator_nomenclature_switching(self):
+        from grid_generator import GridGeneratorWindow
+        gwin = GridGeneratorWindow()
+
+        # 1. Legacy
+        set_global_coordinate_regime(REGIME_LEGACY)
+        self.assertEqual(gwin.plot_widget.getAxis("bottom").labelText, "X (µm)")
+        self.assertEqual(gwin.plot_widget.getAxis("left").labelText, "Y (µm)")
+        self.assertEqual(gwin.lbl_off_x.text(), "Offset X (µm):")
+        self.assertEqual(gwin.lbl_off_y.text(), "Offset Y (µm):")
+        self.assertEqual(gwin.lbl_p0_off_x.text(), "startX Red (µm):")
+
+        # 2. Laser Ref
+        set_global_coordinate_regime(REGIME_LASER_REF)
+        self.assertEqual(gwin.plot_widget.getAxis("bottom").labelText, "X (Horiz) [µm]")
+        self.assertEqual(gwin.plot_widget.getAxis("left").labelText, "Y (Vert) [µm]")
+        self.assertEqual(gwin.lbl_off_x.text(), "Offset X (Horiz) [µm]:")
+        self.assertEqual(gwin.lbl_off_y.text(), "Offset Y (Vert) [µm]:")
+        self.assertEqual(gwin.lbl_p0_off_x.text(), "startX (Horiz) [µm]:")
+
+        # 3. Sample Ref
+        set_global_coordinate_regime(REGIME_SAMPLE_REF)
+        self.assertEqual(gwin.plot_widget.getAxis("bottom").labelText, "X (Muestra) [µm]")
+        self.assertEqual(gwin.plot_widget.getAxis("left").labelText, "Y (Muestra) [µm]")
+        self.assertEqual(gwin.lbl_off_x.text(), "Offset X (Muestra) [µm]:")
+        self.assertEqual(gwin.lbl_off_y.text(), "Offset Y (Muestra) [µm]:")
+        self.assertEqual(gwin.lbl_p0_off_x.text(), "startX (Muestra) [µm]:")
+
+        gwin.close()
+
+    def test_grid_generator_export_compatibility(self):
+        import tempfile
+        import os
+        import numpy as np
+        from core.lattice_generator import CrystalGridComposer, CrystalGridExporter
+
+        composer = CrystalGridComposer()
+        result = composer.generate()
+
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            # Exportar con régimen laser_ref
+            CrystalGridExporter.export_single_txt(temp_path, result, include_anchor=True, regime=REGIME_LASER_REF)
+
+            # Verificar que el archivo contenga encabezado comentado
+            with open(temp_path, "r", encoding="utf-8") as rf:
+                content = rf.read()
+            self.assertIn("# Coordinate Regime: laser_ref", content)
+            self.assertIn("# Column 1 (Horizontal): X (Horiz) [µm]", content)
+
+            # Verificar que np.loadtxt (utilizado por Measurements Backend) lo lea perfectamente
+            datos = np.loadtxt(temp_path, unpack=True)
+            self.assertEqual(datos.shape[0], 2)
+            self.assertGreater(datos.shape[1], 0)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
 
 if __name__ == "__main__":
