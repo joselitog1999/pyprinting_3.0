@@ -34,16 +34,139 @@ from config import (pi, PI_AXES,
 
 # ══════════════════════════════════════════════════════════════════════════════
 _ACTIVE_FRONTENDS: list[Frontend] = []
+_REGIME_LISTENERS: list = []
+
+COORDINATE_NOMENCLATURE = {
+    REGIME_LEGACY: {
+        "axis1_name": "x",
+        "axis1_display": "<b>x =</b>",
+        "axis1_goto": "X [µm]",
+        "axis1_tooltip": "Legacy: Eje físico 1 de platina PI (desplazamiento vertical en cámara)",
+        "axis2_name": "y",
+        "axis2_display": "<b>y =</b>",
+        "axis2_goto": "Y [µm]",
+        "axis2_tooltip": "Legacy: Eje físico 2 de platina PI (desplazamiento horizontal en cámara)",
+        "axis3_name": "z",
+        "axis3_display": "<b>z =</b>",
+        "axis3_goto": "Z [µm]",
+        "axis3_tooltip": "Eje axial Z de platina PI (enfoque)",
+        "step_xy_label": "step x/y [µm]",
+        # Confocal
+        "confocal_psf_modes": ["x/y", "x/z", "y/x", "y/z"],
+        "confocal_range_1": "Range x (µm)",
+        "confocal_range_2": "Range y (µm)",
+        "confocal_pixels_1": "Pixels x",
+        "confocal_pixels_2": "Pixels y",
+        "confocal_plot_left": "X",
+        "confocal_plot_bottom": "Y",
+        # Printing
+        "print_ref_1": "X ref:",
+        "print_ref_2": "Y ref:",
+        "print_dist_np": "Dist NP (µm)",
+        "print_dist_col": "Dist col (µm)",
+        "print_shift_1": "Shift X (µm)",
+        "print_shift_2": "Shift Y (µm)",
+        "print_dimer_1": "dx (µm)",
+        "print_dimer_2": "dy (µm)",
+        "grid_plot_left": "Y (µm)",
+        "grid_plot_bottom": "X (µm)",
+    },
+    REGIME_LASER_REF: {
+        "axis1_name": "Y (Vert)",
+        "axis1_display": "<b>Y (Vert) =</b>",
+        "axis1_goto": "Y (Vert) [µm]",
+        "axis1_tooltip": "Laser Ref: Eje vertical del spot láser en cámara (Eje físico 1 de platina PI)",
+        "axis2_name": "X (Horiz)",
+        "axis2_display": "<b>X (Horiz) =</b>",
+        "axis2_goto": "X (Horiz) [µm]",
+        "axis2_tooltip": "Laser Ref: Eje horizontal del spot láser en cámara (Eje físico 2 de platina PI)",
+        "axis3_name": "Z",
+        "axis3_display": "<b>Z =</b>",
+        "axis3_goto": "Z [µm]",
+        "axis3_tooltip": "Eje axial Z de platina PI (enfoque)",
+        "step_xy_label": "step laser [µm]",
+        # Confocal
+        "confocal_psf_modes": ["Y/X (Vert/Horiz)", "Y/Z (Vert/Z)", "X/Y (Horiz/Vert)", "X/Z (Horiz/Z)"],
+        "confocal_range_1": "Range Y (Vert) [µm]",
+        "confocal_range_2": "Range X (Horiz) [µm]",
+        "confocal_pixels_1": "Pixels Y (Vert)",
+        "confocal_pixels_2": "Pixels X (Horiz)",
+        "confocal_plot_left": "Y (Vert)",
+        "confocal_plot_bottom": "X (Horiz)",
+        # Printing
+        "print_ref_1": "Y ref (Vert):",
+        "print_ref_2": "X ref (Horiz):",
+        "print_dist_np": "Paso Y (Col) [µm]",
+        "print_dist_col": "Dist X (Cols) [µm]",
+        "print_shift_1": "Shift Y (Vert) [µm]",
+        "print_shift_2": "Shift X (Horiz) [µm]",
+        "print_dimer_1": "dy (Vert) [µm]",
+        "print_dimer_2": "dx (Horiz) [µm]",
+        "grid_plot_left": "Y (Vert) [µm]",
+        "grid_plot_bottom": "X (Horiz) [µm]",
+    },
+    REGIME_SAMPLE_REF: {
+        "axis1_name": "Y (Muestra)",
+        "axis1_display": "<b>Y (Muestra) =</b>",
+        "axis1_goto": "Y (Muestra) [µm]",
+        "axis1_tooltip": "Sample Ref: Eje vertical de objetos en muestra (Eje físico 1 de platina PI)",
+        "axis2_name": "X (Muestra)",
+        "axis2_display": "<b>X (Muestra) =</b>",
+        "axis2_goto": "X (Muestra) [µm]",
+        "axis2_tooltip": "Sample Ref: Eje horizontal de objetos en muestra (Eje físico 2 de platina PI)",
+        "axis3_name": "Z",
+        "axis3_display": "<b>Z =</b>",
+        "axis3_goto": "Z [µm]",
+        "axis3_tooltip": "Eje axial Z de platina PI (enfoque)",
+        "step_xy_label": "step sample [µm]",
+        # Confocal
+        "confocal_psf_modes": ["Y/X (Muestra)", "Y/Z (Muestra)", "X/Y (Muestra)", "X/Z (Muestra)"],
+        "confocal_range_1": "Range Y (Muestra) [µm]",
+        "confocal_range_2": "Range X (Muestra) [µm]",
+        "confocal_pixels_1": "Pixels Y",
+        "confocal_pixels_2": "Pixels X",
+        "confocal_plot_left": "Y (Muestra)",
+        "confocal_plot_bottom": "X (Muestra)",
+        # Printing
+        "print_ref_1": "Y ref (Muestra):",
+        "print_ref_2": "X ref (Muestra):",
+        "print_dist_np": "Paso Y (Col) [µm]",
+        "print_dist_col": "Dist X (Cols) [µm]",
+        "print_shift_1": "Shift Y [µm]",
+        "print_shift_2": "Shift X [µm]",
+        "print_dimer_1": "dy [µm]",
+        "print_dimer_2": "dx [µm]",
+        "grid_plot_left": "Y (Muestra) [µm]",
+        "grid_plot_bottom": "X (Muestra) [µm]",
+    }
+}
+
+
+def register_regime_listener(callback):
+    """Registra una función callback(regime: str) que se invocará al cambiar el régimen global."""
+    if callback not in _REGIME_LISTENERS:
+        _REGIME_LISTENERS.append(callback)
+
+
+def unregister_regime_listener(callback):
+    """Desregistra una función callback de régimen."""
+    if callback in _REGIME_LISTENERS:
+        _REGIME_LISTENERS.remove(callback)
 
 
 def set_global_coordinate_regime(regime: str):
-    """Sincroniza el régimen de coordenadas en todas las instancias activas de Nanopositioning."""
+    """Sincroniza el régimen de coordenadas en todas las instancias activas y módulos suscritos."""
     if regime not in (REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF):
         return
     for fe in list(_ACTIVE_FRONTENDS):
         try:
             if fe.current_regime != regime:
                 fe.set_regime(regime)
+        except Exception:
+            pass
+    for cb in list(_REGIME_LISTENERS):
+        try:
+            cb(regime)
         except Exception:
             pass
 
@@ -197,7 +320,31 @@ class Frontend(QFrame):
         self._update_button_labels_and_tooltips()
         self.regime_changed_signal.emit(regime)
 
+    def _update_nomenclature_labels(self):
+        nomen = COORDINATE_NOMENCLATURE.get(self.current_regime, COORDINATE_NOMENCLATURE[REGIME_LEGACY])
+        if hasattr(self, "xname"):
+            self.xname.setText(nomen["axis1_display"])
+            self.xname.setToolTip(nomen["axis1_tooltip"])
+        if hasattr(self, "yname"):
+            self.yname.setText(nomen["axis2_display"])
+            self.yname.setToolTip(nomen["axis2_tooltip"])
+        if hasattr(self, "zname"):
+            self.zname.setText(nomen["axis3_display"])
+            self.zname.setToolTip(nomen["axis3_tooltip"])
+        if hasattr(self, "lbl_goto_1"):
+            self.lbl_goto_1.setText(nomen["axis1_goto"])
+            self.lbl_goto_1.setToolTip(nomen["axis1_tooltip"])
+        if hasattr(self, "lbl_goto_2"):
+            self.lbl_goto_2.setText(nomen["axis2_goto"])
+            self.lbl_goto_2.setToolTip(nomen["axis2_tooltip"])
+        if hasattr(self, "lbl_goto_3"):
+            self.lbl_goto_3.setText(nomen["axis3_goto"])
+            self.lbl_goto_3.setToolTip(nomen["axis3_tooltip"])
+        if hasattr(self, "lbl_step_xy"):
+            self.lbl_step_xy.setText(nomen["step_xy_label"])
+
     def _update_button_labels_and_tooltips(self):
+        self._update_nomenclature_labels()
         if self.current_regime == REGIME_LEGACY:
             self.xUpButton.setText("x ►")
             self.xUp2Button.setText("x ►►")
@@ -379,7 +526,8 @@ class Frontend(QFrame):
         lo.addWidget(self.yUpButton,       1, 5, 3, 1)
         lo.addWidget(self.yDownButton,     3, 5, 2, 1)
         lo.addWidget(self.yDown2Button,    4, 5, 2, 1)
-        lo.addWidget(QLabel("step x/y [µm]"), 4, 6, 1, 2)
+        self.lbl_step_xy = QLabel("step x/y [µm]")
+        lo.addWidget(self.lbl_step_xy,     4, 6, 1, 2)
         lo.addWidget(self.StepEdit,        5, 6)
         lo.addWidget(self.zname,           4, 0)
         lo.addWidget(self.zLabel,          4, 1)
@@ -387,7 +535,8 @@ class Frontend(QFrame):
         lo.addWidget(self.zUpButton,       1, 9, 3, 1)
         lo.addWidget(self.zDownButton,     3, 9, 2, 1)
         lo.addWidget(self.zDown2Button,    4, 9, 2, 1)
-        lo.addWidget(QLabel("step z [µm]"), 4, 10)
+        self.lbl_step_z = QLabel("step z [µm]")
+        lo.addWidget(self.lbl_step_z,      4, 10)
         lo.addWidget(self.zStepEdit,       5, 10)
         lo.addWidget(self.set_ref_button,  5, 0)
 
@@ -395,9 +544,12 @@ class Frontend(QFrame):
         gotoWidget = QWidget()
         lo2 = QGridLayout(gotoWidget)
 
-        lo2.addWidget(QLabel("X [µm]"), 1, 1)
-        lo2.addWidget(QLabel("Y [µm]"), 2, 1)
-        lo2.addWidget(QLabel("Z [µm]"), 3, 1)
+        self.lbl_goto_1 = QLabel("X [µm]")
+        self.lbl_goto_2 = QLabel("Y [µm]")
+        self.lbl_goto_3 = QLabel("Z [µm]")
+        lo2.addWidget(self.lbl_goto_1, 1, 1)
+        lo2.addWidget(self.lbl_goto_2, 2, 1)
+        lo2.addWidget(self.lbl_goto_3, 3, 1)
 
         self.xgotoLabel = QLineEdit(str(int(DEFAULT_NANO_GOTO_X) if DEFAULT_NANO_GOTO_X.is_integer() else DEFAULT_NANO_GOTO_X))
         self.ygotoLabel = QLineEdit(str(int(DEFAULT_NANO_GOTO_Y) if DEFAULT_NANO_GOTO_Y.is_integer() else DEFAULT_NANO_GOTO_Y))

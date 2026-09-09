@@ -87,6 +87,11 @@ class HardwareDashboardWidget(QFrame):
 
         self._setup_ui()
         self._connect_signals()
+        try:
+            from core.nanopositioning import register_regime_listener
+            register_regime_listener(self.on_global_regime_changed)
+        except Exception:
+            pass
         hardware_manager.rescan_hardware()
 
     def _setup_ui(self):
@@ -260,6 +265,25 @@ class HardwareDashboardWidget(QFrame):
             self._update_kin_description(regime)
             set_global_coordinate_regime(regime)
             hardware_manager.log("INFO", f"[Kinematics] Régimen de coordenadas de platina conmutado a: {regime}")
+
+    def on_global_regime_changed(self, regime: str):
+        if hasattr(self, "combo_kin_regime"):
+            for i in range(self.combo_kin_regime.count()):
+                if self.combo_kin_regime.itemData(i) == regime:
+                    if self.combo_kin_regime.currentIndex() != i:
+                        self.combo_kin_regime.blockSignals(True)
+                        self.combo_kin_regime.setCurrentIndex(i)
+                        self.combo_kin_regime.blockSignals(False)
+                        self._update_kin_description(regime)
+                    break
+
+    def closeEvent(self, event):
+        try:
+            from core.nanopositioning import unregister_regime_listener
+            unregister_regime_listener(self.on_global_regime_changed)
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def _connect_signals(self):
         hardware_manager.deviceStatusSignal.connect(self._on_device_status_update)

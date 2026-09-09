@@ -47,7 +47,8 @@ from config import (pi, SAFE_MODE, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE,
                     DEFAULT_PRINTING_TMAX, DEFAULT_PRINTING_STEPS_BEFORE,
                     DEFAULT_PRINTING_STEPS_AFTER, DEFAULT_PRINTING_AUTOFOCUS_EVERY,
                     DEFAULT_PRINTING_SHIFT_X, DEFAULT_PRINTING_SHIFT_Y,
-                    DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY)
+                    DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY,
+                    DEFAULT_COORDINATE_REGIME, REGIME_LEGACY)
 from nidaq  import (open_shutter, close_shutter,
                     up_flipper, down_flipper)
 
@@ -164,7 +165,15 @@ class InteractiveGridWidget(QFrame):
         llo.addWidget(badge("Timeout", "#f38ba8"))
         llo.addStretch()
 
-        vlo.addWidget(leg)
+    def on_regime_changed(self, regime: str):
+        try:
+            from core.nanopositioning import COORDINATE_NOMENCLATURE
+            nomen = COORDINATE_NOMENCLATURE.get(regime, COORDINATE_NOMENCLATURE[REGIME_LEGACY])
+            label_style = {"color": "#cdd6f4", "font-size": "9pt"}
+            self.plot.setLabel("left", nomen["grid_plot_left"], **label_style)
+            self.plot.setLabel("bottom", nomen["grid_plot_bottom"], **label_style)
+        except Exception:
+            pass
 
     def set_grid(self, datos: np.ndarray):
         """Carga las coordenadas de la grilla datos[2, N] y reconstruye la visualización en coordenadas cartesianas (X horizontal, Y vertical)."""
@@ -580,8 +589,46 @@ class Frontend(QFrame):
     def __init__(self, mode: str = "printing", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mode = mode
+        self.current_regime = DEFAULT_COORDINATE_REGIME
         self._node_results: dict[int, str] = {}
         self._setup_gui()
+        try:
+            from core.nanopositioning import register_regime_listener
+            register_regime_listener(self.on_regime_changed)
+            self.on_regime_changed(self.current_regime)
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        try:
+            from core.nanopositioning import unregister_regime_listener
+            unregister_regime_listener(self.on_regime_changed)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    @pyqtSlot(str)
+    def on_regime_changed(self, regime: str):
+        self.current_regime = regime
+        try:
+            from core.nanopositioning import COORDINATE_NOMENCLATURE
+            nomen = COORDINATE_NOMENCLATURE.get(regime, COORDINATE_NOMENCLATURE[REGIME_LEGACY])
+            if hasattr(self, "lbl_ref_x"):
+                self.lbl_ref_x.setText(nomen["print_ref_1"])
+                self.lbl_ref_y.setText(nomen["print_ref_2"])
+            if hasattr(self, "lbl_dist_np"):
+                self.lbl_dist_np.setText(nomen["print_dist_np"])
+                self.lbl_dist_col.setText(nomen["print_dist_col"])
+            if hasattr(self, "lbl_shift_x"):
+                self.lbl_shift_x.setText(nomen["print_shift_1"])
+                self.lbl_shift_y.setText(nomen["print_shift_2"])
+            if hasattr(self, "lbl_dx") and hasattr(self, "lbl_dy"):
+                self.lbl_dx.setText(nomen["print_dimer_1"])
+                self.lbl_dy.setText(nomen["print_dimer_2"])
+            if hasattr(self, "interactive_grid"):
+                self.interactive_grid.on_regime_changed(regime)
+        except Exception:
+            pass
 
     def _setup_gui(self):
         label = "Printing" if self.mode == "printing" else "Dimers"
@@ -810,19 +857,26 @@ class Frontend(QFrame):
 
         # Reference widget
         refW = QWidget(); rlo = QGridLayout(refW)
-        rlo.addWidget(QLabel("X ref:"),    0, 0); rlo.addWidget(self.xrefLabel, 0, 1)
-        rlo.addWidget(QLabel("Y ref:"),    1, 0); rlo.addWidget(self.yrefLabel, 1, 1)
-        rlo.addWidget(QLabel("Z ref:"),    2, 0); rlo.addWidget(self.zrefLabel, 2, 1)
+        self.lbl_ref_x = QLabel("X ref:")
+        self.lbl_ref_y = QLabel("Y ref:")
+        self.lbl_ref_z = QLabel("Z ref:")
+        rlo.addWidget(self.lbl_ref_x,      0, 0); rlo.addWidget(self.xrefLabel, 0, 1)
+        rlo.addWidget(self.lbl_ref_y,      1, 0); rlo.addWidget(self.yrefLabel, 1, 1)
+        rlo.addWidget(self.lbl_ref_z,      2, 0); rlo.addWidget(self.zrefLabel, 2, 1)
         rlo.addWidget(self.set_ref_button, 3, 0, 1, 2)
         rlo.addWidget(self.go_ref_button,  4, 0)
         rlo.addWidget(self.btn_reset_all,  4, 1)
 
         # Grid create widget
         gcW = QWidget(); glo = QGridLayout(gcW)
-        glo.addWidget(QLabel("NPs/col"),        0, 0); glo.addWidget(self.number_files,    0, 1)
-        glo.addWidget(QLabel("Columns"),         1, 0); glo.addWidget(self.number_columns,  1, 1)
-        glo.addWidget(QLabel("Dist NP (µm)"),   2, 0); glo.addWidget(self.distance_files,  2, 1)
-        glo.addWidget(QLabel("Dist col (µm)"),  3, 0); glo.addWidget(self.distance_columns,3, 1)
+        self.lbl_nps_col  = QLabel("NPs/col")
+        self.lbl_cols     = QLabel("Columns")
+        self.lbl_dist_np  = QLabel("Dist NP (µm)")
+        self.lbl_dist_col = QLabel("Dist col (µm)")
+        glo.addWidget(self.lbl_nps_col,  0, 0); glo.addWidget(self.number_files,    0, 1)
+        glo.addWidget(self.lbl_cols,     1, 0); glo.addWidget(self.number_columns,  1, 1)
+        glo.addWidget(self.lbl_dist_np,  2, 0); glo.addWidget(self.distance_files,  2, 1)
+        glo.addWidget(self.lbl_dist_col, 3, 0); glo.addWidget(self.distance_columns,3, 1)
         glo.addWidget(self.grid_create_button,  4, 0, 1, 2)
         glo.addWidget(self.cargar_archivo_button,5,0, 1, 2)
         glo.addWidget(self.btn_open_grid_generator, 6, 0, 1, 2)
@@ -912,11 +966,15 @@ class Frontend(QFrame):
         # Focus shift & Drift correction widget
         fsW = QWidget(); flo = QGridLayout(fsW)
         flo.addWidget(QLabel("Autofocus every N"), 0, 0); flo.addWidget(self.autofocEdit, 0, 1)
-        flo.addWidget(QLabel("Shift x (µm)"),      1, 0); flo.addWidget(self.shiftxEdit,  1, 1)
-        flo.addWidget(QLabel("Shift y (µm)"),      2, 0); flo.addWidget(self.shiftyEdit,  2, 1)
+        self.lbl_shift_x = QLabel("Shift x (µm)")
+        self.lbl_shift_y = QLabel("Shift y (µm)")
+        flo.addWidget(self.lbl_shift_x, 1, 0); flo.addWidget(self.shiftxEdit,  1, 1)
+        flo.addWidget(self.lbl_shift_y, 2, 0); flo.addWidget(self.shiftyEdit,  2, 1)
         if self.mode == "dimers":
-            flo.addWidget(QLabel("dx (µm)"), 3, 0); flo.addWidget(self.dxEdit, 3, 1)
-            flo.addWidget(QLabel("dy (µm)"), 4, 0); flo.addWidget(self.dyEdit, 4, 1)
+            self.lbl_dx = QLabel("dx (µm)")
+            self.lbl_dy = QLabel("dy (µm)")
+            flo.addWidget(self.lbl_dx, 3, 0); flo.addWidget(self.dxEdit, 3, 1)
+            flo.addWidget(self.lbl_dy, 4, 0); flo.addWidget(self.dyEdit, 4, 1)
 
         # Drift correction controls
         self.drift_check = QCheckBox("Drift Correction (P0)?")
@@ -1194,7 +1252,12 @@ class Frontend(QFrame):
         self.parametersSignal.emit(color, stop_mode, params, scanbool, postscanbool)
 
     def _get_grid_info(self):
-        info = [["Laser:", self.grid_laser.currentText()],
+        regime = getattr(self, "current_regime", DEFAULT_COORDINATE_REGIME)
+        info = [["Coordinate Regime:", regime],
+                ["Stage Axis 1 (um):", self.xrefLabel.text()],
+                ["Stage Axis 2 (um):", self.yrefLabel.text()],
+                ["Stage Axis 3 (um):", self.zrefLabel.text()],
+                ["Laser:", self.grid_laser.currentText()],
                 ["Criterio Parada:", self.stop_mode_combo.currentText()],
                 ["Umbral:", self.umbralEdit.text()],
                 ["Umbral Absoluto:", self.umbral_absEdit.text()],

@@ -38,7 +38,8 @@ from config  import (pi, SHUTTERS, DEFAULT_DATA_PATH,
                      DEFAULT_CONFOCAL_RANGE_X, DEFAULT_CONFOCAL_RANGE_Y,
                      DEFAULT_CONFOCAL_PIXELS_X, DEFAULT_CONFOCAL_PIXELS_Y,
                      DEFAULT_CONFOCAL_FILTER_PERCENT,
-                     DEFAULT_DRIFT_TOTAL_MINUTES, DEFAULT_DRIFT_REFRESH_SECONDS)
+                     DEFAULT_DRIFT_TOTAL_MINUTES, DEFAULT_DRIFT_REFRESH_SECONDS,
+                     DEFAULT_COORDINATE_REGIME, REGIME_LEGACY)
 from nidaq   import (open_shutter, close_shutter, channels_photodiodos,
                      channels_triggers, PD_CHANNELS, PD_CHANS_LIST,
                      RATE_MULTICHANNEL)
@@ -75,8 +76,46 @@ class Frontend(QFrame):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.current_regime = DEFAULT_COORDINATE_REGIME
         self._setup_gui()
         self._set_threshold_filter()
+        from core.nanopositioning import register_regime_listener
+        register_regime_listener(self.on_regime_changed)
+        self.on_regime_changed(self.current_regime)
+
+    def closeEvent(self, event):
+        from core.nanopositioning import unregister_regime_listener
+        unregister_regime_listener(self.on_regime_changed)
+        super().closeEvent(event)
+
+    @pyqtSlot(str)
+    def on_regime_changed(self, regime: str):
+        self.current_regime = regime
+        from core.nanopositioning import COORDINATE_NOMENCLATURE
+        nomen = COORDINATE_NOMENCLATURE.get(regime, COORDINATE_NOMENCLATURE[REGIME_LEGACY])
+
+        # 1. Actualizar combo PSF_mode sin alterar el modo canónico seleccionado
+        if hasattr(self, "PSF_mode"):
+            curr_idx = self.PSF_mode.currentIndex()
+            self.PSF_mode.blockSignals(True)
+            self.PSF_mode.clear()
+            self.PSF_mode.addItems(nomen["confocal_psf_modes"])
+            if 0 <= curr_idx < self.PSF_mode.count():
+                self.PSF_mode.setCurrentIndex(curr_idx)
+            self.PSF_mode.blockSignals(False)
+
+        # 2. Actualizar etiquetas de rangos y píxeles
+        if hasattr(self, "lbl_range_x"):
+            self.lbl_range_x.setText(nomen["confocal_range_1"])
+            self.lbl_range_y.setText(nomen["confocal_range_2"])
+            self.lbl_pixels_x.setText(nomen["confocal_pixels_1"])
+            self.lbl_pixels_y.setText(nomen["confocal_pixels_2"])
+
+        # 3. Actualizar ejes del Viewbox
+        if hasattr(self, "xlabel") and hasattr(self, "ylabel"):
+            labelStyle = {"color": "#FFF", "font-size": "8pt"}
+            self.xlabel.setLabel(nomen["confocal_plot_left"], units="um", **labelStyle)
+            self.ylabel.setLabel(nomen["confocal_plot_bottom"], units="um", **labelStyle)
 
     # ── Acciones ──────────────────────────────────────────────────────────────
 
@@ -116,7 +155,9 @@ class Frontend(QFrame):
         self.scan_modeSignal.emit(self.scan_mode.currentText())
 
     def _set_psf_mode(self):
-        self.psf_modeSignal.emit(self.PSF_mode.currentText())
+        idx = self.PSF_mode.currentIndex()
+        canonical = PSF_MODES[idx] if 0 <= idx < len(PSF_MODES) else PSF_MODES[0]
+        self.psf_modeSignal.emit(canonical)
 
     def _set_image_scan(self):
         self.image_scanSignal.emit(self.scan_image.currentText())
@@ -213,10 +254,14 @@ class Frontend(QFrame):
         sg.addWidget(self.scan_laser,      1, 1)
         sg.addWidget(self.scan_mode,       1, 2)
         sg.addWidget(self.PSF_mode,        1, 3)
-        sg.addWidget(QLabel("Range x (µm)"),  3, 1); sg.addWidget(self.scanrangeEdit,   3, 2)
-        sg.addWidget(QLabel("Range y (µm)"),  4, 1); sg.addWidget(self.scanrangeEdit_y, 4, 2)
-        sg.addWidget(QLabel("Pixels x"),      5, 1); sg.addWidget(self.NxEdit,          5, 2)
-        sg.addWidget(QLabel("Pixels y"),      6, 1); sg.addWidget(self.NyEdit,          6, 2)
+        self.lbl_range_x  = QLabel("Range x (µm)")
+        self.lbl_range_y  = QLabel("Range y (µm)")
+        self.lbl_pixels_x = QLabel("Pixels x")
+        self.lbl_pixels_y = QLabel("Pixels y")
+        sg.addWidget(self.lbl_range_x,   3, 1); sg.addWidget(self.scanrangeEdit,   3, 2)
+        sg.addWidget(self.lbl_range_y,   4, 1); sg.addWidget(self.scanrangeEdit_y, 4, 2)
+        sg.addWidget(self.lbl_pixels_x,  5, 1); sg.addWidget(self.NxEdit,          5, 2)
+        sg.addWidget(self.lbl_pixels_y,  6, 1); sg.addWidget(self.NyEdit,          6, 2)
         sg.addWidget(self.scanButton,         7, 1)
         sg.addWidget(self.scanButtonstop,     7, 2)
         sg.addWidget(self.saveimageButton,    7, 3)

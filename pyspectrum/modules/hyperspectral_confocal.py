@@ -56,6 +56,32 @@ class Frontend(QtWidgets.QFrame):
             }
         """)
         self._setup_ui()
+        try:
+            from core.nanopositioning import register_regime_listener
+            from config import DEFAULT_COORDINATE_REGIME
+            register_regime_listener(self.on_regime_changed)
+            self.on_regime_changed(DEFAULT_COORDINATE_REGIME)
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        try:
+            from core.nanopositioning import unregister_regime_listener
+            unregister_regime_listener(self.on_regime_changed)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    def on_regime_changed(self, regime: str):
+        try:
+            from core.nanopositioning import COORDINATE_NOMENCLATURE
+            from config import REGIME_LEGACY
+            nomen = COORDINATE_NOMENCLATURE.get(regime, COORDINATE_NOMENCLATURE[REGIME_LEGACY])
+            if hasattr(self, "lbl_x_range"):
+                self.lbl_x_range.setText(f"{nomen['axis1_name']} Min / Max (µm):")
+                self.lbl_y_range.setText(f"{nomen['axis2_name']} Min / Max (µm):")
+        except Exception:
+            pass
 
     def _setup_ui(self):
         main_layout = QtWidgets.QHBoxLayout(self)
@@ -73,7 +99,8 @@ class Frontend(QtWidgets.QFrame):
         grid = QtWidgets.QGridLayout()
         grid.setSpacing(6)
 
-        grid.addWidget(QtWidgets.QLabel("X Min / Max (µm):"), 0, 0)
+        self.lbl_x_range = QtWidgets.QLabel("X Min / Max (µm):")
+        grid.addWidget(self.lbl_x_range, 0, 0)
         self.edit_xmin = QtWidgets.QLineEdit("45.0")
         self.edit_xmax = QtWidgets.QLineEdit("55.0")
         self.edit_xmin.setToolTip("Límite inferior en X (µm) para la grilla de escaneo piezoeléctrico. Rango: 0.0 a 100.0 µm.")
@@ -82,7 +109,8 @@ class Frontend(QtWidgets.QFrame):
         hlo_x.addWidget(self.edit_xmin); hlo_x.addWidget(self.edit_xmax)
         grid.addLayout(hlo_x, 0, 1)
 
-        grid.addWidget(QtWidgets.QLabel("Y Min / Max (µm):"), 1, 0)
+        self.lbl_y_range = QtWidgets.QLabel("Y Min / Max (µm):")
+        grid.addWidget(self.lbl_y_range, 1, 0)
         self.edit_ymin = QtWidgets.QLineEdit("45.0")
         self.edit_ymax = QtWidgets.QLineEdit("55.0")
         self.edit_ymin.setToolTip("Límite inferior en Y (µm) para la grilla de escaneo piezoeléctrico. Rango: 0.0 a 100.0 µm.")
