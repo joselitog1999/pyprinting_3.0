@@ -146,7 +146,7 @@ Una capacidad única de la arquitectura del Shamrock 500i con ranura motorizada 
 1. **Configuración Óptica**:
    - Red en posición de **Espejo / Orden Cero ($\lambda = 0\ \text{nm}$)**: Los espejos colimador y focalizador actúan como un relé óptico 1:1 sin dispersión cromática.
    - Rendija abierta a su máximo mecánico: **$w_{\text{rendija}} = 2500\ \mu\text{m}$ ($2.5\ \text{mm}$)**.
-2. **Proyección en el Sensor iXon3 EMCCD ($1002 \times 1002\text{ px}$, píxel $13\ \mu\text{m}$)**:
+2. **Proyección en el Sensor iXon3 EMCCD ($1004 \times 1002\text{ px}$, píxel $13\ \mu\text{m}$)**:
    - Ancho activo proyectado en píxeles del detector:
      $$N_{\text{px, ancho}} = \frac{2500\ \mu\text{m}}{13\ \mu\text{m/px}} \approx 192\ \text{píxeles}$$
    - Alto activo proyectado (limitado por la altura física del sensor de $13.03\text{ mm}$):

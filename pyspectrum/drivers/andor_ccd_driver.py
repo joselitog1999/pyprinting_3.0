@@ -46,7 +46,7 @@ class _MockAndorCCD:
 
     def __init__(self, temperature: float = -65.0, fan_mode: str = "low"):
         self._lock = threading.RLock()
-        self.width = 1002
+        self.width = 1004
         self.height = 1002
         self._target_temp = float(temperature)
         self._current_temp = 18.5
@@ -61,7 +61,7 @@ class _MockAndorCCD:
         self._track_height = 40
         self._acquiring = False
         self._frame_count = 0
-        print("[Andor CCD SIM] Cámara Andor virtual inicializada (1002x1002, iXon3 EMCCD).")
+        print("[Andor CCD SIM] Cámara Andor virtual inicializada (1004x1002, iXon3 EMCCD DU8285).")
 
     def is_hardware_alive(self) -> bool:
         return False
@@ -164,7 +164,7 @@ class _MockAndorCCD:
     def get_single_track(self) -> Tuple[int, int]:
         return (self._track_center, self._track_height)
 
-    def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1002, vstart: int = 1, vend: int = 1002) -> int:
+    def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1004, vstart: int = 1, vend: int = 1002) -> int:
         return DRV_SUCCESS
 
     def start_acquisition(self) -> int:
@@ -406,7 +406,7 @@ class AndorCCDDriver:
             return DRV_NOT_INITIALIZED
         return self._dll.AbortAcquisition()
 
-    def get_most_recent_image(self, width: int = 1002, height: int = 1002) -> np.ndarray:
+    def get_most_recent_image(self, width: int = 1004, height: int = 1002) -> np.ndarray:
         if not self._connected or self._dll is None:
             return np.zeros((height, width), dtype=np.float32)
         try:
@@ -453,7 +453,7 @@ class AndorCCDDriver:
     def get_single_track(self) -> Tuple[int, int]:
         return (self._track_center, self._track_height)
 
-    def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1002, vstart: int = 1, vend: int = 1002) -> int:
+    def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1004, vstart: int = 1, vend: int = 1002) -> int:
         """Configura la subárea y binning para modo imagen 2D."""
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
@@ -465,7 +465,7 @@ class AndorCCDDriver:
             print(f"[Andor CCD] Error SetImage: {e}")
             return DRV_NOT_INITIALIZED
 
-    def get_1d_spectrum(self, width: int = 1002) -> np.ndarray:
+    def get_1d_spectrum(self, width: int = 1004) -> np.ndarray:
         """Lee el espectro 1D binnizado en hardware (FVB o Single Track) con ruido cobrado una sola vez."""
         if not self._connected or self._dll is None:
             return np.zeros(width, dtype=np.float32)
@@ -482,11 +482,11 @@ class AndorCCDDriver:
         except Exception:
             return np.zeros(width, dtype=np.float32)
 
-    def get_acquired_data(self, size: int = 1002) -> np.ndarray:
+    def get_acquired_data(self, width: int = 1004, height: int = 1002) -> np.ndarray:
         """Retorna datos adquiridos según el modo activo (1D para FVB/Track, 2D para Image)."""
         if self._read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
-            return self.get_1d_spectrum(size)
-        return self.get_most_recent_image(size, size)
+            return self.get_1d_spectrum(width)
+        return self.get_most_recent_image(width, height)
 
 
 # ── Instancia Singleton y Fábrica ─────────────────────────────────────────────

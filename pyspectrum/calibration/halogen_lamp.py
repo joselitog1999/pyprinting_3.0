@@ -14,7 +14,7 @@ class HalogenLampCalibration:
     """Gestiona el perfil de referencia de la lámpara halógena para normalización espectral."""
 
     def __init__(self, data_path: Optional[str] = None):
-        self.wave_lamp = np.linspace(450, 950, 1002)
+        self.wave_lamp = np.linspace(450, 950, 1004)
         self.spec_lamp = np.ones_like(self.wave_lamp)
         self.is_loaded = False
         self._load_reference_data(data_path)
@@ -41,7 +41,7 @@ class HalogenLampCalibration:
 
     def _generate_synthetic_profile(self):
         """Genera una curva de lámpara halógena de 3000 K (cuerpo negro)."""
-        self.wave_lamp = np.linspace(450, 950, 1002)
+        self.wave_lamp = np.linspace(450, 950, 1004)
         # Ley de Planck aproximada en el rango visible/NIR
         wl_m = self.wave_lamp * 1e-9
         T = 3000.0  # Kelvin
@@ -63,7 +63,7 @@ class HalogenLampCalibration:
 
 # ── Algoritmo Step and Glue ───────────────────────────────────────────────────
 
-def glue_steps(wave_py: np.ndarray, spec_py: np.ndarray, number_pixel: int = 1002, grade: float = 2.0) -> Tuple[np.ndarray, np.ndarray]:
+def glue_steps(wave_py: np.ndarray, spec_py: np.ndarray, number_pixel: int = 1004, grade: float = 2.0) -> Tuple[np.ndarray, np.ndarray]:
     """
     Une múltiples espectros discretos obtenidos por Step & Glue con solapamiento ponderado suave.
     """

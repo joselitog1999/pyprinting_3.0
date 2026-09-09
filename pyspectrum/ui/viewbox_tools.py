@@ -32,7 +32,7 @@ class LinePlotWidget(QtWidgets.QWidget):
 class GridOverlay:
     """Retícula y círculos concéntricos para centrado de haz en el ViewBox."""
 
-    def __init__(self, view_box, shape=(1002, 1002)):
+    def __init__(self, view_box, shape=(1004, 1002)):
         self.showed = False
         self.vb = view_box
         self.shape = shape

@@ -634,7 +634,7 @@ class StaticRamanBackend(QtCore.QObject):
             self.spectrometer.ShamrockSetGrating(DEVICE, grating_idx)
             self.spectrometer.ShamrockSetWavelength(DEVICE, wl_center)
             # Leer el vector de calibración actualizado del detector
-            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
             self.statusMessageSignal.emit(f"Espectrógrafo configurado: Red {grating_idx}, Centro {wl_center:.2f} nm")
         except Exception as e:
             self.statusMessageSignal.emit(f"Error al configurar espectrógrafo: {e}")
@@ -646,9 +646,9 @@ class StaticRamanBackend(QtCore.QObject):
             # Obtener eje de calibración actual (cúbico de EEPROM si está activo)
             from config import SHAMROCK_USE_FACTORY_EEPROM
             if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
+                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
             else:
-                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
 
             if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
                 spec1d = self.camera.get_1d_spectrum()
@@ -680,9 +680,9 @@ class StaticRamanBackend(QtCore.QObject):
         try:
             from config import SHAMROCK_USE_FACTORY_EEPROM
             if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
+                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
             else:
-                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
 
             if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
                 spec1d = self.camera.get_1d_spectrum()
@@ -701,7 +701,7 @@ class StaticRamanBackend(QtCore.QObject):
     def save_spectrum_to_file(self, filepath: str, metadata: dict):
         """Exporta el espectro con cabecera detallada de metadatos experimentales."""
         try:
-            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
             frame = self.camera.get_most_recent_image()
             spec1d = np.mean(frame[480:520, :], axis=0) if frame.shape[0] >= 520 else np.mean(frame, axis=0)
 

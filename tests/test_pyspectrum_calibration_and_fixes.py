@@ -163,7 +163,7 @@ class TestCalibrationDock(unittest.TestCase):
 
     def test_slit_gaussian_fit(self):
         """Genera un perfil gaussiano artificial con centro en X = 512.4 px y verifica recuperación."""
-        x = np.arange(1002, dtype=np.float64)
+        x = np.arange(1004, dtype=np.float64)
         true_center = 512.4
         true_sigma = 4.2
         y = 5000.0 * np.exp(-((x - true_center) ** 2) / (2.0 * true_sigma ** 2)) + 120.0

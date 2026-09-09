@@ -222,7 +222,7 @@ class Frontend(QtWidgets.QFrame):
         self.imv.ui.histogram.setFixedWidth(110)
         self.imv.ui.roiBtn.hide()
         self.imv.ui.menuBtn.hide()
-        self.grid_overlay = GridOverlay(self.imv.getView(), (1002, 1002))
+        self.grid_overlay = GridOverlay(self.imv.getView(), (1004, 1002))
 
         # Línea ROI horizontal para integración espectral
         self.roi_line = pg.LinearRegionItem(values=[480, 520], orientation=pg.LinearRegionItem.Horizontal,
@@ -231,7 +231,7 @@ class Frontend(QtWidgets.QFrame):
         self.imv.getView().addItem(self.roi_line)
 
         # Retícula central / Líneas guía de ranura (Slit Overlay)
-        self.crosshair_v = pg.InfiniteLine(pos=501, angle=90, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
+        self.crosshair_v = pg.InfiniteLine(pos=502, angle=90, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
         self.crosshair_h = pg.InfiniteLine(pos=501, angle=0, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
         self.crosshair_v.hide()
         self.crosshair_h.hide()
@@ -384,7 +384,7 @@ class Backend(QtCore.QObject):
     def __init__(self, camera=None, parent=None):
         super().__init__(parent)
         self.camera = camera or get_andor_ccd()
-        self.wavelength_axis = np.linspace(400, 700, 1002)
+        self.wavelength_axis = np.linspace(400, 700, 1004)
 
         self.read_mode = ANDOR_DEFAULT_READ_MODE
         self.flip_y = ANDOR_FLIP_Y_IMAGE

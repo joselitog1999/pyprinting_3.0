@@ -1,24 +1,24 @@
 # ==============================================================================
 # PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
 # Laboratorio de Nanofotónica — UNSAM
-# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD (1002x1002, 13 µm)
-# Última actualización: 2026-09-09 09:15:00
+# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD DU8285 (1004x1002, 13 µm)
+# Última actualización: 2026-09-09 15:30:00
 # Operador / Responsable: Ingeniero de Instrumentación y Software
 # ==============================================================================
 
 [METADATOS]
 instrumento = Andor Shamrock SR-500i
-detector = Andor iXon3 EMCCD (1002x1002 px, 13.0 µm)
+detector = Andor iXon3 EMCCD DU8285 (1004x1002 px, 13.0 µm)
 tamano_pixel_um = 13.0
-resolucion_horizontal_px = 1002
-fecha_calibracion = 2026-09-09 09:15:00
+resolucion_horizontal_px = 1004
+fecha_calibracion = 2026-09-09 15:30:00
 estado = CALIBRADO_VALIDADO
 
 [GEOMETRIA_SLIT]
 # Ancho nominal calibrado de la ranura de entrada motorizada (µm)
 slit_width_um = 50.0
 # Posición del centroide óptico en Orden Cero (0.0 nm) determinado por ajuste Gaussiano
-slit_center_pixel_x = 501.25
+slit_center_pixel_x = 502.00
 # Ancho a media altura (FWHM) medido en pixeles para ranura de 50 µm
 slit_fwhm_pixels = 4.12
 # Offset de pasos mecánicos para el cero absoluto de la ranura (Shamrock SDK)

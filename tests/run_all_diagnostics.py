@@ -92,7 +92,7 @@ def run_tests():
     cam_ccd = get_andor_ccd()
     ret, temp = cam_ccd.get_temperature()
     frame = cam_ccd.get_most_recent_image()
-    assert_test("Camara Andor CCD", frame.shape == (1002, 1002), f"(Temp: {temp:.1f} °C, Frame: {frame.shape})")
+    assert_test("Camara Andor CCD", frame.shape == (1002, 1004), f"(Temp: {temp:.1f} °C, Frame: {frame.shape})")
 
     # ── 4. Calibración y Procesamiento Espectral ──────────────────────────────
     print("\n4. Calibracion y Cosido Espectral Step & Glue")
@@ -306,7 +306,7 @@ def run_tests():
 
     # 1. Stress de Adquisición y Memoria
     cam_stress = get_andor_ccd(force_mock=True)
-    frames_ok = all(cam_stress.get_most_recent_image().shape == (1002, 1002) for _ in range(25))
+    frames_ok = all(cam_stress.get_most_recent_image().shape == (1002, 1004) for _ in range(25))
     assert_test("PySpectrum Stress Adquisición Rápida (25 frames)", frames_ok)
 
     # 2. Resiliencia de Start/Stop en Rutinas

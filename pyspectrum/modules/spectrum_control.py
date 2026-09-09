@@ -178,7 +178,7 @@ class Frontend(QtWidgets.QFrame):
     @pyqtSlot(float, float, float)
     def update_calibration_display(self, wl_center: float, wl_min: float, wl_max: float):
         span = wl_max - wl_min
-        disp_nm_px = span / 1002.0 if span > 0 else 0.0
+        disp_nm_px = span / 1004.0 if span > 0 else 0.0
         # Dispersión en número de onda cm^-1 por pixel a la longitud de onda central
         if wl_center > 0 and disp_nm_px > 0:
             disp_cm1_px = (1e7 / wl_center**2) * disp_nm_px
@@ -200,7 +200,7 @@ class Backend(QtCore.QObject):
     def __init__(self, spectrometer=None, parent=None):
         super().__init__(parent)
         self.spectrometer = spectrometer or get_shamrock()
-        self.wavelength_axis = np.linspace(400, 700, 1002)
+        self.wavelength_axis = np.linspace(400, 700, 1004)
 
     def make_connection(self, frontend: Frontend):
         frontend.setGratingSignal.connect(self.set_grating)
@@ -285,9 +285,9 @@ class Backend(QtCore.QObject):
         ret, wl_center = self.spectrometer.ShamrockGetWavelength(DEVICE)
         from config import SHAMROCK_USE_FACTORY_EEPROM
         if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-            ret, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
+            ret, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
         else:
-            ret, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+            ret, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
         self.wavelength_axis = wl_arr
         self.calibrationUpdatedSignal.emit(wl_center, float(wl_arr[0]), float(wl_arr[-1]))
         self.wavelengthAxisSignal.emit(wl_arr)

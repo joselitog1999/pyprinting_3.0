@@ -177,7 +177,7 @@ class GrowthKineticsBackend(QtCore.QObject):
         self.t0 = time.time()
 
         self.camera.set_exposure_time(exp_time)
-        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
 
         open_shutter(self.laser_in_use)
         self.timer.setInterval(int(max(50, interval * 1000)))

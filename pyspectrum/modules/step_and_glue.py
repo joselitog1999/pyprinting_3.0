@@ -335,9 +335,9 @@ class Backend(QtCore.QObject):
                 self.spectrometer.ShamrockSetWavelength(DEVICE, wl_c)
                 time.sleep(0.05)
                 if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                    ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1002)
+                    ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
                 else:
-                    ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+                    ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
 
                 if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
                     s_1d = self.camera.get_1d_spectrum()
@@ -356,7 +356,7 @@ class Backend(QtCore.QObject):
             concat_w = np.concatenate(raw_waves)
             concat_s = np.concatenate(raw_specs)
 
-            glued_w, glued_s = glue_steps(concat_w, concat_s, number_pixel=1002, grade=2.0)
+            glued_w, glued_s = glue_steps(concat_w, concat_s, number_pixel=1004, grade=2.0)
 
             # Normalización con lámpara halógena
             norm_w, norm_s = np.array([]), np.array([])

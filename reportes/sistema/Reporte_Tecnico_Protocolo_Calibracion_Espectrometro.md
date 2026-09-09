@@ -66,9 +66,9 @@ El objetivo primario de este procedimiento es garantizar:
   * **Rejilla 2:** $1200\text{ líneas/mm}$, ángulo de blaze $500\text{ nm}$ (Alta resolución Raman, dispersión recíproca lineal $\approx 0.035\text{ nm/px}$).
   * **Rejilla 3:** Espejo plano reflectivo protegido de aluminio (Modo reflexión directa/imagen confocal).
 
-### 2.2. Detector Andor iXon3 EMCCD (Sensor Cuadrado Megapíxel Back-Illuminated)
-* **Arreglo del Sensor:** $1002 \times 1002$ píxeles activos en plano focal.
-* **Tamaño de Píxel:** $13.0\,\mu\text{m} \times 13.0\,\mu\text{m}$ ($100\%$ fill-factor, área fotosensible $\approx 13.03\,\text{mm} \times 13.03\,\text{mm}$).
+### 2.2. Detector Andor iXon3 EMCCD (Sensor Megapíxel Back-Illuminated DU8285_VP)
+* **Arreglo del Sensor:** $1004\ (\text{Horizontal, Dispersión}) \times 1002\ (\text{Vertical, Ranura})$ píxeles activos en plano focal (sensor Texas Instruments TC285).
+* **Tamaño de Píxel:** $13.0\,\mu\text{m} \times 13.0\,\mu\text{m}$ ($100\%$ fill-factor, área fotosensible $\approx 13.05\,\text{mm} \times 13.03\,\text{mm}$).
 * **Canales de Salida y Amplificación:**
   * **Modo EMCCD (Multiplicación por Impacto):** Ganancia $1\times$ a $1000\times$, ruido de lectura efectivo $< 0.1\,\text{e}^-$ (esencial para Anti-Stokes, SERS ultra-diluido y fotón único).
   * **Modo Convencional CCD:** Lectura de ultra-bajo ruido ($\approx 3 - 5\,\text{e}^-$) sin ruido multiplicativo de exceso ($F=1$), óptimo para integración prolongada y alta señal.
@@ -123,7 +123,7 @@ El Orden Cero corresponde a la reflexión especular pura de la red de difracció
   $$I(p) = A \exp\left(-\frac{(p - p_0)^2}{2\sigma^2}\right) + B$$
   $$\text{FWHM} = 2\sqrt{2\ln 2}\,\sigma \approx 2.35482\,\sigma$$
 * Criterio de Aceptación:
-  * El centroide óptico nominal debe situarse en **$p_0 = 501.25 \pm 2.0\text{ px}$** (para sensor de 1002 px).
+  * El centroide óptico nominal debe situarse en **$p_0 = 502.00 \pm 2.0\text{ px}$** (para sensor de 1004 px de dispersión horizontal).
   * El ancho $\text{FWHM}$ para una ranura de $50\,\mu\text{m}$ debe ser de **$4.12 \pm 0.3\text{ px}$** ($50\,\mu\text{m} / 13\,\mu\text{m/px} \times \text{magnificación} \approx 3.85 - 4.2\text{ px}$).
 * Presionar `💾 Guardar Pixel X` para fijar $p_0$ como origen del sistema.
 
@@ -177,7 +177,7 @@ Donde:
 * $d$: Término cúbico de curvatura geométrica de campo.
 
 #### Paso 3.1: Mapeo de Picos Atómicos
-* Con la lámpara Hg-Ar conectada, registrar la posición centroidal de al menos 8 líneas atómicas a lo largo de los 1002 píxeles.
+* Con la lámpara Hg-Ar conectada, registrar la posición centroidal de al menos 8 líneas atómicas a lo largo de los 1004 píxeles horizontales.
 * Resolver el sistema de ecuaciones por mínimos cuadrados ordinarios:
   $$\begin{bmatrix}
   1 & p_1 & p_1^2 & p_1^3 \\
@@ -285,16 +285,16 @@ Para asegurar portabilidad completa, transparencia de auditoría y evitar la cor
 # ==============================================================================
 # PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
 # Laboratorio de Nanofotónica — UNSAM
-# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD (1002x1002, 13 µm)
+# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD DU8285 (1004x1002, 13 µm)
 # Última actualización: 2026-09-09 09:15:00
 # Operador / Responsable: Ingeniero de Instrumentación y Software
 # ==============================================================================
 
 [METADATOS]
 instrumento = Andor Shamrock SR-500i
-detector = Andor iXon3 EMCCD (1002x1002 px, 13.0 µm)
+detector = Andor iXon3 EMCCD DU8285 (1004x1002 px, 13.0 µm)
 tamano_pixel_um = 13.0
-resolucion_horizontal_px = 1002
+resolucion_horizontal_px = 1004
 fecha_calibracion = 2026-09-09 09:15:00
 estado = CALIBRADO_VALIDADO
 
@@ -302,7 +302,7 @@ estado = CALIBRADO_VALIDADO
 # Ancho nominal calibrado de la ranura de entrada motorizada (µm)
 slit_width_um = 50.0
 # Posición del centroide óptico en Orden Cero (0.0 nm) determinado por ajuste Gaussiano
-slit_center_pixel_x = 501.25
+slit_center_pixel_x = 502.00
 # Ancho a media altura (FWHM) medido en pixeles para ranura de 50 µm
 slit_fwhm_pixels = 4.12
 # Offset de pasos mecánicos para el cero absoluto de la ranura (Shamrock SDK)

@@ -509,7 +509,7 @@ class CalibrationBackend(QtCore.QObject):
 
         # Estado de parámetros de calibración
         self.slit_width: float = 50.0
-        self.slit_center_x: float = 501.25
+        self.slit_center_x: float = 502.00
         self.slit_fwhm: float = 4.12
         self.slit_zero_pos: int = 0
         self.grating_offsets: dict[int, int] = {1: 12, 2: -35, 3: 0}
@@ -685,9 +685,9 @@ class CalibrationBackend(QtCore.QObject):
                 elif img is not None:
                     profile = img
                 else:
-                    profile = np.ones(1002, dtype=np.float64) * 100.0
+                    profile = np.ones(1004, dtype=np.float64) * 100.0
             else:
-                profile = np.ones(1002, dtype=np.float64) * 100.0
+                profile = np.ones(1004, dtype=np.float64) * 100.0
 
             x = np.arange(len(profile), dtype=np.float64)
             y = np.array(profile, dtype=np.float64)
@@ -827,9 +827,9 @@ class CalibrationBackend(QtCore.QObject):
 
 [METADATOS]
 instrumento = Andor Shamrock SR-500i
-detector = Andor iXon3 EMCCD (1002x1002 px, 13.0 µm)
+detector = Andor iXon3 EMCCD DU8285 (1004x1002 px, 13.0 µm)
 tamano_pixel_um = 13.0
-resolucion_horizontal_px = 1002
+resolucion_horizontal_px = 1004
 fecha_calibracion = {now_str}
 estado = CALIBRADO_VALIDADO
 

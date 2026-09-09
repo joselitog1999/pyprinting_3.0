@@ -215,7 +215,7 @@ class Backend(QtCore.QObject):
         self.spectrometer = spectrometer or get_shamrock()
         self._scanning = False
         self._datacube = None  # Shape: (Nx, Ny, N_lambda)
-        self.wave_axis = np.linspace(450, 750, 1002)
+        self.wave_axis = np.linspace(450, 750, 1004)
 
         self.scan_timer = QTimer(self)
         self.scan_timer.setInterval(20)
@@ -251,7 +251,7 @@ class Backend(QtCore.QObject):
         self.nx = len(self.xs)
         self.ny = len(self.ys)
 
-        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
         self._datacube = np.zeros((self.nx, self.ny, len(self.wave_axis)), dtype=np.float32)
         self.map_2d = np.zeros((self.nx, self.ny), dtype=np.float32)
 

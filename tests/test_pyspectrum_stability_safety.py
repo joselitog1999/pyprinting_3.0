@@ -60,7 +60,7 @@ class TestPySpectrumStability(unittest.TestCase):
 
     def test_continuous_frame_acquisition_stress(self):
         """Stress testing: adquisición continua de 100 cuadros simulados verificando consistencia y memoria."""
-        frame_shape = (1002, 1002)
+        frame_shape = (1002, 1004)
         means = []
         for i in range(100):
             frame = self.camera.get_most_recent_image()
@@ -154,7 +154,7 @@ class TestPySpectrumStability(unittest.TestCase):
         self.assertEqual(c_be.nx, 3)
         self.assertEqual(c_be.ny, 3)
         self.assertEqual(c_be.total_points, 9)
-        self.assertEqual(c_be._datacube.shape, (3, 3, 1002))
+        self.assertEqual(c_be._datacube.shape, (3, 3, 1004))
         self.assertEqual(c_be.map_2d.shape, (3, 3))
 
         # Simular 3 pasos
@@ -176,15 +176,15 @@ class TestPySpectrumLegacyRoutines(unittest.TestCase):
 
     def test_step_and_glue_sigmoidal_monotonicity(self):
         """Verifica que el cosido espectral histórico (glue_steps) genere un eje monótonamente creciente."""
-        w1 = np.linspace(450.0, 650.0, 1002)
-        w2 = np.linspace(600.0, 800.0, 1002)
+        w1 = np.linspace(450.0, 650.0, 1004)
+        w2 = np.linspace(600.0, 800.0, 1004)
         s1 = 200.0 + 1000.0 * np.exp(-0.5 * ((w1 - 550.0) / 20.0)**2)
         s2 = 200.0 + 500.0 * np.exp(-0.5 * ((w2 - 700.0) / 30.0)**2)
 
         concat_w = np.concatenate([w1, w2])
         concat_s = np.concatenate([s1, s2])
 
-        glued_w, glued_s = glue_steps(concat_w, concat_s, number_pixel=1002, grade=2.0)
+        glued_w, glued_s = glue_steps(concat_w, concat_s, number_pixel=1004, grade=2.0)
 
         # 1. Monotonicidad estricta (sin longitudes de onda repetidas o decrecientes)
         self.assertTrue(np.all(np.diff(glued_w) > 0), "El eje resultante de Step & Glue no es monótono creciente")
@@ -201,8 +201,8 @@ class TestPySpectrumLegacyRoutines(unittest.TestCase):
         self.assertTrue(lamp.is_loaded, "No se pudo cargar el perfil de lámpara halógena")
 
         # Probar normalización con espectro sintético
-        test_w = np.linspace(500.0, 850.0, 1002)
-        test_s = np.ones(1002) * 5000.0
+        test_w = np.linspace(500.0, 850.0, 1004)
+        test_s = np.ones(1004) * 5000.0
         norm_s = lamp.normalize_spectrum(test_w, test_s)
 
         self.assertEqual(len(norm_s), len(test_w))
@@ -226,8 +226,8 @@ class TestPySpectrumLegacyRoutines(unittest.TestCase):
 
         self.assertGreaterEqual(len(received_packets), 5)
         last_wave, last_spec, last_t, last_i, progress = received_packets[-1]
-        self.assertEqual(len(last_wave), 1002)
-        self.assertEqual(len(last_spec), 1002)
+        self.assertEqual(len(last_wave), 1004)
+        self.assertEqual(len(last_spec), 1004)
         self.assertEqual(len(last_t), 5)
         self.assertEqual(len(last_i), 5)
         self.assertEqual(progress, 100)
@@ -275,7 +275,7 @@ class TestPySpectrumLegacyRoutines(unittest.TestCase):
         backend.acquire_polarization("perpendicular", 0.05)
         self.assertEqual(emitted_diffs[-1][0], "perpendicular")
         diff_spectrum = emitted_diffs[-1][1]
-        self.assertEqual(len(diff_spectrum), 1002)
+        self.assertEqual(len(diff_spectrum), 1004)
         self.assertFalse(np.any(np.isnan(diff_spectrum)))
 
     def test_solis_ascii_and_npz_export_compatibility(self):
@@ -575,7 +575,7 @@ class TestPySpectrumSafety(unittest.TestCase):
         be.make_connection(fe)
 
         # 1. Verificar carga inicial desde pyspectrum_calibration_last.txt
-        self.assertAlmostEqual(be.slit_center_x, 501.25, places=1)
+        self.assertAlmostEqual(be.slit_center_x, 502.00, places=1)
         self.assertEqual(be.slit_width, 50.0)
         self.assertEqual(be.grating_offsets[1], 12)
         self.assertEqual(be.grating_offsets[2], -35)

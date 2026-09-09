@@ -62,14 +62,14 @@ class TestShamrockHardware(unittest.TestCase):
         """Verifica la dispersión física del Shamrock 500i (f = 500 mm)."""
         self.shamrock.ShamrockSetGrating(DEVICE, 1)  # 150 l/mm
         self.shamrock.ShamrockSetWavelength(DEVICE, 532.0)
-        _, wl1 = self.shamrock.ShamrockGetCalibration(DEVICE, 1002)
+        _, wl1 = self.shamrock.ShamrockGetCalibration(DEVICE, 1004)
         span1 = wl1[-1] - wl1[0]
         # ~175 nm span total en el detector
         self.assertGreater(span1, 160.0)
         self.assertLess(span1, 190.0)
 
         self.shamrock.ShamrockSetGrating(DEVICE, 2)  # 1200 l/mm
-        _, wl2 = self.shamrock.ShamrockGetCalibration(DEVICE, 1002)
+        _, wl2 = self.shamrock.ShamrockGetCalibration(DEVICE, 1004)
         span2 = wl2[-1] - wl2[0]
         # ~22 nm span total en el detector
         self.assertGreater(span2, 18.0)
@@ -213,7 +213,7 @@ class TestStaticRamanModule(unittest.TestCase):
 
     def test_realtime_processing_pipeline(self):
         """Verifica que la recepción de datos ejecute despiking, línea base y shift Raman."""
-        wl_axis = np.linspace(520.0, 600.0, 1002)
+        wl_axis = np.linspace(520.0, 600.0, 1004)
         # Señal sintética: fondo + pico Stokes a 547.1 nm (~519 cm^-1) + spike cósmico
         counts = 500.0 + 1000.0 * np.exp(-0.5 * ((wl_axis - 547.1) / 0.3)**2)
         counts[300] += 8000.0  # Spike cósmico artificial
@@ -234,8 +234,8 @@ class TestStaticRamanModule(unittest.TestCase):
         """Verifica la telemetría y cálculo de temperatura fototérmica."""
         # Configurar en modo simétrico a 532 nm
         self.widget.laser_nm = 532.0
-        wl_axis = np.linspace(510.0, 555.0, 1002)
-        counts = np.ones(1002) * 200.0
+        wl_axis = np.linspace(510.0, 555.0, 1004)
+        counts = np.ones(1004) * 200.0
 
         # Crear pico Stokes a +520 cm^-1 y Anti-Stokes a -520 cm^-1 a T ~ 350 K
         # Stokes: ~547.1 nm
@@ -273,13 +273,13 @@ class TestSolisEnhancements(unittest.TestCase):
         self.assertEqual(center, 501)
         self.assertEqual(height, 30)
         spec_track = cam.get_1d_spectrum()
-        self.assertEqual(len(spec_track), 1002)
+        self.assertEqual(len(spec_track), 1004)
         self.assertGreater(np.mean(spec_track), 400.0)
 
         # FVB
         cam.set_read_mode(READ_MODE_FVB)
         spec_fvb = cam.get_1d_spectrum()
-        self.assertEqual(len(spec_fvb), 1002)
+        self.assertEqual(len(spec_fvb), 1004)
 
     def test_optical_parity_flip_controls(self):
         """Verifica que las funciones de inversión vertical/horizontal (Flip Y/X) funcionen en vivo."""
@@ -302,23 +302,23 @@ class TestSolisEnhancements(unittest.TestCase):
         self.assertEqual(len(coeffs), 4)
 
         # Eje cúbico
-        ret_ax, axis = sh.get_wavelength_axis_cubic(1002)
+        ret_ax, axis = sh.get_wavelength_axis_cubic(1004)
         self.assertEqual(ret_ax, 20202)
-        self.assertEqual(len(axis), 1002)
+        self.assertEqual(len(axis), 1004)
         self.assertTrue(np.all(np.diff(axis) > 0))
 
     def test_sigmoidal_step_and_glue_monotonicity(self):
         """Verifica que el cosido sigmoideo no genere duplicados en el área de solapamiento."""
         from pyspectrum.calibration.halogen_lamp import glue_steps
-        w1 = np.linspace(400, 600, 1002)
-        w2 = np.linspace(550, 750, 1002)
-        s1 = np.ones(1002) * 100.0
-        s2 = np.ones(1002) * 120.0
+        w1 = np.linspace(400, 600, 1004)
+        w2 = np.linspace(550, 750, 1004)
+        s1 = np.ones(1004) * 100.0
+        s2 = np.ones(1004) * 120.0
         w = np.concatenate([w1, w2])
         s = np.concatenate([s1, s2])
-        gw, gs = glue_steps(w, s, 1002)
+        gw, gs = glue_steps(w, s, 1004)
         self.assertTrue(np.all(np.diff(gw) > 0))
-        self.assertGreater(len(gw), 1002)
+        self.assertGreater(len(gw), 1004)
 
 
 if __name__ == "__main__":

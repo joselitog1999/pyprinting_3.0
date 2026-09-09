@@ -60,7 +60,7 @@ flowchart TD
         SLIT["Hendidura Micrométrica Entrada Slit (10 - 2500 µm)"]
         SHAMROCK["Espectrógrafo Andor Shamrock 500i (f = 500 mm, f/9.7)"]
         GRATINGS["Torreta Redes: 150 l/mm & 1200 l/mm"]
-        IXON["Cámara EMCCD Andor iXon3 (1002x1002, -70°C)"]
+        IXON["Cámara EMCCD Andor iXon3 DU8285 (1004x1002, -70°C)"]
     end
 
     FLIP -- "Mirror Down" --> LSPEC --> SLIT --> SHAMROCK --> GRATINGS --> IXON
@@ -312,9 +312,9 @@ $$T(v_p) = 1 - J_0^2(v_p) - J_1^2(v_p)$$
      - Resolución espectral instrumental con slit de $20\ \mu\text{m}$: $\delta \lambda \approx 0.05\ \text{nm}$ ($\approx 1.8\ \text{cm}^{-1}$), permitiendo resolver desdoblamientos vibracionales finos.
   3. **Modo Step & Glue**: Cosido espectral automatizado en `pyspectrum` que rota el ángulo de la red mediante motor paso a paso, adquiere ventanas superpuestas y realiza la interpolación spline continua con normalización de sensibilidad detector-red.
 
-### 7.2 Cámara EMCCD Andor iXon3 (DU-897 / 888)
-- **Sensor**: Transferencia de cuadro con multiplicación electrónica de electrones (EMCCD).
-- **Matriz activa**: $1002 \times 1002\ \text{píxeles}$, tamaño de píxel de $13.0 \times 13.0\ \mu\text{m}$.
+### 7.2 Cámara EMCCD Andor iXon3 (DU8285_VP / TC285)
+- **Sensor**: Transferencia de cuadro con multiplicación electrónica de electrones (EMCCD, Texas Instruments TC285).
+- **Matriz activa**: $1004\ (\text{H, dispersión}) \times 1002\ (\text{V, ranura})\ \text{píxeles}$, tamaño de píxel de $13.0 \times 13.0\ \mu\text{m}$.
 - **Enfriamiento Termoeléctrico Peltier**:
   - Rango operativo: $+20^\circ\text{C}$ a **$-70^\circ\text{C}$** (enfriamiento por aire) o **$-85^\circ\text{C}$** (con recirculador de agua).
   - Corriente oscura (*dark current*): $\approx 0.001\ e^-/\text{píxel}/\text{s}$ a $-70^\circ\text{C}$.

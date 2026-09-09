@@ -108,7 +108,7 @@ class DimersBackend(QtCore.QObject):
 
         self.spec_par = None
         self.spec_perp = None
-        self.wave_axis = np.linspace(450, 750, 1002)
+        self.wave_axis = np.linspace(450, 750, 1004)
 
     def make_connection(self, widget: DimersWidget):
         widget.acquirePolarizationSignal.connect(self.acquire_polarization)
@@ -120,7 +120,7 @@ class DimersBackend(QtCore.QObject):
             return
         try:
             self.camera.set_exposure_time(exp_time)
-            ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1002)
+            ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
 
             frame = self.camera.get_most_recent_image()
             spec = np.mean(frame, axis=0)
