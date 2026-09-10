@@ -37,7 +37,9 @@ class PresetManager:
         "dy": "0.03",
         "scan_preprint": "True",
         "postscan": "False",
-        "drift_correction": "True"
+        "drift_correction": "True",
+        "ratio_k": "10.0",
+        "percent_thresh": "50.0"
     }
 
     @staticmethod
@@ -166,6 +168,10 @@ class PresetManager:
             f"scan_preprint = {data.get('scan_preprint', 'True')}",
             f"postscan = {data.get('postscan', 'False')}",
             f"drift_correction = {data.get('drift_correction', 'True')}",
+            "",
+            "# ── Reescalado Confocal (Modo 3) ──",
+            f"ratio_k = {data.get('ratio_k', '10.0')}",
+            f"percent_thresh = {data.get('percent_thresh', '50.0')}",
             ""
         ]
 

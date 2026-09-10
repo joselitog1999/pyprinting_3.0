@@ -122,8 +122,13 @@ class DimersBackend(QtCore.QObject):
             self.camera.set_exposure_time(exp_time)
             ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
 
+            # Iniciar adquisición para garantizar frame fresco tras cambiar tiempo de exposición
+            self.camera.start_acquisition()
             frame = self.camera.get_most_recent_image()
-            spec = np.mean(frame, axis=0)
+            if hasattr(frame, "ndim") and frame.ndim == 2:
+                spec = np.mean(frame, axis=0)
+            else:
+                spec = np.asarray(frame, dtype=float)
 
             diff = np.array([])
             if mode == "parallel":

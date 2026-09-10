@@ -662,15 +662,16 @@ class Frontend(QFrame):
 
         self._refresh_presets_combo()
 
-        # ── Selector de 4 Modos de Criterio de Parada ─────────────────────────
+        # ── Selector de 5 Modos de Criterio de Parada ─────────────────────────
         self.stop_mode_combo = QComboBox()
         self.stop_mode_combo.addItems([
             "Modo 0: Salto Relativo Estándar (I_new / I_old > Umbral)",
             "Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso",
             "Modo 2: Derivada Temporal Adaptativa (dI/dt -> 0)",
-            "Modo 3: Criterio Híbrido Tri-Factor (All-In-One)"
+            "Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado (K_scale, P%)",
+            "Modo 4: Criterio Híbrido Tri-Factor (All-In-One)"
         ])
-        self.stop_mode_combo.setToolTip("Algoritmo de criterio de parada en tiempo real (Modos 0 a 3).")
+        self.stop_mode_combo.setToolTip("Algoritmo de criterio de parada en tiempo real (Modos 0 a 4).")
         self.stop_mode_combo.currentIndexChanged.connect(self._on_stopping_mode_changed)
 
         # ── Parámetros de detección estándar y avanzados ──────────────────────
@@ -693,7 +694,12 @@ class Frontend(QFrame):
         self.slope_minEdit    = QLineEdit("0.000"); self.slope_minEdit.setFixedWidth(55)
         self.slope_minEdit.setToolTip("Umbral Mínimo Absoluto (V). Cualquier lectura I_new por debajo de este valor NO se reconoce en ningún modo.")
         self.slope_flatEdit   = QLineEdit("2.0");   self.slope_flatEdit.setFixedWidth(55)
-        self.slope_flatEdit.setToolTip("Pendiente máxima dI/dt (V/s) en la meseta para confirmar la parada del obturador (Modos 2 y 3).")
+        self.slope_flatEdit.setToolTip("Pendiente máxima dI/dt (V/s) en la meseta para confirmar la parada del obturador (Modos 2 y 4).")
+
+        self.ratio_kEdit        = QLineEdit("10.0");  self.ratio_kEdit.setFixedWidth(55)
+        self.ratio_kEdit.setToolTip("Factor de escala K_scale de fotocorriente confocal (Modo 3) respecto a la potencia de impresión.")
+        self.percent_threshEdit = QLineEdit("50.0");  self.percent_threshEdit.setFixedWidth(44)
+        self.percent_threshEdit.setToolTip("Porcentaje de la señal pico esperada P% para detener el obturador (Modo 3).")
 
         self.autofocEdit     = QLineEdit(str(DEFAULT_PRINTING_AUTOFOCUS_EVERY));  self.autofocEdit.setFixedWidth(44)
         self.autofocEdit.setToolTip("Frecuencia de partículas (cada N partículas) entre las cuales se ejecuta el autofoco axial dinámico en Z.")
@@ -920,38 +926,42 @@ class Frontend(QFrame):
         self.lbl_umbral_min = QLabel("Umbral Mín (V):"); plo.addWidget(self.lbl_umbral_min, 5, 0); plo.addWidget(self.slope_minEdit,  5, 1)
         self.lbl_slope_flat = QLabel("Slope Flat:");    plo.addWidget(self.lbl_slope_flat, 5, 2); plo.addWidget(self.slope_flatEdit, 5, 3)
 
-        # Fila 6: Umbral down | T max (s)
-        plo.addWidget(QLabel("Umbral down:"),  6, 0); plo.addWidget(self.umbral_downEdit,   6, 1)
-        plo.addWidget(QLabel("T max (s):"),    6, 2); plo.addWidget(self.tmaxEdit,          6, 3)
+        # Fila 6: K scale (conf) | Thresh P (%)
+        self.lbl_ratio_k        = QLabel("K scale (conf):"); plo.addWidget(self.lbl_ratio_k,        6, 0); plo.addWidget(self.ratio_kEdit,        6, 1)
+        self.lbl_percent_thresh = QLabel("Thresh P (%):");   plo.addWidget(self.lbl_percent_thresh, 6, 2); plo.addWidget(self.percent_threshEdit, 6, 3)
 
-        # Fila 7: Steps before | Steps after
-        self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 7, 0); plo.addWidget(self.steps_beforeEdit, 7, 1)
-        self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  7, 2); plo.addWidget(self.steps_afterEdit,  7, 3)
+        # Fila 7: Umbral down | T max (s)
+        plo.addWidget(QLabel("Umbral down:"),  7, 0); plo.addWidget(self.umbral_downEdit,   7, 1)
+        plo.addWidget(QLabel("T max (s):"),    7, 2); plo.addWidget(self.tmaxEdit,          7, 3)
 
-        # Fila 8: Scan pre-print | Track Drift XY | Track Drift Z | Track Time-Volt
-        plo.addWidget(self.scan_check,            8, 0)
-        plo.addWidget(self.track_drift_xy_check,  8, 1)
-        plo.addWidget(self.track_drift_z_check,   8, 2)
-        plo.addWidget(self.track_time_volt_check, 8, 3)
+        # Fila 8: Steps before | Steps after
+        self.lbl_steps_before = QLabel("Steps before:"); plo.addWidget(self.lbl_steps_before, 8, 0); plo.addWidget(self.steps_beforeEdit, 8, 1)
+        self.lbl_steps_after  = QLabel("Steps after:");  plo.addWidget(self.lbl_steps_after,  8, 2); plo.addWidget(self.steps_afterEdit,  8, 3)
+
+        # Fila 9: Scan pre-print | Track Drift XY | Track Drift Z | Track Time-Volt
+        plo.addWidget(self.scan_check,            9, 0)
+        plo.addWidget(self.track_drift_xy_check,  9, 1)
+        plo.addWidget(self.track_drift_z_check,   9, 2)
+        plo.addWidget(self.track_time_volt_check, 9, 3)
         if self.mode == "dimers":
-            plo.addWidget(self.postscan_check,    9, 3)
+            plo.addWidget(self.postscan_check,    10, 3)
 
-        # Fila 9: Controles de reproducción Play / Pause / Next Index
-        plo.addWidget(self.play_button,        9, 0); plo.addWidget(self.pause_button,      9, 1)
-        plo.addWidget(self.next_button,        9, 2, 1, 1 if self.mode == "dimers" else 2)
+        # Fila 10: Controles de reproducción Play / Pause / Next Index
+        plo.addWidget(self.play_button,        10, 0); plo.addWidget(self.pause_button,      10, 1)
+        plo.addWidget(self.next_button,        10, 2, 1, 1 if self.mode == "dimers" else 2)
 
-        # Fila 10: Checkbox de Autocompletitud Inteligente (Healing Pass)
+        # Fila 11: Checkbox de Autocompletitud Inteligente (Healing Pass)
         self.auto_complete_check = QCheckBox("🔄 Autocompletitud de redes (Healing Pass)")
         self.auto_complete_check.setChecked(False)
         self.auto_complete_check.setStyleSheet("color: #fab387; font-weight: bold;")
         self.auto_complete_check.setToolTip("Al finalizar la grilla, reintenta automáticamente los nodos con TIMEOUT ejecutando autofoco in-situ y tiempo extendido (+10s).")
-        plo.addWidget(self.auto_complete_check, 10, 0, 1, 4)
+        plo.addWidget(self.auto_complete_check, 11, 0, 1, 4)
 
-        # Fila 11: Total targets | Time Remaining (ETA)
-        plo.addWidget(QLabel("Total targets:"), 11, 0); plo.addWidget(self.particulasEdit,        11, 1)
-        plo.addWidget(QLabel("Time Rem ⏱️:"),   11, 2); plo.addWidget(self.time_remaining_label, 11, 3)
+        # Fila 12: Total targets | Time Remaining (ETA)
+        plo.addWidget(QLabel("Total targets:"), 12, 0); plo.addWidget(self.particulasEdit,        12, 1)
+        plo.addWidget(QLabel("Time Rem ⏱️:"),   12, 2); plo.addWidget(self.time_remaining_label, 12, 3)
 
-        # Fila 12: Target Index | Barra de progreso de avance
+        # Fila 13: Target Index | Barra de progreso de avance
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -960,8 +970,8 @@ class Frontend(QFrame):
             "QProgressBar { text-align: center; border: 1px solid #45475a; border-radius: 4px; background-color: #1e1e2e; color: #cdd6f4; font-size: 8pt; }"
             "QProgressBar::chunk { background-color: #a6e3a1; }"
         )
-        plo.addWidget(QLabel("Target Index:"),  12, 0); plo.addWidget(self.indice_impresionEdit, 12, 1)
-        plo.addWidget(QLabel("Progreso Lote:"), 12, 2); plo.addWidget(self.progress_bar,        12, 3)
+        plo.addWidget(QLabel("Target Index:"),  13, 0); plo.addWidget(self.indice_impresionEdit, 13, 1)
+        plo.addWidget(QLabel("Progreso Lote:"), 13, 2); plo.addWidget(self.progress_bar,        13, 3)
 
         # Focus shift & Drift correction widget
         fsW = QWidget(); flo = QGridLayout(fsW)
@@ -1134,6 +1144,8 @@ class Frontend(QFrame):
         if "postscan" in data and hasattr(self, 'postscan_check'):
             self.postscan_check.setChecked(data["postscan"].lower() == "true")
         if "drift_correction" in data: self.drift_check.setChecked(data["drift_correction"].lower() == "true")
+        if "ratio_k" in data and hasattr(self, 'ratio_kEdit'): self.ratio_kEdit.setText(data["ratio_k"])
+        if "percent_thresh" in data and hasattr(self, 'percent_threshEdit'): self.percent_threshEdit.setText(data["percent_thresh"])
 
     def _on_launch_wizard(self):
         from modules.preset_wizard import PresetWizardDialog
@@ -1182,28 +1194,36 @@ class Frontend(QFrame):
                 "dy": self.dyEdit.text(),
                 "scan_preprint": str(self.scan_check.isChecked()),
                 "postscan": str(self.postscan_check.isChecked() if hasattr(self, 'postscan_check') else False),
-                "drift_correction": str(self.drift_check.isChecked())
+                "drift_correction": str(self.drift_check.isChecked()),
+                "ratio_k": self.ratio_kEdit.text(),
+                "percent_thresh": self.percent_threshEdit.text()
             }
             saved_path = PresetManager.save_preset_file(fpath, data)
             self._refresh_presets_combo()
             QMessageBox.information(self, "Preset Guardado", f"¡Preset .txt guardado exitosamente en:\n{saved_path}")
 
     def _on_stopping_mode_changed(self, idx: int):
-        """Muestra u oculta los casilleros de la interfaz según el Modo de Parada seleccionado (0 a 3)."""
+        """Muestra u oculta los casilleros de la interfaz según el Modo de Parada seleccionado (0 a 4)."""
         # Modo 0: Salto Relativo Estándar
         # Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso
         # Modo 2: Derivada Temporal Adaptativa (dI/dt -> 0)
-        # Modo 3: Criterio Híbrido Tri-Factor (All-In-One)
-        show_rel     = idx in (0, 1, 3)
-        show_abs     = idx in (1, 3)
-        show_hold    = idx in (1, 2, 3)
-        show_slope   = idx in (2, 3)
+        # Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado (K_scale, P%)
+        # Modo 4: Criterio Híbrido Tri-Factor (All-In-One)
+        show_rel     = idx in (0, 1, 4)
+        show_abs     = idx in (1, 3, 4)
+        show_hold    = idx in (1, 2, 3, 4)
+        show_slope   = idx in (2, 4)
+        show_conf    = (idx == 3)
 
         self.lbl_umbral_rel.setVisible(show_rel);      self.umbralEdit.setVisible(show_rel)
         self.lbl_umbral_abs.setVisible(show_abs);      self.umbral_absEdit.setVisible(show_abs)
         self.lbl_n_hold.setVisible(show_hold);         self.n_holdEdit.setVisible(show_hold)
         self.lbl_umbral_min.setVisible(True);          self.slope_minEdit.setVisible(True)  # SIEMPRE VISIBLE EN TODOS LOS MODOS
         self.lbl_slope_flat.setVisible(show_slope);    self.slope_flatEdit.setVisible(show_slope)
+        if hasattr(self, 'lbl_ratio_k'):
+            self.lbl_ratio_k.setVisible(show_conf);    self.ratio_kEdit.setVisible(show_conf)
+        if hasattr(self, 'lbl_percent_thresh'):
+            self.lbl_percent_thresh.setVisible(show_conf); self.percent_threshEdit.setVisible(show_conf)
 
     def _color_menu(self, combo: QComboBox):
         colors = ["#2e7d32", "#c62828", "#f57f17", "#880e4f"] # verde, rojo, amarillo, infrarrojo (808nm)
@@ -2213,7 +2233,12 @@ class Backend(QObject):
             condition = c_flat or c_abs
 
         elif self.stopping_mode == 3:
-            # Modo 3: Criterio Híbrido Tri-Factor (All-In-One)
+            # Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado (K_scale, P%)
+            target_v = getattr(self, "v_peak_scaled", 3.0) * (getattr(self, "percent_thresh", 50.0) / 100.0)
+            condition = (I_new >= target_v) or (I_new > self.umbral_abs_v)
+
+        elif self.stopping_mode == 4:
+            # Modo 4: Criterio Híbrido Tri-Factor (All-In-One)
             c_rel  = (I_old > 0) and (I_new > I_old * self.umbral)
             c_flat = (abs(dI_dt) < self.slope_flat) and (I_new > I_old + 0.1)
             c_abs  = I_new > self.umbral_abs_v

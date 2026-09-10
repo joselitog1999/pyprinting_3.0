@@ -20,9 +20,9 @@ def lorentz(x, I, gamma, x0, C):
     return (1.0 / np.pi) * I * (gamma / 2.0)**2 / ((x - x0)**2 + (gamma / 2.0)**2) + C
 
 
-def three_lorentz(x, I, gamma, x0, I_2, I_3, C):
-    a = (1.0 / np.pi) * I_2 * (15.5 / 2.0)**2 / ((x - 649.0)**2 + (15.2 / 2.0)**2)
-    b = (1.0 / np.pi) * I_3 * (183.0 / 2.0)**2 / ((x - 702.0)**2 + (183.0 / 2.0)**2)
+def three_lorentz(x, I, gamma, x0, I_2, I_3, C, peak1: float = 649.0, peak2: float = 702.0):
+    a = (1.0 / np.pi) * I_2 * (15.5 / 2.0)**2 / ((x - peak1)**2 + (15.2 / 2.0)**2)
+    b = (1.0 / np.pi) * I_3 * (183.0 / 2.0)**2 / ((x - peak2)**2 + (183.0 / 2.0)**2)
     return (1.0 / np.pi) * I * (gamma / 2.0)**2 / ((x - x0)**2 + (gamma / 2.0)**2) + a + b + C
 
 
@@ -34,9 +34,13 @@ def calc_r2(observed: np.ndarray, fitted: np.ndarray) -> float:
 
 
 def fit_signal_raman(wavelength_np: np.ndarray, signal_np: np.ndarray,
-                     ends_notch: float = 540.0, final_wave: float = 800.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                     ends_notch: float = 540.0, final_wave: float = 800.0,
+                     laser_nm: float = 532.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Ajusta la señal Raman de agua y nanopartícula en el rango Stokes.
+    Soporta bombeo a 532 nm estándar y longitudes de onda láser arbitrarias
+    calculando los centros Stokes a partir de los corrimientos Raman intrínsecos del agua
+    (Δν₁ ≈ 3388.7 cm⁻¹ y Δν₂ ≈ 4552.0 cm⁻¹).
     """
     sort_idx = np.argsort(wavelength_np)
     wave_sorted = wavelength_np[sort_idx]
@@ -49,13 +53,25 @@ def fit_signal_raman(wavelength_np: np.ndarray, signal_np: np.ndarray,
     if len(wave_stokes) < 10:
         return wave_sorted, spec_sorted, np.array([0, 0, 0, 0, 0, 0])
 
+    if abs(laser_nm - 532.0) < 0.05:
+        peak1, peak2 = 649.0, 702.0
+    else:
+        nu_laser = 1.0e7 / float(laser_nm)
+        nu_p1 = nu_laser - 3388.67
+        nu_p2 = nu_laser - 4551.98
+        peak1 = 1.0e7 / nu_p1 if nu_p1 > 0 else 649.0
+        peak2 = 1.0e7 / nu_p2 if nu_p2 > 0 else 702.0
+
+    def model_fun(x, I, gamma, x0, I_2, I_3, C):
+        return three_lorentz(x, I, gamma, x0, I_2, I_3, C, peak1=peak1, peak2=peak2)
+
     init_params = np.array([2500.0, 50.0, 550.0, 100.0, 100.0, 450.0], dtype=np.float64)
     bounds = ([0, 0, 500, 0, 0, 0], [20000, 300, 1000, 20000, 20000, 1000])
 
     try:
-        best_params, _ = curve_fit(three_lorentz, wave_stokes, spec_stokes, p0=init_params, bounds=bounds, maxfev=2000)
+        best_params, _ = curve_fit(model_fun, wave_stokes, spec_stokes, p0=init_params, bounds=bounds, maxfev=2000)
         wave_fitted = np.linspace(wave_stokes[0] - 10, wave_stokes[-1] + 10, 500)
-        lorentz_fitted = three_lorentz(wave_fitted, *best_params)
+        lorentz_fitted = model_fun(wave_fitted, *best_params)
         return wave_fitted, lorentz_fitted, best_params
     except Exception as e:
         print(f"[Raman Fit] Advertencia: ajuste no convergió ({e})")

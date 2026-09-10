@@ -471,7 +471,18 @@ class MainWindowLauncher(QMainWindow):
             launch_callback=lambda: self._launch_script("raman_analyzer.py", "Analizador Raman & SERS")
         )
 
-        # 11. Documentación y Créditos
+        # 11. Analizador SIF (sif_analyzer.py)
+        card_sif = ApplicationCard(
+            icon_str="🔬",
+            title="Analizador SIF (Andor)",
+            subtitle="Transmitancia, 1D/2D & Sets",
+            description="Procesamiento de espectros SIF de Andor Solis (1D binned y 2D multi-pixel), ROI espacial de ranura, sustracción de fondo, transmitancia, extinción, filtros y propagación de errores.",
+            button_text="🔬 Iniciar Analizador SIF",
+            button_color="#A6E3A1",
+            launch_callback=lambda: self._launch_script("sif_analyzer.py", "Analizador SIF (Andor)")
+        )
+
+        # 12. Documentación y Créditos
         card_docs = DocAndCreditsCard(
             open_doc_callback=self._open_document,
             show_credits_callback=self._show_credits
@@ -493,9 +504,10 @@ class MainWindowLauncher(QMainWindow):
         grid.addWidget(card_lattice, 2, 1)
         grid.addWidget(card_hardware, 2, 2)
 
-        # Fila 4: Analizador Raman & SERS y Documentación
+        # Fila 4: Analizador Raman & SERS, Analizador SIF y Documentación
         grid.addWidget(card_raman, 3, 0)
-        grid.addWidget(card_docs, 3, 1, 1, 2)
+        grid.addWidget(card_sif, 3, 1)
+        grid.addWidget(card_docs, 3, 2)
 
         main_vlo.addLayout(grid)
 

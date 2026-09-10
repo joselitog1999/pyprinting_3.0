@@ -363,6 +363,39 @@ def run_tests():
     dimers_ok = d_be.spec_par is not None and d_be.spec_perp is not None
     assert_test("Rutina Legacy Dímeros Plasmónicos (∥ - ⟂)", dimers_ok)
 
+    # ── 12. Analizador de Espectros SIF (Andor Solis) ──────────────────────────
+    print("\n12. Analizador de Espectros SIF (Andor Solis)")
+    from core.sif_processor import (
+        read_sif_file, spatial_roi_reduce, compute_transmittance_with_errors,
+        compute_extinction, apply_spectral_filter
+    )
+    from sif_analyzer import SifAnalyzerWindow
+
+    f1 = BASE_DIR / "reserva" / "Fbin_hex_100umslit_50ms_nopol_pos_0.sif"
+    f2 = BASE_DIR / "reserva" / "oblicua_100umslit_1seg_176deg.sif"
+
+    if f1.is_file() and f2.is_file():
+        spec1 = read_sif_file(str(f1))
+        assert_test("Lectura SIF 1D Binned FVB", spec1.width == 5020 and not spec1.is_2d, f"({spec1.wavelengths[0]:.1f} a {spec1.wavelengths[-1]:.1f} nm)")
+
+        spec2 = read_sif_file(str(f2))
+        assert_test("Lectura SIF 2D Multi-pixel & Calibracion Corregida", spec2.height == 71 and spec2.width == 5020 and spec2.is_2d, f"({spec2.wavelengths[0]:.1f} a {spec2.wavelengths[-1]:.1f} nm)")
+
+        prof, std, sem = spatial_roi_reduce(spec2.raw_data[0], y_min=20, y_max=40)
+        assert_test("Reducción Espacial ROI 2D (Media, Std, SEM)", len(prof) == 5020 and np.all(np.isfinite(prof)))
+
+        t_calc, s_t, valid = compute_transmittance_with_errors(prof, prof * 1.2, noise_threshold=1.0)
+        assert_test("Calculo de Transmitancia con Propagacion de Error", np.any(valid) and len(t_calc) == 5020)
+
+        filt_y = apply_spectral_filter(prof, "savgol", {'window_length': 15, 'polyorder': 3}, despike_first=True)
+        assert_test("Filtros Espectrales (Savitzky-Golay + Despike)", len(filt_y) == 5020)
+
+        sif_win = SifAnalyzerWindow()
+        assert_test("Instanciación Ventana SifAnalyzerWindow", sif_win is not None)
+        sif_win.close()
+    else:
+        assert_test("Archivos de prueba SIF en reserva/", False, "No encontrados")
+
 
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)

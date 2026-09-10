@@ -81,6 +81,7 @@ class Frontend(QMainWindow):
         self._add_action(tm, "Analizador de Imágenes", self.tools_image_analyzer)
         self._add_action(tm, "PSF Analyzer",          self.tools_psf_analyzer)
         self._add_action(tm, "Diseñador de Redes 2D", self.tools_grid_generator,   "Ctrl+G")
+        self._add_action(tm, "Analizador SIF (Andor Solis)", self.tools_sif_analyzer, "Ctrl+Shift+S")
         self._add_action(tm, "Láser 532",             self.tools_laser532)
         self._add_action(tm, "Load Grid",             self.load_grid)
         mm = mb.addMenu("&Measurements")
@@ -174,6 +175,13 @@ class Frontend(QMainWindow):
         self._gridGenWindow.show()
         self._gridGenWindow.raise_()
         self._gridGenWindow.activateWindow()
+    def tools_sif_analyzer(self):
+        if not hasattr(self, "_sifAnalyzerWindow") or self._sifAnalyzerWindow is None:
+            from sif_analyzer import SifAnalyzerWindow
+            self._sifAnalyzerWindow = SifAnalyzerWindow(self)
+        self._sifAnalyzerWindow.show()
+        self._sifAnalyzerWindow.raise_()
+        self._sifAnalyzerWindow.activateWindow()
     def tools_laser532(self):       self.laser532Window.show()
     def tools_hardware_dashboard(self):
         self.hardwareWindow.show()
