@@ -47,6 +47,7 @@ try:
         set_average,
         roi_and_set_average,
         apply_spectral_filter,
+        apply_spectral_filters_2d,
         filter_wiener_adaptive,
         filter_despike_adaptive,
         filter_despike_median,
@@ -76,6 +77,7 @@ except ImportError:
         set_average,
         roi_and_set_average,
         apply_spectral_filter,
+        apply_spectral_filters_2d,
         filter_wiener_adaptive,
         filter_despike_adaptive,
         filter_despike_median,
@@ -260,6 +262,20 @@ QScrollBar::handle:vertical {
 QScrollBar::handle:vertical:hover {
     background: #45475a;
 }
+QScrollBar:horizontal {
+    border: none;
+    background: #181825;
+    height: 10px;
+    margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #313244;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #45475a;
+}
 """
 
 
@@ -403,6 +419,11 @@ class SifAnalyzerWindow(QMainWindow):
         act_auto_roles.triggered.connect(self._on_auto_assign_roles)
         menu_tools.addAction(act_auto_roles)
 
+        act_toggle_right = QAction("👁️ Alternar Panel Derecho", self)
+        act_toggle_right.setShortcut("Ctrl+D")
+        act_toggle_right.triggered.connect(self._on_toggle_right_panel)
+        menu_tools.addAction(act_toggle_right)
+
     # ==========================================================================
     # CONSTRUCCIÓN DE LA INTERFAZ PRINCIPAL
     # ==========================================================================
@@ -410,26 +431,29 @@ class SifAnalyzerWindow(QMainWindow):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QHBoxLayout(main_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(6)
 
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.main_splitter)
 
         # 1. Panel Izquierdo: Gestor de Archivos y Maestro
-        left_widget = self._create_left_panel()
-        self.main_splitter.addWidget(left_widget)
+        self.left_panel = self._create_left_panel()
+        self.left_panel.setMinimumWidth(240)
+        self.main_splitter.addWidget(self.left_panel)
 
         # 2. Panel Central: 5 Ventanas de Proceso Separadas
-        center_widget = self._create_center_process_tabs()
-        self.main_splitter.addWidget(center_widget)
+        self.center_panel = self._create_center_process_tabs()
+        self.center_panel.setMinimumWidth(380)
+        self.main_splitter.addWidget(self.center_panel)
 
         # 3. Panel Derecho: Opciones Generales, Instrumento y Exportación
-        right_widget = self._create_right_panel()
-        self.main_splitter.addWidget(right_widget)
+        self.right_panel = self._create_right_panel()
+        self.right_panel.setMinimumWidth(220)
+        self.main_splitter.addWidget(self.right_panel)
 
-        # Proporciones: Izq 22%, Centro 56%, Der 22%
-        self.main_splitter.setSizes([340, 880, 340])
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setSizes([340, 780, 440])
 
     # --------------------------------------------------------------------------
     # PANEL IZQUIERDO: ARCHIVO MAESTRO, ARCHIVOS Y METADATOS
@@ -464,8 +488,10 @@ class SifAnalyzerWindow(QMainWindow):
         btn_row = QHBoxLayout()
         self.btn_add_file = QPushButton("📂 Añadir .SIF")
         self.btn_add_file.setObjectName("primaryBtn")
+        self.btn_add_file.setToolTip("Añade uno o varios archivos .sif al lote.")
         self.btn_add_file.clicked.connect(self._on_open_single_file)
         self.btn_add_folder = QPushButton("📁 Cargar Carpeta")
+        self.btn_add_folder.setToolTip("Carga todos los archivos .sif contenidos en un directorio.")
         self.btn_add_folder.clicked.connect(self._on_open_folder)
         btn_row.addWidget(self.btn_add_file)
         btn_row.addWidget(self.btn_add_folder)
@@ -474,8 +500,13 @@ class SifAnalyzerWindow(QMainWindow):
         self.table_files = QTableWidget()
         self.table_files.setColumnCount(4)
         self.table_files.setHorizontalHeaderLabels(["Sel", "Archivo", "Canales", "Rol / Estado"])
-        self.table_files.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.table_files.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_files.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.table_files.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+        self.table_files.setVerticalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+        self.table_files.horizontalHeader().setStretchLastSection(False)
+        self.table_files.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.table_files.setColumnWidth(0, 40)
+        self.table_files.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table_files.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table_files.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table_files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -484,8 +515,10 @@ class SifAnalyzerWindow(QMainWindow):
 
         row_aux = QHBoxLayout()
         self.btn_remove_file = QPushButton("Eliminar")
+        self.btn_remove_file.setToolTip("Elimina el archivo actualmente seleccionado del lote.")
         self.btn_remove_file.clicked.connect(self._on_remove_selected_file)
         self.btn_auto_roles = QPushButton("Auto-Roles")
+        self.btn_auto_roles.setToolTip("Auto-asigna el archivo Maestro que contenga los 4 canales completos.")
         self.btn_auto_roles.clicked.connect(self._on_auto_assign_roles)
         row_aux.addWidget(self.btn_remove_file)
         row_aux.addWidget(self.btn_auto_roles)
@@ -521,6 +554,19 @@ class SifAnalyzerWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(4, 2, 4, 2)
+        lbl_center_title = QLabel("🔬 Pipeline Espectral SIF (Andor Solis)")
+        lbl_center_title.setStyleSheet("font-weight: bold; color: #cdd6f4; font-size: 11px;")
+        top_bar.addWidget(lbl_center_title)
+        top_bar.addStretch()
+
+        self.btn_toggle_right = QPushButton("👁️ Ocultar Panel Der.")
+        self.btn_toggle_right.setToolTip("Muestra u oculta el panel lateral derecho para maximizar los gráficos (Atajo: Ctrl+D)")
+        self.btn_toggle_right.clicked.connect(self._on_toggle_right_panel)
+        top_bar.addWidget(self.btn_toggle_right)
+        layout.addLayout(top_bar)
+
         self.tabs_process = QTabWidget()
         layout.addWidget(self.tabs_process)
 
@@ -548,51 +594,73 @@ class SifAnalyzerWindow(QMainWindow):
 
         return widget
 
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     # VENTANA 1: RUIDO / DARK
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     def _create_dark_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Barra de controles pertinentes a RUIDO
-        bar_dark = QHBoxLayout()
-        self.lbl_dark_source = QLabel("Origen Ruido: --")
-        self.lbl_dark_source.setStyleSheet("color: #f9e2af; font-weight: bold;")
-        bar_dark.addWidget(self.lbl_dark_source)
+        # Barra de controles pertinentes a RUIDO (2 Filas lógicas)
+        vbox_dark_ctrls = QVBoxLayout()
+        vbox_dark_ctrls.setSpacing(4)
 
-        bar_dark.addStretch()
+        row1_dark = QHBoxLayout()
+        self.lbl_dark_source = QLabel("Origen Ruido: --")
+        self.lbl_dark_source.setStyleSheet("color: #f9e2af; font-weight: bold; font-size: 11px;")
+        self.lbl_dark_source.setToolTip("Indica de qué archivo y canal físico proviene el ruido de fondo (Dark).")
+        row1_dark.addWidget(self.lbl_dark_source)
 
         self.chk_dark_despike = QCheckBox("Despike")
         self.chk_dark_despike.setChecked(True)
+        self.chk_dark_despike.setToolTip("Detecta y elimina rayos cósmicos y artefactos impulsivos en el canal de ruido.")
         self.chk_dark_despike.toggled.connect(self._schedule_recalculation)
-        bar_dark.addWidget(self.chk_dark_despike)
+        row1_dark.addWidget(self.chk_dark_despike)
 
-        bar_dark.addWidget(QLabel("Filtro:"))
+        self.btn_dark_psd = QPushButton("🔍 Ver PSD")
+        self.btn_dark_psd.setToolTip("Abre la ventana de diagnóstico de Densidad Espectral de Potencia (PSD) y desvío espacial del sensor.")
+        self.btn_dark_psd.clicked.connect(self._on_view_dark_psd)
+        row1_dark.addWidget(self.btn_dark_psd)
+
+        row1_dark.addStretch()
+
+        self.btn_reset_dark = QPushButton("↺ Raw")
+        self.btn_reset_dark.setToolTip("Desactiva los filtros en el canal de ruido para ver la señal cruda.")
+        self.btn_reset_dark.clicked.connect(self._on_reset_dark_filters)
+        row1_dark.addWidget(self.btn_reset_dark)
+
+        btn_auto_dark = QPushButton("Auto-Escala")
+        btn_auto_dark.setToolTip("Ajusta automáticamente los rangos de los ejes para encuadrar la señal.")
+        btn_auto_dark.clicked.connect(lambda: self.plot_dark_1d.autoRange())
+        row1_dark.addWidget(btn_auto_dark)
+        vbox_dark_ctrls.addLayout(row1_dark)
+
+        row2_dark = QHBoxLayout()
+        lbl_d_filt = QLabel("Filtro Suavizado:")
+        lbl_d_filt.setToolTip("Algoritmo matemático de filtrado espectral para el ruido de fondo.")
+        row2_dark.addWidget(lbl_d_filt)
         self.combo_dark_filter = QComboBox()
         self.combo_dark_filter.addItems(["Ninguno", "Savitzky-Golay", "Fourier Lowpass", "Media Móvil"])
+        self.combo_dark_filter.setToolTip("Seleccione el filtro a aplicar: Savitzky-Golay preserva momentos, Fourier atenúa altas frecuencias, Media Móvil suaviza de forma uniforme.")
         self.combo_dark_filter.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_dark.addWidget(self.combo_dark_filter)
+        row2_dark.addWidget(self.combo_dark_filter)
 
-        bar_dark.addWidget(QLabel("Ventana:"))
+        lbl_d_win = QLabel("Ventana:")
+        lbl_d_win.setToolTip("Longitud de la ventana en píxeles espectrales (debe ser impar).")
+        row2_dark.addWidget(lbl_d_win)
         self.spin_dark_param = QSpinBox()
         self.spin_dark_param.setRange(3, 101)
         self.spin_dark_param.setSingleStep(2)
         self.spin_dark_param.setValue(15)
+        self.spin_dark_param.setToolTip("Número de píxeles para la ventana móvil del filtro.")
         self.spin_dark_param.valueChanged.connect(self._schedule_recalculation)
-        bar_dark.addWidget(self.spin_dark_param)
+        row2_dark.addWidget(self.spin_dark_param)
+        row2_dark.addStretch()
+        vbox_dark_ctrls.addLayout(row2_dark)
 
-        self.btn_dark_psd = QPushButton("🔍 Ver PSD")
-        self.btn_dark_psd.clicked.connect(self._on_view_dark_psd)
-        bar_dark.addWidget(self.btn_dark_psd)
-
-        btn_auto_dark = QPushButton("Auto-Escala")
-        btn_auto_dark.clicked.connect(lambda: self.plot_dark_1d.autoRange())
-        bar_dark.addWidget(btn_auto_dark)
-
-        layout.addLayout(bar_dark)
+        layout.addLayout(vbox_dark_ctrls)
 
         # Splitter 2D y 1D para Ruido
         self.splitter_dark = QSplitter(Qt.Orientation.Vertical)
@@ -627,91 +695,129 @@ class SifAnalyzerWindow(QMainWindow):
 
         return widget
 
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     # VENTANA 2: REFERENCIA
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     def _create_ref_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Barra de controles pertinentes a REFERENCIA
-        bar_ref = QHBoxLayout()
-        self.lbl_ref_source = QLabel("Origen Referencia: --")
-        self.lbl_ref_source.setStyleSheet("color: #fab387; font-weight: bold;")
-        bar_ref.addWidget(self.lbl_ref_source)
+        # Barra de controles pertinentes a REFERENCIA (2 Filas lógicas)
+        vbox_ref_ctrls = QVBoxLayout()
+        vbox_ref_ctrls.setSpacing(4)
 
-        bar_ref.addWidget(QLabel("Fuente:"))
+        # Fila 1: Selección de Origen y Región Espacial (ROI) - Entrada
+        row1_ref = QHBoxLayout()
+        self.lbl_ref_source = QLabel("Origen Referencia: --")
+        self.lbl_ref_source.setStyleSheet("color: #fab387; font-weight: bold; font-size: 11px;")
+        self.lbl_ref_source.setToolTip("Reporta si la referencia proviene del archivo activo o si es heredada del Maestro.")
+        row1_ref.addWidget(self.lbl_ref_source)
+
+        lbl_ref_src = QLabel("Fuente:")
+        lbl_ref_src.setToolTip("Prioridad de asignación del canal de referencia espectral.")
+        row1_ref.addWidget(lbl_ref_src)
         self.combo_ref_source = QComboBox()
         self.combo_ref_source.addItems(["Auto (Propia o Maestro)", "Forzar Propia del Archivo", "Forzar 👑 Maestro"])
+        self.combo_ref_source.setToolTip("Auto: usa la propia si el archivo tiene canal 'reference', de lo contrario hereda la del Maestro.\nForzar Propia: exige referencia local del archivo.\nForzar Maestro: siempre utiliza la referencia del archivo Maestro.")
         self.combo_ref_source.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.combo_ref_source)
+        row1_ref.addWidget(self.combo_ref_source)
 
-        bar_ref.addStretch()
+        lbl_r_ymin = QLabel("ROI Y Min:")
+        lbl_r_ymin.setToolTip("Límite inferior del píxel vertical (ranura CCD) a promediar.")
+        row1_ref.addWidget(lbl_r_ymin)
+        self.spin_ref_ymin = QSpinBox()
+        self.spin_ref_ymin.setRange(0, 2000)
+        self.spin_ref_ymin.setValue(10)
+        self.spin_ref_ymin.setToolTip("Píxel vertical inferior de la Región de Interés (ROI).")
+        self.spin_ref_ymin.valueChanged.connect(self._on_ref_roi_spinners_changed)
+        row1_ref.addWidget(self.spin_ref_ymin)
 
+        lbl_r_ymax = QLabel("ROI Y Max:")
+        lbl_r_ymax.setToolTip("Límite superior del píxel vertical a promediar.")
+        row1_ref.addWidget(lbl_r_ymax)
+        self.spin_ref_ymax = QSpinBox()
+        self.spin_ref_ymax.setRange(0, 2000)
+        self.spin_ref_ymax.setValue(50)
+        self.spin_ref_ymax.setToolTip("Píxel vertical superior de la Región de Interés (ROI).")
+        self.spin_ref_ymax.valueChanged.connect(self._on_ref_roi_spinners_changed)
+        row1_ref.addWidget(self.spin_ref_ymax)
+
+        lbl_r_mode = QLabel("Modo:")
+        lbl_r_mode.setToolTip("Método de integración vertical: Promedio o Suma.")
+        row1_ref.addWidget(lbl_r_mode)
+        self.combo_ref_roimode = QComboBox()
+        self.combo_ref_roimode.addItems(["Promedio", "Suma"])
+        self.combo_ref_roimode.setToolTip("Promedio: normaliza por el número de filas del ROI.\nSuma: acumula el conteo total de fotones de todas las filas.")
+        self.combo_ref_roimode.currentIndexChanged.connect(self._schedule_recalculation)
+        row1_ref.addWidget(self.combo_ref_roimode)
+
+        row1_ref.addStretch()
+
+        btn_auto_ref = QPushButton("Auto-Escala")
+        btn_auto_ref.setToolTip("Auto-escala los ejes del gráfico de referencia.")
+        btn_auto_ref.clicked.connect(lambda: self.plot_ref_1d.autoRange())
+        row1_ref.addWidget(btn_auto_ref)
+        vbox_ref_ctrls.addLayout(row1_ref)
+
+        # Fila 2: Acondicionamiento Físico y Filtros Espectrales (2D y 1D) - Proceso
+        row2_ref = QHBoxLayout()
         self.chk_ref_sub_dark = QCheckBox("Restar Ruido Dark")
         self.chk_ref_sub_dark.setChecked(True)
+        self.chk_ref_sub_dark.setToolTip("Resta el ruido de fondo CCD (Dark) tanto a la matriz 2D como al espectro 1D de referencia (omitido automáticamente si Solis ya lo corrigió).")
         self.chk_ref_sub_dark.toggled.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.chk_ref_sub_dark)
+        row2_ref.addWidget(self.chk_ref_sub_dark)
 
         self.chk_ref_despike = QCheckBox("Despike")
         self.chk_ref_despike.setChecked(True)
+        self.chk_ref_despike.setToolTip("Elimina rayos cósmicos y píxeles anómalos fila a fila en el mapa 2D y en el espectro 1D.")
         self.chk_ref_despike.toggled.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.chk_ref_despike)
+        row2_ref.addWidget(self.chk_ref_despike)
 
-        self.chk_ref_adaptive = QCheckBox("Limpieza Adaptativa BG (Wiener)")
+        self.chk_ref_adaptive = QCheckBox("Wiener Adaptativo")
+        self.chk_ref_adaptive.setToolTip("Filtro óptimo de Wiener que limpia el ruido en la matriz 2D y en 1D basándose en la PSD caracterizada del fondo CCD.")
         self.chk_ref_adaptive.toggled.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.chk_ref_adaptive)
+        row2_ref.addWidget(self.chk_ref_adaptive)
 
         self.spin_ref_wiener_alpha = QDoubleSpinBox()
         self.spin_ref_wiener_alpha.setRange(0.1, 10.0)
         self.spin_ref_wiener_alpha.setSingleStep(0.1)
         self.spin_ref_wiener_alpha.setValue(1.0)
         self.spin_ref_wiener_alpha.setPrefix("α: ")
-        self.spin_ref_wiener_alpha.setToolTip("Factor de sobre-sustracción espectral α para filtro de Wiener adaptativo")
+        self.spin_ref_wiener_alpha.setToolTip("Factor de sobre-sustracción espectral α para el filtro Wiener en referencia (0.5 suave, 1.0 estándar, 2.0 agresivo).")
         self.spin_ref_wiener_alpha.valueChanged.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.spin_ref_wiener_alpha)
+        row2_ref.addWidget(self.spin_ref_wiener_alpha)
 
-        bar_ref.addWidget(QLabel("Filtro:"))
+        lbl_r_filt = QLabel("Filtro:")
+        lbl_r_filt.setToolTip("Filtro espectral de suavizado para la lámpara/referencia.")
+        row2_ref.addWidget(lbl_r_filt)
         self.combo_ref_filter = QComboBox()
         self.combo_ref_filter.addItems(["Ninguno", "Savitzky-Golay", "Fourier Lowpass", "Media Móvil", "Wiener Adaptativo (BG)"])
+        self.combo_ref_filter.setToolTip("Seleccione el filtro espectral para la referencia: Savitzky-Golay, Fourier Lowpass, Media Móvil o Wiener.")
         self.combo_ref_filter.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.combo_ref_filter)
+        row2_ref.addWidget(self.combo_ref_filter)
 
-        bar_ref.addWidget(QLabel("Ventana:"))
+        lbl_r_win = QLabel("Ventana:")
+        lbl_r_win.setToolTip("Longitud de ventana del filtro (píxeles).")
+        row2_ref.addWidget(lbl_r_win)
         self.spin_ref_param = QSpinBox()
         self.spin_ref_param.setRange(3, 101)
         self.spin_ref_param.setSingleStep(2)
         self.spin_ref_param.setValue(11)
+        self.spin_ref_param.setToolTip("Tamaño de la ventana de suavizado espectral (debe ser impar).")
         self.spin_ref_param.valueChanged.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.spin_ref_param)
+        row2_ref.addWidget(self.spin_ref_param)
 
-        bar_ref.addWidget(QLabel("ROI Y Min:"))
-        self.spin_ref_ymin = QSpinBox()
-        self.spin_ref_ymin.setRange(0, 2000)
-        self.spin_ref_ymin.setValue(10)
-        self.spin_ref_ymin.valueChanged.connect(self._on_ref_roi_spinners_changed)
-        bar_ref.addWidget(self.spin_ref_ymin)
+        row2_ref.addStretch()
 
-        bar_ref.addWidget(QLabel("ROI Y Max:"))
-        self.spin_ref_ymax = QSpinBox()
-        self.spin_ref_ymax.setRange(0, 2000)
-        self.spin_ref_ymax.setValue(50)
-        self.spin_ref_ymax.valueChanged.connect(self._on_ref_roi_spinners_changed)
-        bar_ref.addWidget(self.spin_ref_ymax)
+        self.btn_reset_ref = QPushButton("↺ Raw")
+        self.btn_reset_ref.setToolTip("Desactiva temporalmente los filtros de referencia para inspeccionar la señal cruda.")
+        self.btn_reset_ref.clicked.connect(self._on_reset_ref_filters)
+        row2_ref.addWidget(self.btn_reset_ref)
+        vbox_ref_ctrls.addLayout(row2_ref)
 
-        bar_ref.addWidget(QLabel("Modo:"))
-        self.combo_ref_roimode = QComboBox()
-        self.combo_ref_roimode.addItems(["Promedio", "Suma"])
-        self.combo_ref_roimode.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_ref.addWidget(self.combo_ref_roimode)
-
-        btn_auto_ref = QPushButton("Auto-Escala")
-        btn_auto_ref.clicked.connect(lambda: self.plot_ref_1d.autoRange())
-        bar_ref.addWidget(btn_auto_ref)
-
-        layout.addLayout(bar_ref)
+        layout.addLayout(vbox_ref_ctrls)
 
         # Sub-pestañas: Vista Principal (1D/2D) y Comparador de Referencias
         self.tabs_ref_internal = QTabWidget()
@@ -775,86 +881,128 @@ class SifAnalyzerWindow(QMainWindow):
 
         return widget
 
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     # VENTANA 3: LIVE / SEÑAL
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     def _create_live_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Barra de controles pertinentes a SEÑAL/LIVE
-        bar_live = QHBoxLayout()
-        bar_live.addWidget(QLabel("Muestra Activa:"))
+        # Barra de controles pertinentes a SEÑAL/LIVE (2 Filas lógicas)
+        vbox_live_ctrls = QVBoxLayout()
+        vbox_live_ctrls.setSpacing(4)
+
+        # Fila 1: Selección de Muestra y Región Espacial (ROI) - Entrada
+        row1_live = QHBoxLayout()
+        lbl_l_samp = QLabel("Muestra Activa:")
+        lbl_l_samp.setToolTip("Selecciona el espectro de muestra del lote cargado.")
+        row1_live.addWidget(lbl_l_samp)
         self.combo_live_sample = QComboBox()
+        self.combo_live_sample.setToolTip("Lista de espectros cargados para alternar rápidamente entre muestras.")
         self.combo_live_sample.currentIndexChanged.connect(self._on_live_sample_selected)
-        bar_live.addWidget(self.combo_live_sample)
+        row1_live.addWidget(self.combo_live_sample)
 
-        bar_live.addStretch()
+        lbl_l_ymin = QLabel("ROI Y Min:")
+        lbl_l_ymin.setToolTip("Píxel vertical inferior de la ranura CCD a integrar.")
+        row1_live.addWidget(lbl_l_ymin)
+        self.spin_live_ymin = QSpinBox()
+        self.spin_live_ymin.setRange(0, 2000)
+        self.spin_live_ymin.setValue(10)
+        self.spin_live_ymin.setToolTip("Límite inferior del ROI vertical para extraer el espectro 1D.")
+        self.spin_live_ymin.valueChanged.connect(self._on_live_roi_spinners_changed)
+        row1_live.addWidget(self.spin_live_ymin)
 
+        lbl_l_ymax = QLabel("ROI Y Max:")
+        lbl_l_ymax.setToolTip("Píxel vertical superior de la ranura CCD a integrar.")
+        row1_live.addWidget(lbl_l_ymax)
+        self.spin_live_ymax = QSpinBox()
+        self.spin_live_ymax.setRange(0, 2000)
+        self.spin_live_ymax.setValue(50)
+        self.spin_live_ymax.setToolTip("Límite superior del ROI vertical para extraer el espectro 1D.")
+        self.spin_live_ymax.valueChanged.connect(self._on_live_roi_spinners_changed)
+        row1_live.addWidget(self.spin_live_ymax)
+
+        lbl_l_mode = QLabel("Modo:")
+        lbl_l_mode.setToolTip("Método de integración vertical: Promedio o Suma.")
+        row1_live.addWidget(lbl_l_mode)
+        self.combo_live_roimode = QComboBox()
+        self.combo_live_roimode.addItems(["Promedio", "Suma"])
+        self.combo_live_roimode.setToolTip("Promedio: normaliza por el número de filas del ROI.\nSuma: acumula el conteo total de fotones de todas las filas.")
+        self.combo_live_roimode.currentIndexChanged.connect(self._schedule_recalculation)
+        row1_live.addWidget(self.combo_live_roimode)
+
+        self.btn_sync_roi = QPushButton("🔗 Copiar ROI Ref")
+        self.btn_sync_roi.setToolTip("Sincroniza los límites espaciales (ROI Y Min/Max) con los definidos en la Ventana de Referencia.")
+        self.btn_sync_roi.clicked.connect(self._on_sync_roi_to_live)
+        row1_live.addWidget(self.btn_sync_roi)
+
+        row1_live.addStretch()
+
+        btn_auto_live = QPushButton("Auto-Escala")
+        btn_auto_live.setToolTip("Auto-escala los ejes del gráfico de señal.")
+        btn_auto_live.clicked.connect(lambda: self.plot_live_1d.autoRange())
+        row1_live.addWidget(btn_auto_live)
+        vbox_live_ctrls.addLayout(row1_live)
+
+        # Fila 2: Acondicionamiento Físico y Filtros Espectrales (2D y 1D) - Proceso
+        row2_live = QHBoxLayout()
         self.chk_live_sub_dark = QCheckBox("Restar Ruido Dark")
         self.chk_live_sub_dark.setChecked(True)
+        self.chk_live_sub_dark.setToolTip("Resta el ruido de fondo (Dark) a la matriz 2D y al espectro 1D de la muestra.")
         self.chk_live_sub_dark.toggled.connect(self._schedule_recalculation)
-        bar_live.addWidget(self.chk_live_sub_dark)
+        row2_live.addWidget(self.chk_live_sub_dark)
 
         self.chk_live_despike = QCheckBox("Despike")
         self.chk_live_despike.setChecked(True)
+        self.chk_live_despike.setToolTip("Elimina rayos cósmicos y eventos espurios en la imagen 2D y en el espectro 1D.")
         self.chk_live_despike.toggled.connect(self._schedule_recalculation)
-        bar_live.addWidget(self.chk_live_despike)
+        row2_live.addWidget(self.chk_live_despike)
 
-        self.chk_live_adaptive = QCheckBox("Limpieza Adaptativa BG (Wiener)")
+        self.chk_live_adaptive = QCheckBox("Wiener Adaptativo")
+        self.chk_live_adaptive.setToolTip("Filtro Wiener adaptativo que limpia el ruido en la matriz 2D y 1D según la caracterización del fondo CCD.")
         self.chk_live_adaptive.toggled.connect(self._schedule_recalculation)
-        bar_live.addWidget(self.chk_live_adaptive)
+        row2_live.addWidget(self.chk_live_adaptive)
 
         self.spin_live_wiener_alpha = QDoubleSpinBox()
         self.spin_live_wiener_alpha.setRange(0.1, 10.0)
         self.spin_live_wiener_alpha.setSingleStep(0.1)
         self.spin_live_wiener_alpha.setValue(1.0)
         self.spin_live_wiener_alpha.setPrefix("α: ")
-        self.spin_live_wiener_alpha.setToolTip("Factor de sobre-sustracción espectral α para filtro de Wiener adaptativo")
+        self.spin_live_wiener_alpha.setToolTip("Factor α del filtro Wiener para la señal de muestra (0.5 suave, 1.0 estándar, 2.0 agresivo).")
         self.spin_live_wiener_alpha.valueChanged.connect(self._schedule_recalculation)
-        bar_live.addWidget(self.spin_live_wiener_alpha)
+        row2_live.addWidget(self.spin_live_wiener_alpha)
 
-        bar_live.addWidget(QLabel("Filtro:"))
+        lbl_l_filt = QLabel("Filtro:")
+        lbl_l_filt.setToolTip("Filtro espectral de suavizado para la señal de muestra.")
+        row2_live.addWidget(lbl_l_filt)
         self.combo_live_filter = QComboBox()
         self.combo_live_filter.addItems(["Ninguno", "Savitzky-Golay", "Fourier Lowpass", "Media Móvil", "Wiener Adaptativo (BG)"])
+        self.combo_live_filter.setToolTip("Seleccione el filtro espectral: Savitzky-Golay, Fourier Lowpass, Media Móvil o Wiener.")
         self.combo_live_filter.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_live.addWidget(self.combo_live_filter)
+        row2_live.addWidget(self.combo_live_filter)
 
-        bar_live.addWidget(QLabel("Ventana:"))
+        lbl_l_win = QLabel("Ventana:")
+        lbl_l_win.setToolTip("Longitud de la ventana móvil de filtrado (píxeles).")
+        row2_live.addWidget(lbl_l_win)
         self.spin_live_param = QSpinBox()
         self.spin_live_param.setRange(3, 101)
         self.spin_live_param.setSingleStep(2)
         self.spin_live_param.setValue(11)
+        self.spin_live_param.setToolTip("Tamaño de la ventana de suavizado (debe ser impar).")
         self.spin_live_param.valueChanged.connect(self._schedule_recalculation)
-        bar_live.addWidget(self.spin_live_param)
+        row2_live.addWidget(self.spin_live_param)
 
-        bar_live.addWidget(QLabel("ROI Y Min:"))
-        self.spin_live_ymin = QSpinBox()
-        self.spin_live_ymin.setRange(0, 2000)
-        self.spin_live_ymin.setValue(10)
-        self.spin_live_ymin.valueChanged.connect(self._on_live_roi_spinners_changed)
-        bar_live.addWidget(self.spin_live_ymin)
+        row2_live.addStretch()
 
-        bar_live.addWidget(QLabel("ROI Y Max:"))
-        self.spin_live_ymax = QSpinBox()
-        self.spin_live_ymax.setRange(0, 2000)
-        self.spin_live_ymax.setValue(50)
-        self.spin_live_ymax.valueChanged.connect(self._on_live_roi_spinners_changed)
-        bar_live.addWidget(self.spin_live_ymax)
+        self.btn_reset_live = QPushButton("↺ Raw")
+        self.btn_reset_live.setToolTip("Desactiva temporalmente los filtros de señal para ver las cuentas crudas.")
+        self.btn_reset_live.clicked.connect(self._on_reset_live_filters)
+        row2_live.addWidget(self.btn_reset_live)
+        vbox_live_ctrls.addLayout(row2_live)
 
-        bar_live.addWidget(QLabel("Modo:"))
-        self.combo_live_roimode = QComboBox()
-        self.combo_live_roimode.addItems(["Promedio", "Suma"])
-        self.combo_live_roimode.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_live.addWidget(self.combo_live_roimode)
-
-        btn_auto_live = QPushButton("Auto-Escala")
-        btn_auto_live.clicked.connect(lambda: self.plot_live_1d.autoRange())
-        bar_live.addWidget(btn_auto_live)
-
-        layout.addLayout(bar_live)
+        layout.addLayout(vbox_live_ctrls)
 
         # Splitter 2D y 1D para Live/Señal
         self.splitter_live = QSplitter(Qt.Orientation.Vertical)
@@ -898,93 +1046,159 @@ class SifAnalyzerWindow(QMainWindow):
 
         return widget
 
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     # VENTANA 4: TRANSMISIÓN
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     def _create_transmittance_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Barra de controles pertinentes a TRANSMISIÓN
-        bar_trans = QHBoxLayout()
+        # Barra de controles pertinentes a TRANSMISIÓN (2 Filas lógicas)
+        vbox_trans_ctrls = QVBoxLayout()
+        vbox_trans_ctrls.setSpacing(4)
 
-        self.chk_show_tcalc = QCheckBox("T_calc (%)")
-        self.chk_show_tcalc.setChecked(True)
-        self.chk_show_tcalc.setStyleSheet("color: #a6e3a1; font-weight: bold;")
-        self.chk_show_tcalc.toggled.connect(self._refresh_transmittance_plots)
-        bar_trans.addWidget(self.chk_show_tcalc)
+        # ======================================================================
+        # Fila 1 (Secuencia Paso 1: Configuración de Cálculo Físico & Post-Filtros)
+        # ======================================================================
+        row1_trans = QHBoxLayout()
+        row1_trans.setSpacing(8)
 
-        self.chk_show_tmeas = QCheckBox("T_meas SIF (%)")
-        self.chk_show_tmeas.setChecked(True)
-        self.chk_show_tmeas.setStyleSheet("color: #89b4fa; font-weight: bold;")
-        self.chk_show_tmeas.toggled.connect(self._refresh_transmittance_plots)
-        bar_trans.addWidget(self.chk_show_tmeas)
+        # Panel de Opciones de Cálculo 2D (Mutuamente excluyentes y umbrales)
+        grp_calc_options = QGroupBox("⚙️ Opciones de Cálculo 2D")
+        grp_calc_options.setToolTip("Panel de configuración del algoritmo de transmitancia 2D y descarte de ruido.")
+        lay_calc_options = QHBoxLayout(grp_calc_options)
+        lay_calc_options.setContentsMargins(8, 2, 8, 4)
+        lay_calc_options.setSpacing(10)
 
-        self.chk_show_ribbon = QCheckBox("Área de Error (±σ_T)")
-        self.chk_show_ribbon.setChecked(True)
-        self.chk_show_ribbon.setStyleSheet("color: #f9e2af;")
-        self.chk_show_ribbon.toggled.connect(self._refresh_transmittance_plots)
-        bar_trans.addWidget(self.chk_show_ribbon)
-
-        bar_trans.addStretch()
-
-        # Opciones de ruta de cálculo 2D
-        bar_trans.addWidget(QLabel("Ruta 2D:"))
         self.radio_route_a = QRadioButton("Ruta A (Pixel 2D)")
         self.radio_route_a.setChecked(True)
-        self.radio_route_a.setToolTip("Ruta A: Cálculo pixel a pixel en 2D y posterior promedio vertical en el ROI.")
+        self.radio_route_a.setToolTip("Ruta A: Cálculo pixel a pixel en el detector 2D T(y, λ) = Live/Ref y posterior promedio en el ROI vertical. Recomendada para muestras homogéneas.")
         self.radio_route_a.toggled.connect(self._schedule_recalculation)
-        self.radio_route_b = QRadioButton("Ruta B (Promedio ROI)")
-        self.radio_route_b.setToolTip("Ruta B: Promedio espacial previo en el ROI de Live y Ref, y posterior cociente.")
+
+        self.radio_route_b = QRadioButton("Ruta B (Promedios ROI)")
+        self.radio_route_b.setToolTip("Ruta B: Promedia verticalmente las cuentas del ROI de Live y Ref por separado y luego calcula el cociente T(λ) = <Live>/<Ref>. Más robusta ante baja relación señal/ruido.")
         self.radio_route_b.toggled.connect(self._schedule_recalculation)
-        bar_trans.addWidget(self.radio_route_a)
-        bar_trans.addWidget(self.radio_route_b)
+
+        self.route_btn_group = QButtonGroup(self)
+        self.route_btn_group.addButton(self.radio_route_a)
+        self.route_btn_group.addButton(self.radio_route_b)
+
+        lay_calc_options.addWidget(self.radio_route_a)
+        lay_calc_options.addWidget(self.radio_route_b)
 
         self.chk_compare_routes = QCheckBox("Comparar A y B")
+        self.chk_compare_routes.setToolTip("Superpone simultáneamente la curva de Ruta B sobre Ruta A para evaluar gradientes y discrepancias espaciales.")
         self.chk_compare_routes.toggled.connect(self._refresh_transmittance_plots)
-        bar_trans.addWidget(self.chk_compare_routes)
+        lay_calc_options.addWidget(self.chk_compare_routes)
 
-        bar_trans.addWidget(QLabel("Noise Gate:"))
+        lbl_t_gate = QLabel("Noise Gate:")
+        lbl_t_gate.setToolTip("Umbral mínimo de cuentas en la referencia. Píxeles con cuentas inferiores se descartan para evitar división por cero.")
+        lay_calc_options.addWidget(lbl_t_gate)
         self.spin_trans_gate = QDoubleSpinBox()
         self.spin_trans_gate.setRange(0.0, 1000.0)
         self.spin_trans_gate.setValue(5.0)
+        self.spin_trans_gate.setToolTip("Cuentas mínimas requeridas en la referencia para calcular T.")
         self.spin_trans_gate.valueChanged.connect(self._schedule_recalculation)
-        bar_trans.addWidget(self.spin_trans_gate)
+        lay_calc_options.addWidget(self.spin_trans_gate)
 
-        self.chk_trans_adaptive = QCheckBox("Limpieza Adaptativa BG (Wiener)")
+        row1_trans.addWidget(grp_calc_options)
+
+        # Panel de Post-Filtro y Wiener en T(λ)
+        grp_post_filters = QGroupBox("🧹 Post-Filtro Espectral en T(λ)")
+        grp_post_filters.setToolTip("Suavizado y filtrado aplicado directamente sobre el espectro de transmitancia calculado.")
+        lay_post_filters = QHBoxLayout(grp_post_filters)
+        lay_post_filters.setContentsMargins(8, 2, 8, 4)
+        lay_post_filters.setSpacing(8)
+
+        lbl_t_filt = QLabel("Filtro:")
+        lbl_t_filt.setToolTip("Filtro espectral de suavizado sobre la transmitancia calculada.")
+        lay_post_filters.addWidget(lbl_t_filt)
+        self.combo_trans_filter = QComboBox()
+        self.combo_trans_filter.addItems(["Ninguno", "Savitzky-Golay", "Fourier Lowpass", "Media Móvil", "Wiener Adaptativo (BG)"])
+        self.combo_trans_filter.setToolTip("Filtro clásico de suavizado espectral: Savitzky-Golay, Fourier o Media Móvil.")
+        self.combo_trans_filter.currentIndexChanged.connect(self._schedule_recalculation)
+        lay_post_filters.addWidget(self.combo_trans_filter)
+
+        lbl_t_win = QLabel("Ventana:")
+        lbl_t_win.setToolTip("Tamaño de la ventana del filtro (píxeles).")
+        lay_post_filters.addWidget(lbl_t_win)
+        self.spin_trans_param = QSpinBox()
+        self.spin_trans_param.setRange(3, 101)
+        self.spin_trans_param.setSingleStep(2)
+        self.spin_trans_param.setValue(11)
+        self.spin_trans_param.setToolTip("Ancho de la ventana de filtrado (debe ser impar).")
+        self.spin_trans_param.valueChanged.connect(self._schedule_recalculation)
+        lay_post_filters.addWidget(self.spin_trans_param)
+
+        self.chk_trans_adaptive = QCheckBox("Wiener")
+        self.chk_trans_adaptive.setToolTip("Aplica filtro Wiener adaptativo a la transmitancia calculada usando la PSD de ruido del fondo.")
         self.chk_trans_adaptive.toggled.connect(self._schedule_recalculation)
-        bar_trans.addWidget(self.chk_trans_adaptive)
+        lay_post_filters.addWidget(self.chk_trans_adaptive)
 
         self.spin_trans_wiener_alpha = QDoubleSpinBox()
         self.spin_trans_wiener_alpha.setRange(0.1, 10.0)
         self.spin_trans_wiener_alpha.setSingleStep(0.1)
         self.spin_trans_wiener_alpha.setValue(1.0)
         self.spin_trans_wiener_alpha.setPrefix("α: ")
-        self.spin_trans_wiener_alpha.setToolTip("Factor de sobre-sustracción espectral α para filtro de Wiener adaptativo")
+        self.spin_trans_wiener_alpha.setToolTip("Factor de agresividad α para el filtro Wiener sobre la transmitancia.")
         self.spin_trans_wiener_alpha.valueChanged.connect(self._schedule_recalculation)
-        bar_trans.addWidget(self.spin_trans_wiener_alpha)
+        lay_post_filters.addWidget(self.spin_trans_wiener_alpha)
 
-        bar_trans.addWidget(QLabel("Post-Filtro:"))
-        self.combo_trans_filter = QComboBox()
-        self.combo_trans_filter.addItems(["Ninguno", "Savitzky-Golay", "Fourier Lowpass", "Media Móvil", "Wiener Adaptativo (BG)"])
-        self.combo_trans_filter.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_trans.addWidget(self.combo_trans_filter)
+        row1_trans.addWidget(grp_post_filters)
+        row1_trans.addStretch()
+        vbox_trans_ctrls.addLayout(row1_trans)
 
-        self.spin_trans_param = QSpinBox()
-        self.spin_trans_param.setRange(3, 101)
-        self.spin_trans_param.setSingleStep(2)
-        self.spin_trans_param.setValue(11)
-        self.spin_trans_param.valueChanged.connect(self._schedule_recalculation)
-        bar_trans.addWidget(self.spin_trans_param)
+        # ======================================================================
+        # Fila 2 (Secuencia Paso 2: Selección de Curvas Visibles y Acciones Rápidas)
+        # ======================================================================
+        row2_trans = QHBoxLayout()
+        row2_trans.setSpacing(10)
+
+        grp_curves = QGroupBox("👁️ Curvas Visibles")
+        grp_curves.setToolTip("Active o desactive las curvas y bandas a mostrar en el gráfico principal.")
+        lay_curves = QHBoxLayout(grp_curves)
+        lay_curves.setContentsMargins(8, 2, 8, 4)
+        lay_curves.setSpacing(12)
+
+        self.chk_show_tcalc = QCheckBox("T_calc (%)")
+        self.chk_show_tcalc.setChecked(True)
+        self.chk_show_tcalc.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+        self.chk_show_tcalc.setToolTip("Muestra u oculta la curva de Transmitancia Calculada físicamente: T_calc(λ) = Live / Ref con los filtros aplicados.")
+        self.chk_show_tcalc.toggled.connect(self._refresh_transmittance_plots)
+        lay_curves.addWidget(self.chk_show_tcalc)
+
+        self.chk_show_tmeas = QCheckBox("T_meas SIF (%)")
+        self.chk_show_tmeas.setChecked(True)
+        self.chk_show_tmeas.setStyleSheet("color: #89b4fa; font-weight: bold;")
+        self.chk_show_tmeas.setToolTip("Muestra u oculta la curva de Transmitancia medida originalmente por Andor Solis en el archivo SIF (Canal 0).")
+        self.chk_show_tmeas.toggled.connect(self._refresh_transmittance_plots)
+        lay_curves.addWidget(self.chk_show_tmeas)
+
+        self.chk_show_ribbon = QCheckBox("Banda Incertidumbre (±σ_T)")
+        self.chk_show_ribbon.setChecked(True)
+        self.chk_show_ribbon.setStyleSheet("color: #f9e2af;")
+        self.chk_show_ribbon.setToolTip("Muestra la banda sombreada de incertidumbre combinada (±1σ_T) considerando ruido fotónico y de fondo del detector.")
+        self.chk_show_ribbon.toggled.connect(self._refresh_transmittance_plots)
+        lay_curves.addWidget(self.chk_show_ribbon)
+
+        row2_trans.addWidget(grp_curves)
+        row2_trans.addStretch()
+
+        btn_auto_trans = QPushButton("Auto-Escala")
+        btn_auto_trans.setToolTip("Auto-escala los ejes de transmitancia y residuos.")
+        btn_auto_trans.clicked.connect(lambda: self.plot_trans_main.autoRange())
+        row2_trans.addWidget(btn_auto_trans)
 
         btn_recalc = QPushButton("⚡ Recalcular")
         btn_recalc.setObjectName("primaryBtn")
+        btn_recalc.setToolTip("Fuerza un recálculo inmediato de todas las curvas y métricas en las 5 ventanas.")
         btn_recalc.clicked.connect(self._recalculate_all)
-        bar_trans.addWidget(btn_recalc)
+        row2_trans.addWidget(btn_recalc)
 
-        layout.addLayout(bar_trans)
+        vbox_trans_ctrls.addLayout(row2_trans)
+        layout.addLayout(vbox_trans_ctrls)
 
         # Splitter: Gráfico de Transmitancia (Arriba) y Gráfico de Residuos (Abajo)
         self.splitter_trans = QSplitter(Qt.Orientation.Vertical)
@@ -1013,78 +1227,107 @@ class SifAnalyzerWindow(QMainWindow):
 
         return widget
 
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     # VENTANA 5: EXTINCIÓN Y AJUSTE DE PICOS (LSPR / FANO)
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     def _create_extinction_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Barra de controles pertinentes a EXTINCIÓN Y AJUSTE
-        bar_ext = QHBoxLayout()
+        # Barra de controles pertinentes a EXTINCIÓN Y AJUSTE (2 Filas lógicas)
+        vbox_ext_ctrls = QVBoxLayout()
+        vbox_ext_ctrls.setSpacing(4)
 
-        bar_ext.addWidget(QLabel("Fórmula Extinción:"))
+        # Fila 1: Fórmula, Acondicionamiento y Auto-Escala
+        row1_ext = QHBoxLayout()
+        lbl_e_form = QLabel("Fórmula:")
+        lbl_e_form.setToolTip("Fórmula física para calcular la extinción o absorbancia óptica a partir de T(λ).")
+        row1_ext.addWidget(lbl_e_form)
         self.combo_ext_formula = QComboBox()
         self.combo_ext_formula.addItems(["Absorbancia A = -log10(T/100)", "Extinción E = 1 - T/100"])
+        self.combo_ext_formula.setToolTip("Absorbancia de Beer-Lambert A = -log10(T) o Extinción directa E = 1 - T.")
         self.combo_ext_formula.currentIndexChanged.connect(self._schedule_recalculation)
-        bar_ext.addWidget(self.combo_ext_formula)
+        row1_ext.addWidget(self.combo_ext_formula)
 
-        bar_ext.addWidget(QLabel("Modelo Ajuste:"))
-        self.combo_fit_model = QComboBox()
-        self.combo_fit_model.addItems(["Gaussiano", "Lorentziano", "Resonancia de Fano"])
-        bar_ext.addWidget(self.combo_fit_model)
-
-        bar_ext.addWidget(QLabel("ROI λ Min:"))
-        self.spin_fit_lmin = QDoubleSpinBox()
-        self.spin_fit_lmin.setRange(200.0, 2500.0)
-        self.spin_fit_lmin.setValue(600.0)
-        self.spin_fit_lmin.setSingleStep(5.0)
-        self.spin_fit_lmin.valueChanged.connect(self._on_fit_spinners_changed)
-        bar_ext.addWidget(self.spin_fit_lmin)
-
-        bar_ext.addWidget(QLabel("ROI λ Max:"))
-        self.spin_fit_lmax = QDoubleSpinBox()
-        self.spin_fit_lmax.setRange(200.0, 2500.0)
-        self.spin_fit_lmax.setValue(750.0)
-        self.spin_fit_lmax.setSingleStep(5.0)
-        self.spin_fit_lmax.valueChanged.connect(self._on_fit_spinners_changed)
-        bar_ext.addWidget(self.spin_fit_lmax)
-
-        bar_ext.addWidget(QLabel("Ranura (µm):"))
-        self.spin_fit_slit = QDoubleSpinBox()
-        self.spin_fit_slit.setRange(10.0, 2500.0)
-        self.spin_fit_slit.setValue(100.0)
-        bar_ext.addWidget(self.spin_fit_slit)
-
-        self.chk_ext_adaptive = QCheckBox("Limpieza Adaptativa BG (Wiener)")
+        self.chk_ext_adaptive = QCheckBox("Pre-filtrado Wiener en Extinción")
+        self.chk_ext_adaptive.setToolTip("Limpia el espectro de extinción antes de ejecutar el ajuste para mejorar la convergencia de picos.")
         self.chk_ext_adaptive.toggled.connect(self._schedule_recalculation)
-        bar_ext.addWidget(self.chk_ext_adaptive)
+        row1_ext.addWidget(self.chk_ext_adaptive)
 
         self.spin_ext_wiener_alpha = QDoubleSpinBox()
         self.spin_ext_wiener_alpha.setRange(0.1, 10.0)
         self.spin_ext_wiener_alpha.setSingleStep(0.1)
         self.spin_ext_wiener_alpha.setValue(1.0)
         self.spin_ext_wiener_alpha.setPrefix("α: ")
-        self.spin_ext_wiener_alpha.setToolTip("Factor de sobre-sustracción espectral α para filtro de Wiener adaptativo")
+        self.spin_ext_wiener_alpha.setToolTip("Factor α del filtro Wiener sobre la extinción.")
         self.spin_ext_wiener_alpha.valueChanged.connect(self._schedule_recalculation)
-        bar_ext.addWidget(self.spin_ext_wiener_alpha)
+        row1_ext.addWidget(self.spin_ext_wiener_alpha)
+
+        row1_ext.addStretch()
+
+        btn_auto_ext = QPushButton("Auto-Escala")
+        btn_auto_ext.setToolTip("Auto-escala los ejes del gráfico de extinción.")
+        btn_auto_ext.clicked.connect(lambda: self.plot_ext_main.autoRange())
+        row1_ext.addWidget(btn_auto_ext)
+        vbox_ext_ctrls.addLayout(row1_ext)
+
+        # Fila 2: Modelo de Ajuste, ROI espectral y Ejecución
+        row2_ext = QHBoxLayout()
+        lbl_e_mod = QLabel("Modelo Ajuste:")
+        lbl_e_mod.setToolTip("Función analítica de ajuste: Gaussiana, Lorentziana (LSPR clásica) o Fano (resonancia asimétrica).")
+        row2_ext.addWidget(lbl_e_mod)
+        self.combo_fit_model = QComboBox()
+        self.combo_fit_model.addItems(["Gaussiano", "Lorentziano", "Resonancia de Fano"])
+        self.combo_fit_model.setToolTip("Seleccione el perfil espectral teórico para ajustar la resonancia plasmónica.")
+        row2_ext.addWidget(self.combo_fit_model)
+
+        lbl_e_lmin = QLabel("ROI λ Min:")
+        lbl_e_lmin.setToolTip("Longitud de onda mínima del intervalo de ajuste (nm).")
+        row2_ext.addWidget(lbl_e_lmin)
+        self.spin_fit_lmin = QDoubleSpinBox()
+        self.spin_fit_lmin.setRange(200.0, 2500.0)
+        self.spin_fit_lmin.setValue(600.0)
+        self.spin_fit_lmin.setSingleStep(5.0)
+        self.spin_fit_lmin.setToolTip("Límite espectral inferior (también arrastrable en el gráfico).")
+        self.spin_fit_lmin.valueChanged.connect(self._on_fit_spinners_changed)
+        row2_ext.addWidget(self.spin_fit_lmin)
+
+        lbl_e_lmax = QLabel("ROI λ Max:")
+        lbl_e_lmax.setToolTip("Longitud de onda máxima del intervalo de ajuste (nm).")
+        row2_ext.addWidget(lbl_e_lmax)
+        self.spin_fit_lmax = QDoubleSpinBox()
+        self.spin_fit_lmax.setRange(200.0, 2500.0)
+        self.spin_fit_lmax.setValue(750.0)
+        self.spin_fit_lmax.setSingleStep(5.0)
+        self.spin_fit_lmax.setToolTip("Límite espectral superior (también arrastrable en el gráfico).")
+        self.spin_fit_lmax.valueChanged.connect(self._on_fit_spinners_changed)
+        row2_ext.addWidget(self.spin_fit_lmax)
+
+        lbl_e_slit = QLabel("Ranura (µm):")
+        lbl_e_slit.setToolTip("Ancho de la ranura de entrada del espectrógrafo (para propagar resolución instrumental).")
+        row2_ext.addWidget(lbl_e_slit)
+        self.spin_fit_slit = QDoubleSpinBox()
+        self.spin_fit_slit.setRange(10.0, 2500.0)
+        self.spin_fit_slit.setValue(100.0)
+        self.spin_fit_slit.setToolTip("Ancho de rendija (Slit) leído del archivo SIF o definido manualmente.")
+        row2_ext.addWidget(self.spin_fit_slit)
 
         self.btn_run_fit = QPushButton("⚡ Ajustar Pico en ROI")
         self.btn_run_fit.setObjectName("accentBtn")
+        self.btn_run_fit.setToolTip("Ejecuta el ajuste por mínimos cuadrados no lineales y reporta λ_pico, FWHM e incertidumbres.")
         self.btn_run_fit.clicked.connect(self._on_run_peak_fit)
-        bar_ext.addWidget(self.btn_run_fit)
+        row2_ext.addWidget(self.btn_run_fit)
 
         self.btn_export_fit = QPushButton("💾 Exportar Ajuste")
+        self.btn_export_fit.setToolTip("Exporta los parámetros de ajuste y las curvas ajustadas a un archivo .txt.")
         self.btn_export_fit.clicked.connect(self._on_export_peak_fit)
-        bar_ext.addWidget(self.btn_export_fit)
+        row2_ext.addWidget(self.btn_export_fit)
+        row2_ext.addStretch()
+        vbox_ext_ctrls.addLayout(row2_ext)
 
-        btn_auto_ext = QPushButton("Auto-Escala")
-        btn_auto_ext.clicked.connect(lambda: self.plot_ext_main.autoRange())
-        bar_ext.addWidget(btn_auto_ext)
-
-        layout.addLayout(bar_ext)
+        layout.addLayout(vbox_ext_ctrls)
 
         # Splitter: Gráfico de Extinción con Reglas Arrastrables (Arriba) y Residuos del Ajuste (Abajo)
         self.splitter_ext = QSplitter(Qt.Orientation.Vertical)
@@ -1130,28 +1373,32 @@ class SifAnalyzerWindow(QMainWindow):
 
         return widget
 
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     # PANEL DERECHO: INSTRUMENTACIÓN, CALIBRACIÓN Y EXPORTACIÓN
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     def _create_right_panel(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         container = QWidget()
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(8)
 
         # Grupo: Instrumentación Óptica y Escala
         grp_optics = QGroupBox("Instrumentación: Escala y Óptica")
         vbox_optics = QVBoxLayout(grp_optics)
 
-        vbox_optics.addWidget(QLabel("Objetivo Microscopio:"))
+        lbl_obj = QLabel("Objetivo Microscopio:")
+        lbl_obj.setToolTip("Objetivo óptico utilizado para recolectar la señal espectral.")
+        vbox_optics.addWidget(lbl_obj)
         self.combo_objective = QComboBox()
         for obj_name in MICROSCOPE_OBJECTIVES.keys():
             self.combo_objective.addItem(obj_name)
         self.combo_objective.setCurrentIndex(0)
+        self.combo_objective.setToolTip("Selecciona el objetivo para calcular la escala espacial exacta (µm/px) y apertura numérica NA.")
         self.combo_objective.currentIndexChanged.connect(self._on_objective_changed)
         vbox_optics.addWidget(self.combo_objective)
 
@@ -1160,23 +1407,28 @@ class SifAnalyzerWindow(QMainWindow):
         self.lbl_pixel_scale.setStyleSheet("color: #a6e3a1; font-weight: bold;")
         vbox_optics.addWidget(self.lbl_pixel_scale)
 
-        vbox_optics.addWidget(QLabel("Calibración de Dispersión:"))
+        lbl_disp = QLabel("Calibración de Dispersión:")
+        lbl_disp.setToolTip("Calibración del eje de longitudes de onda (nm) por píxel del espectrógrafo.")
+        vbox_optics.addWidget(lbl_disp)
         self.lbl_calib_status = QLabel("Origen: SIF Nativo")
         self.lbl_calib_status.setStyleSheet("color: #89b4fa; font-size: 11px;")
         vbox_optics.addWidget(self.lbl_calib_status)
 
         h_calib = QHBoxLayout()
         self.btn_load_calib = QPushButton("📥 Calib (.txt)")
+        self.btn_load_calib.setToolTip("Carga una calibración de longitudes de onda externa en archivo de texto.")
         self.btn_load_calib.clicked.connect(self._on_load_external_calib)
         self.btn_reset_calib = QPushButton("↺ Nativo")
+        self.btn_reset_calib.setToolTip("Restablece el eje espectral a los polinomios de calibración del archivo SIF.")
         self.btn_reset_calib.clicked.connect(self._on_reset_calib)
         h_calib.addWidget(self.btn_load_calib)
         h_calib.addWidget(self.btn_reset_calib)
         vbox_optics.addLayout(h_calib)
 
-        self.chk_calculate_errors = QCheckBox("Propagar Incertidumbres y Error Ribbon")
+        self.chk_calculate_errors = QCheckBox("Propagar Incertidumbres (±σ_T)")
         self.chk_calculate_errors.setChecked(True)
         self.chk_calculate_errors.setStyleSheet("color: #f9e2af; font-weight: bold;")
+        self.chk_calculate_errors.setToolTip("Propaga las incertidumbres fotónica de Poisson y de lectura CCD en todas las curvas.")
         self.chk_calculate_errors.toggled.connect(self._schedule_recalculation)
         vbox_optics.addWidget(self.chk_calculate_errors)
 
@@ -1188,14 +1440,17 @@ class SifAnalyzerWindow(QMainWindow):
 
         self.btn_export_txt = QPushButton("💾 Exportar Curvas (.dat)")
         self.btn_export_txt.setObjectName("accentBtn")
+        self.btn_export_txt.setToolTip("Exporta en archivo de columnas (.dat/.txt) todas las curvas del espectro activo.")
         self.btn_export_txt.clicked.connect(self._on_export_active_curves)
         vbox_export.addWidget(self.btn_export_txt)
 
         self.btn_export_batch = QPushButton("📦 Exportar Todo el Lote")
+        self.btn_export_batch.setToolTip("Procesa y exporta automáticamente todos los archivos cargados.")
         self.btn_export_batch.clicked.connect(self._on_export_batch_set)
         vbox_export.addWidget(self.btn_export_batch)
 
         self.btn_export_img = QPushButton("📷 Guardar Imagen (PNG/SVG)")
+        self.btn_export_img.setToolTip("Captura y exporta el gráfico activo en formato de imagen.")
         self.btn_export_img.clicked.connect(self._on_export_plot_image)
         vbox_export.addWidget(self.btn_export_img)
 
@@ -1323,6 +1578,7 @@ class SifAnalyzerWindow(QMainWindow):
         for row, spec in enumerate(self.loaded_spectra):
             chk = QCheckBox()
             chk.setChecked(True)
+            chk.setToolTip("Activar o desactivar este espectro en comparativas y cálculos.")
             chk.stateChanged.connect(lambda state, r=row: self._schedule_recalculation())
             chk_widget = QWidget()
             chk_lay = QHBoxLayout(chk_widget)
@@ -1331,9 +1587,11 @@ class SifAnalyzerWindow(QMainWindow):
             chk_lay.setContentsMargins(0, 0, 0, 0)
             self.table_files.setCellWidget(row, 0, chk_widget)
 
-            # Nombre / Alias
+            # Nombre / Alias completo
             name_text = ("👑 " if spec is self.master_spectrum else "") + spec.custom_name
             item_name = QTableWidgetItem(name_text)
+            fpath = getattr(spec.metadata, 'filepath', spec.custom_name) if hasattr(spec, 'metadata') and spec.metadata else spec.custom_name
+            item_name.setToolTip(f"Ruta completa: {fpath}\nNombre: {spec.custom_name}")
             if spec is self.master_spectrum:
                 item_name.setForeground(QColor("#a6e3a1"))
                 font = item_name.font()
@@ -1343,18 +1601,26 @@ class SifAnalyzerWindow(QMainWindow):
 
             # Canales
             ch_count = spec.channels_count
-            item_ch = QTableWidgetItem(f"{ch_count} ch ({'2D' if spec.is_2d else '1D'})")
+            ch_desc = f"{ch_count} ch ({'2D' if spec.is_2d else '1D'})"
+            item_ch = QTableWidgetItem(ch_desc)
+            ch_names = ', '.join(spec.channels.keys()) if hasattr(spec, 'channels') else ch_desc
+            item_ch.setToolTip(f"Canales presentes en este archivo: {ch_names}")
             item_ch.setFlags(item_ch.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table_files.setItem(row, 2, item_ch)
 
             # Rol / Estado
             role_desc = "👑 Maestro" if spec is self.master_spectrum else ("Muestra Completa" if ch_count == 4 else "Hereda Maestro")
             item_role = QTableWidgetItem(role_desc)
+            item_role.setToolTip(f"Estado en el lote: {role_desc}")
             item_role.setFlags(item_role.flags() & ~Qt.ItemFlag.ItemIsEditable)
             if spec is self.master_spectrum:
                 item_role.setForeground(QColor("#a6e3a1"))
             self.table_files.setItem(row, 3, item_role)
 
+        self.table_files.resizeColumnsToContents()
+        self.table_files.setColumnWidth(0, 42)
+        if self.table_files.columnWidth(1) < 180:
+            self.table_files.setColumnWidth(1, 180)
         self.table_files.blockSignals(False)
 
     def _update_live_sample_combo(self):
@@ -1584,16 +1850,30 @@ class SifAnalyzerWindow(QMainWindow):
             self.current_noise_profile = None
 
         # 2. Reducción y filtrado de Ruido (Ventana 1)
+        dark_mat_proc = None
         dark_1d = None
         if dark_mat is not None:
-            d_red = self._reduce_matrix(dark_mat, 0, dark_mat.shape[1] if dark_mat.ndim > 2 else (dark_mat.shape[0] if dark_mat.ndim == 2 else 1))
             despike_d = self.chk_dark_despike.isChecked()
             filt_d = self._map_filter_name(self.combo_dark_filter.currentText())
             p_d = self.spin_dark_param.value()
-            dark_1d = apply_spectral_filter(d_red, filt_d, {'window_length': p_d, 'cutoff_ratio': 1.0 / p_d}, despike_first=despike_d)
+            dark_mat_proc = apply_spectral_filters_2d(
+                matrix_2d=dark_mat,
+                dark_matrix=None,
+                sub_dark=False,
+                ref_is_bg_subtracted=False,
+                despike=despike_d,
+                despike_sigma=4.0,
+                noise_profile=self.current_noise_profile,
+                wiener_adaptive=False,
+                filter_type=filt_d,
+                filter_params={'window_length': p_d, 'cutoff_ratio': 1.0 / p_d}
+            )
+            d_h = dark_mat_proc.shape[0] if dark_mat_proc.ndim == 2 else 1
+            dark_1d = self._reduce_matrix(dark_mat_proc, 0, d_h, method="mean")
         self.current_dark_1d = dark_1d
 
-        # 3. Reducción y filtrado de Referencia (Ventana 2)
+        # 3. Reducción y filtrado de Referencia (Ventana 2) - Procesamiento integral 2D y 1D
+        ref_mat_proc = None
         ref_1d = None
         ref_ymin = self.spin_ref_ymin.value()
         ref_ymax = self.spin_ref_ymax.value()
@@ -1603,72 +1883,78 @@ class SifAnalyzerWindow(QMainWindow):
             ref_is_bg_sub = getattr(self.master_spectrum, 'ref_is_bg_corrected', False)
 
         if ref_mat is not None:
-            r_red = self._reduce_matrix(ref_mat, ref_ymin, ref_ymax, ref_mode)
-            # Solo sustraer ruido si el canal no viene pre-corregido por fondo desde el SIF
-            if self.chk_ref_sub_dark.isChecked() and dark_1d is not None and not ref_is_bg_sub:
-                r_red = r_red - dark_1d
-
-            # Despiking
-            if self.chk_ref_despike.isChecked():
-                if self.current_noise_profile is not None:
-                    r_red = filter_despike_adaptive(r_red, self.current_noise_profile)
-                else:
-                    r_red = filter_despike_median(r_red)
-
-            # Limpieza Adaptativa Wiener BG
             filt_r = self._map_filter_name(self.combo_ref_filter.currentText())
-            if (self.chk_ref_adaptive.isChecked() or filt_r == "wiener") and self.current_noise_profile is not None:
-                alpha_r = self.spin_ref_wiener_alpha.value()
-                r_red = filter_wiener_adaptive(r_red, self.current_noise_profile, alpha=alpha_r)
+            p_r = self.spin_ref_param.value()
+            sub_dark_r = self.chk_ref_sub_dark.isChecked()
+            despike_r = self.chk_ref_despike.isChecked()
+            wiener_r = self.chk_ref_adaptive.isChecked() or (filt_r == "wiener")
+            alpha_r = self.spin_ref_wiener_alpha.value()
 
-            # Filtro tradicional si está seleccionado (y no es wiener)
-            if filt_r not in ("none", "wiener"):
-                p_r = self.spin_ref_param.value()
-                r_red = apply_spectral_filter(r_red, filt_r, {'window_length': p_r, 'cutoff_ratio': 1.0 / p_r}, despike_first=False)
-            ref_1d = r_red
+            ref_mat_proc = apply_spectral_filters_2d(
+                matrix_2d=ref_mat,
+                dark_matrix=dark_mat_proc if dark_mat_proc is not None else dark_mat,
+                sub_dark=sub_dark_r,
+                ref_is_bg_subtracted=ref_is_bg_sub,
+                despike=despike_r,
+                despike_sigma=4.0,
+                noise_profile=self.current_noise_profile,
+                wiener_adaptive=wiener_r,
+                wiener_alpha=alpha_r,
+                filter_type=filt_r if filt_r != "wiener" else "none",
+                filter_params={'window_length': p_r, 'cutoff_ratio': 1.0 / p_r}
+            )
+            ref_1d = self._reduce_matrix(ref_mat_proc, ref_ymin, ref_ymax, ref_mode)
         self.current_ref_1d = ref_1d
 
-        # 4. Reducción y filtrado de Live / Señal (Ventana 3)
+        # 4. Reducción y filtrado de Live / Señal (Ventana 3) - Procesamiento integral 2D y 1D
+        live_mat_proc = None
         live_1d = None
         live_ymin = self.spin_live_ymin.value()
         live_ymax = self.spin_live_ymax.value()
         live_mode = "sum" if self.combo_live_roimode.currentText() == "Suma" else "mean"
+
         if live_mat is not None:
-            l_red = self._reduce_matrix(live_mat, live_ymin, live_ymax, live_mode)
-            if self.chk_live_sub_dark.isChecked() and dark_1d is not None:
-                l_red = l_red - dark_1d
-
-            # Despiking
-            if self.chk_live_despike.isChecked():
-                if self.current_noise_profile is not None:
-                    l_red = filter_despike_adaptive(l_red, self.current_noise_profile)
-                else:
-                    l_red = filter_despike_median(l_red)
-
-            # Limpieza Adaptativa Wiener BG
             filt_l = self._map_filter_name(self.combo_live_filter.currentText())
-            if (self.chk_live_adaptive.isChecked() or filt_l == "wiener") and self.current_noise_profile is not None:
-                alpha_l = self.spin_live_wiener_alpha.value()
-                l_red = filter_wiener_adaptive(l_red, self.current_noise_profile, alpha=alpha_l)
+            p_l = self.spin_live_param.value()
+            sub_dark_l = self.chk_live_sub_dark.isChecked()
+            despike_l = self.chk_live_despike.isChecked()
+            wiener_l = self.chk_live_adaptive.isChecked() or (filt_l == "wiener")
+            alpha_l = self.spin_live_wiener_alpha.value()
 
-            # Filtro tradicional si está seleccionado
-            if filt_l not in ("none", "wiener"):
-                p_l = self.spin_live_param.value()
-                l_red = apply_spectral_filter(l_red, filt_l, {'window_length': p_l, 'cutoff_ratio': 1.0 / p_l}, despike_first=False)
-            live_1d = l_red
+            live_mat_proc = apply_spectral_filters_2d(
+                matrix_2d=live_mat,
+                dark_matrix=dark_mat_proc if dark_mat_proc is not None else dark_mat,
+                sub_dark=sub_dark_l,
+                ref_is_bg_subtracted=False,
+                despike=despike_l,
+                despike_sigma=4.0,
+                noise_profile=self.current_noise_profile,
+                wiener_adaptive=wiener_l,
+                wiener_alpha=alpha_l,
+                filter_type=filt_l if filt_l != "wiener" else "none",
+                filter_params={'window_length': p_l, 'cutoff_ratio': 1.0 / p_l}
+            )
+            live_1d = self._reduce_matrix(live_mat_proc, live_ymin, live_ymax, live_mode)
         self.current_live_1d = live_1d
 
-        # 5. Cálculo de Transmisión (Ventana 4)
+        # 5. Cálculo de Transmisión (Ventana 4) sobre Matrices y Señales Filtradas
         noise_gate = self.spin_trans_gate.value()
         t_route_a, t_route_b = None, None
         t_calc = None
 
-        if live_mat is not None and ref_mat is not None:
+        if live_mat_proc is not None and ref_mat_proc is not None:
+            # Dado que live_mat_proc y ref_mat_proc ya han sido procesados, filtrados y
+            # restados de fondo si correspondió, se pasan con dark=None y ref_is_bg_subtracted=True
+            # para evitar cualquier doble resta destructiva.
             t_a, t_b, val_mask = compute_transmittance_dual_route(
-                live=live_mat, ref=ref_mat, dark=dark_mat,
-                roi_ymin=live_ymin, roi_ymax=live_ymax,
-                noise_gate=noise_gate, in_percentage=True,
-                ref_is_bg_subtracted=ref_is_bg_sub
+                live=live_mat_proc,
+                ref=ref_mat_proc,
+                dark=None,
+                roi_ymin=live_ymin,
+                roi_ymax=live_ymax,
+                noise_gate=noise_gate,
+                in_percentage=True,
+                ref_is_bg_subtracted=True
             )
             t_route_a = t_a
             t_route_b = t_b
@@ -1718,7 +2004,7 @@ class SifAnalyzerWindow(QMainWindow):
                     sigma_bg=s_bg,
                     noise_threshold=noise_gate,
                     in_percentage=True,
-                    ref_is_bg_subtracted=ref_is_bg_sub
+                    ref_is_bg_subtracted=True
                 )
                 sigma_t = s_t
             else:
@@ -1731,7 +2017,7 @@ class SifAnalyzerWindow(QMainWindow):
         self.current_sigma_t = sigma_t
         self.current_residuals = residuals
 
-        # 6. Extinción (Ventana 5)
+        # 6. Extinción (Ventana 5) - Realizada rigurosamente con los datos post-procesados de la Ventana 4
         extinction = None
         if t_calc is not None:
             is_beer = ("log10" in self.combo_ext_formula.currentText())
@@ -1751,10 +2037,10 @@ class SifAnalyzerWindow(QMainWindow):
 
         self.current_extinction = extinction
 
-        # 7. Refrescar gráficos correspondientes
-        self._refresh_dark_plots(dark_mat, dark_1d, dark_inherited)
-        self._refresh_ref_plots(ref_mat, ref_1d, ref_inherited)
-        self._refresh_live_plots(live_mat, live_1d, live_inherited)
+        # 7. Refrescar gráficos correspondientes con las matrices procesadas
+        self._refresh_dark_plots(dark_mat_proc if dark_mat_proc is not None else dark_mat, dark_1d, dark_inherited)
+        self._refresh_ref_plots(ref_mat_proc if ref_mat_proc is not None else ref_mat, ref_1d, ref_inherited)
+        self._refresh_live_plots(live_mat_proc if live_mat_proc is not None else live_mat, live_1d, live_inherited)
         self._refresh_transmittance_plots()
         self._refresh_extinction_plots()
 
@@ -1899,21 +2185,6 @@ class SifAnalyzerWindow(QMainWindow):
                 self.splitter_live.setSizes([260, 440])
         else:
             self.widget_live_2d.setVisible(False)
-
-        # 1D
-        self.plot_live_1d.clear()
-        self.plot_live_1d.addLegend(offset=(20, 20))
-        if live_1d is not None and np.any(np.isfinite(live_1d)):
-            pen = pg.mkPen('#f38ba8', width=2.0)
-            self.plot_live_1d.plot(wl, live_1d, pen=pen, name=f"Live: {spec.custom_name}")
-            mean_l = float(np.nanmean(live_1d))
-            max_l = float(np.nanmax(live_1d))
-            max_idx = int(np.nanargmax(live_1d))
-            peak_wl = float(wl[max_idx])
-            sbr = (mean_l / max(1.0, float(np.nanmean(self.current_dark_1d)))) if self.current_dark_1d is not None else 1.0
-            self.lbl_live_metrics.setText(f"Métricas Señal: Cuentas Medias ROI: {mean_l:.1f} | Pico Muestra: {max_l:.1f} (@ {peak_wl:.1f} nm) | SBR (Señal/Ruido): {sbr:.1f}x")
-        else:
-            self.lbl_live_metrics.setText("Métricas Señal: Sin canal de señal disponible.")
 
         # 1D
         self.plot_live_1d.clear()
@@ -2145,6 +2416,50 @@ class SifAnalyzerWindow(QMainWindow):
         elif "Wiener" in name:
             return "wiener"
         return "none"
+
+    def _on_toggle_right_panel(self):
+        """Muestra u oculta el panel lateral derecho para optimizar espacio del panel central."""
+        is_hidden = self.right_panel.isHidden()
+        self.right_panel.setHidden(not is_hidden)
+        self.btn_toggle_right.setText("▶ Panel" if is_hidden else "◀ Panel")
+        self.statusBar().showMessage("Panel lateral " + ("visible" if is_hidden else "oculto"), 2000)
+
+    def _on_reset_dark_filters(self):
+        """Restaura los filtros de ruido (Dark) al estado crudo sin procesar."""
+        self.chk_dark_despike.setChecked(False)
+        self.combo_dark_filter.setCurrentIndex(0)
+        self._recalculate_all()
+        self.statusBar().showMessage("Filtros de ruido reiniciados a crudo (Raw).", 2000)
+
+    def _on_reset_ref_filters(self):
+        """Restaura los filtros de referencia al estado crudo sin procesar."""
+        self.chk_ref_sub_dark.setChecked(False)
+        self.chk_ref_despike.setChecked(False)
+        self.chk_ref_adaptive.setChecked(False)
+        self.combo_ref_filter.setCurrentIndex(0)
+        self._recalculate_all()
+        self.statusBar().showMessage("Filtros de referencia reiniciados a crudo (Raw).", 2000)
+
+    def _on_reset_live_filters(self):
+        """Restaura los filtros de señal (Live) al estado crudo sin procesar."""
+        self.chk_live_sub_dark.setChecked(False)
+        self.chk_live_despike.setChecked(False)
+        self.chk_live_adaptive.setChecked(False)
+        self.combo_live_filter.setCurrentIndex(0)
+        self._recalculate_all()
+        self.statusBar().showMessage("Filtros de señal reiniciados a crudo (Raw).", 2000)
+
+    def _on_sync_roi_to_live(self):
+        """Copia y sincroniza los límites espaciales (ROI Y Min/Max) de Referencia hacia Live."""
+        ymin = self.spin_ref_ymin.value()
+        ymax = self.spin_ref_ymax.value()
+        mode = self.combo_ref_roimode.currentIndex()
+        self.spin_live_ymin.setValue(ymin)
+        self.spin_live_ymax.setValue(ymax)
+        self.combo_live_roimode.setCurrentIndex(mode)
+        self.roi_live_region.setRegion([ymin, ymax])
+        self._schedule_recalculation()
+        self.statusBar().showMessage(f"ROI sincronizado con Referencia: [{ymin}, {ymax}] px", 2500)
 
     # ==========================================================================
     # INSTRUMENTACIÓN Y CALIBRACIÓN EXTERNA

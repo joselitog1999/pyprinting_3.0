@@ -840,6 +840,82 @@ def apply_spectral_filter(y: np.ndarray,
     return y_out
 
 
+def apply_spectral_filters_2d(matrix_2d: np.ndarray,
+                              dark_matrix: Optional[np.ndarray] = None,
+                              sub_dark: bool = False,
+                              ref_is_bg_subtracted: bool = False,
+                              despike: bool = False,
+                              despike_sigma: float = 4.0,
+                              noise_profile: Optional[NoiseProfile] = None,
+                              wiener_adaptive: bool = False,
+                              wiener_alpha: float = 1.0,
+                              filter_type: str = "none",
+                              filter_params: Optional[Dict] = None) -> np.ndarray:
+    """
+    Aplica la cadena completa de pre-acondicionamiento físico y filtrado espectral
+    fila por fila sobre una matriz 2D (height, width) correspondiente a la dispersión
+    espectral del detector CCD.
+    Retorna una matriz 2D procesada con la misma forma (H, W).
+    """
+    if matrix_2d is None:
+        return None
+
+    mat = np.asarray(matrix_2d, dtype=np.float64).copy()
+    while mat.ndim > 2 and mat.shape[0] == 1:
+        mat = mat[0]
+
+    if mat.ndim == 1:
+        orig_1d = True
+        mat = mat.reshape(1, -1)
+    else:
+        orig_1d = False
+
+    h, w = mat.shape
+
+    # 1. Resta de Ruido / Dark en 2D
+    if sub_dark and not ref_is_bg_subtracted and dark_matrix is not None:
+        d = np.asarray(dark_matrix, dtype=np.float64)
+        while d.ndim > 2 and d.shape[0] == 1:
+            d = d[0]
+        if d.shape == mat.shape:
+            mat = mat - d
+        elif d.ndim == 1 and d.shape[0] == w:
+            mat = mat - d[np.newaxis, :]
+        elif d.ndim == 2 and d.shape[1] == w:
+            d_1d = np.nanmean(d, axis=0)
+            mat = mat - d_1d[np.newaxis, :]
+
+    # 2. Procesamiento espectral fila por fila
+    needs_row_proc = (despike or
+                      (wiener_adaptive and noise_profile is not None) or
+                      (filter_type not in ("none", "wiener")))
+    if needs_row_proc:
+        p = filter_params if filter_params is not None else {}
+        for r in range(h):
+            row = mat[r, :]
+            if not np.any(np.isfinite(row)):
+                continue
+
+            # Despiking
+            if despike:
+                if noise_profile is not None:
+                    row = filter_despike_adaptive(row, noise_profile, threshold_k=despike_sigma)
+                else:
+                    row = filter_despike_median(row, threshold_sigma=despike_sigma)
+
+            # Filtro Wiener adaptativo
+            if (wiener_adaptive or filter_type == "wiener") and noise_profile is not None:
+                row = filter_wiener_adaptive(row, noise_profile, alpha=wiener_alpha)
+
+            # Filtro espectral tradicional
+            if filter_type not in ("none", "wiener"):
+                row = apply_spectral_filter(row, filter_type=filter_type, params=p, despike_first=False)
+
+            mat[r, :] = row
+
+    return mat[0] if orig_1d else mat
+
+
 # ==============================================================================
 # REDUCCIÓN ESPACIAL (ROI) Y ESTADÍSTICA
 # ==============================================================================

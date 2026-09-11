@@ -290,6 +290,103 @@ class TestSifAnalyzerGUI(unittest.TestCase):
         self.window._recalculate_all()
         self.assertIn("Archivo Activo", self.window.lbl_ref_source.text())
 
+    def test_14_2d_and_1d_filter_propagation_pipeline(self):
+        """Verifica que los filtros aplicados en 2D y 1D en Tabs 2 y 3 se propaguen a Tab 4 y Tab 5."""
+        if not os.path.isfile(self.oblicua_path):
+            self.skipTest("Archivo oblicua no encontrado")
+
+        self.window._load_file_list([self.oblicua_path])
+        self.window._select_file_index(0)
+
+        # 1. Estado Crudo (Raw)
+        self.window._on_reset_ref_filters()
+        self.window._on_reset_live_filters()
+        t_raw = self.window.current_t_calc.copy()
+        ext_raw = self.window.current_extinction.copy()
+
+        self.assertIsNotNone(t_raw)
+        self.assertIsNotNone(ext_raw)
+
+        # 2. Aplicar filtro Savitzky-Golay en Referencia (Tab 2) y Live (Tab 3)
+        self.window.combo_ref_filter.setCurrentText("Savitzky-Golay")
+        self.window.spin_ref_param.setValue(25)
+        self.window.combo_live_filter.setCurrentText("Savitzky-Golay")
+        self.window.spin_live_param.setValue(25)
+        self.window._recalculate_all()
+
+        t_filt_pre = self.window.current_t_calc.copy()
+        ext_filt_pre = self.window.current_extinction.copy()
+
+        # El filtrado en Tabs 2 y 3 debe modificar T_calc y Extinción
+        diff_t = np.nanmean(np.abs(t_filt_pre - t_raw))
+        self.assertGreater(diff_t, 1e-4, "El filtrado en Tab 2 y 3 debe propagarse a T_calc")
+
+        # La derivada discreta (ruido de alta frecuencia) debe ser menor tras el filtrado
+        fin_raw = np.isfinite(t_raw)
+        fin_filt = np.isfinite(t_filt_pre)
+        mask = fin_raw & fin_filt
+        roughness_raw = np.nanstd(np.diff(t_raw[mask]))
+        roughness_filt = np.nanstd(np.diff(t_filt_pre[mask]))
+        self.assertLess(roughness_filt, roughness_raw, "T_calc con filtros 2D debe ser más suave que T_raw")
+
+        # 3. Aplicar Post-Filtro en Transmisión (Tab 4) y verificar propagación a Extinción (Tab 5)
+        self.window.combo_trans_filter.setCurrentText("Savitzky-Golay")
+        self.window.spin_trans_param.setValue(31)
+        self.window._recalculate_all()
+
+        t_post = self.window.current_t_calc.copy()
+        ext_post = self.window.current_extinction.copy()
+
+        diff_post = np.nanmean(np.abs(t_post - t_filt_pre))
+        self.assertGreater(diff_post, 1e-4, "El post-filtro de Tab 4 debe modificar T_calc")
+
+        # Extinción en Tab 5 debe reflejar el post-filtro de Tab 4
+        diff_ext = np.nanmean(np.abs(ext_post - ext_filt_pre))
+        self.assertGreater(diff_ext, 1e-5, "La extinción de Tab 5 debe calcularse directamente con el T_calc post-procesado de Tab 4")
+
+    def test_15_ergonomics_and_reset_buttons(self):
+        """Verifica la ergonomía de la interfaz: paneles colapsables, sincronización ROI y botones de reset."""
+        if not os.path.isfile(self.oblicua_path):
+            self.skipTest("Archivo oblicua no encontrado")
+
+        self.window._load_file_list([self.oblicua_path])
+        self.window._select_file_index(0)
+
+        # 1. Alternar panel derecho
+        init_hidden = self.window.right_panel.isHidden()
+        self.window._on_toggle_right_panel()
+        self.assertEqual(self.window.right_panel.isHidden(), not init_hidden)
+        self.window._on_toggle_right_panel()
+        self.assertEqual(self.window.right_panel.isHidden(), init_hidden)
+
+        # 2. Sincronización de ROI vertical Ref -> Live
+        self.window.spin_ref_ymin.setValue(18)
+        self.window.spin_ref_ymax.setValue(62)
+        self.window._on_sync_roi_to_live()
+        self.assertEqual(self.window.spin_live_ymin.value(), 18)
+        self.assertEqual(self.window.spin_live_ymax.value(), 62)
+
+        # 3. Opciones de cálculo mutuamente excluyentes en Tab 4 (Ruta A y Ruta B)
+        self.window.radio_route_b.setChecked(True)
+        self.assertTrue(self.window.radio_route_b.isChecked())
+        self.assertFalse(self.window.radio_route_a.isChecked())
+        self.window.radio_route_a.setChecked(True)
+        self.assertTrue(self.window.radio_route_a.isChecked())
+        self.assertFalse(self.window.radio_route_b.isChecked())
+
+        # 4. Botones Reset (↺ Raw)
+        self.window.chk_ref_despike.setChecked(True)
+        self.window.combo_ref_filter.setCurrentText("Fourier Lowpass")
+        self.window._on_reset_ref_filters()
+        self.assertFalse(self.window.chk_ref_despike.isChecked())
+        self.assertEqual(self.window.combo_ref_filter.currentIndex(), 0)
+
+        self.window.chk_live_despike.setChecked(True)
+        self.window.combo_live_filter.setCurrentText("Fourier Lowpass")
+        self.window._on_reset_live_filters()
+        self.assertFalse(self.window.chk_live_despike.isChecked())
+        self.assertEqual(self.window.combo_live_filter.currentIndex(), 0)
+
 
 if __name__ == '__main__':
     unittest.main()
