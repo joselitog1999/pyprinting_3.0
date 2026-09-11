@@ -43,18 +43,19 @@
 9. [Módulo 7: PSF Analyzer (`psf_analyzer.py`)](#9-módulo-7-psf-analyzer-psf_analyzerpy)
 10. [Módulo 8: Analizador de Imágenes Estáticas (`image_analyzer.py`)](#10-módulo-8-analizador-de-imágenes-estáticas-image_analyzerpy)
 11. [Módulo 13: Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)](#11-módulo-13-suite-de-análisis-espectral-y-quimiometría-raman-raman_analyzerpy)
-12. [Módulo 9: Documentación y Créditos del Autor](#12-módulo-9-documentación-y-créditos-del-autor)
-13. [Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)](#13-módulo-11-diseñador-universal-de-redes-cristalinas-2d-grid_generatorpy)
-14. [Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso](#14-módulo-12-procedimientos-operativos-estandarizados-sop-y-protocolos-paso-a-paso)
-15. [Tabla Completa de Parámetros Globales (`config.py`)](#15-tabla-completa-de-parámetros-globales-configpy)
-16. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#16-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
-17. [Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)](#17-modelo-metrológico-de-incertidumbre-y-criterios-sub-píxel-norma-isogum)
-18. [Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)](#18-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
-19. [Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real](#19-arquitectura-de-hilos-concurrencia-y-estabilidad-en-tiempo-real)
-20. [Tabla de Atajos de Teclado (Shortcuts)](#20-tabla-de-atajos-de-teclado-shortcuts)
-21. [Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)](#21-guía-de-resolución-de-problemas-y-diagnóstico-troubleshooting)
-22. [Preguntas Frecuentes (FAQ)](#22-preguntas-frecuentes-faq)
-23. [Guía de Referencia de Archivos y Reportes Metrológicos](#23-guía-de-referencia-de-archivos-y-reportes-metrológicos)
+12. [Módulo 14: Analizador y Procesador Avanzado de Espectros SIF (Andor Solis — `sif_analyzer.py`)](#12-módulo-14-analizador-y-procesador-avanzado-de-espectros-sif-andor-solis--sif_analyzerpy)
+13. [Módulo 9: Documentación y Créditos del Autor](#13-módulo-9-documentación-y-créditos-del-autor)
+14. [Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)](#14-módulo-11-diseñador-universal-de-redes-cristalinas-2d-grid_generatorpy)
+15. [Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso](#15-módulo-12-procedimientos-operativos-estandarizados-sop-y-protocolos-paso-a-paso)
+16. [Tabla Completa de Parámetros Globales (`config.py`)](#16-tabla-completa-de-parámetros-globales-configpy)
+17. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#17-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
+18. [Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)](#18-modelo-metrológico-de-incertidumbre-y-criterios-sub-píxel-norma-isogum)
+19. [Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)](#19-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
+20. [Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real](#20-arquitectura-de-hilos-concurrencia-y-estabilidad-en-tiempo-real)
+21. [Tabla de Atajos de Teclado (Shortcuts)](#21-tabla-de-atajos-de-teclado-shortcuts)
+22. [Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)](#22-guía-de-resolución-de-problemas-y-diagnóstico-troubleshooting)
+23. [Preguntas Frecuentes (FAQ)](#23-preguntas-frecuentes-faq)
+24. [Guía de Referencia de Archivos y Reportes Metrológicos](#24-guía-de-referencia-de-archivos-y-reportes-metrológicos)
 
 ---
 
@@ -890,7 +891,217 @@ Diseñada para cinéticas químicas, series temporales SERS y comparaciones de l
 
 ---
 
-## 12. Módulo 9: Documentación y Créditos del Autor
+## 12. Módulo 14: Analizador y Procesador Avanzado de Espectros SIF (Andor Solis — `sif_analyzer.py`)
+
+El botón **`🌈 Iniciar Analizador SIF (Andor)`** o el comando `python sif_analyzer.py` despliegan la estación analítica especializada de PyPrinting 3.0 para archivos binarios nativos `.sif` adquiridos mediante cámaras EMCCD Andor iXon3 y espectrógrafos Andor Shamrock 500i bajo el entorno Andor Solis.
+
+```
++----------------------------------------------------------------------------------------------------+
+|                                      SIF ANALYZER SUITE                                            |
++-----------------------------------+----------------------------------------+-----------------------+
+| GESTOR DE ARCHIVOS SIF (IZQ)      | 5 VENTANAS DE PROCESO (CENTRAL)        | PANEL INSTRUMENTAL    |
+| - Archivo Maestro del Lote        | 1. Ruido / Dark (1D/2D, PSD, Filtros)  | - Torreta 5 Objetivos |
+| - Tabla con scroll horizontal     | 2. Referencia (ROI, Wiener, Despike)   | - Calib. Externa      |
+| - Nombre completo sin recortes    | 3. Live / Señal (Muestra, Copiar ROI)  | - Exportación Lote    |
+| - Canales (1D/2D) y Roles         | 4. Transmisión (Panel 2D, Residuos)    | - Imagen 300 DPI/SVG  |
+| - Tooltips con ruta completa      | 5. Extinción & Ajuste Picos Fano/Gauss | - Toggle [Ctrl+D]     |
++-----------------------------------+----------------------------------------+-----------------------+
+```
+
+### 12.1 Visión General, Filosofía y Capacidades Científicas
+El módulo fue concebido para que cualquier operador, estudiante o investigador de laboratorio pueda:
+1. **Inspeccionar espectros 1D y mapas 2D multicanal** sin requerir licencias privativas de Andor Solis.
+2. **Acondicionar la señal con rigor físico**: supresión de corriente oscura, extirpación adaptativa de rayos cósmicos (*despiking* por MAD), filtro inverso de Wiener y filtros polinomiales Savitzky-Golay / Fourier.
+3. **Calcular transmitancias exactas ($T_{\text{calc}}$)** eliminando la divergencia clásica (>6000%) provocada por la sustracción de fondo duplicada de Solis.
+4. **Modelar resonancias plasmónicas (LSPR)** mediante ajustes analíticos no lineales (Gaussiano, Lorentziano, Asimétrico de Fano, Doble Pico) con reporte formal de incertidumbres según la norma internacional **ISO/IEC Guide 98-3 (GUM)**.
+5. **Generar figuras vectoriales listas para publicación** (SVG, PDF, PNG a 300 DPI) y tablas de datos tabulares (CSV, TSV).
+
+### 12.2 Estructura de Archivos SIF, Decodificación y Corrección de Longitud de Onda
+Andor Solis genera dos modalidades fundamentales de archivos `.sif`:
+* **Modo 1D Binned (FVB — Full Vertical Binning):** Integración física de cargas verticalmente en el sensor. Genera un vector unidimensional de $N_\lambda$ canales (ej. 1024 o 2048 puntos).
+* **Modo 2D Multi-Pixel (Slit Imaging):** Mantiene la resolución espacial vertical ($Y$) a lo largo de la rendija del espectrógrafo, produciendo una matriz $N_y \times N_\lambda$ (típicamente $128 \times 1024$ píxeles).
+
+> [!IMPORTANT]
+> **Corrección Automática de la Dispersión en Archivos 2D:**  
+> En lecturas 2D, las bibliotecas convencionales de código abierto confunden el número total de píxeles ($N_y \times N_\lambda$) con el eje espectral, derivando en longitudes de onda astronómicas e irreales ($>35,000\ \text{nm}$).  
+> El motor `core/sif_processor.py` detecta automáticamente este caso y evalúa el polinomio cúbico de calibración del Shamrock exclusivamente sobre los $N_\lambda$ canales físicos:
+> $$\lambda(p) = a_0 + a_1 p + a_2 p^2 + a_3 p^3 \quad \text{con } p \in [0, N_\lambda - 1]$$
+> restituyendo con precisión sub-nanométrica el rango experimental verídico (ej. $450.0\ \text{nm} - 950.0\ \text{nm}$).
+
+### 12.3 Canales Andor Solis y Formulación Matemática de Transmitancia
+En adquisiciones multicanal de transmitancia de Andor Solis, el archivo `.sif` empaqueta 4 canales secuenciales:
+- **Canal 0 (`Transmittance`):** Transmitancia interna calculada por Solis ($T_{\text{meas}}$).
+- **Canal 1 (`Counts (Bg Corrected)`):** Canal de Referencia de la lámpara ($R$). **Andor Solis ya le ha sustraído internamente el Dark.**
+- **Canal 2 (`Counts`):** Canal de Ruido / Dark ($D \approx 320\ \text{cuentas}$).
+- **Canal 3 (`Counts`):** Canal de Señal Live de la muestra ($L$). **Cuentas brutas con el Dark sumado.**
+
+Si el software aplicara la fórmula clásica de libro de texto:
+$$T_{\text{erróneo}}(\lambda) = \frac{L(\lambda) - D(\lambda)}{R(\lambda) - D(\lambda)} \times 100\%$$
+en las regiones de baja emisión de la lámpara (alas azul y NIR donde $R \approx 330\ \text{cuentas}$), el denominador $R - D \approx 330 - 320 = 10\ \text{cuentas}$ colapsa hacia cero, disparando la transmitancia al $300\% - 6000\%$.
+
+El sistema identifica la marca `ref_is_bg_corrected` en la cabecera del canal 1 y aplica de manera matemáticamente rigurosa:
+$$T_{\text{calc}}(\lambda) = \frac{L(\lambda) - D(\lambda)}{R(\lambda)} \times 100\%$$
+garantizando una concordancia prácticamente indistinguible con la medición nativa:
+* **Modo 1D (FVB):** Desviación mediana $|T_{\text{calc}} - T_{\text{meas}}| = \mathbf{0.0037\%}$.
+* **Modo 2D (Slit):** Desviación mediana $|T_{\text{calc}} - T_{\text{meas}}| = \mathbf{0.29\%}$ ($<0.5\%$).
+
+### 12.4 Las 5 Ventanas de Proceso en Secuencia Lógica
+
+La interfaz organiza el análisis en 5 pestañas de progresión continua. Cada barra de herramientas cuenta con un diseño compacto de **dos filas temáticas** con un ancho mínimo optimizado ($\approx 550\ \text{px}$), permitiendo al usuario redimensionar cómodamente los paneles y desplegar el panel derecho sin bloqueos.
+
+```
+[⬛ 1. Ruido/Dark] ──> [💡 2. Referencia] ──> [🔴 3. Live/Señal] ──> [📊 4. Transmisión] ──> [🔬 5. Extinción]
+```
+
+#### Pestaña 1: ⬛ 1. Ruido / Dark
+* **Propósito:** Medir e inspeccionar la corriente oscura y el sesgo electrónico (*bias*) del detector CCD iXon3 enfriado criogénicamente.
+* **Fila 1 (Origen y Diagnóstico):**
+  - `Origen Ruido`: Señala si el fondo proviene del archivo activo o del Archivo Maestro (`👑 Maestro`).
+  - `[x] Despike`: Supresión estadística de rayos cósmicos píxel a píxel mediante umbral adaptativo $k \cdot \sigma_{\text{dark}}$.
+  - `🔍 Ver PSD`: Despliega la Densidad Espectral de Potencia del ruido en frecuencia espacial y el perfil de dispersión $\sigma_{BG}(\lambda)$.
+  - `↺ Raw`: Anula temporalmente los filtros para inspeccionar la señal pura del sensor.
+  - `Auto-Escala`: Ajusta límites de ejes $X$ e $Y$.
+* **Fila 2 (Suavizado):** Selector de filtro (`Ninguno`, `Savitzky-Golay`, `Fourier Lowpass`, `Media Móvil`) y tamaño de `Ventana` (impar, $3-51\ \text{px}$).
+* **Salida Gráfica:** Mapa 2D del sensor y espectro 1D con tarjeta de métricas (Bias medio, $\sigma_{\text{dark}}$, cuentas Mín/Máx).
+
+#### Pestaña 2: 💡 2. Referencia (Lámpara Halógena)
+* **Propósito:** Caracterizar el espectro continuo de iluminación blanca de campo claro y delimitar la zona de incidencia en la ranura.
+* **Fila 1 (Selección Espacial de Ranura):**
+  - Spinboxes `ROI Y:` $[y_{\min}, y_{\max}]$ para acotar las filas verticales iluminadas y excluir píxeles oscuros de los extremos.
+  - `[x] Sub Dark`: Sustrae la matriz de ruido caracterizada en la Pestaña 1.
+  - `[x] Despike`: Elimina artefactos cósmicos sobre la lámpara.
+  - `↺ Raw`: Restaura la referencia a cuentas brutas del detector.
+* **Fila 2 (Acondicionamiento Espectral):**
+  - `[x] Filtro Wiener`: Filtro estadístico adaptativo que atenúa el ruido blanco respetando la envolvente espectral.
+  - `Filtro Suavizado` (`Savitzky-Golay` / `Fourier`) y spinbox de `Ventana`.
+* **Salida Gráfica:** Mapa de calor 2D con líneas guía horizontales rojas y espectro 1D promediado con banda de dispersión $\mu \pm \sigma$.
+
+#### Pestaña 3: 🔴 3. Live / Señal (Muestra con Nanopartículas)
+* **Propósito:** Visualizar la luz transmitida a través de la nanopartícula o nanoestructura plasmónica.
+* **Fila 1 (Encuadre Espacial & Atajo de Copiado):**
+  - Spinboxes `ROI Y:` $[y_{\min}, y_{\max}]$.
+  - **Botón `🔗 Copiar ROI Ref`:** Clona instantáneamente los límites verticales $[y_{\min}, y_{\max}]$ definidos en la Referencia, garantizando consistencia geométrica 1:1 en el cociente de transmitancia.
+  - `[x] Sub Dark` y `[x] Despike`.
+  - `↺ Raw`: Revierte a la señal directa sin procesar.
+* **Fila 2 (Acondicionamiento Espectral):** `[x] Filtro Wiener`, selector de `Filtro Suavizado` y `Ventana`.
+* **Propagación en Vivo:** La matriz 2D filtrada fila a fila actualiza instantáneamente el mapa de calor 2D y el promedio 1D, alimentando automáticamente las pestañas 4 y 5.
+
+#### Pestaña 4: 📊 4. Transmisión ($T_{\text{calc}}$ vs $T_{\text{meas}}$)
+* **Propósito:** Calcular la transmitancia espectral de la muestra respecto al sustrato y evaluar los residuos instrumentales.
+* **Fila 1 (Curvas y Residuos):** Checkboxes `[x] T_calc` (verde), `[x] T_meas` (azul punteado), `[x] Mostrar Residuos` (gráfico inferior con $\Delta T = T_{\text{calc}} - T_{\text{meas}}$) y `Auto-Escala`.
+* **Fila 2 (Panel Agrupado ⚙️ Opciones de Cálculo 2D):**
+  - `(o) Ruta A (Promedios 1D)`: Promedia primero las ROI verticales de señal y referencia y luego calcula el cociente:
+    $$T_A(\lambda) = \frac{\langle L(y, \lambda) \rangle_Y - \langle D(y, \lambda) \rangle_Y}{\langle R(y, \lambda) \rangle_Y} \times 100\%$$
+    *(Recomendada para máxima relación señal/ruido).*
+  - `(o) Ruta B (Píxel a Píxel 2D)`: Evalúa la transmitancia local para cada píxel $(y, \lambda)$ y luego promedia el mapa 2D resultante:
+    $$T_B(y, \lambda) = \frac{L(y, \lambda) - D(y, \lambda)}{R(y, \lambda)} \times 100\%, \quad T_B(\lambda) = \langle T_B(y, \lambda) \rangle_Y$$
+    *(Exclusión mutua física garantizada por `QButtonGroup`).*
+  - `[x] Comparar A y B`: Superpone ambas curvas simultáneamente para validar uniformidad espacial.
+  - `[x] Noise Gate`: Anula la transmitancia en regiones de nula emisión halógena ($R(\lambda) < 1.05 \cdot D(\lambda)$) suprimiendo divergencias en los extremos del espectro.
+
+#### Pestaña 5: 🔬 5. Extinción & Ajuste Plasmónico
+* **Propósito:** Computar la extinción óptica de la nanopartícula:
+  $$\text{Ext}(\lambda) = -\log_{10}\left(\frac{T(\lambda)}{100}\right) = \log_{10}\left(\frac{100}{T(\lambda)}\right)$$
+  y ajustar modelos analíticos para caracterizar la Resonancia Plasmónica de Superficie Localizada (LSPR).
+* **Fila 1 (Modelos y Ajuste):**
+  - `Modelo`: Selector de función matemática:
+    * **Gaussiano:** Resonancias plasmónicas simétricas en nanopartículas coloidales homogéneas.
+    * **Lorentziano:** Modos dipolares cuasiestáticos ideales.
+    * **Asimétrico de Fano:** Interferencia cuántica/electrodinámica entre un continuo de dispersión y un modo plasmónico discreto:
+      $$I(\lambda) = I_0 + A \cdot \frac{(q + \epsilon)^2}{1 + \epsilon^2}, \quad \epsilon = \frac{\lambda - \lambda_0}{\Gamma/2}$$
+    * **Doble Pico Plasmónico:** Acoplamiento en dímeros o nanoestructuras anisótropas (modos longitudinal y transversal).
+  - `Cursores A y B`: Permite arrastrar reglas verticales para confinar el ajuste a la banda de interés sin distorsión de los flancos.
+  - Botón **`🚀 Ajustar Pico`**: Ejecuta la regresión no lineal por mínimos cuadrados ponderados (`scipy.optimize.curve_fit`).
+* **Fila 2 (Acondicionamiento y Rango):** `[x] Filtro Wiener en Extinción`, `Filtro Suavizado`, `Ventana` y `↺ Restaurar Rango`.
+* **Panel de Resultados Metrológicos (ISO/GUM):**
+  - Longitud de onda de resonancia: $\lambda_{\text{res}} \pm u(\lambda_{\text{res}})\ [\text{nm}]$.
+  - Ancho espectral FWHM: $\text{FWHM} \pm u(\text{FWHM})\ [\text{nm}]$.
+  - Parámetro de asimetría $q$ (en modelos Fano).
+  - Coeficiente de correlación $R^2$.
+
+---
+
+### 12.5 Flujo de Filtrado Unidireccional y Propagación en Cascada (2D → 1D → T → Ext)
+Para erradicar inconsistencias entre representaciones gráficas y cálculos matemáticos, el módulo implementa una arquitectura de flujo unidireccional estricto:
+
+```mermaid
+graph TD
+    Raw2D[Matriz 2D Cruda Ny x Nlambda] --> Filter2D[core.sif_processor.apply_spectral_filters_2d]
+    Filter2D --> Clean2D[Matriz 2D Filtrada fila a fila]
+    Clean2D --> Heatmap[Actualización Inmediata del Heatmap 2D]
+    Clean2D --> ROI1D[Integración Promedio en ROI Y]
+    ROI1D --> Spec1D[Espectro 1D Filtrado mu +- sigma]
+    Clean2D --> Tcalc2D[Pestaña 4: Transmisión 2D Ruta B]
+    Spec1D --> Tcalc1D[Pestaña 4: Transmisión 1D Ruta A]
+    Tcalc1D --> ExtTab[Pestaña 5: Extinción y Ajuste Fano / Gauss]
+```
+
+Cualquier alteración en los filtros (dark, despike, Wiener o Savitzky-Golay) en las pestañas de Referencia (2) o Señal (3) transforma la matriz 2D completa, regenera el promedio 1D, actualiza la transmitancia en la pestaña 4 y recalcula la extinción en la pestaña 5 de forma totalmente transparente e instantánea.
+
+---
+
+### 12.6 Panel Instrumental, Torreta de 5 Objetivos y Calibración Externa
+El panel lateral derecho (plegable/desplegable con el atajo **`Ctrl+D`**) reúne las herramientas de metrología física:
+1. **Torreta de 5 Objetivos Microscópicos:**
+   - Permite registrar el objetivo empleado:
+     * `10x Plan N` ($\text{NA}=0.25$, aire)
+     * `20x Plan Fluor` ($\text{NA}=0.50$, aire)
+     * `40x Plan Apo` ($\text{NA}=0.95$, aire)
+     * `50x BD Plan` ($\text{NA}=0.80$, campo oscuro / polarización)
+     * `100x UPlanFLN Oil` ($\text{NA}=1.30$, inmersión en aceite $n=1.518$)
+   - Al seleccionar un objetivo, se recalculan el límite de difracción de Abbe, el radio del disco de Airy y la apertura angular en los metadatos exportados.
+2. **Calibración Espectral Externa:**
+   - Permite cargar perfiles de lámparas espectrales (Hg-Ar o Neón) para sobreescribir o refinar el eje de longitud de onda si el espectrómetro Shamrock experimentó deriva mecánica.
+3. **Exportación de Publicación:**
+   - **`📸 Guardar Figura (300 DPI / SVG)`**: Exporta el gráfico activo en formato vectorial escalable (`.svg`, `.pdf`) o rasterizado a $300\ \text{DPI}$ listo para artículos científicos.
+   - **`💾 Exportar Tabla`**: Guarda la matriz espectral con metadatos completos (`.csv`, `.txt`) compatible con OriginLab, Excel o Python.
+
+---
+
+### 12.7 Gestor de Archivos SIF, Desplazamiento Horizontal y Tabla Completa
+El panel izquierdo permite la navegación eficiente por lotes experimentales:
+* **`📂 Abrir Carpeta SIF`**: Indexa todos los archivos `.sif` del directorio.
+* **`👑 Fijar como Maestro`**: Asigna el archivo seleccionado como referencia global. Sus canales Dark y Halógena son heredados automáticamente por todos los archivos del lote que carezcan de blancos propios.
+* **Tabla con Scroll Horizontal**: Muestra el nombre completo de cada archivo sin truncamientos elípticos, los canales identificados (ej. `4 ch (Trans)`), el modo (`1D FVB` o `2D Slit`), dimensiones y estado de procesamiento. Cada celda dispone de un *tooltip* con su ruta absoluta en disco.
+
+---
+
+### 12.8 Procedimiento Operativo Estandarizado (SOP del Analizador SIF)
+
+Cualquier operador puede procesar una serie espectral completa siguiendo este protocolo de 7 pasos:
+
+1. **Abrir el Analizador:**
+   - En el lanzador `main.py`, presionar **`🌈 Iniciar Analizador SIF (Andor)`** o ejecutar `python sif_analyzer.py`.
+2. **Cargar la Carpeta:**
+   - Presionar **`📂 Abrir Carpeta SIF`** y navegar hasta la carpeta de datos del día.
+   - Si la medición comparte un único blanco de lámpara, seleccionar el archivo de referencia y pulsar **`👑 Fijar como Maestro`**.
+   - Seleccionar en la tabla el archivo correspondiente a la nanopartícula bajo análisis.
+3. **Validar el Ruido (Pestaña 1):**
+   - Comprobar que el bias se encuentre en $\approx 300 - 350\ \text{cuentas}$. Activar `[x] Despike` si se observa un rayo cósmico aislado.
+4. **Encuadrar la Referencia (Pestaña 2):**
+   - En el mapa 2D, observar la banda vertical donde incide el haz de luz halógena. Ajustar los valores `ROI Y:` $[y_{\min}, y_{\max}]$ para encuadrar la zona luminosa.
+   - Activar `[x] Sub Dark` y `[x] Filtro Wiener`.
+5. **Alinear la Señal (Pestaña 3):**
+   - Cambiar a la Pestaña 3.
+   - Presionar **`🔗 Copiar ROI Ref`** para replicar con exactitud el rango vertical de la lámpara.
+   - Activar `[x] Sub Dark` y `[x] Despike`. Verificar que el mapa 2D y el perfil 1D se limpien automáticamente.
+6. **Inspeccionar la Transmitancia (Pestaña 4):**
+   - Pasar a la Pestaña 4.
+   - Verificar la superposición entre $T_{\text{calc}}$ (verde) y $T_{\text{meas}}$ (azul punteado).
+   - En `⚙️ Opciones de Cálculo 2D`, seleccionar `Ruta A` para curvas promediadas de bajo ruido o `Ruta B` para evaluar homogeneidad espacial píxel a píxel.
+7. **Ajustar la Extinción Plasmónica (Pestaña 5):**
+   - Pasar a la Pestaña 5.
+   - Arrastrar los cursores A y B sobre el gráfico para delimitar el pico de extinción plasmónica.
+   - Seleccionar el `Modelo` (`Gaussiano` para partículas coloidales simples o `Fano` para nanoestructuras acopladas) y presionar **`🚀 Ajustar Pico`**.
+   - En el panel lateral derecho (`Ctrl+D`), seleccionar el objetivo utilizado (ej. `100x Oil`) y presionar **`📸 Guardar Figura (300 DPI / SVG)`** y **`💾 Exportar Tabla`**.
+
+> [!NOTE]
+> Para consultar el informe técnico exhaustivo sobre la arquitectura, análisis de causa raíz y benchmarks de la herramienta, consulte:  
+> [Reporte Técnico: Arquitectura, Ergonomía y Propagación de Filtros en el Analizador SIF (`reportes/sistema/Reporte_Tecnico_Analizador_SIF_Arquitectura_Ergonomia_y_Filtros.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Analizador_SIF_Arquitectura_Ergonomia_y_Filtros.md).
+
+---
+
+## 13. Módulo 9: Documentación y Créditos del Autor
 
 El botón **`📚 Documentación y Créditos`** (Fila 3, Columna 3 del lanzador `main.py`) despliega el acceso rápido a los manuales del sistema y los créditos del autor:
 * **Manual de Usuario**: Abre el presente archivo `MANUAL_USUARIO.md`.
@@ -901,7 +1112,7 @@ El botón **`📚 Documentación y Créditos`** (Fila 3, Columna 3 del lanzador 
 
 ---
 
-## 13. Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)
+## 14. Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)
 
 El botón **`📐 Diseñador de Redes 2D`** (en la tarjeta del lanzador `main.py` o menú `Tools -> Diseñador de Redes 2D` en `app.py` con `Ctrl+G`) abre la aplicación especializada para la síntesis de redes periódicas:
 
@@ -916,7 +1127,7 @@ El botón **`📐 Diseñador de Redes 2D`** (en la tarjeta del lanzador `main.py
 
 ---
 
-## 14. Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso
+## 15. Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso
 
 Para la operación completa del setup experimental en laboratorio, consulte el manual protocolar dedicado:
 [Procedimientos Operativos Estandarizados (SOP) — Protocolo Paso a Paso (`docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md).
@@ -932,7 +1143,7 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 
 ---
 
-## 15. Tabla Completa de Parámetros Globales (`config.py`)
+## 16. Tabla Completa de Parámetros Globales (`config.py`)
 
 | Parámetro | Valor Típico | Unidad | Descripción |
 |---|---|---|---|
@@ -946,9 +1157,9 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 
 ---
 
-## 16. Flujos de Trabajo Experimentales (Protocolos Paso a Paso)
+## 17. Flujos de Trabajo Experimentales (Protocolos Paso a Paso)
 
-### 16.1 Protocolo de Impresión Óptica de Grillas Nanoparticuladas
+### 17.1 Protocolo de Impresión Óptica de Grillas Nanoparticuladas
 1. Lanzar `main.py` y presionar **`🚀 Iniciar Microscopio Derecho (app.py)`**.
 2. En el menú `Files`, presionar `Create Daily Dir (Ctrl+S)` para establecer la carpeta de guardado del día.
 3. En el Dock `Nanopositioning`, desplazar la platina PI a la coordenada inicial de trabajo $(X_0, Y_0, Z_0)$.
@@ -958,7 +1169,7 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 7. Definir el **`Umbral`** de salto de intensidad (ej. $1.5$) y el tiempo máximo de exposición **`T max`** (ej. $10\ \text{s}$).
 8. Presionar **`Play ►`** para ejecutar la secuencia de impresión fototérmica automatizada.
 
-### 16.2 Protocolo de Alineación Confocal y Caracterización de PSF
+### 17.2 Protocolo de Alineación Confocal y Caracterización de PSF
 1. Lanzar `main.py` y presionar **`🔍 Iniciar Microscopio Contrapropagante`**.
 2. Definir el rango de escaneo en $5.0\ \mu\text{m}$ con $100 \times 100$ píxeles.
 3. Presionar **`Start Dual Scan`** para registrar las confocales síncronas TOP y BOT.
@@ -968,7 +1179,7 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 
 ---
 
-## 17. Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)
+## 18. Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)
 
 Para consultar el análisis físico formal y las derivaciones según la norma internacional **ISO/IEC Guide 98-3 (GUM)**, remítase al informe técnico del repositorio:
 [Incertidumbre Metrológica ISO/GUM (`reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md).
@@ -998,7 +1209,7 @@ Para consultar el análisis físico formal y las derivaciones según la norma in
 
 ---
 
-## 18. Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)
+## 19. Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)
 
 Cuando la casilla **`Modo Seguro (Simulación)`** en `main.py` se encuentra **desmarcada** (Modo Laboratorio):
 * El sistema activa una regla de **exclusión mutua** entre `app.py` (Microscopio Derecho) y `contrapropagante.py` (Microscopio Contrapropagante).
@@ -1007,7 +1218,7 @@ Cuando la casilla **`Modo Seguro (Simulación)`** en `main.py` se encuentra **de
 
 ---
 
-## 19. Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real
+## 20. Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real
 
 Para un análisis detallado de la topología de hilos, consulte el reporte formal:  
 [Arquitectura de Hilos y Concurrencia (reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
@@ -1023,14 +1234,16 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 
 ---
 
-## 20. Tabla de Atajos de Teclado (Shortcuts)
+## 21. Tabla de Atajos de Teclado (Shortcuts)
 
 | Tecla de Acceso Directo | Acción Asociada | Ámbito / Módulo |
 |---|---|---|
 | **`Ctrl + A`** | Seleccionar la carpeta raíz de trabajo | Menú principal (`Files`) |
 | **`Ctrl + S`** | Crear subcarpeta diaria automática (`YYYY-MM-DD`) | Menú principal (`Files`) |
 | **`Ctrl + D`** | Abrir la carpeta de trabajo actual en el Explorador | Menú principal (`Files`) |
+| **`Ctrl + D`** | Alternar visibilidad del panel instrumental derecho (Plegar / Desplegar) | Analizador SIF (`sif_analyzer.py`) |
 | **`Ctrl + G`** | Abrir el Diseñador Universal de Redes 2D | Menú `Tools` (`grid_generator.py`) |
+| **`Ctrl + H`** | Abrir Tablero de Conexiones y Seguridad de Hardware | Menú `Tools` / Global (`Ctrl+H`) |
 | **`Ctrl + M`** | Abrir ventana de Mediciones Automatizadas (Printing / Dimers) | Menú `Measurements` |
 | **`Ctrl + P`** | Abrir Caracterizador de PSF Analyzer | Menú `Tools` (`psf_analyzer.py`) |
 | **`Shift + Click`** | Activar Snap magnético en herramientas de medición | Cámara / Analizador de Imágenes |
@@ -1045,9 +1258,9 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 
 ---
 
-## 21. Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)
+## 22. Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)
 
-### 21.1 La platina PI no responde, aparece desconectada o los números se mueven pero la platina física no se desplaza
+### 22.1 La platina PI no responde, aparece desconectada o los números se mueven pero la platina física no se desplaza
 * **Causa 1 (Modo Virtual Fantasma)**: Si el software se abrió con la controladora E-517 apagada o el cable USB desconectado, el driver entra en modo virtual interno. El badge en el dock de Nanoposicionamiento mostrará `🟡 Modo Virtual (Desconectada)` y la consola imprimirá `[PI VIRTUAL] MOV ...`.
   * **Solución**: Encienda la controladora física en la mesa óptica y presione el botón **`🔌 Reconectar`** directamente en el dock de Nanoposicionamiento (o en el Tablero de Hardware `Ctrl+H`). El badge cambiará inmediatamente a `🟢 PI Física (SN: 0119048050)`.
 * **Causa 2 (Colisión por Puerto USB Ocupado)**: El driver FTDI/GCS requiere acceso exclusivo al puerto USB. Si intenta abrir el Tablero de Hardware o una segunda instancia mientras la ventana principal de `PyPrinting` tiene tomada la platina, el Tablero mostrará: `🔴 Desconectada — Puerto USB ocupado por otra ventana activa de PyPrinting`.
@@ -1055,55 +1268,63 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 * **Causa 3 (Aislamiento por Perfil)**: Si abrió la app de Cámara (`camera.py`), la platina está desconectada por el perfil por defecto `camera`.
   * **Solución**: Si necesita la platina mientras usa la cámara, pulse **`Ctrl+H`** para abrir el Tablero de Hardware y presione el botón **`🔌 Conectar`** de la Platina PI para vincularla en caliente.
 
-### 21.2 La cámara réflex Canon no inicia Live View o arroja error de sesión
+### 22.2 La cámara réflex Canon no inicia Live View o arroja error de sesión
 * **Causa**: La cámara se apaga automáticamente por ahorro de energía o la sesión USB EDSDK se cerró incorrectamente.
 * **Solución**: Apague y encienda la cámara Canon EOS 500D, verifique que el dial esté en modo **M (Manual)** y vuelva a presionar **`Iniciar Cámara Canon`**.
 
-### 21.3 La foto tomada reporta un aviso pero se guarda en disco
+### 22.3 La foto tomada reporta un aviso pero se guarda en disco
 * **Causa**: El sensor réflex tardó en liberar el evento de creación de archivo USB.
 * **Solución**: El módulo unificado `camera.py` ejecuta automáticamente la exploración directa del volumen de la cámara réflex (`_download_newest_photo_from_camera`) y recupera la foto nativa en la PC sin pérdida de datos.
 
-### 21.4 Al disparar una foto, el video en vivo se acelera brevemente
+### 22.4 Al disparar una foto, el video en vivo se acelera brevemente
 * **Causa**: Reinicio abrupto del reloj de cuadros en el hilo de trabajo.
 * **Solución**: La versión actual resetea `_connect_time` y aplica una pausa de 400 ms post-captura, asegurando que la transmisión retome suavemente a 25 FPS sin ráfagas de aceleración.
 
-### 21.5 El ajuste Gaussiano o Donut en PSF Analyzer devuelve valores irreales
+### 22.5 El ajuste Gaussiano o Donut en PSF Analyzer devuelve valores irreales
 * **Causa**: Ruido de fondo lejano distorsionando la optimización por mínimos cuadrados.
 * **Solución**: Incremente el porcentaje en el casillero **`Filtro (%)`** (ej. de $10\%$ a $30\%$) y presione **`Enter`** para eliminar el fondo aleatorio.
 
-### 21.6 El Flipper Óptico no conmuta o arroja error de recurso ocupado NI-DAQmx (-200088)
+### 22.6 El Flipper Óptico no conmuta o arroja error de recurso ocupado NI-DAQmx (-200088)
 * **Causa 1 (Puntero C zombi en PyDAQmx)**: Tras invocar `task.close()`, el handle C subyacente es liberado pero la variable Python aún referencia el objeto primitivo. Al intentar reasignar canales analógicos `Dev1/ao0` o `Dev1/ao1`, el driver arroja `DAQmxError -200088: Task cannot be performed because specified resource is reserved`.
   * **Solución**: La arquitectura desacoplada de PyPrinting 3.0 gestiona esto reseteando explícitamente `_task_flipper_up = None` y `_task_flipper_down = None`, invocando `close_all_tasks()` de forma segura y validando el estado con `task.is_task_done()` antes de despachar el pulso de 5V x 100 ms. Para más detalles, consulte [Reporte Técnico: Actuación de Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md).
 * **Causa 2 (Bucle infinito de señales Qt)**: Si el flipper se conmuta mediante `powerbutton.setChecked()`, Qt emite automáticamente la señal `toggled`, disparando un ciclo recursivo si el callback manipula el botón.
   * **Solución**: Utilice siempre la señal de usuario desacoplada `powerbutton.clicked` en lugar de `toggled`.
 * **Causa 3 (Confusión de Canales Flipper vs Shutter)**: El Flipper de Potencia opera por pulsos analógicos de 5V en `ao0`/`ao1` (atenuador OD), mientras que los obturadores de seguridad operan en líneas digitales `port0/line0:3`. Nunca deben mezclarse en el software ni atarse al corte de emergencia del watchdog.
 
-### 21.7 Advertencia "Lock Focus Requerido" al activar Compensación de Inclinación Z (Confocal Tilt)
+### 22.7 Advertencia "Lock Focus Requerido" al activar Compensación de Inclinación Z (Confocal Tilt)
 * **Causa**: El usuario presiona el botón `📐 Inclinación Z` en el Dock Confocal sin haber calibrado previamente un perfil de enfoque de referencia mediante `Lock Focus` (`F9`).
   * **Solución**: El algoritmo de plano inclinado $z(x,y) = z_0 + \alpha(x-x_c) + \beta(y-y_c)$ requiere conocer la cota de máxima reflexión en el centro de la grilla ($z_0$) para calcular los desplazamientos relativos de las 4 esquinas. Ejecute primero `Go to max` (`F8`) sobre la interfaz vidrio-agua, luego `Lock focus` (`F9`), y finalmente presione `📐 Inclinación Z`. Consulte el informe [Compensación de Inclinación Confocal Tilt y Healing Pass](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md).
 
-### 21.8 Nodos faltantes o timeout difusivo durante impresión de grillas (Uso del Healing Pass)
+### 22.8 Nodos faltantes o timeout difusivo durante impresión de grillas (Uso del Healing Pass)
 * **Causa**: Fluctuación local de concentración coloidal provocando que el tiempo browniano de llegada de una partícula exceda el límite de seguridad $\tau_{\text{safe}} = 10\ \text{s}$.
   * **Solución**: No aborte la impresión ni modifique manualmente la receta. Tras finalizar el barrido nominal, active la casilla `[X] Autocompletitud (Healing Pass)` en la pestaña de `Printing`. El sistema orquestará un segundo pase focalizado exclusivamente en los nodos omitidos, duplicando el tiempo de espera ($\tau_{\text{safe}} = 30\ \text{s}$), compensando la deriva térmica respecto a $P_0$ y ejecutando autofoco Z in-situ para garantizar el 100% de ocupación de la grilla.
 
+### 22.9 Valores de Transmitancia Disparatados (>100% o miles por ciento) en Archivos SIF de Andor Solis
+* **Causa**: Sustracción duplicada del fondo. En archivos multicanal de transmitancia de Solis, el Canal 1 (Referencia) ya tiene el fondo restado internamente por el firmware (`ref_is_bg_corrected = True`). Si se aplica la fórmula convencional $(L - D)/(R - D)$, en las regiones de baja emisión de la lámpara el denominador $R - D$ colapsa hacia cero o se hace negativo.
+* **Solución**: El procesador `core/sif_processor.py` detecta automáticamente este flag y aplica la fórmula física correcta: $T_{\text{calc}} = (L - D) / R \times 100\%$. Si utiliza archivos personalizados, verifique que la casilla `Ruta A` o `Ruta B` esté activa en la Pestaña 4 y que la referencia no tenga sustracciones externas previas.
+
+### 22.10 La Ventana Central del Analizador SIF no se puede achicar o el Panel Derecho queda comprimido
+* **Causa**: En versiones anteriores, los botones de cada pestaña estaban en una sola fila extensa que forzaba un ancho mínimo $>1400\ \text{px}$.
+* **Solución**: La suite actual organiza todos los controles en dos filas compactas, permitiendo achicar la ventana central hasta $\approx 550\ \text{px}$. Además, puede pulsar **`Ctrl+D`** en cualquier momento para alternar (plegar o desplegar) el panel lateral derecho instantáneamente.
+
 ---
 
-## 22. Preguntas Frecuentes (FAQ)
+## 23. Preguntas Frecuentes (FAQ)
 
-### 22.1 ¿Cómo se determina la posición sub-píxel de una nanopartícula durante el escaneo confocal?
+### 23.1 ¿Cómo se determina la posición sub-píxel de una nanopartícula durante el escaneo confocal?
 El sistema normaliza la matriz de intensidad entre $0.0$ y $1.0$, aplica el filtrado umbral no lineal al $30\%$ ($Z_f = 0$ si $Z_n < 0.30$) e integra un ajuste no lineal por mínimos cuadrados (`scipy.optimize.curve_fit`) sobre la función Gaussiana 2D anisotropica de 7 parámetros. Las coordenadas $(x_0, y_0)$ resultantes poseen precisión sub-nanométrica.
 
-### 22.2 ¿Dónde se documenta el modelo metrológico de incertidumbre?
+### 23.2 ¿Dónde se documenta el modelo metrológico de incertidumbre?
 Se encuentra detallado en la norma metrológica del laboratorio: [Incertidumbre Metrológica ISO/GUM (reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md), respaldando la resolución de $0.35\ \text{nm}$.
 
-### 22.3 ¿Cómo funciona el botón de Shutter 532 nm en la ventana de Modulación Láser?
+### 23.3 ¿Cómo funciona el botón de Shutter 532 nm en la ventana de Modulación Láser?
 En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 2 del lanzador), el botón conmuta dinámicamente:
 - **`► Abrir Shutter 532 nm (Cerrado)`** (Verde): Invoca `open_shutter("532 nm (green)")` enviando un nivel TTL alto a la tarjeta NI-DAQ.
 - **`■ Cerrar Shutter 532 nm (Abierto)`** (Rojo): Invoca `close_shutter("532 nm (green)")` enviando un nivel TTL bajo.
 
 ---
 
-### 22.4 Matriz Maestra de Límites de Validez y Modos de Falla del Sistema ⚠️
+### 23.4 Matriz Maestra de Límites de Validez y Modos de Falla del Sistema ⚠️
 
 Cada módulo individual del sistema cuenta con su sección detallada de modos de falla. A continuación se presenta la **Matriz Maestra de Contingencias y Acciones Físicas Directas de Laboratorio**:
 
@@ -1122,14 +1343,21 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 | **07. Láser 532 nm** | Inestabilidad térmica en DPSS Ventus. | Ruido $RMS > 5\%$ y saltos de modo en traza. | Esperar al menos $20\ \text{min}$ de calentamiento térmico tras encender la fuente láser. |
 | **08. Tablero DAQmx** | Conflicto de tareas NI-DAQmx (-200088). | Error de recurso ocupado en consola. | Pulsar `Reset DAQ Tasks` en el Dashboard para invocar `task.stop()` / `task.close()` forzado. |
 | **09. Espectroscopía** | Saturación CCD Andor ($> 65535\ \text{ADU}$). | Picos espectrales truncados y *blooming*. | Reducir tiempo de exposición a $0.1\ \text{s}$ o estrechar ranuras de entrada a $\le 50\ \mu\text{m}$. |
+| **10. Analizador SIF** | $R(\lambda) \le D(\lambda)$ o fondo duplicado. | Transmitancias disparadas $>1000\%$. | Activar flag `ref_is_bg_corrected` o seleccionar *Noise Gate* en la Pestaña 4. |
 | **11. Diseñador 2D** | Violación de proximidad ($d < d_{\text{min}}$). | Superposición de partículas en canvas 2D. | Incrementar constantes de red $(a, b)$ o ajustar coordenadas fraccionales $(u, v)$ en base atómica. |
 | **12. Operación Lab** | Rotura de cubreobjetos por sobre-carrera. | Derrame de aceite/líquido sobre objetivo. | Bajar macrométrico manual, limpiar con isopropanol y colocar nuevo cubreobjetos `#1.5`. |
 
 ---
 
-## 23. Guía de Referencia de Archivos y Reportes Metrológicos
+### 23.5 ¿Qué diferencia física existe entre calcular la transmitancia por Ruta A o por Ruta B en el Analizador SIF?
+* **Ruta A (Promedios 1D primero)**: Integra primero todos los píxeles de la región vertical iluminada (ROI $Y$) de la muestra y de la referencia para formar dos perfiles 1D limpios, y luego calcula el cociente $T_A(\lambda) = \langle L - D \rangle_Y / \langle R \rangle_Y \times 100\%$. Es la ruta recomendada para maximizar la relación señal-ruido en nanopartículas individuales o muestras homogéneas.
+* **Ruta B (Píxel a Píxel 2D primero)**: Evalúa el cociente espacialmente para cada píxel $(y, \lambda)$ del sensor CCD y luego promedia el mapa bidimensional resultante: $T_B(\lambda) = \langle (L(y,\lambda) - D(y,\lambda)) / R(y,\lambda) \rangle_Y \times 100\%$. Es ideal para detectar inhomogeneidades espaciales transversales, gradientes de iluminación en la rendija o verificar la alineación confocal a lo largo del eje vertical.
 
-### 23.1 Función y Propósito de Cada Archivo del Sistema
+---
+
+## 24. Guía de Referencia de Archivos y Reportes Metrológicos
+
+### 24.1 Función y Propósito de Cada Archivo del Sistema
 
 | Directorio | Archivo | Propósito Técnico y Uso Principal |
 |---|---|---|
@@ -1137,6 +1365,7 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 | **Raíz** | [app.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/app.py) | **Microscopio Derecho Principal**: Orquestador multihilo (`QThread`) de los 8 workers de hardware y dock layout. |
 | **Raíz** | [grid_generator.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/grid_generator.py) | **Diseñador Universal de Redes 2D**: Síntesis cristalográfica, bases complejas, restricción física $d_{\text{min}}$ y recetas multi-paso $P_0$. |
 | **Raíz** | [pyspectrum.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum.py) | **PySpectrum 3.0**: Espectroscopía confocal, Andor Shamrock/CCD, Step & Glue multirrango y calibración de lámpara halógena. |
+| **Raíz** | [sif_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/sif_analyzer.py) | **Analizador SIF Andor Solis**: Suite analítica de 5 pestañas, corrección de canales Solis, propagación 2D/1D y ajustes LSPR. |
 | **Raíz** | [contrapropagante.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/contrapropagante.py) | **Microscopio Contrapropagante**: Interfaz para excitación dual superior/inferior y escaneos confocales simétricos. |
 | **Raíz** | [config.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py) | **Configuración Central**: Constantes de hardware (PI E-517, NI-DAQmx, límites $0-100\ \mu\text{m}$, MOCKs y `SAFE_MODE`). |
 | **`modules/`** | [modules/confocal.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/confocal.py) | **Escaneo Confocal 2D/3D**: Rampa galvo/step por NI-DAQmx, ajuste PSF sub-píxel, centrado de masa/Gauss y compensación de inclinación Z (Tilt). |
@@ -1144,6 +1373,7 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 | **`modules/`** | [modules/focus.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/focus.py) | **Estabilización de Foco Z**: Barrido axial (`Go to max`), registro de perfil (`Lock focus`) y autocorrelación dinámica ($\times 2$). |
 | **`modules/`** | [modules/trace.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/trace.py) | **Traza Analógica 10 kHz & Power BS**: Adquisición síncrona continuo de 2 láseres y fotodiodo divisor BS. |
 | **`modules/`** | [modules/camera.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/camera.py) | **Visión por Computadora & Canon EOS 500D**: Live View 25 FPS, foto 15 MP, overlay con reglas en $\mu\text{m}$ y `trackpy`. |
+| **`core/`** | [core/sif_processor.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/sif_processor.py) | **Motor de Procesamiento SIF**: Decodificación binaria, corrección de longitud de onda cúbica, `apply_spectral_filters_2d` y álgebra espectral. |
 | **`core/`** | [core/hdf5_container.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/hdf5_container.py) | **Contenedor Científico HDF5 (`.h5`)**: Serialización jerárquica de lotes, compresión lossless `shuffle+gzip` y desempaquetado 1-click. |
 | **`core/`** | [core/lattice_generator.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/lattice_generator.py) | **Motor Cristalográfico 2D**: 15 redes canónicas, bases atómicas fraccionales $(u, v)$, exclusión $d_{\text{min}}$ y particionado multi-paso. |
 | **`core/`** | [core/nanopositioning.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nanopositioning.py) | **Platina Piezoeléctrica PI E-517**: Lectura/escritura capacitiva cerrada ($X, Y, Z$) con límites de seguridad $0-100\ \mu\text{m}$. |
@@ -1158,7 +1388,7 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 
 ---
 
-### 23.2 Índice Completo de Informes Metrológicos, Diagnósticos y Evaluación Arquitectónica
+### 24.2 Índice Completo de Informes Metrológicos, Diagnósticos y Evaluación Arquitectónica
 
 El laboratorio cuenta con un repositorio documental completo organizado en las carpetas [`reportes/sistema/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/) y [`reportes/cientificos/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/) (ver índice general en [`reportes/README.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/README.md)):
 
@@ -1190,6 +1420,7 @@ El laboratorio cuenta con un repositorio documental completo organizado en las c
 13. 📐 [Arquitectura Óptica del Microscopio Derecho y Espectrometría](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md): Trazado optomecánico completo, 3 canales confocales con filtros Notch, pinholes dedicados y 10 técnicas operativas.
 14. 💡 [Control y Comunicación de Láseres Excelsior, OBIS y MPBC](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Analisis_Control_Laseres_Excelsior_OBIS_MPBC.md): Comunicación serie RS-232/USB, comandos SCPI, calibración analógica de potencia y modulación en BFP.
 15. ⚖️ [Comparativo Andor Solis vs PySpectrum](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Comparativo_Andor_Solis_vs_PySpectrum.md): Auditoría integral feature-by-feature frente a la suite comercial Solis, ventajas de calibración y flujo de investigación.
+16. 🔬 [Analizador SIF: Arquitectura, Ergonomía y Propagación de Filtros](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Analizador_SIF_Arquitectura_Ergonomia_y_Filtros.md): Evaluación de causa raíz, resolución matemática de canales Solis, propagación 2D/1D y benchmarks.
 
 #### 📚 C. Bibliografía Científica Fundacional (`docs/bibliografia/`)
 1. 🎓 **Dr. Julián Gargiulo (2017)**: *Impresión óptica de nanopartículas metálicas*. Tesis Doctoral, FCEN, Universidad de Buenos Aires / CIBION-CONICET. [Archivo local: `docs/bibliografia/Julian_Gargiulo_2017.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Julian_Gargiulo_2017.pdf).
