@@ -41,7 +41,7 @@ En concordancia con los principios de evolución continua y la **Directiva Máxi
 ### 1.1 Mapeo Hiperespectral SERS Automatizado en Coordenadas de Grilla
 - **Concepto**: Acoplar de manera directa la lista de coordenadas de la grilla impresa (`printing_results.txt` o dataset `session_data.h5`) con la rutina de escaneo confocal de `pyspectrum.py`.
 - **Objetivo**: Posicionar secuencialmente la platina piezoeléctrica PI sobre cada nanopartícula o nanodímero impreso, adquirir automáticamente el espectro Raman / SERS con sustracción de fondo y reconstruir mapas hiperespectrales 3D $(X, Y, \lambda)$ de dispersión inelástica.
-- **Módulos Vinculados**: [[MOD-02_Measurements_Printing_y_Dimeros|MOD-02]], [[MOD-06_PySpectrum_Espectroscopia_Shamrock|MOD-06]], [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|SYS-301]].
+- **Módulos Vinculados**: [[MOD-02_Measurements_Printing_y_Dimeros|MOD-02]], [[MOD-06_PySpectrum_Espectroscopia_Shamrock|MOD-06]], [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|SYS-301]], [[CAT-205_Mapeo_Hiperespectral_SERS_Confocal_Automatizado|CAT-205]].
 
 ### 1.2 Nanotermometría Experimental por Variaciones DLS y Detección de Lente Térmica (*Thermal Lens Effect*)
 - **Concepto**: Extender las técnicas de Dispersión Dinámica de Luz (DLS) y fototermia para la caracterización física *in-situ* de parámetros termodinámicos locales durante la iluminación óptica:
@@ -52,19 +52,19 @@ En concordancia con los principios de evolución continua y la **Directiva Máxi
      - Cuantificar la absorción óptica absoluta de nanoestructuras individuales sin depender de modelos teóricos de esparcimiento.
      - Monitorear en tiempo real la transición térmica y prevenir fenómenos indeseados de ebullición microscópica (*nanobubbles*) o desorción de surfactantes/ligandos.
      - Modelar y compensar micro-corrientes termocapilares (convección de Marangoni) que alteran la estabilidad del coloide previo a la adhesión.
-- **Módulos Vinculados**: [[CAT-109_Electrodinamica_Fuerzas_Opticas_y_Termoplasmonica_Printing|CAT-109]], [[CAT-110_Fisicoquimica_Coloides_DLVO_y_Funcionalizacion_Superficies|CAT-110]], [[SYS-102_Senales_Slots_PyQt6_y_Temporizacion_DAQmx|SYS-102]].
+- **Módulos Vinculados**: [[CAT-109_Electrodinamica_Fuerzas_Opticas_y_Termoplasmonica_Printing|CAT-109]], [[CAT-110_Fisicoquimica_Coloides_DLVO_y_Funcionalizacion_Superficies|CAT-110]], [[CAT-111_Nanotermometria_DLS_y_Dinamica_Fluctuaciones_Brownianas|CAT-111]], [[CAT-112_Teoria_Lente_Termica_Gradientes_Indice_y_Marangoni|CAT-112]], [[SYS-102_Senales_Slots_PyQt6_y_Temporizacion_DAQmx|SYS-102]].
 
 ### 1.3 Inferencia Bayesiana y MCMC para la Matriz de Desorden del Paracristal 2D de Hosemann
 - **Concepto**: Transicionar del ajuste analítico puntual por mínimos cuadrados de las matrices de distorsión $\mathbf{\Phi}_{10}(\mathbf{q})$ y $\mathbf{\Phi}_{01}(\mathbf{q})$ a una estimación probabilística Bayesiana mediante cadenas de Markov Monte Carlo (MCMC, e.g. `emcee`).
 - **Objetivo**: Determinar las distribuciones de probabilidad a posteriori y las regiones de credibilidad del tensor de desorden reticular acumulativo de segundo orden:
   $$\mathbf{\Phi}_{10}(\mathbf{q}) = \exp\left[ i \mathbf{q} \cdot \mathbf{a}_1 - \frac{1}{2} \mathbf{q}^T \mathbf{\Sigma}_{10} \mathbf{q} \right]$$
   desacoplando de forma inequívoca el desorden térmico o vibracional aparente de la anisotropía mecánica introducida por la platina piezoeléctrica o la hidrodinámica del menisco líquido.
-- **Módulos Vinculados**: [[CAT-309_Teoria_Paracristal_Hosemann_Perdida_Orden_2D|CAT-309]], [[CAT-305_Derivacion_Matematica_Factor_Estructura_Debye_Waller|CAT-305]], [[MOD-08_Analizador_Desorden_Redes_2D|MOD-08]].
+- **Módulos Vinculados**: [[CAT-309_Teoria_Paracristal_Hosemann_Perdida_Orden_2D|CAT-309]], [[CAT-305_Derivacion_Matematica_Factor_Estructura_Debye_Waller|CAT-305]], [[CAT-310_Derivacion_Matematica_Paracristal_2D_Hosemann_Anisotropo|CAT-310]], [[CAT-311_Inferencia_Bayesiana_MCMC_Desorden_Paracristal|CAT-311]], [[MOD-08_Analizador_Desorden_Redes_2D|MOD-08]].
 
 ### 1.4 Lazo Cerrado de Retroalimentación Metrológica In-Situ (*Active Metrological Feedback Loop*)
 - **Concepto**: Integrar el pipeline de super-resolución y localización sub-píxel de [`core/localization_pipeline.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/localization_pipeline.py) directamente en la rutina cíclica de impresión de `measurements.py`.
 - **Objetivo**: Tras imprimir cada sub-bloque o fila de la red cristalina 2D, ejecutar un barrido confocal de dispersión interferométrica (iSCAT) o reflectometría rápida, localizar las posiciones reales $\{ \mathbf{r}_i^{\text{real}} \}$, evaluar el tensor de deformación afín y error de colocación local $\mathbf{e}_i = \mathbf{r}_i^{\text{real}} - \mathbf{r}_i^{\text{ideal}}$, y aplicar correcciones compensatorias adaptativas en las coordenadas objetivo de los siguientes nodos, alcanzando tolerancias de colocación reticular sub-5 nm.
-- **Módulos Vinculados**: [[SYS-105_Pipeline_Unificado_Localizacion_Super_Resolucion|SYS-105]], [[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica|CAT-202]], [[MOD-02_Measurements_Printing_y_Dimeros|MOD-02]].
+- **Módulos Vinculados**: [[SYS-105_Pipeline_Unificado_Localizacion_Super_Resolucion|SYS-105]], [[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica|CAT-202]], [[CAT-113_Lazo_Cerrado_Metrologico_InSitu_y_Control_Predictivo|CAT-113]], [[MOD-02_Measurements_Printing_y_Dimeros|MOD-02]].
 
 ### 1.5 Pinzas Ópticas Holográficas mediante Modulador Espacial de Luz (LCoS-SLM)
 - **Concepto**: Integrar el control de un modulador espacial de luz basado en cristal líquido sobre silicio (LCoS-SLM) en el trayecto de iluminación confocal / contrapropagante.
@@ -126,12 +126,14 @@ graph LR
 - **Solución Proyectada**: Implementar un backend acelerado por hardware con PyTorch / CUDA o CuPy:
   - Cálculo de la NUFFT Tipo 1 en $< 15\ \text{ms}$, permitiendo re-cálculo continuo en tiempo real mientras el usuario manipula sliders de filtrado fotométrico.
   - Deconvolución Richardson-Lucy 2D basada en convoluciones FFT en GPU con aceleración tensorial de punto flotante de 32 y 16 bits.
+- **Módulos Vinculados**: [[CAT-307_Computacion_NUFFT_Factor_Estructura_Optimizacion_BLAS|CAT-307]], [[CAT-312_Computacion_Tensorial_GPU_CUDA_NUFFT_y_Deconvolucion|CAT-312]].
 
 ### 2.4 Estandarización de Archivos según Formato NeXus / HDF5 y Principios FAIR
 - **Diagnóstico**: La plataforma ya cuenta con serialización HDF5 en `core/hdf5_container.py`, pero la jerarquía de grupos es interna de PyPrinting.
 - **Solución Proyectada**: Alinear los contenedores `.h5` con el estándar internacional **NeXus Data Format** (`NXdata`, `NXsample`, `NXinstrument`, `NXentry`), adoptado por instalaciones de sincrotrón y centros de nanofotónica globales:
   - Facilitar la interoperabilidad con herramientas analíticas estándar (PyMca, Dawn, JupyterHub).
   - Cumplir con los principios **FAIR** (*Findable, Accessible, Interoperable, Reusable*) para la publicación abierta de datasets experimentales de SMLM y optical printing en repositorios como Zenodo o figshare.
+- **Módulos Vinculados**: [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5|CAT-401]], [[CAT-402_Estandar_Datos_FAIR_y_Serializacion_NeXus_HDF5|CAT-402]].
 
 ### 2.5 Capa Vectorial de Deriva en Tiempo Real en el Visor de Grilla (`InteractiveGridWidget`)
 - **Diagnóstico**: Aunque la deriva termomecánica acumulada $(\Delta x, \Delta y)$ se calcula en `DriftTrackingDialog` y se registra en los archivos de log y HDF5, el visor gráfico `InteractiveGridWidget` no dibuja la capa de flechas vectoriales durante la impresión.
