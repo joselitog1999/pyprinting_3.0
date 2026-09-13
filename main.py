@@ -4,19 +4,24 @@
 PyPrinting 3.0 — Panel de Inicio Principal (main.py)
 UNSAM — Nanofotónica
 
-Launcher principal interactivo con interfaz gráfica moderna PyQt6 (3 opciones por fila):
-Fila 1:
+Launcher principal interactivo con interfaz gráfica moderna PyQt6 organizada en 3 categorías:
+Bloque 1: Aplicaciones Instrumentales (Control y Adquisición en Vivo)
   1. Microscopio Derecho (app.py — PyPrinting 3.0 completo)
-  2. PySpectrum (Próximamente — Espectrometría, Termometría y Scattering)
-  3. Microscopio Contrapropagante (Próximamente — Excitación Doble & Objetivo Invertido)
-Fila 2:
-  4. PyPrinting 2 (Legacy — PyPrinting_UNSAM.py)
-  5. Cámara Live View (camera.py)
-  6. Modulación Láser 532 nm (camera.py / Laser532Window)
-Fila 3:
-  7. PSF Analyzer (psf_analyzer.py)
-  8. Analizador de Imágenes (image_analyzer.py)
-  9. Documentación y Créditos (Manual de Usuario, README y Créditos del Autor)
+  2. PySpectrum 3.0 (pyspectrum.py — Espectrometría, Shamrock y Andor CCD)
+  3. Microscopio Contrapropagante (contrapropagante.py — Excitación Doble TOP/BOT)
+  4. Cámara Live View (camera.py — Adquisición en tiempo real y LUTs)
+  5. Modulación Láser 532 nm (camera.py / Laser532Window)
+  6. Diseñador de Redes 2D (grid_generator.py — Cristalografía, Bravais y P0)
+
+── Subtítulo 1: Herramientas de Análisis y Procesamiento ──
+  7. Analizador SIF (sif_analyzer.py — Andor Solis, Transmitancia y Extinción)
+  8. Analizador Raman & SERS (raman_analyzer.py — Línea base, picos y termometría)
+  9. PSF Analyzer (psf_analyzer.py — Ajuste analítico Gauss/Donut 2D)
+  10. Analizador de Imágenes (image_analyzer.py — Medición estática y tracking)
+
+── Subtítulo 2: Documentación, Diagnósticos y Configuración ──
+  11. Tablero de Conexiones (modules/hardware_dashboard.py — Seguridad e I/O)
+  12. Documentación y Créditos (Manual de Usuario, README y Créditos)
 """
 
 import sys
@@ -263,6 +268,70 @@ class DocAndCreditsCard(QFrame):
         layout.addLayout(btns_hlo)
 
 
+class SectionHeader(QFrame):
+    """Subtítulo visual divisorio con icono, título de categoría, descripción y línea estilizada con gradiente."""
+
+    def __init__(self, icon_str: str, title: str, subtitle: str = "",
+                 accent_color: str = "#89B4FA", parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 18, 4, 6)
+        layout.setSpacing(6)
+
+        # Fila de Título y Subtítulo
+        hlo = QHBoxLayout()
+        hlo.setSpacing(10)
+
+        lbl_icon = QLabel(icon_str)
+        lbl_icon.setStyleSheet("font-size: 16pt; background: transparent; border: none;")
+
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet(f"""
+            font-size: 13.5pt;
+            font-weight: bold;
+            color: {accent_color};
+            background: transparent;
+            border: none;
+            letter-spacing: 0.5px;
+        """)
+
+        hlo.addWidget(lbl_icon)
+        hlo.addWidget(lbl_title)
+
+        if subtitle:
+            lbl_sub = QLabel(f"|   {subtitle}")
+            lbl_sub.setStyleSheet("""
+                font-size: 9pt;
+                color: #A6ADC8;
+                background: transparent;
+                border: none;
+            """)
+            hlo.addWidget(lbl_sub)
+
+        hlo.addStretch()
+        layout.addLayout(hlo)
+
+        # Línea divisoria decorativa con gradiente
+        line = QFrame()
+        line.setFixedHeight(2)
+        line.setStyleSheet(f"""
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                stop:0 {accent_color},
+                stop:0.45 {accent_color}99,
+                stop:0.80 #313244,
+                stop:1 transparent);
+            border: none;
+        """)
+        layout.addWidget(line)
+
+
 class MainWindowLauncher(QMainWindow):
     """Ventana de Inicio Principal — Bienvenidos al Printing."""
 
@@ -488,26 +557,62 @@ class MainWindowLauncher(QMainWindow):
             show_credits_callback=self._show_credits
         )
 
-        # Ubicación en grilla:
-        # Fila 1: Microscopio Derecho, PySpectrum, Contrapropagante
+        # Ubicación en grilla organizada en 3 categorías mediante dos subtítulos visuales:
+
+        # ── BLOQUE 1: APLICACIONES INSTRUMENTALES (Control & Adquisición) ─────
+        # Fila 0: Microscopio Derecho, PySpectrum 3.0, Microscopio Contrapropagante
         grid.addWidget(card_app, 0, 0)
         grid.addWidget(card_pyspectrum, 0, 1)
         grid.addWidget(card_contra, 0, 2)
 
-        # Fila 2: Cámara Live, Modulación Láser 532, PSF Analyzer
+        # Fila 1: Cámara Live View, Modulación Láser 532 nm, Diseñador de Redes 2D
         grid.addWidget(card_cam, 1, 0)
         grid.addWidget(card_laser, 1, 1)
-        grid.addWidget(card_psf, 1, 2)
+        grid.addWidget(card_lattice, 1, 2)
 
-        # Fila 3: Analizador de Imágenes, Diseñador de Redes 2D, Tablero de Conexiones
-        grid.addWidget(card_img, 2, 0)
-        grid.addWidget(card_lattice, 2, 1)
-        grid.addWidget(card_hardware, 2, 2)
+        # ── SUBTÍTULO 1: HERRAMIENTAS DE ANÁLISIS Y PROCESAMIENTO ────────────
+        sub_analisis = SectionHeader(
+            icon_str="📊",
+            title="Herramientas de Análisis y Procesamiento",
+            subtitle="Espectroscopía cuantitativa SIF / Raman, caracterización PSF y análisis de imágenes",
+            accent_color="#A6E3A1"
+        )
+        grid.addWidget(sub_analisis, 2, 0, 1, 3)
 
-        # Fila 4: Analizador Raman & SERS, Analizador SIF y Documentación
-        grid.addWidget(card_raman, 3, 0)
-        grid.addWidget(card_sif, 3, 1)
-        grid.addWidget(card_docs, 3, 2)
+        # ── BLOQUE 2: HERRAMIENTAS DE ANÁLISIS ────────────────────────────────
+        # Fila 3: Analizador SIF (Andor), Analizador Raman & SERS, PSF Analyzer
+        grid.addWidget(card_sif, 3, 0)
+        grid.addWidget(card_raman, 3, 1)
+        grid.addWidget(card_psf, 3, 2)
+
+        # 12. Analizador de Desorden y Redes 2D (lattice_disorder_gui.py)
+        card_lattice_disorder = ApplicationCard(
+            icon_str="✨",
+            title="Analizador de Redes & Desorden",
+            subtitle="Fourier 2D, Debye-Waller & Monte Carlo",
+            description="Metrología de desorden posicional en redes periódicas 2D a partir de confocales o coordenadas: SMLM (Picasso/Trackpy), NUFFT 2D continua, KDTree acotado, g(r) y atenuación de Debye-Waller.",
+            button_text="✨ Iniciar Analizador de Desorden",
+            button_color="#CBA6F7",
+            launch_callback=lambda: self._launch_script("lattice_disorder_gui.py", "Analizador de Desorden y Redes 2D")
+        )
+
+        # Fila 4: Analizador de Imágenes, Analizador de Redes & Desorden
+        grid.addWidget(card_img, 4, 0)
+        grid.addWidget(card_lattice_disorder, 4, 1)
+
+        # ── SUBTÍTULO 2: DOCUMENTACIÓN Y CONFIGURACIÓN (SETTINGS) ─────────────
+        sub_docs_settings = SectionHeader(
+            icon_str="⚙️",
+            title="Documentación, Diagnósticos y Configuración",
+            subtitle="Manuales operativos, arquitectura de hardware, telemetría y metadatos",
+            accent_color="#F9E2AF"
+        )
+        grid.addWidget(sub_docs_settings, 5, 0, 1, 3)
+
+        # ── BLOQUE 3: DOCUMENTACIÓN Y SETTINGS ────────────────────────────────
+        # Fila 6: Tablero de Conexiones & Hardware, Documentación y Créditos
+        grid.addWidget(card_hardware, 6, 0)
+        grid.addWidget(card_docs, 6, 1)
 
         main_vlo.addLayout(grid)
 

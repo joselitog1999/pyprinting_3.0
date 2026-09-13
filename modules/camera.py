@@ -234,7 +234,8 @@ class CanonWorker(QObject):
         super().__init__()
         self._cam = CanonCamera(log_callback=self._emit_log) if CanonCamera else None
         self._running = False
-        self._timer = None
+        self._frame_timer: Optional[QTimer] = None
+        self._is_fetching = False
         self._last_valid_frame = None
         self._mock_n = 0
         self._mode_color = "Color RGB"
@@ -250,22 +251,32 @@ class CanonWorker(QObject):
     def _emit_log(self, msg: str):
         self.logSignal.emit(msg)
 
+    def _ensure_frame_timer(self):
+        """Garantiza la existencia de una única instancia de QTimer para evitar multiplicación de bucles."""
+        if self._frame_timer is None:
+            self._frame_timer = QTimer(self)
+            self._frame_timer.setTimerType(Qt.TimerType.PreciseTimer)
+            self._frame_timer.setInterval(40)  # 25.0 FPS estricto
+            self._frame_timer.timeout.connect(self._fetch_frame_adaptive)
+
     @pyqtSlot()
     def start_camera(self):
         self.statusSignal.emit("Conectando con cámara Canon EOS por USB...")
         self._emit_log("Iniciando conexión USB con cámara Canon EOS...")
         self._connect_time = time.time()
+        self._ensure_frame_timer()
+
         ok = self._cam.open_session() if self._cam else False
         if ok:
             # 1. Emitir inmediatamente lista completa para asegurar disponibilidad instantánea
             self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0, 0, 0)
             self.statusSignal.emit("Cámara Canon EOS 500D Conectada | Estabilizando sensor (5s)...")
 
-            # 2. Habilitar Live View y arrancar bucle de frames adaptativo
+            # 2. Habilitar Live View y arrancar bucle de frames adaptativo único
             self._cam.enable_live_view()
             self._running = True
             self.connectedSignal.emit(True)
-            QTimer.singleShot(10, self._fetch_frame_adaptive)
+            self._frame_timer.start(40)
 
             # 3. Programar temporizador de 5 segundos para consulta segura de hardware
             QTimer.singleShot(5000, self._query_properties_after_delay)
@@ -276,31 +287,27 @@ class CanonWorker(QObject):
             self._emit_log(msg)
             self._running = True
             self.propsReadySignal.emit(FULL_ISO_LIST, FULL_TV_LIST, 0, 0, 0)
-            QTimer.singleShot(10, self._fetch_frame_adaptive)
+            self._frame_timer.start(40)
 
     def _fetch_frame_adaptive(self):
-        if not self._running: return
-        t0 = time.perf_counter()
+        """Ejecución periódica regular con protección estricta contra solapamiento y frame dropping."""
+        if not self._running:
+            return
+        if getattr(self, '_is_fetching', False):
+            return  # Descarte no bloqueante para no saturar el bus USB
 
-        self._fetch_frame()
-
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-
-        is_stabilized = (time.time() - getattr(self, '_connect_time', 0)) >= 5.0
-        target_ms = 40.0  # 25.0 FPS estrictos
-
-        if is_stabilized:
-            delay_ms = max(1, int(round(target_ms - elapsed_ms)))
-        else:
-            delay_ms = max(10, int(round(target_ms - elapsed_ms)))
-
-        if self._running:
-            QTimer.singleShot(delay_ms, self._fetch_frame_adaptive)
+        self._is_fetching = True
+        try:
+            self._fetch_frame()
+        finally:
+            self._is_fetching = False
 
     def _query_properties_after_delay(self):
         if not self._running or not self._cam or not self._cam._is_session_open: return
 
-        self._running = False
+        # Pausar timer de frames para evitar colisiones USB durante la consulta de propiedades
+        if self._frame_timer:
+            self._frame_timer.stop()
         time.sleep(0.05)
 
         try:
@@ -324,12 +331,15 @@ class CanonWorker(QObject):
         except Exception as _e:
             self._emit_log(f"Advertencia durante consulta diferida: {_e}")
         finally:
-            self._running = True
-            QTimer.singleShot(10, self._fetch_frame_adaptive)
+            if self._running and self._frame_timer:
+                self._frame_timer.start(40)
 
     @pyqtSlot()
     def stop_camera(self):
         self._running = False
+        if getattr(self, '_frame_timer', None) is not None:
+            self._frame_timer.stop()
+
         if self._cam:
             self._cam.close_session()
             self._cam.terminate_sdk()
@@ -360,9 +370,10 @@ class CanonWorker(QObject):
                 frame_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if frame_bgr is not None:
                     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    # Emitir el frame completo 1x para la miniatura PiP
+                    # Emitir el frame completo 1x contiguo para la miniatura PiP
                     unzoomed_frame = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
                     unzoomed_frame = cv2.flip(unzoomed_frame, 1)
+                    unzoomed_frame = np.ascontiguousarray(unzoomed_frame)
                     self.fullFrameSignal.emit(unzoomed_frame)
 
                     # Procesar rotación 90° + espejo + zoom + supresión de ruido + ajustes en vivo
@@ -371,6 +382,7 @@ class CanonWorker(QObject):
                         clim_max=self._clim_max, lut_idx=self._lut_idx,
                         r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain,
                         noise_floor=self._noise_floor, denoise=self._denoise)
+                    processed = np.ascontiguousarray(processed)
                     self._last_valid_frame = processed
                     self.frameSignal.emit(processed)
                     return
@@ -388,7 +400,12 @@ class CanonWorker(QObject):
         cv2.circle(frame, (cx, cy), 45, (74, 158, 255), 2)
         cv2.putText(frame, "CANON EOS 500D MOCK STREAM (1056x704)", (30, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (245, 166, 35), 2)
-        self.fullFrameSignal.emit(frame.copy())
+
+        # Orientación normalizada consistente con la réflex: rotar 90° y voltear horizontal
+        unzoomed_frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        unzoomed_frame = cv2.flip(unzoomed_frame, 1)
+        unzoomed_frame = np.ascontiguousarray(unzoomed_frame)
+        self.fullFrameSignal.emit(unzoomed_frame)
 
         if self._cam:
             processed = self._cam.process_frame_live_adjustments(
@@ -397,13 +414,14 @@ class CanonWorker(QObject):
                 r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain,
                 noise_floor=self._noise_floor, denoise=self._denoise)
         else:
-            processed = frame
+            processed = unzoomed_frame.copy()
             if self._denoise:
                 processed = cv2.medianBlur(processed, 3)
             if self._noise_floor > 0:
                 mask = np.max(processed, axis=2) < self._noise_floor
                 processed[mask] = 0
 
+        processed = np.ascontiguousarray(processed)
         self._last_valid_frame = processed
         self.frameSignal.emit(processed)
 
@@ -439,30 +457,28 @@ class CanonWorker(QObject):
     @pyqtSlot(int)
     def set_iso(self, val: int):
         if self._cam and self._cam._is_session_open:
-            was_running = self._running
-            self._running = False
+            if self._frame_timer:
+                self._frame_timer.stop()
             ok = self._cam.set_property_value(kEdsPropID_ISOSpeed, val)
             if ok:
                 lbl = ISO_MAP.get(val, f"0x{val:02X}")
                 self.statusSignal.emit(f"ISO configurado a: {lbl}")
                 self._emit_log(f"ISO cambiado exitosamente a {lbl}")
-            self._running = was_running
-            if self._running:
-                QTimer.singleShot(10, self._fetch_frame_adaptive)
+            if self._running and self._frame_timer:
+                self._frame_timer.start(40)
 
     @pyqtSlot(int)
     def set_tv(self, val: int):
         if self._cam and self._cam._is_session_open:
-            was_running = self._running
-            self._running = False
+            if self._frame_timer:
+                self._frame_timer.stop()
             ok = self._cam.set_property_value(kEdsPropID_Tv, val)
             if ok:
                 lbl = TV_MAP.get(val, f"0x{val:02X}")
                 self.statusSignal.emit(f"Velocidad (Tv) configurada a: {lbl}")
                 self._emit_log(f"Velocidad Tv cambiada exitosamente a {lbl}")
-            self._running = was_running
-            if self._running:
-                QTimer.singleShot(10, self._fetch_frame_adaptive)
+            if self._running and self._frame_timer:
+                self._frame_timer.start(40)
 
     @pyqtSlot(str)
     def take_photo(self, target_format: str = "jpg"):
@@ -826,7 +842,7 @@ class OverlayWidget(QWidget):
 
         if pip_frame is not None:
             try:
-                img = pip_frame
+                img = np.ascontiguousarray(pip_frame)
                 h, w, c = img.shape
                 qimg = QImage(img.data, w, h, w * c, QImage.Format.Format_RGB888)
                 p.drawImage(pip_rect, qimg)
@@ -1153,7 +1169,7 @@ class ExternalPiPWidget(QWidget):
 
         if self._unzoomed_frame is not None:
             try:
-                img = self._unzoomed_frame
+                img = np.ascontiguousarray(self._unzoomed_frame)
                 ih, iw, ic = img.shape
                 qimg = QImage(img.data, iw, ih, iw * ic, QImage.Format.Format_RGB888)
                 p.drawImage(self.rect(), qimg)
@@ -1254,11 +1270,30 @@ class CameraWindow(QMainWindow):
         self._debounce_tv_timer.setInterval(200)
         self._debounce_tv_timer.timeout.connect(self._apply_debounced_tv)
 
-        # Temporizador de Antirrebote / Delay de Hardware (1800 ms) para Zoom Óptico Canon EVF
+        # Temporizador de Antirrebote / Delay de Hardware (400 ms ágil) para Zoom Óptico Canon EVF
         self._debounce_zoom_timer = QTimer(self)
         self._debounce_zoom_timer.setSingleShot(True)
-        self._debounce_zoom_timer.setInterval(1800)
+        self._debounce_zoom_timer.setInterval(400)
         self._debounce_zoom_timer.timeout.connect(self._apply_debounced_canon_zoom)
+
+        # Temporizador de Antirrebote para Ajuste de Ventana / Pantalla Completa (evita bucle reentrante)
+        self._resize_debounce_timer = QTimer(self)
+        self._resize_debounce_timer.setSingleShot(True)
+        self._resize_debounce_timer.setInterval(50)
+        self._resize_debounce_timer.timeout.connect(self._fit_camera_view_lateral)
+
+        # Temporizador de Throttling para coordenadas de zoom y pan por USB (máximo ~12 Hz)
+        self._throttle_zoom_center_timer = QTimer(self)
+        self._throttle_zoom_center_timer.setSingleShot(True)
+        self._throttle_zoom_center_timer.setInterval(80)
+        self._throttle_zoom_center_timer.timeout.connect(self._send_debounced_zoom_center)
+        self._pending_zoom_center = (0.5, 0.5)
+
+        # Telemetría de FPS y guarda de descarte de fotogramas (Frame Dropping)
+        self._fps_last_time = time.time()
+        self._fps_counter = 0
+        self._current_fps = 0.0
+        self._is_rendering_frame = False
 
         # ── Widget central ────────────────────────────────────────────────────
         central = QWidget()
@@ -1650,7 +1685,11 @@ class CameraWindow(QMainWindow):
         if hasattr(self, '_overlay') and hasattr(self, '_view'):
             self._overlay.setGeometry(self._view.viewport().rect())
         pg.GraphicsLayoutWidget.resizeEvent(self._view, event)
-        self._fit_camera_view_lateral()
+        # Diferir el auto-ajuste de encuadre para evitar bucle reentrante durante pantalla completa
+        if hasattr(self, '_resize_debounce_timer'):
+            self._resize_debounce_timer.start(50)
+        else:
+            self._fit_camera_view_lateral()
 
     def _on_zoom_changed_overlay(self, fx0: float, fy0: float, fx1: float, fy1: float):
         W, H = self._overlay.get_img_dims()
@@ -1661,6 +1700,16 @@ class CameraWindow(QMainWindow):
             self._vb.setYRange(fy0 * H, fy1 * H, padding=0)
         cx, cy = self._overlay._zoom_center
         if self._is_camera_active:
+            self._pending_zoom_center = (cx, cy)
+            if hasattr(self, '_throttle_zoom_center_timer'):
+                self._throttle_zoom_center_timer.start(80)
+            else:
+                self.setZoomCenterSignal.emit(cx, cy)
+
+    def _send_debounced_zoom_center(self):
+        """Emite la coordenada central hacia el hardware de forma espaciada (~12 Hz) protegiendo el bus USB."""
+        if self._is_camera_active and hasattr(self, '_pending_zoom_center'):
+            cx, cy = self._pending_zoom_center
             self.setZoomCenterSignal.emit(cx, cy)
 
     def _update_guards(self):
@@ -1714,6 +1763,11 @@ class CameraWindow(QMainWindow):
         QMessageBox.information(self, "Diagnóstico", "Obturador cerrado y sesión de cámara restablecida.")
 
     def keyPressEvent(self, event):
+        # Si el hardware réflex está procesando un cambio de zoom, descartar ráfagas de teclado
+        if hasattr(self, '_debounce_zoom_timer') and self._debounce_zoom_timer.isActive():
+            event.accept()
+            return
+
         k = event.key()
         if k in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
             self._zoom_in_canon()
@@ -1792,8 +1846,8 @@ class CameraWindow(QMainWindow):
                 self._ext_pip.set_locked(True)
             self._set_zoom_controls_enabled(False)
             if hasattr(self, '_lbl_status'):
-                self._lbl_status.setText("⏳ Aplicando Zoom Canon en hardware... (Bloqueado ~2s)")
-            self._debounce_zoom_timer.start()
+                self._lbl_status.setText("⏳ Ajustando zoom Canon...")
+            self._debounce_zoom_timer.start(400)
 
     def _apply_debounced_canon_zoom(self):
         val = self._canon_zoom_levels[self._canon_zoom_idx]
@@ -1873,11 +1927,29 @@ class CameraWindow(QMainWindow):
 
     @pyqtSlot(np.ndarray)
     def _update_frame(self, frame: np.ndarray):
-        self._current_frame = frame
-        self._img_item.setImage(frame.transpose(1, 0, 2))
-        if not hasattr(self, '_range_initialized'):
-            self._fit_camera_view_lateral()
-            self._range_initialized = True
+        if getattr(self, '_is_rendering_frame', False):
+            return  # Descarte de fotograma (Frame Dropping) si la GUI sigue ocupada renderizando
+        self._is_rendering_frame = True
+        try:
+            self._current_frame = frame
+            # autoLevels=False y levels=(0, 255) eliminan el escaneo de CPU de 55 millones de valores/s
+            self._img_item.setImage(frame.transpose(1, 0, 2), autoLevels=False, levels=(0, 255))
+            if not hasattr(self, '_range_initialized'):
+                self._fit_camera_view_lateral()
+                self._range_initialized = True
+
+            # Telemetría de FPS en vivo
+            self._fps_counter += 1
+            now = time.time()
+            dt = now - getattr(self, '_fps_last_time', now)
+            if dt >= 1.0:
+                self._current_fps = self._fps_counter / dt
+                self._fps_counter = 0
+                self._fps_last_time = now
+                if hasattr(self, '_lbl_status') and "Live View" in self._lbl_status.text():
+                    self._lbl_status.setText(f"Cámara Canon EOS | Live View: {self._current_fps:.1f} FPS (Estable)")
+        finally:
+            self._is_rendering_frame = False
 
     @pyqtSlot(np.ndarray)
     def _update_full_frame(self, frame: np.ndarray):
@@ -2248,10 +2320,17 @@ class CameraWindow(QMainWindow):
         self._update_guards()
 
     def closeEvent(self, event):
+        """Cierre limpio y garantizado de hardware, descendiendo el espejo réflex y terminando el hilo."""
         try:
+            self._is_camera_active = False
             self.stopCameraSignal.emit()
-        except Exception:
-            pass
+            if hasattr(self, '_worker') and self._worker:
+                self._worker.stop_camera()
+            if hasattr(self, '_worker_thread') and self._worker_thread and self._worker_thread.isRunning():
+                self._worker_thread.quit()
+                self._worker_thread.wait(2000)
+        except Exception as _e:
+            print(f"[CameraWindow] Excepción al cerrar sesión: {_e}")
         event.accept()
 
 
@@ -2443,6 +2522,12 @@ class TrackpyDialog(QDialog):
         self._count_lbl.setStyleSheet("font-weight: bold; color: #3ecf8e;")
         lo.addWidget(self._count_lbl)
 
+        # Temporizador de antirrebote (250 ms) para cálculo de partículas
+        self._preview_debounce_timer = QTimer(self)
+        self._preview_debounce_timer.setSingleShot(True)
+        self._preview_debounce_timer.setInterval(250)
+        self._preview_debounce_timer.timeout.connect(self._execute_preview_calc)
+
         params_box = QGroupBox("Parámetros de Detección"); box_vlo = QVBoxLayout(params_box)
 
         # Selector de Motor de Detección (Trackpy vs Picasso)
@@ -2586,6 +2671,14 @@ class TrackpyDialog(QDialog):
             return d, self._sep.value()
 
     def _run_preview(self):
+        """Programa el recálculo con debounce de 250 ms para no congelar la GUI durante la edición."""
+        if hasattr(self, '_preview_debounce_timer'):
+            self._count_lbl.setText("⏳ Calculando detección...")
+            self._preview_debounce_timer.start(250)
+        else:
+            self._execute_preview_calc()
+
+    def _execute_preview_calc(self):
         if self._crop is None: return
         import warnings
 
@@ -2810,6 +2903,8 @@ def main():
     worker.moveToThread(thread)
 
     win = CameraWindow()
+    win._worker = worker
+    win._worker_thread = thread
     worker.make_connection(win)
     thread.start(QThread.Priority.HighPriority)
 

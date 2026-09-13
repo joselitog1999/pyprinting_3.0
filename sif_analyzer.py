@@ -365,16 +365,16 @@ class SifAnalyzerWindow(QMainWindow):
         self.current_residuals: Optional[np.ndarray] = None
         self.last_peak_fit_results: Optional[Dict[str, Any]] = None
 
-        # 2. Construcción de Interfaz
-        self._setup_menus()
-        self._setup_ui()
-        self._setup_crosshairs()
-
         # Timer para recálculos reactivos suaves (25 fps max)
         self.recalc_timer = QTimer(self)
         self.recalc_timer.setSingleShot(True)
         self.recalc_timer.setInterval(40)
         self.recalc_timer.timeout.connect(self._recalculate_all)
+
+        # 2. Construcción de Interfaz
+        self._setup_menus()
+        self._setup_ui()
+        self._setup_crosshairs()
 
         self.statusBar().showMessage("Listo. Cargue uno o más archivos .sif para comenzar.")
 
@@ -1105,37 +1105,34 @@ class SifAnalyzerWindow(QMainWindow):
 
         row1_trans.addWidget(grp_calc_options)
 
-        # Panel de Post-Filtro y Wiener en T(λ)
-        grp_post_filters = QGroupBox("🧹 Post-Filtro Espectral en T(λ)")
-        grp_post_filters.setToolTip("Suavizado y filtrado aplicado directamente sobre el espectro de transmitancia calculado.")
+        # Panel de Post-Filtros en Cascada (Enfoque A: Despike -> Wiener -> Suavizado Contextual)
+        grp_post_filters = QGroupBox("🧹 Pipeline de Filtrado en T(λ)")
+        grp_post_filters.setToolTip("Cadena en cascada de 3 fases físicas para T(λ): 1) Despiking -> 2) Wiener Físico -> 3) Suavizado Espectral.")
         lay_post_filters = QHBoxLayout(grp_post_filters)
         lay_post_filters.setContentsMargins(8, 2, 8, 4)
-        lay_post_filters.setSpacing(8)
+        lay_post_filters.setSpacing(6)
 
-        lbl_t_filt = QLabel("Filtro:")
-        lbl_t_filt.setToolTip("Filtro espectral de suavizado sobre la transmitancia calculada.")
-        lay_post_filters.addWidget(lbl_t_filt)
-        self.combo_trans_filter = QComboBox()
-        self.combo_trans_filter.addItems(["Ninguno", "Savitzky-Golay", "Fourier Lowpass", "Media Móvil", "Wiener Adaptativo (BG)"])
-        self.combo_trans_filter.setToolTip("Filtro clásico de suavizado espectral: Savitzky-Golay, Fourier o Media Móvil.")
-        self.combo_trans_filter.currentIndexChanged.connect(self._schedule_recalculation)
-        lay_post_filters.addWidget(self.combo_trans_filter)
+        # Fase 1: Despiking en T(λ)
+        self.chk_trans_despike = QCheckBox("Despike")
+        self.chk_trans_despike.setToolTip("Fase 1: Elimina rayos cósmicos o picos espurios locales en el espectro de transmitancia.")
+        self.chk_trans_despike.toggled.connect(self._schedule_recalculation)
+        lay_post_filters.addWidget(self.chk_trans_despike)
 
-        lbl_t_win = QLabel("Ventana:")
-        lbl_t_win.setToolTip("Tamaño de la ventana del filtro (píxeles).")
-        lay_post_filters.addWidget(lbl_t_win)
-        self.spin_trans_param = QSpinBox()
-        self.spin_trans_param.setRange(3, 101)
-        self.spin_trans_param.setSingleStep(2)
-        self.spin_trans_param.setValue(11)
-        self.spin_trans_param.setToolTip("Ancho de la ventana de filtrado (debe ser impar).")
-        self.spin_trans_param.valueChanged.connect(self._schedule_recalculation)
-        lay_post_filters.addWidget(self.spin_trans_param)
+        self.spin_trans_despike_k = QDoubleSpinBox()
+        self.spin_trans_despike_k.setRange(2.0, 15.0)
+        self.spin_trans_despike_k.setSingleStep(0.5)
+        self.spin_trans_despike_k.setValue(4.0)
+        self.spin_trans_despike_k.setPrefix("k: ")
+        self.spin_trans_despike_k.setToolTip("Umbral de detección de picos espurios (k * sigma).")
+        self.spin_trans_despike_k.valueChanged.connect(self._schedule_recalculation)
+        lay_post_filters.addWidget(self.spin_trans_despike_k)
 
-        self.chk_trans_adaptive = QCheckBox("Wiener")
-        self.chk_trans_adaptive.setToolTip("Aplica filtro Wiener adaptativo a la transmitancia calculada usando la PSD de ruido del fondo.")
-        self.chk_trans_adaptive.toggled.connect(self._schedule_recalculation)
-        lay_post_filters.addWidget(self.chk_trans_adaptive)
+        # Fase 2: Wiener Adaptativo Físico (PSD Dark)
+        self.chk_trans_wiener = QCheckBox("Wiener")
+        self.chk_trans_adaptive = self.chk_trans_wiener  # Alias de compatibilidad
+        self.chk_trans_wiener.setToolTip("Fase 2: Filtro óptimo de Wiener basado en la PSD experimental de ruido del fondo.")
+        self.chk_trans_wiener.toggled.connect(self._schedule_recalculation)
+        lay_post_filters.addWidget(self.chk_trans_wiener)
 
         self.spin_trans_wiener_alpha = QDoubleSpinBox()
         self.spin_trans_wiener_alpha.setRange(0.1, 10.0)
@@ -1145,6 +1142,56 @@ class SifAnalyzerWindow(QMainWindow):
         self.spin_trans_wiener_alpha.setToolTip("Factor de agresividad α para el filtro Wiener sobre la transmitancia.")
         self.spin_trans_wiener_alpha.valueChanged.connect(self._schedule_recalculation)
         lay_post_filters.addWidget(self.spin_trans_wiener_alpha)
+
+        # Fase 3: Suavizado Espectral Matemático con Panel Sensible al Contexto
+        lbl_t_filt = QLabel("Suavizado:")
+        lbl_t_filt.setToolTip("Fase 3: Suavizado espectral matemático (Savitzky-Golay, Fourier Lowpass o Media Móvil).")
+        lay_post_filters.addWidget(lbl_t_filt)
+        self.combo_trans_filter = QComboBox()
+        self.combo_trans_filter.addItems(["Ninguno", "Savitzky-Golay", "Fourier Lowpass", "Media Móvil"])
+        self.combo_trans_filter.setToolTip("Seleccione el algoritmo de suavizado matemático.")
+        self.combo_trans_filter.currentIndexChanged.connect(self._on_trans_filter_type_changed)
+        lay_post_filters.addWidget(self.combo_trans_filter)
+
+        # Controles Contextuales Dinámicos (Parámetro 1: Ventana o Frecuencia de corte)
+        self.lbl_trans_param1 = QLabel("Ventana:")
+        self.lbl_trans_param1.setToolTip("Parámetro primario del filtro de suavizado.")
+        lay_post_filters.addWidget(self.lbl_trans_param1)
+
+        self.spin_trans_param1 = QSpinBox()
+        self.spin_trans_param = self.spin_trans_param1  # Alias de compatibilidad
+        self.spin_trans_param1.setRange(3, 101)
+        self.spin_trans_param1.setSingleStep(2)
+        self.spin_trans_param1.setValue(15)
+        self.spin_trans_param1.setToolTip("Ancho de la ventana de filtrado en puntos espectrales.")
+        self.spin_trans_param1.valueChanged.connect(self._on_trans_param1_changed)
+        lay_post_filters.addWidget(self.spin_trans_param1)
+
+        self.spin_trans_fc = QDoubleSpinBox()
+        self.spin_trans_fc.setRange(0.01, 0.50)
+        self.spin_trans_fc.setSingleStep(0.01)
+        self.spin_trans_fc.setValue(0.05)
+        self.spin_trans_fc.setDecimals(2)
+        self.spin_trans_fc.setPrefix("fc: ")
+        self.spin_trans_fc.setToolTip("Frecuencia de corte normalizada respecto a Nyquist (0.01 a 0.50).")
+        self.spin_trans_fc.valueChanged.connect(self._schedule_recalculation)
+        self.spin_trans_fc.setVisible(False)
+        lay_post_filters.addWidget(self.spin_trans_fc)
+
+        # Controles Contextuales Dinámicos (Parámetro 2: Orden Polinomial para Savitzky-Golay)
+        self.lbl_trans_param2 = QLabel("Orden p:")
+        self.lbl_trans_param2.setToolTip("Orden del polinomio de ajuste local en Savitzky-Golay (debe ser menor que la ventana).")
+        lay_post_filters.addWidget(self.lbl_trans_param2)
+
+        self.spin_trans_param2 = QSpinBox()
+        self.spin_trans_param2.setRange(1, 5)
+        self.spin_trans_param2.setValue(3)
+        self.spin_trans_param2.setToolTip("Grado del polinomio para Savitzky-Golay (1 a 5).")
+        self.spin_trans_param2.valueChanged.connect(self._schedule_recalculation)
+        lay_post_filters.addWidget(self.spin_trans_param2)
+
+        # Configurar estado inicial del panel sensible al contexto
+        self._on_trans_filter_type_changed()
 
         row1_trans.addWidget(grp_post_filters)
         row1_trans.addStretch()
@@ -1179,7 +1226,7 @@ class SifAnalyzerWindow(QMainWindow):
         self.chk_show_ribbon = QCheckBox("Banda Incertidumbre (±σ_T)")
         self.chk_show_ribbon.setChecked(True)
         self.chk_show_ribbon.setStyleSheet("color: #f9e2af;")
-        self.chk_show_ribbon.setToolTip("Muestra la banda sombreada de incertidumbre combinada (±1σ_T) considerando ruido fotónico y de fondo del detector.")
+        self.chk_show_ribbon.setToolTip("Muestra la banda sombreada de incertidumbre combinada (±1σ_T) calculada analíticamente para T_calc según ISO/GUM (ruido Poisson, readout EMCCD y varianza Dark).")
         self.chk_show_ribbon.toggled.connect(self._refresh_transmittance_plots)
         lay_curves.addWidget(self.chk_show_ribbon)
 
@@ -1818,11 +1865,63 @@ class SifAnalyzerWindow(QMainWindow):
         self.roi_spectral_fit.setRegion([lmin, lmax])
         self.roi_spectral_fit.blockSignals(False)
 
+    def _on_trans_filter_type_changed(self):
+        """Reconfigura dinámicamente el panel de parámetros según el algoritmo de suavizado seleccionado."""
+        filt_name = self.combo_trans_filter.currentText()
+        if "Savitzky" in filt_name:
+            self.lbl_trans_param1.setText("Ventana:")
+            self.lbl_trans_param1.setVisible(True)
+            self.spin_trans_param1.setVisible(True)
+            self.spin_trans_fc.setVisible(False)
+            self.spin_trans_param1.setRange(3, 101)
+            self.spin_trans_param1.setSingleStep(2)
+            if self.spin_trans_param1.value() % 2 == 0:
+                self.spin_trans_param1.setValue(self.spin_trans_param1.value() + 1)
+            self.lbl_trans_param2.setText("Orden p:")
+            self.lbl_trans_param2.setVisible(True)
+            self.spin_trans_param2.setVisible(True)
+            self.spin_trans_param2.setMaximum(max(1, self.spin_trans_param1.value() - 1))
+        elif "Fourier" in filt_name:
+            self.lbl_trans_param1.setText("Corte fc:")
+            self.lbl_trans_param1.setVisible(True)
+            self.spin_trans_param1.setVisible(False)
+            self.spin_trans_fc.setVisible(True)
+            self.lbl_trans_param2.setVisible(False)
+            self.spin_trans_param2.setVisible(False)
+        elif "Media" in filt_name:
+            self.lbl_trans_param1.setText("Ventana:")
+            self.lbl_trans_param1.setVisible(True)
+            self.spin_trans_param1.setVisible(True)
+            self.spin_trans_fc.setVisible(False)
+            self.spin_trans_param1.setRange(2, 51)
+            self.spin_trans_param1.setSingleStep(1)
+            self.lbl_trans_param2.setVisible(False)
+            self.spin_trans_param2.setVisible(False)
+        else:  # Ninguno
+            self.lbl_trans_param1.setVisible(False)
+            self.spin_trans_param1.setVisible(False)
+            self.spin_trans_fc.setVisible(False)
+            self.lbl_trans_param2.setVisible(False)
+            self.spin_trans_param2.setVisible(False)
+        self._schedule_recalculation()
+
+    def _on_trans_param1_changed(self):
+        """Valida paridad impar y acota el orden polinomial si el filtro activo es Savitzky-Golay."""
+        filt_name = self.combo_trans_filter.currentText()
+        if "Savitzky" in filt_name:
+            val = self.spin_trans_param1.value()
+            if val % 2 == 0:
+                self.spin_trans_param1.setValue(val + 1)
+                return
+            self.spin_trans_param2.setMaximum(max(1, val - 1))
+        self._schedule_recalculation()
+
     def _on_tab_changed(self, idx: int):
         self._recalculate_all()
 
     def _schedule_recalculation(self):
-        self.recalc_timer.start()
+        if hasattr(self, 'recalc_timer'):
+            self.recalc_timer.start()
 
     # ==========================================================================
     # PIPELINE DE CÁLCULO INTEGRAL Y ACTUALIZACIÓN DE LAS 5 VENTANAS
@@ -1963,23 +2062,45 @@ class SifAnalyzerWindow(QMainWindow):
             t_meas_red = self._reduce_matrix(trans_meas_mat, live_ymin, live_ymax)
             t_calc = t_meas_red.copy()
 
-        # Limpieza Adaptativa Wiener sobre T_calc
-        filt_post = self._map_filter_name(self.combo_trans_filter.currentText())
-        if (self.chk_trans_adaptive.isChecked() or filt_post == "wiener") and self.current_noise_profile is not None and t_calc is not None:
+        # Pipeline Cascada Multietapa de Filtrado sobre T_calc (Enfoque A)
+        if t_calc is not None:
             fin_idx = np.isfinite(t_calc)
             if np.sum(fin_idx) > 8:
                 t_calc_f = t_calc.copy()
-                alpha_t = self.spin_trans_wiener_alpha.value()
-                t_calc_f[fin_idx] = filter_wiener_adaptive(t_calc[fin_idx], self.current_noise_profile, alpha=alpha_t)
-                t_calc = t_calc_f
 
-        # Post-suavizado tradicional sobre T_calc
-        if filt_post not in ("none", "wiener") and t_calc is not None:
-            p_post = self.spin_trans_param.value()
-            fin_idx = np.isfinite(t_calc)
-            if np.sum(fin_idx) > 5:
-                t_calc_f = t_calc.copy()
-                t_calc_f[fin_idx] = apply_spectral_filter(t_calc[fin_idx], filt_post, {'window_length': p_post, 'cutoff_ratio': 1.0 / p_post}, despike_first=False)
+                # Fase 1: Supresión de Rayos Cósmicos / Spikes en T(λ)
+                if hasattr(self, 'chk_trans_despike') and self.chk_trans_despike.isChecked():
+                    k_th = self.spin_trans_despike_k.value()
+                    if self.current_noise_profile is not None:
+                        t_calc_f[fin_idx] = filter_despike_adaptive(t_calc_f[fin_idx], self.current_noise_profile, threshold_k=k_th, kernel_size=5)
+                    else:
+                        t_calc_f[fin_idx] = filter_despike_median(t_calc_f[fin_idx], threshold_sigma=k_th, kernel_size=5)
+
+                # Fase 2: Denoising Adaptativo de Wiener Físico (PSD Dark)
+                chk_w = getattr(self, 'chk_trans_wiener', getattr(self, 'chk_trans_adaptive', None))
+                if chk_w is not None and chk_w.isChecked() and self.current_noise_profile is not None:
+                    alpha_t = self.spin_trans_wiener_alpha.value()
+                    t_calc_f[fin_idx] = filter_wiener_adaptive(t_calc_f[fin_idx], self.current_noise_profile, alpha=alpha_t)
+
+                # Fase 3: Suavizado Espectral Matemático con Parámetros Contextuales
+                filt_post = self._map_filter_name(self.combo_trans_filter.currentText())
+                if filt_post not in ("none", "wiener"):
+                    filter_params = {}
+                    if filt_post == "savgol":
+                        w = self.spin_trans_param1.value()
+                        if w % 2 == 0:
+                            w += 1
+                        p = min(self.spin_trans_param2.value(), max(1, w - 1))
+                        filter_params = {'window_length': w, 'polyorder': p}
+                    elif filt_post == "fourier":
+                        fc = self.spin_trans_fc.value()
+                        filter_params = {'cutoff_ratio': fc}
+                    elif filt_post == "moving_average":
+                        w = self.spin_trans_param1.value()
+                        filter_params = {'window_size': w}
+
+                    t_calc_f[fin_idx] = apply_spectral_filter(t_calc_f[fin_idx], filt_post, filter_params, despike_first=False)
+
                 t_calc = t_calc_f
 
         # T_meas de referencia directa del SIF

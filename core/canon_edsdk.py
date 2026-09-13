@@ -325,11 +325,11 @@ def _emergency_shutter_cleanup():
     for cam in list(_registered_cameras):
         try:
             if cam and getattr(cam, '_is_session_open', False):
-                cam.log("🚨 [EMERGENCIA HARDWARE] Cerrando obturador físico y liberando cámara Canon...")
+                cam.log("[EMERGENCIA HARDWARE] Cerrando obturador físico y liberando cámara Canon...")
                 cam.close_session()
                 cam.terminate_sdk()
         except Exception as _e:
-            print(f"[Canon Emergency Cleanup] Exception: {_e}")
+            pass
 
 atexit.register(_emergency_shutter_cleanup)
 
@@ -356,7 +356,11 @@ class CanonCamera:
     def log(self, msg: str):
         t_str = time.strftime("%H:%M:%S")
         formatted = f"[{t_str}] {msg}"
-        print(f"[Canon EDSDK] {formatted}")
+        try:
+            print(f"[Canon EDSDK] {formatted}")
+        except (UnicodeEncodeError, Exception):
+            safe = formatted.encode("ascii", errors="replace").decode("ascii")
+            print(f"[Canon EDSDK] {safe}")
         if self._log_cb:
             try: self._log_cb(formatted)
             except Exception: pass
@@ -546,10 +550,27 @@ class CanonCamera:
 
     def set_live_view_zoom_position(self, x: int, y: int) -> bool:
         if not self._is_session_open or edsdk is None: return False
+        
+        # Clamping metrológico estricto para sensor Canon EOS 500D (4752 x 3168)
+        # para evitar errores de hardware EDS_ERR_INVALID_PARAMETER (0x07)
+        zoom = getattr(self, '_active_zoom', 1)
+        z_factor = 5.0 if zoom <= 5 else 10.0
+        win_w = int(4752 / z_factor)
+        win_h = int(3168 / z_factor)
+        clamped_x = max(0, min(int(4752 - win_w), int(x)))
+        clamped_y = max(0, min(int(3168 - win_h), int(y)))
+
         with _edsdk_lock:
-            pt = EdsPoint(x, y)
-            err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_ZoomPosition, 0, ctypes.sizeof(pt), ctypes.byref(pt))
-            return err == EDS_ERR_OK
+            pt = EdsPoint(clamped_x, clamped_y)
+            try:
+                err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_ZoomPosition, 0, ctypes.sizeof(pt), ctypes.byref(pt))
+                if err == EDS_ERR_DEVICE_BUSY:
+                    # La cámara está procesando otro frame o comando, descartar sin colapsar
+                    return False
+                return err == EDS_ERR_OK
+            except Exception as _e:
+                self.log(f"Advertencia al ajustar posición de zoom EVF: {_e}")
+                return False
 
     def set_zoom_center(self, cx: float, cy: float):
         """Configura el centro del ROI para navegación panorámica en el sensor FOV (0.0 a 1.0)."""

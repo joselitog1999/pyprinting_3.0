@@ -396,6 +396,30 @@ def run_tests():
     else:
         assert_test("Archivos de prueba SIF en reserva/", False, "No encontrados")
 
+    # ── 13. Analizador de Desorden y Redes 2D (Fourier, Debye-Waller, KDTree) ─
+    print("\n13. Analizador de Desorden y Redes 2D (Fourier, Debye-Waller, KDTree)")
+    from core.lattice_disorder import (
+        analyze_reciprocal_space_2d,
+        analyze_real_space_kdtree
+    )
+    from analysis.lattice_disorder_gui import LatticeDisorderWindow
+
+    # Test sintético rápido de validación física
+    a_diag = 450.0
+    gx_d, gy_d = np.meshgrid(np.arange(10) * a_diag, np.arange(10) * a_diag)
+    x_d = gx_d.ravel()
+    y_d = gy_d.ravel()
+
+    recip_d = analyze_reciprocal_space_2d(x_d, y_d, a_nominal=a_diag, n_bins=128)
+    assert_test("NUFFT 2D Continua & Detección de Bragg", abs(recip_d['a_mean'] - a_diag) < 2.0)
+
+    kdtree_d = analyze_real_space_kdtree(x_d, y_d, a=a_diag, n_side=10)
+    assert_test("KDTree Bounded & Desorden Espacio Real (σ < 0.1 nm)", kdtree_d['sigma_pos'] < 0.1 and kdtree_d['f_vac'] == 0.0)
+
+    lat_win = LatticeDisorderWindow()
+    assert_test("Instanciación Ventana LatticeDisorderWindow (4 Pestañas)", lat_win is not None and lat_win.tabs.count() == 4)
+    lat_win.close()
+
 
     # ── Resumen Final ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)

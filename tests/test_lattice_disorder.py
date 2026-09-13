@@ -1,0 +1,945 @@
+"""
+tests/test_lattice_disorder.py
+==============================
+Batería de pruebas unitarias metrológicas para el motor físico de desorden
+en redes periódicas y pipeline de localización (PyPrinting 3.0).
+"""
+
+import os
+import sys
+from pathlib import Path
+import tempfile
+import numpy as np
+from typing import Tuple, Dict, Any, Optional
+import pandas as pd
+
+# Asegurar que el directorio raíz esté en sys.path
+_curr = Path(__file__).resolve().parent
+while _curr != _curr.parent:
+    if (_curr / "config.py").exists():
+        for _p in [str(_curr), str(_curr / "core"), str(_curr / "modules"), str(_curr / "analysis")]:
+            if _p not in sys.path:
+                sys.path.insert(0, _p)
+        break
+    _curr = _curr.parent
+
+try:
+    import pytest
+except ImportError:
+    pytest = None
+
+from core.lattice_disorder import (
+    compute_structure_factor_2d,
+    extract_1d_profiles,
+    fit_bragg_peak_1d,
+    analyze_reciprocal_space_2d,
+    analyze_real_space_kdtree,
+    compute_radial_distribution_function,
+    run_monte_carlo_calibration,
+    fit_debye_waller_curve,
+    interpolate_disorder,
+    save_calibration_curve,
+    load_calibration_curve,
+    detect_clusters_and_chains,
+    calibrate_single_emitter_signature,
+    fit_multi_gaussian_roi,
+    analyze_photometric_contours,
+    resolve_clusters,
+    resolve_clusters_dataframe,
+    inspect_single_spot_photometry,
+    resolve_single_spot_multi_gaussian,
+    find_optimal_grid_bounding_box,
+    extract_diagonal_profile,
+    fit_secondary_bragg_peak_1d,
+    measure_transversal_mosaic
+)
+from core.localization_pipeline import (
+    load_coordinates,
+    convert_pixels_to_nm
+)
+
+
+def _generate_synthetic_grid(
+    n_side: int = 20,
+    a: float = 450.0,
+    sigma: float = 0.0,
+    f_vac: float = 0.0,
+    seed: int = 42
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Genera coordenadas sintéticas (x, y) en nanómetros con desorden y vacancias."""
+    np.random.seed(seed)
+    half = ((n_side - 1) * a) / 2.0
+    g1d = np.linspace(-half, half, n_side)
+    X, Y = np.meshgrid(g1d, g1d)
+    x = X.ravel()
+    y = Y.ravel()
+
+    if f_vac > 0:
+        mask = np.random.uniform(0, 1, len(x)) >= f_vac
+        x = x[mask]
+        y = y[mask]
+
+    if sigma > 0:
+        x = x + np.random.normal(0, sigma, len(x))
+        y = y + np.random.normal(0, sigma, len(y))
+
+    return x, y
+
+
+def test_reciprocal_space_ideal_grid():
+    """Verifica que una red ideal (sigma=0) retorne con alta precisión el período nominal."""
+    a_nominal = 450.0
+    x, y = _generate_synthetic_grid(n_side=20, a=a_nominal, sigma=0.0)
+
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+
+    # El período ajustado debe estar dentro de +/- 2 nm del valor nominal
+    assert abs(res['a_x'] - a_nominal) < 2.0, f"a_x={res['a_x']} difiere de {a_nominal}"
+    assert abs(res['a_y'] - a_nominal) < 2.0, f"a_y={res['a_y']} difiere de {a_nominal}"
+    assert abs(res['anisotropy']) < 2.0, f"Anisotropía espuria detectada: {res['anisotropy']}"
+    assert res['Hx'] > 100.0, "La altura del pico de Bragg ideal debe ser muy alta"
+
+
+def test_real_space_kdtree_ideal():
+    """Verifica que en una red ideal el desorden medido sea esencialmente cero (< 0.1 nm)."""
+    a_nominal = 450.0
+    x, y = _generate_synthetic_grid(n_side=15, a=a_nominal, sigma=0.0)
+
+    kdtree_res = analyze_real_space_kdtree(x, y, a=a_nominal, n_side=15)
+
+    assert kdtree_res['sigma_x'] < 0.1, f"sigma_x={kdtree_res['sigma_x']} debe ser nulo"
+    assert kdtree_res['sigma_y'] < 0.1, f"sigma_y={kdtree_res['sigma_y']} debe ser nulo"
+    assert kdtree_res['sigma_pos'] < 0.1
+    assert kdtree_res['vacant_count'] == 0
+    assert kdtree_res['f_vac'] == 0.0
+
+
+def test_real_space_kdtree_calibrated_disorder():
+    """Verifica que para una red con sigma=25 nm inyectado, KDTree recupere sigma in [23, 27] nm."""
+    a_nominal = 450.0
+    sigma_in = 25.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=sigma_in, seed=123)
+
+    kdtree_res = analyze_real_space_kdtree(x, y, a=a_nominal, n_side=30)
+
+    assert abs(kdtree_res['sigma_pos'] - sigma_in) < 2.5, (
+        f"sigma_pos={kdtree_res['sigma_pos']} lejos de {sigma_in}"
+    )
+
+
+def test_vacancies_resilience():
+    """
+    Verifica que las vacancias sean detectadas correctamente y NO inflen
+    espuria ni catastróficamente el desorden sigma mediante saltos a 450 nm.
+    """
+    a_nominal = 450.0
+    sigma_in = 15.0
+    f_vac_in = 0.15
+    x, y = _generate_synthetic_grid(n_side=20, a=a_nominal, sigma=sigma_in, f_vac=f_vac_in, seed=456)
+
+    kdtree_res = analyze_real_space_kdtree(x, y, a=a_nominal, n_side=20)
+
+    # Fracción de vacancias detectada debe ser cercana al 15%
+    assert abs(kdtree_res['f_vac'] - f_vac_in) < 0.05
+    # El desorden medido no debe saltar a 450 nm
+    assert kdtree_res['sigma_pos'] < 25.0, (
+        f"sigma_pos={kdtree_res['sigma_pos']} inflado por vacancias no acotadas"
+    )
+
+
+def test_radial_distribution_function():
+    """Verifica que g(r) ubique el primer pico en el período de red."""
+    a_nominal = 450.0
+    x, y = _generate_synthetic_grid(n_side=20, a=a_nominal, sigma=10.0, seed=789)
+
+    rdf_res = compute_radial_distribution_function(x, y, a_nominal=a_nominal)
+
+    assert len(rdf_res['r']) > 0
+    assert abs(rdf_res['first_peak_r'] - a_nominal) < 25.0, (
+        f"Primer pico g(r) en {rdf_res['first_peak_r']} difiere de {a_nominal}"
+    )
+    assert rdf_res['sigma_rdf'] > 0.0
+
+
+def test_monte_carlo_and_debye_waller_fit():
+    """Verifica la ejecución de Monte Carlo y el ajuste analítico de Debye-Waller."""
+    a_nominal = 450.0
+    n_side = 10
+    mc_res = run_monte_carlo_calibration(
+        n_side=n_side,
+        a=a_nominal,
+        f_vac=0.05,
+        sigma_min=0.0,
+        sigma_max=50.0,
+        n_sigma_steps=6,
+        iterations_per_step=10
+    )
+
+    assert len(mc_res['H_mean']) == 6
+    # La curva debe ser monótonamente decreciente
+    assert mc_res['H_mean'][0] > mc_res['H_mean'][-1]
+
+    fit = mc_res['fit']
+    assert fit['success']
+    assert fit['r_squared'] > 0.85
+    assert fit['H0'] > 0.0
+
+    # Prueba de interpolación
+    H_mid = (mc_res['H_mean'][0] + mc_res['H_mean'][-1]) / 2.0
+    s_interp, s_err = interpolate_disorder(H_mid, mc_res['sigma_values'], mc_res['H_mean'], mc_res['H_std'])
+    assert 0.0 <= s_interp <= 50.0
+    assert s_err > 0.0
+
+
+def test_save_load_calibration_curve():
+    """Verifica la persistencia y recarga de curvas de calibración en .npz."""
+    a_nominal = 450.0
+    dummy_data = {
+        'n_side': 15,
+        'a': a_nominal,
+        'f_vac': 0.10,
+        'sigma_values': np.linspace(0, 50, 6),
+        'H_mean': np.array([100.0, 80.0, 50.0, 30.0, 15.0, 10.0]),
+        'H_std': np.array([2.0, 2.0, 1.5, 1.0, 0.8, 0.5]),
+        'fit': {
+            'H0': 120.0,
+            'sigma_char': 22.0,
+            'H_diffuse': 8.0,
+            'r_squared': 0.99
+        }
+    }
+
+    with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        save_calibration_curve(tmp_path, dummy_data)
+        loaded = load_calibration_curve(tmp_path)
+
+        assert loaded['n_side'] == 15
+        assert abs(loaded['a'] - a_nominal) < 1e-6
+        assert abs(loaded['f_vac'] - 0.10) < 1e-6
+        assert np.allclose(loaded['sigma_values'], dummy_data['sigma_values'])
+        assert np.allclose(loaded['H_mean'], dummy_data['H_mean'])
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def test_monte_carlo_anisotropy_and_band_integration():
+    """Verifica calibración Monte Carlo anisotrópica (ax != ay), alta densidad espectral (81 pts)
+    e integración en banda transversal."""
+    a_x = 480.0
+    a_y = 520.0
+    mc_res = run_monte_carlo_calibration(
+        n_side=12,
+        a=a_x,
+        a_y=a_y,
+        f_vac=0.04,
+        sigma_min=0.0,
+        sigma_max=40.0,
+        n_sigma_steps=6,
+        iterations_per_step=15,
+        n_bragg_pts=81,
+        band_width_nm=0.0003,
+        n_transversal_pts=5,
+        seed=12345
+    )
+
+    assert mc_res['is_anisotropic'] is True
+    assert np.isclose(mc_res['a_x'], a_x)
+    assert np.isclose(mc_res['a_y'], a_y)
+    assert mc_res['n_bragg_pts'] == 81
+    assert mc_res['band_width_nm'] == 0.0003
+    assert len(mc_res['H_mean_x']) == 6
+    assert len(mc_res['H_mean_y']) == 6
+
+    # Ajustes de Debye-Waller en ambos ejes
+    fit_x = mc_res['fit_x']
+    fit_y = mc_res['fit_y']
+    assert fit_x['success'] and fit_y['success']
+    assert fit_x['r_squared'] > 0.85
+    assert fit_y['r_squared'] > 0.85
+
+    # Comprobación de persistencia y deserialización anisotrópica
+    with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        save_calibration_curve(tmp_path, mc_res)
+        loaded = load_calibration_curve(tmp_path)
+        assert loaded['is_anisotropic'] is True
+        assert np.isclose(loaded['a_x'], a_x)
+        assert np.isclose(loaded['a_y'], a_y)
+        assert np.allclose(loaded['H_mean_x'], mc_res['H_mean_x'])
+        assert np.allclose(loaded['H_mean_y'], mc_res['H_mean_y'])
+        assert 'fit_x' in loaded and 'fit_y' in loaded
+        assert np.isclose(loaded['fit_x']['sigma_char'], fit_x['sigma_char'])
+        assert np.isclose(loaded['fit_y']['sigma_char'], fit_y['sigma_char'])
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # Interpolación dual
+    Hx_target = (mc_res['H_mean_x'][0] + mc_res['H_mean_x'][-1]) / 2.0
+    sx, err_x = interpolate_disorder(Hx_target, mc_res['sigma_values'], mc_res['H_mean_x'], mc_res['H_std_x'])
+    assert 0.0 < sx < 40.0
+    assert err_x > 0.0
+
+    Hy_target = (mc_res['H_mean_y'][0] + mc_res['H_mean_y'][-1]) / 2.0
+    sy, err_y = interpolate_disorder(Hy_target, mc_res['sigma_values'], mc_res['H_mean_y'], mc_res['H_std_y'])
+    assert 0.0 < sy < 40.0
+    assert err_y > 0.0
+
+
+def test_localization_pipeline_coordinates():
+    """Verifica la carga de coordenadas y conversión métrica."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp:
+        tmp.write("x,y,photons\n10.0,20.0,150\n30.0,40.0,200\n")
+        tmp_csv = tmp.name
+
+    try:
+        df = load_coordinates(tmp_csv)
+        assert len(df) == 2
+        assert 'x' in df.columns and 'y' in df.columns
+
+        df_nm = convert_pixels_to_nm(df, pixel_size_nm=50.0)
+        assert df_nm['x_nm'].iloc[0] == 500.0
+        assert df_nm['y_nm'].iloc[0] == 1000.0
+    finally:
+        if os.path.exists(tmp_csv):
+            os.remove(tmp_csv)
+
+
+def test_picasso_autoscale_and_inversion():
+    """Verifica el auto-escalado dinámico a 16-bit y la inversión en Picasso."""
+    from core.localization_pipeline import localize_picasso
+
+    # Crear imagen sintética float32 con rango [0.05, 0.55] y 4 emisores
+    H, W = 64, 64
+    img = np.full((H, W), 0.05, dtype=np.float32)
+    emitter_coords = [(16, 16), (16, 48), (48, 16), (48, 48)]
+    for ey, ex in emitter_coords:
+        yy, xx = np.ogrid[:H, :W]
+        img += 0.50 * np.exp(-((xx - ex)**2 + (yy - ey)**2) / (2 * 1.5**2))
+
+    # Prueba 1: Con auto_scale_uint16=True debe detectar los 4 emisores
+    locs = localize_picasso(img, min_net_gradient=200.0, box_size=7, auto_scale_uint16=True)
+    assert len(locs) == 4, f"Se esperaban 4 emisores, detectados: {len(locs)}"
+
+    # Prueba 2: Imagen invertida (fondo claro, manchas oscuras)
+    img_dark_spots = float(np.max(img) + np.min(img)) - img
+    locs_inv = localize_picasso(img_dark_spots, min_net_gradient=200.0, box_size=7, auto_scale_uint16=True, invert=True)
+    assert len(locs_inv) == 4, f"Inversión falló en Picasso, detectados: {len(locs_inv)}"
+
+
+def test_trackpy_separation_and_inversion():
+    """Verifica separación mínima e inversión en Trackpy."""
+    from core.localization_pipeline import localize_trackpy
+
+    H, W = 64, 64
+    img = np.full((H, W), 0.05, dtype=np.float32)
+    emitter_coords = [(16, 16), (16, 48), (48, 16), (48, 48)]
+    for ey, ex in emitter_coords:
+        yy, xx = np.ogrid[:H, :W]
+        img += 0.50 * np.exp(-((xx - ex)**2 + (yy - ey)**2) / (2 * 1.5**2))
+
+    # Con separation=7.0 px
+    locs = localize_trackpy(img, diameter=5, minmass=0.01, separation=7.0)
+    assert len(locs) == 4, f"Se esperaban 4 emisores en Trackpy, detectados: {len(locs)}"
+
+    # Inversión
+    img_dark_spots = float(np.max(img) + np.min(img)) - img
+    locs_inv = localize_trackpy(img_dark_spots, diameter=5, minmass=0.01, separation=7.0, invert=True)
+    assert len(locs_inv) == 4, f"Inversión falló en Trackpy, detectados: {len(locs_inv)}"
+
+
+def test_roi_filter_logic():
+    """Verifica el filtrado espacial mediante reglas de ROI."""
+    data = {
+        'x': [10.0, 50.0, 100.0, 250.0, 320.0],
+        'y': [5.0, 50.0, 100.0, 250.0, 330.0]
+    }
+    df = pd.DataFrame(data)
+
+    # ROI definido en [15, 315] x [15, 318]
+    xmin, xmax = 15.0, 315.0
+    ymin, ymax = 15.0, 318.0
+
+    filtered = df[(df['x'] >= xmin) & (df['x'] <= xmax) & (df['y'] >= ymin) & (df['y'] <= ymax)]
+    assert len(filtered) == 3, f"Se esperaban 3 puntos dentro del ROI, obtenidos: {len(filtered)}"
+    assert list(filtered['x']) == [50.0, 100.0, 250.0]
+
+
+def test_benchmark_30x30_500_file():
+    """Verifica la metrología real con el archivo confocal reserva/30x30_500.tiff si existe."""
+    sample_file = "reserva/30x30_500.tiff"
+    if not os.path.exists(sample_file):
+        return
+
+    from core.localization_pipeline import load_image, localize_picasso, localize_trackpy
+
+    img = load_image(sample_file)
+    xmin, xmax = 15.0, 315.0
+    ymin, ymax = 15.0, 318.0
+
+    # 1. Picasso con preset calibrado
+    locs_pic = localize_picasso(img, min_net_gradient=300.0, box_size=7, auto_scale_uint16=True)
+    locs_pic_roi = locs_pic[(locs_pic['x'] >= xmin) & (locs_pic['x'] <= xmax) & (locs_pic['y'] >= ymin) & (locs_pic['y'] <= ymax)]
+    assert len(locs_pic_roi) >= 830, f"Picasso detectó menos de 830 partículas ({len(locs_pic_roi)})"
+
+    # Fourier Picasso
+    x_nm = locs_pic_roi['x'].values * 50.0
+    y_nm = locs_pic_roi['y'].values * 50.0
+    res_pic = analyze_reciprocal_space_2d(x_nm, y_nm, a_nominal=500.0)
+    assert abs(res_pic['a_mean'] - 498.6) < 1.5, f"a_mean Picasso={res_pic['a_mean']} fuera de tolerancia"
+
+    # 2. Trackpy con preset calibrado
+    locs_tp = localize_trackpy(img, diameter=5, minmass=0.05, separation=7.0)
+    locs_tp_roi = locs_tp[(locs_tp['x'] >= xmin) & (locs_tp['x'] <= xmax) & (locs_tp['y'] >= ymin) & (locs_tp['y'] <= ymax)]
+    assert len(locs_tp_roi) >= 830, f"Trackpy detectó menos de 830 partículas ({len(locs_tp_roi)})"
+
+    # Fourier Trackpy
+    x_nm_tp = locs_tp_roi['x'].values * 50.0
+    y_nm_tp = locs_tp_roi['y'].values * 50.0
+    res_tp = analyze_reciprocal_space_2d(x_nm_tp, y_nm_tp, a_nominal=500.0)
+    assert abs(res_tp['a_mean'] - 498.8) < 1.5, f"a_mean Trackpy={res_tp['a_mean']} fuera de tolerancia"
+
+
+def test_real_space_kdtree_consistency_margin():
+    """Verifica el chequeo de consistencia física M + n_vac <= N^2 * (1 + margin/100)."""
+    a_nominal = 500.0
+    n_side = 10
+    N_total = n_side * n_side  # 100
+
+    # 1. Red ideal completa (100 partículas): 0 vacancias, M + n_vac = 100 == N^2
+    x, y = _generate_synthetic_grid(n_side=n_side, a=a_nominal, sigma=0.0, f_vac=0.0)
+    res = analyze_real_space_kdtree(x, y, a=a_nominal, n_side=n_side, margin_percent=10.0)
+    assert res['consistency_ok'] is True
+    assert res['consistency_sum'] == 100
+    assert res['vacant_count'] == 0
+    assert res['max_allowed_particles'] == 110
+
+    # 2. Red con vacancias (80 partículas): 20 vacancias, M + n_vac = 100 == N^2
+    x_vac, y_vac = _generate_synthetic_grid(n_side=n_side, a=a_nominal, sigma=0.0, f_vac=0.20, seed=123)
+    res_vac = analyze_real_space_kdtree(x_vac, y_vac, a=a_nominal, n_side=n_side, margin_percent=10.0)
+    assert res_vac['consistency_ok'] is True
+    assert res_vac['consistency_sum'] == 100
+    assert res_vac['vacant_count'] == 100 - len(x_vac)
+
+    # 3. Red con exceso de partículas espurias fuera de grilla (+25 partículas lejos de la red)
+    x_spurious = np.concatenate([x, np.linspace(10000, 15000, 25)])
+    y_spurious = np.concatenate([y, np.linspace(10000, 15000, 25)])
+    res_spurious = analyze_real_space_kdtree(x_spurious, y_spurious, a=a_nominal, n_side=n_side, margin_percent=10.0)
+    # Suma: 125 detectadas + 0 vacancias = 125 > 110 (10% de 100) -> Debe fallar la consistencia
+    assert res_spurious['consistency_ok'] is False
+    assert res_spurious['particles_outside_grid'] == 25
+    assert "[ALERTA]" in res_spurious['consistency_msg']
+
+
+def test_cluster_detection_and_resolution():
+    """Verifica detección de dímeros/cadenas y desacoplamiento mediante keep_nearest y merge_com."""
+    a_nom = 500.0
+    scale_nm = 50.0
+
+    # Crear una grilla 5x5 con un dímero en el nodo (0, 0)
+    half = (4 * a_nom) / 2.0
+    g1d = np.linspace(-half, half, 5)
+    X, Y = np.meshgrid(g1d, g1d)
+    x_base = list(X.ravel())
+    y_base = list(Y.ravel())
+
+    # Agregar una partícula satélite a 80 nm del primer punto
+    x_base.append(x_base[0] + 80.0)
+    y_base.append(y_base[0] + 20.0)
+
+    df_locs = pd.DataFrame({
+        'x_nm': np.array(x_base),
+        'y_nm': np.array(y_base),
+        'x': np.array(x_base) / scale_nm,
+        'y': np.array(y_base) / scale_nm,
+        'photons': np.ones(len(x_base)) * 500.0
+    })
+
+    # Detección de clusters
+    clusters_info = detect_clusters_and_chains(
+        df_locs['x_nm'].values,
+        df_locs['y_nm'].values,
+        a_nominal=a_nom,
+        r_cluster_factor=0.60
+    )
+    assert clusters_info['n_clusters'] == 1
+    assert clusters_info['n_dimers'] == 1
+    assert len(clusters_info['cluster_particle_indices']) == 2
+
+    # Resolución 1: keep_nearest
+    df_nearest, stats_near = resolve_clusters_dataframe(
+        df_locs, clusters_info, action='keep_nearest', a=a_nom, x0=0.0, y0=0.0, scale_nm=scale_nm
+    )
+    assert len(df_nearest) == 25  # Se descarta la partícula satélite espuria
+    assert stats_near['particles_removed'] == 1
+
+    # Resolución 2: merge_com
+    df_com, stats_com = resolve_clusters_dataframe(
+        df_locs, clusters_info, action='merge_com', a=a_nom, x0=0.0, y0=0.0, scale_nm=scale_nm
+    )
+    assert len(df_com) == 25  # Se fusionan las 2 partículas en 1 en su centro de masa
+
+
+def test_reserva_30x30_500_vacancies_and_consistency():
+    """Valida la consistencia física y ausencia de vacancias espurias fuera de grilla en 30x30_500.tiff."""
+    sample_file = Path(__file__).resolve().parent.parent / "reserva" / "30x30_500.tiff"
+    if not sample_file.exists():
+        return
+
+    from core.localization_pipeline import load_image, localize_picasso
+
+    img = load_image(str(sample_file))
+    scale_nm = 50.0
+    a_nom = 500.0
+    n_side = 30
+    N_total = 900
+
+    # Localización con Picasso
+    locs = localize_picasso(img, min_net_gradient=300.0, box_size=7, auto_scale_uint16=True)
+    locs_df = convert_pixels_to_nm(locs, pixel_size_nm=scale_nm)
+
+    # Filtrar por ROI de calibración
+    xmin, xmax = 15.0, 315.0
+    ymin, ymax = 15.0, 318.0
+    roi_df = locs_df[
+        (locs_df['x'] >= xmin) & (locs_df['x'] <= xmax) &
+        (locs_df['y'] >= ymin) & (locs_df['y'] <= ymax)
+    ].reset_index(drop=True)
+
+    # Análisis KDTree con 10% de margen
+    x_nm = roi_df['x_nm'].values
+    y_nm = roi_df['y_nm'].values
+    kdtree_res = analyze_real_space_kdtree(x_nm, y_nm, a=a_nom, n_side=n_side, margin_percent=10.0)
+
+    # Verificación de que la caja delimitadora óptima abarca exactamente 30x30 sitios (900 sitios)
+    assert kdtree_res['max_ix'] - kdtree_res['min_ix'] + 1 == 30
+    assert kdtree_res['max_iy'] - kdtree_res['min_iy'] + 1 == 30
+    assert kdtree_res['N_total_sites'] == 900
+
+    # Verificación de la cota de consistencia física M + n_vac <= N^2 * 1.10 = 990
+    assert kdtree_res['consistency_ok'] is True
+    assert kdtree_res['consistency_sum'] <= 990
+    assert kdtree_res['particles_in_grid'] >= 800
+
+
+def test_single_emitter_calibration():
+    """
+    Prueba unitaria para la calibración del patrón monómero (V0, A0, sigma_psf).
+    Genera partículas gaussianas aisladas con ruido y comprueba que se extraiga
+    el ancho de PSF y volumen con alta fidelidad metrológica.
+    """
+    H, W = 150, 150
+    scale_nm = 50.0
+    a_nom = 500.0  # 10 px
+    bg_true = 20.0
+    sigma_true_px = 2.80  # 140 nm
+    I_amp = 150.0
+
+    img = np.full((H, W), bg_true, dtype=float)
+    centers = [(35, 35), (35, 115), (115, 35), (115, 115)]
+    yy, xx = np.indices((H, W))
+
+    for cx, cy in centers:
+        img += I_amp * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2.0 * sigma_true_px ** 2))
+
+    # Construir DataFrame de localizaciones
+    locs = []
+    for cx, cy in centers:
+        locs.append({
+            'x': float(cx),
+            'y': float(cy),
+            'x_nm': float(cx * scale_nm),
+            'y_nm': float(cy * scale_nm),
+            'photons': 1000.0
+        })
+    df = pd.DataFrame(locs)
+
+    sig = calibrate_single_emitter_signature(img, df, scale_nm=scale_nm, a_nominal=a_nom)
+
+    assert sig['is_fallback'] is False
+    assert sig['n_calibrated'] == 4
+    # Comprobar que el ancho de la PSF extraído coincida con el valor simulado (< 8% de error)
+    assert abs(sig['sigma_psf_px'] - sigma_true_px) / sigma_true_px < 0.08
+    assert sig['V0'] > 0
+
+
+def test_multi_gaussian_fit_resolution():
+    """
+    Prueba unitaria para el desacople sub-resolución mediante ajuste multi-gaussiano con sigma fija.
+    Genera dos emisores colapsados a 200 nm de separación y valida su deconvolución sub-píxel.
+    """
+    size = 25
+    scale_nm = 50.0
+    sigma_psf_px = 2.80
+    bg_val = 15.0
+
+    patch = np.full((size, size), bg_val, dtype=float)
+    yy, xx = np.indices((size, size))
+
+    # Dos emisores separados por 4.0 px = 200 nm
+    c1 = (10.0, 12.0)
+    c2 = (14.0, 12.0)
+    patch += 120.0 * np.exp(-((xx - c1[0]) ** 2 + (yy - c1[1]) ** 2) / (2.0 * sigma_psf_px ** 2))
+    patch += 130.0 * np.exp(-((xx - c2[0]) ** 2 + (yy - c2[1]) ** 2) / (2.0 * sigma_psf_px ** 2))
+
+    fitted = fit_multi_gaussian_roi(
+        patch=patch,
+        n_particles=2,
+        sigma_psf_px=sigma_psf_px,
+        scale_nm=scale_nm,
+        origin_px=(100.0, 100.0)
+    )
+
+    assert len(fitted) == 2
+    # Separación calculada entre los dos centros
+    sep_nm = np.hypot(fitted[0]['x_nm'] - fitted[1]['x_nm'], fitted[0]['y_nm'] - fitted[1]['y_nm'])
+    sep_px = sep_nm / scale_nm
+    # Separación esperada: 4.0 px (200 nm)
+    assert abs(sep_px - 4.0) < 0.3  # Error < 15 nm
+
+
+def test_photometric_contours_and_stoichiometry():
+    """
+    Prueba unitaria para el análisis fotométrico de contornos y estequiometría.
+    Valida la estimación n_est y el estado OK vs UNDER_RESOLVED con tolerancia ±20%.
+    """
+    H, W = 100, 100
+    scale_nm = 50.0
+    a_nom = 500.0
+    sigma_psf = 2.80
+
+    H, W = 150, 150
+    scale_nm = 50.0
+    a_nom = 500.0
+    sigma_psf = 2.80
+
+    img = np.full((H, W), 10.0, dtype=float)
+    yy, xx = np.indices((H, W))
+
+    # 4 Monómeros de referencia
+    monomers = [(30, 30), (30, 110), (110, 30), (70, 70)]
+    for cx, cy in monomers:
+        img += 100.0 * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2.0 * sigma_psf ** 2))
+
+    # 1 Spot sobrepuesto (2 partículas colapsadas)
+    super_pos = (110, 110)
+    img += 220.0 * np.exp(-((xx - super_pos[0]) ** 2 + (yy - super_pos[1]) ** 2) / (2.0 * sigma_psf ** 2))
+
+    locs = []
+    for cx, cy in monomers:
+        locs.append({'x': float(cx), 'y': float(cy), 'x_nm': float(cx * scale_nm), 'y_nm': float(cy * scale_nm), 'photons': 1000.0})
+    locs.append({'x': float(super_pos[0]), 'y': float(super_pos[1]), 'x_nm': float(super_pos[0] * scale_nm), 'y_nm': float(super_pos[1] * scale_nm), 'photons': 2200.0})
+    df = pd.DataFrame(locs)
+
+    cl_info = detect_clusters_and_chains(
+        df['x_nm'].values, df['y_nm'].values,
+        a_nominal=a_nom,
+        photons=df['photons'].values,
+        brightness_ratio_threshold=1.6,
+        image_2d=img,
+        locs_df=df,
+        scale_nm=scale_nm,
+        tolerance_pct=20.0
+    )
+
+    assert cl_info['n_clusters'] >= 1
+    # El spot sobrepuesto debe ser identificado como UNDER_RESOLVED (n_est >= 2, n_det = 1)
+    super_cl = [c for c in cl_info['clusters'] if 'Sobrepuesta' in c['type']][0]
+    assert super_cl['status'] == 'UNDER_RESOLVED'
+    assert super_cl['n_est'] >= 2
+
+
+def test_individual_vs_batch_cluster_resolution():
+    """
+    Prueba unitaria para la resolución individual (target_cluster_id) vs en lote (batch).
+    Comprueba que target_cluster_id=1 altere exclusivamente el cúmulo 1.
+    """
+    scale_nm = 50.0
+    a_nom = 500.0
+
+    # DataFrame con 2 cúmulos artificiales (cada uno con 2 partículas)
+    df = pd.DataFrame([
+        {'x_nm': 1000.0, 'y_nm': 1000.0, 'x': 20.0, 'y': 20.0, 'photons': 500.0},
+        {'x_nm': 1050.0, 'y_nm': 1000.0, 'x': 21.0, 'y': 20.0, 'photons': 500.0},
+        {'x_nm': 3000.0, 'y_nm': 3000.0, 'x': 60.0, 'y': 60.0, 'photons': 500.0},
+        {'x_nm': 3050.0, 'y_nm': 3000.0, 'x': 61.0, 'y': 60.0, 'photons': 500.0},
+    ])
+
+    cl_info = detect_clusters_and_chains(
+        df['x_nm'].values, df['y_nm'].values, a_nominal=a_nom
+    )
+    assert cl_info['n_clusters'] == 2
+
+    # 1. Resolución Individual de Cúmulo #1
+    df_single, stats_single = resolve_clusters_dataframe(
+        df, cl_info, action='keep_nearest', a=a_nom, target_cluster_id=1
+    )
+    assert stats_single['clusters_resolved'] == 1
+    assert stats_single['particles_removed'] == 1
+    assert len(df_single) == 3
+    # Comprobar que el cúmulo 2 sigue teniendo sus 2 partículas originales intactas
+    c2_pts = df_single[(df_single['x_nm'] >= 2900) & (df_single['x_nm'] <= 3100)]
+    assert len(c2_pts) == 2
+
+    # 2. Resolución Masiva (en lote)
+    df_batch, stats_batch = resolve_clusters_dataframe(
+        df, cl_info, action='keep_nearest', a=a_nom, target_cluster_id=None
+    )
+    assert stats_batch['clusters_resolved'] == 2
+    assert stats_batch['particles_removed'] == 2
+    assert len(df_batch) == 2
+
+
+def test_inspect_single_spot_photometry():
+    """Valida la inspección fotométrica de un punto sospechoso (área, volumen, n_suggested y contorno)."""
+    scale_nm = 50.0
+    sigma_px = 2.5
+    H, W = 100, 100
+    yy, xx = np.mgrid[0:H, 0:W]
+
+    # Crear imagen sintética con:
+    # 1 monómero en (25, 25)
+    # 1 dímero sobrepuesto en (75, 75)
+    img = np.zeros((H, W), dtype=float)
+    # Monómero
+    img += 1.0 * np.exp(-((xx - 25)**2 + (yy - 25)**2) / (2.0 * sigma_px**2))
+    # Dímero con 2x intensidad/volumen
+    img += 1.0 * np.exp(-((xx - 74)**2 + (yy - 75)**2) / (2.0 * sigma_px**2))
+    img += 1.0 * np.exp(-((xx - 76)**2 + (yy - 75)**2) / (2.0 * sigma_px**2))
+
+    df_sample = pd.DataFrame([
+        {'x': 25.0, 'y': 25.0, 'x_nm': 1250.0, 'y_nm': 1250.0, 'photons': 1000.0},
+        {'x': 75.0, 'y': 75.0, 'x_nm': 3750.0, 'y_nm': 3750.0, 'photons': 2000.0}
+    ])
+
+    # 1. Inspeccionar monómero
+    res_mono = inspect_single_spot_photometry(
+        img, x_nm=1250.0, y_nm=1250.0, signature_dict=None,
+        threshold_pct=20.0, scale_nm=scale_nm, a_nominal=500.0
+    )
+    assert res_mono['n_suggested'] == 1
+    assert res_mono['v_omega'] > 0
+    assert res_mono['area_px'] > 0
+    assert len(res_mono['contour_polygon_nm']) > 2
+
+    # Firma monomérica de referencia a partir del monómero medido
+    sig_mono = {
+        'V0': res_mono['v_omega'],
+        'A0': res_mono['area_px'],
+        'sigma_psf_px': sigma_px,
+        'sigma_psf_nm': sigma_px * scale_nm
+    }
+
+    # 2. Inspeccionar dímero frente a la firma monomérica
+    res_dimer = inspect_single_spot_photometry(
+        img, x_nm=3750.0, y_nm=3750.0, signature_dict=sig_mono,
+        threshold_pct=20.0, scale_nm=scale_nm, a_nominal=500.0
+    )
+    assert res_dimer['n_suggested'] >= 2
+    assert res_dimer['v_omega'] > res_mono['v_omega'] * 1.5
+    assert res_dimer['ratio_v'] >= 1.5
+
+
+def test_resolve_single_spot_multi_gaussian():
+    """Valida el desacople interactivo de un punto sospechoso específico mediante fit multi-Gaussiano."""
+    scale_nm = 50.0
+    sigma_px = 2.5
+    H, W = 80, 80
+    yy, xx = np.mgrid[0:H, 0:W]
+
+    # Crear spot con 2 partículas separadas por 4 píxeles (200 nm) a lo largo de X
+    img = np.zeros((H, W), dtype=float)
+    img += 1.0 * np.exp(-((xx - 38)**2 + (yy - 40)**2) / (2.0 * sigma_px**2))
+    img += 1.0 * np.exp(-((xx - 42)**2 + (yy - 40)**2) / (2.0 * sigma_px**2))
+
+    df = pd.DataFrame([
+        {'x': 10.0, 'y': 10.0, 'x_nm': 500.0, 'y_nm': 500.0, 'photons': 1000.0},
+        {'x': 40.0, 'y': 40.0, 'x_nm': 2000.0, 'y_nm': 2000.0, 'photons': 2000.0}  # spot_index = 1
+    ])
+
+    sig = {'V0': 15.0, 'A0': 30.0, 'sigma_psf_px': sigma_px, 'sigma_psf_nm': sigma_px * scale_nm}
+
+    # Desacoplar el spot_index=1 en 2 partículas
+    df_resolved, stats = resolve_single_spot_multi_gaussian(
+        df=df,
+        spot_index=1,
+        n_particles=2,
+        image_2d=img,
+        signature_dict=sig,
+        scale_nm=scale_nm,
+        a_nominal=500.0
+    )
+
+    assert stats['status'] == 'ok'
+    assert stats['n_fitted'] == 2
+    # El DataFrame ahora debe tener 3 partículas (1 original + 2 desacopladas)
+    assert len(df_resolved) == 3
+    # La partícula 0 se conserva intacta
+    assert np.isclose(df_resolved.loc[0, 'x_nm'], 500.0)
+    # Las dos nuevas partículas deben estar cerca de x=1900 nm y x=2100 nm
+    new_xs = df_resolved.loc[1:, 'x_nm'].values
+    assert len(new_xs) == 2
+    assert np.abs(new_xs[1] - new_xs[0]) > 50.0  # claramente desacopladas
+
+
+def test_multi_order_bragg_peaks_ideal():
+    """Verifica la extracción y jerarquía de picos de Bragg (orden 1, 2, diagonal) en una red perfecta."""
+    a_nominal = 500.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=0.0)
+
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+
+    # 1er orden
+    assert abs(res['a_x'] - a_nominal) < 2.0
+    assert abs(res['a_y'] - a_nominal) < 2.0
+    assert abs(res['anisotropy']) < 2.0
+
+    # Diagonal 45°
+    assert abs(res['a_diag'] - a_nominal) < 2.0
+    assert res['fit_diag']['success']
+    assert abs(res['shear_strain_deg']) < 0.5
+
+    # 2do armónico
+    assert abs(res['a_x_2nd'] - a_nominal) < 2.0
+    assert abs(res['a_y_2nd'] - a_nominal) < 2.0
+    assert res['fit_x_2nd']['success']
+    assert res['fit_y_2nd']['success']
+
+    # Mosaico angular y fondo difuso
+    assert res['mosaic_x']['delta_theta_deg'] < 3.0
+    assert res['sbr_mean'] > 50.0
+
+
+def test_multi_order_debye_waller_scaling():
+    """Verifica que para desorden gaussiano inyectado (sigma=15 nm), los picos atenúen según exp(-G^2 sigma^2)."""
+    a_nominal = 500.0
+    sigma_inj = 15.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=sigma_inj, seed=42)
+
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+
+    # En red de 500 nm, q0 = 2*pi/500 = 0.012566 nm^-1
+    # Ratio H2 / H1 ~ exp(-3 * q0^2 * sigma^2)
+    q0 = 2.0 * np.pi / a_nominal
+    expected_ratio_2nd = np.exp(-3.0 * (q0 ** 2) * (sigma_inj ** 2))
+    meas_ratio_2nd = res['ratio_order2_x']
+
+    # Tolerancia del 10% debida al muestreo estocástico finito
+    assert abs(meas_ratio_2nd - expected_ratio_2nd) / expected_ratio_2nd < 0.10
+
+    # Ratio de anchos paracristalinos FWHM2 / FWHM1 en Tipo I debe ser ~ 1.0 (< 1.5)
+    assert res['paracrystal_ratio_x'] < 1.5
+
+
+def test_monte_carlo_multi_order_calibration():
+    """Verifica que la simulación MC genere curvas para orden 1, diagonal y 2do orden, y se persistan."""
+    calib = run_monte_carlo_calibration(
+        n_side=20,
+        a=500.0,
+        sigma_min=0.0,
+        sigma_max=40.0,
+        n_sigma_steps=5,
+        iterations_per_step=10,
+        seed=123
+    )
+
+    assert 'H_mean_diag' in calib
+    assert 'H_mean_2' in calib
+    assert calib['fit_diag']['success']
+    assert calib['fit_2']['success']
+    assert calib['fit_diag']['r_squared'] > 0.90
+    assert calib['fit_2']['r_squared'] > 0.90
+
+    # Probar persistencia (guardar y cargar)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        npz_path = os.path.join(tmpdir, "test_multi_calib.npz")
+        save_calibration_curve(npz_path, calib)
+        loaded = load_calibration_curve(npz_path)
+
+        assert loaded['H_mean_diag'] is not None
+        assert loaded['H_mean_2'] is not None
+        assert len(loaded['H_mean_diag']) == 5
+        assert np.allclose(loaded['H_mean_diag'], calib['H_mean_diag'])
+        assert np.allclose(loaded['H_mean_2'], calib['H_mean_2'])
+
+
+def test_analytical_bragg_relations_ideal():
+    """Verifica el cálculo analítico directo en una red ideal (sigma = 0 nm)."""
+    a_nominal = 500.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=0.0, seed=42)
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+
+    assert 'analytical_relations' in res
+    ar = res['analytical_relations']
+
+    # En red perfecta, sigma de Wilson es 0.00 nm
+    assert ar['sigma_wilson'] < 1.0
+    assert ar['paracrystal_diagnosis']['is_type_1']
+    assert "Tipo I" in ar['paracrystal_diagnosis']['disorder_type']
+    assert ar['r_squared_wilson'] >= 0.95
+
+
+def test_analytical_bragg_relations_disordered():
+    """Verifica que la fórmula analítica H2/H1 invierta sigma = 15 nm con exactitud sub-métrica."""
+    a_nominal = 500.0
+    sigma_inj = 15.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=sigma_inj, seed=42)
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+
+    ar = res['analytical_relations']
+
+    # Error absoluto en sigma_h2h1 debe ser inferior a 1.0 nm (de hecho es < 0.2 nm)
+    assert abs(ar['sigma_h2h1'] - sigma_inj) < 1.0
+    # Wilson plot tracking
+    assert abs(ar['sigma_wilson'] - sigma_inj) < 2.0
+    assert ar['r_squared_wilson'] > 0.90
+    assert ar['paracrystal_diagnosis']['is_type_1']
+
+
+def test_analytical_bragg_relations_unstable_h1h0():
+    """Verifica la bandera de inestabilidad en H1/H0 y la estructura completa de datos para ploteo."""
+    a_nominal = 500.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=15.0, seed=42)
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+    ar = res['analytical_relations']
+
+    assert ar['is_h1h0_unstable'] is True
+    assert 'wilson_data' in ar
+    assert len(ar['wilson_data']['g_sq']) == 5
+    assert len(ar['wilson_data']['fit_g_sq']) == 100
+    assert 'debye_waller_curve' in ar
+    assert len(ar['debye_waller_curve']['q_norm']) == 120
+    assert 'stability_comparison' in ar
+    assert len(ar['stability_comparison']['methods']) == 4
+
+
+if __name__ == "__main__":
+    import inspect
+    print("=== Ejecutando Batería de Pruebas: Desorden de Redes 2D ===")
+    test_funcs = [
+        obj for name, obj in list(globals().items())
+        if name.startswith("test_") and inspect.isfunction(obj)
+    ]
+    passed = 0
+    for f in test_funcs:
+        try:
+            f()
+            print(f"  [PASS] {f.__name__}")
+            passed += 1
+        except Exception as e:
+            print(f"  [FAIL] {f.__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    print(f"\nResultado: {passed}/{len(test_funcs)} superadas.")
+    if passed == len(test_funcs):
+        print("¡Todas las pruebas pasaron exitosamente!")
+        sys.exit(0)
+    else:
+        sys.exit(1)
+

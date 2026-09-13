@@ -152,6 +152,99 @@ class TestSifAnalyzerGUI(unittest.TestCase):
         self.assertGreater(len(items), 0)
         self.assertIn("T_media", self.window.lbl_trans_metrics.text())
 
+    def test_06b_transmittance_cascaded_filters(self):
+        """Verifica la ejecución en cascada de las 3 fases (Despike -> Wiener -> Savitzky-Golay)."""
+        if not os.path.isfile(self.fbin_path):
+            self.skipTest("Archivo fbin no encontrado")
+
+        self.window._load_file_list([self.fbin_path])
+        self.window._select_file_index(0)
+        self.window.tabs_process.setCurrentIndex(3)
+
+        # Activar simultáneamente Fase 1 (Despike), Fase 2 (Wiener) y Fase 3 (Savitzky-Golay)
+        self.window.chk_trans_despike.setChecked(True)
+        self.window.spin_trans_despike_k.setValue(4.0)
+
+        self.window.chk_trans_wiener.setChecked(True)
+        self.window.spin_trans_wiener_alpha.setValue(1.2)
+
+        self.window.combo_trans_filter.setCurrentText("Savitzky-Golay")
+        self.window.spin_trans_param1.setValue(17)
+        self.window.spin_trans_param2.setValue(3)
+
+        self.window._recalculate_all()
+
+        t_calc = self.window.current_t_calc
+        self.assertIsNotNone(t_calc)
+        self.assertEqual(len(t_calc), len(self.window.loaded_spectra[0].wavelengths))
+        fin = np.isfinite(t_calc)
+        self.assertGreater(np.sum(fin), 500)
+        self.assertGreater(float(np.nanmean(t_calc)), 0.0)
+
+    def test_06c_context_sensitive_parameter_panel(self):
+        """Verifica que el panel de parámetros se adapte dinámicamente según el filtro seleccionado."""
+        # 1. Savitzky-Golay
+        self.window.combo_trans_filter.setCurrentText("Savitzky-Golay")
+        self.assertEqual(self.window.lbl_trans_param1.text(), "Ventana:")
+        self.assertFalse(self.window.lbl_trans_param1.isHidden())
+        self.assertFalse(self.window.spin_trans_param1.isHidden())
+        self.assertTrue(self.window.spin_trans_fc.isHidden())
+        self.assertEqual(self.window.lbl_trans_param2.text(), "Orden p:")
+        self.assertFalse(self.window.lbl_trans_param2.isHidden())
+        self.assertFalse(self.window.spin_trans_param2.isHidden())
+
+        # Probar que el orden p no supere a Ventana - 1
+        self.window.spin_trans_param1.setValue(9)
+        self.assertLessEqual(self.window.spin_trans_param2.maximum(), 8)
+
+        # 2. Fourier Lowpass
+        self.window.combo_trans_filter.setCurrentText("Fourier Lowpass")
+        self.assertEqual(self.window.lbl_trans_param1.text(), "Corte fc:")
+        self.assertFalse(self.window.lbl_trans_param1.isHidden())
+        self.assertTrue(self.window.spin_trans_param1.isHidden())
+        self.assertFalse(self.window.spin_trans_fc.isHidden())
+        self.assertTrue(self.window.lbl_trans_param2.isHidden())
+        self.assertTrue(self.window.spin_trans_param2.isHidden())
+
+        # 3. Media Móvil
+        self.window.combo_trans_filter.setCurrentText("Media Móvil")
+        self.assertEqual(self.window.lbl_trans_param1.text(), "Ventana:")
+        self.assertFalse(self.window.lbl_trans_param1.isHidden())
+        self.assertFalse(self.window.spin_trans_param1.isHidden())
+        self.assertTrue(self.window.spin_trans_fc.isHidden())
+        self.assertTrue(self.window.lbl_trans_param2.isHidden())
+        self.assertTrue(self.window.spin_trans_param2.isHidden())
+
+        # 4. Ninguno
+        self.window.combo_trans_filter.setCurrentText("Ninguno")
+        self.assertTrue(self.window.lbl_trans_param1.isHidden())
+        self.assertTrue(self.window.spin_trans_param1.isHidden())
+        self.assertTrue(self.window.spin_trans_fc.isHidden())
+        self.assertTrue(self.window.lbl_trans_param2.isHidden())
+        self.assertTrue(self.window.spin_trans_param2.isHidden())
+
+    def test_06d_uncertainty_band_attribution(self):
+        """Verifica que la banda de incertidumbre ±σ_T corresponda exclusivamente a T_calc bajo ISO/GUM."""
+        if not os.path.isfile(self.fbin_path):
+            self.skipTest("Archivo fbin no encontrado")
+
+        self.window._load_file_list([self.fbin_path])
+        self.window._select_file_index(0)
+        self.window.tabs_process.setCurrentIndex(3)
+        self.window._recalculate_all()
+
+        sigma_t = self.window.current_sigma_t
+        t_calc = self.window.current_t_calc
+        self.assertIsNotNone(sigma_t)
+        self.assertIsNotNone(t_calc)
+        self.assertEqual(len(sigma_t), len(t_calc))
+        # sigma_t en índices finitos debe ser no negativo
+        fin = np.isfinite(sigma_t)
+        self.assertGreater(np.sum(fin), 500)
+        self.assertTrue(np.all(sigma_t[fin] >= 0.0))
+        # La incertidumbre promedio debe ser finita y positiva
+        self.assertGreater(float(np.nanmean(sigma_t)), 0.0)
+
     def test_07_tab5_extinction_and_fano_peak_fitting(self):
         """Verifica la Ventana 5 (Extinción y Ajuste) con ajuste de resonancia de Fano y errores."""
         if not os.path.isfile(self.fbin_path):

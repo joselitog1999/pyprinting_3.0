@@ -1,0 +1,123 @@
+# MOD-15: PyPrinting 2 Legacy — Guía de Compatibilidad y Migración 📜
+
+**PyPrinting 3.0 — Suite de Nanofotónica y Control Instrumental**  
+**Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
+**Archivo Fuente Histórico**: `PyPrinting_UNSAM.py` (Script monolítico original)  
+**Lanzador Rápido**: Tarjeta Legacy en [`main.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/main.py) o `python PyPrinting_UNSAM.py`
+
+---
+
+## 🔗 Matriz de Referencias Cruzadas
+
+* **Reportes de Sistema Conexos:**
+  * `[[SYS-401_Auditoria_Comparativa_PyPrinting_v2_vs_v3]]`
+  * `[[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica]]`
+  * `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO]]`
+* **Fundamentos Científicos Asociados:**
+  * `[[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D]]`
+  * `[[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5]]`
+* **Manuales de Usuario Conexos:**
+  * `[[MOD-01_Microscopio_Derecho_App]]`
+  * `[[MOD-02_Measurements_Printing_y_Dimeros]]`
+  * `[[MOD-13_Hardware_Dashboard_y_Presets]]`
+
+---
+
+## 1. 🏷️ Resumen y Rol en el Sistema
+
+El módulo **PyPrinting 2 Legacy** preserva el entorno histórico de adquisición monolítico utilizado durante las primeras generaciones de experimentos de nanofabricación fototérmica en el INS-UNSAM.
+
+Se mantiene dentro del lanzador [`main.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/main.py) con fines de:
+- **Compatibilidad Retrospectiva**: Reproducción exacta de protocolos experimentales y secuencias previas.
+- **Validación Cruzada**: Verificación de algoritmos frente a la nueva arquitectura modular desacoplada de PyPrinting 3.0.
+- **Docencia y Referencia**: Demostración de la evolución desde código monolítico PyQt4/PyQt5 hacia la arquitectura multihilo PyQt6.
+
+---
+
+## 2. 🖼️ Maqueta de la Interfaz Visual (ASCII Layout)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  PyPrinting 2 — Nanofabricación Óptica (Versión Legacy)                                               -  □  ×    │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  File   Settings   Help                                                                                          │
+├───────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────┤
+│  PANEL CONFOCAL Y TRAZA HISTÓRICO                                     │  PARÁMETROS DE DETECCIÓN LEGACY          │
+│  ┌─────────────────────────────────────────────────────────────────┐ │  Láser: [ 532 nm ]  Potencia: [ 10 mW ]   │
+│  │                                                                 │ │  Umbral Relativo:   [ 1.30 ]              │
+│  │   [ Mapa de Barrido Confocal Clásico ]                          │ │  Umbral Down:       [ 0.50 ]              │
+│  │                                                                 │ │  Tiempo Máximo (s): [ 30.0 ]              │
+│  │                                                                 │ │  Autofoco cada:     [ 5 ] partículas      │
+│  │                                                                 │ │  Steps Before (M2): [ 10 ]                │
+│  │                                                                 │ │  Steps After (M):   [ 10 ]                │
+│  │                                                                 │ │                                           │
+│  │                                                                 │ │  [ Cargar Grilla ]                        │
+│  │                                                                 │ │  [ Iniciar Impresión ]                    │
+│  └─────────────────────────────────────────────────────────────────┘ │  [ Detener Todo ]                        │
+├───────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
+│  Platina PI: (X=10.000, Y=10.000, Z=5.000) µm | Estado: Esperando inicio de secuencia                            │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. 🎛️ Catálogo de Botones y Parámetros
+
+| Parámetro / Botón | Tipo | Descripción |
+|---|---|---|
+| `Umbral` | `QLineEdit` | Multiplicador de salto de señal ($I_{\text{new}} > I_{\text{old}} \cdot \text{umbral}$). |
+| `Umbral Down` | `QLineEdit` | Límite inferior de caída para aborto por fotoblanqueamiento ($I_{\text{new}} < I_{\text{old}} \cdot \text{umbral\_down}$). |
+| `Time Max` | `QLineEdit` | Tiempo límite en segundos para cerrar el obturador si no se detecta evento. |
+| `Steps Before / After` | `QLineEdit` | Longitud de las ventanas móviles $M_2$ y $M$ para el cálculo de $I_{\text{old}}$ e $I_{\text{new}}$. |
+| `Iniciar Impresión` | `QPushButton` | Lanza el bucle secuencial de impresión. |
+
+---
+
+## 4. 📥 Archivos de Entrada que Solicita
+
+1. **Grillas de Coordenadas (`*.txt`)**:
+   - Archivos de texto plano con posiciones discretas $[x, y]$.
+2. **Última Posición (`Last_position.txt`)**:
+   - Coordenadas de inicio de la platina piezoeléctrica.
+
+---
+
+## 5. 📤 Archivos de Salida que Genera
+
+1. **Trazas Experimentales (`NP_00i.txt`)**:
+   - Archivo con 4 columnas temporales de voltaje del fotodiodo.
+2. **Escaneo Confocal (`NPscan_00i.tiff`)**:
+   - Imagen en escala de grises de 16 bits.
+
+---
+
+## 6. ⚙️ Diferencias con PyPrinting 3.0
+
+| Característica | PyPrinting 2 Legacy | PyPrinting 3.0 |
+|---|---|---|
+| **Arquitectura de Software** | Monolítica / Hilos combinados | Multihilo desacoplado (`Frontend / Backend` + `QThread`) |
+| **Criterios de Parada** | 1 único modo (Salto relativo) | 5 modos configurables con protección anti-paso $N_{\text{hold}}$ |
+| **Corrección de Deriva** | Sin compensación activa | Corrección nanométrica periódica sobre Partícula Ancla $P_0$ |
+| **Presets de Impresión** | Manual por corrida | Gestor automático `.txt` con Asistente Guiado `QWizard` |
+| **Visión de Cámara** | Live View básico | EDSDK 64-bit nativo, simulación EVF y SMLM (Trackpy + Picasso) |
+
+---
+
+## 7. ⚠️ Límites de Validez y Modos de Falla
+
+| Condición de Borde (Fallo de Entorno Legacy / Rutas) | Firma Experimental (Consola / Congelamiento) | Acción Correctiva Física (Procedimiento en Laboratorio) |
+| :--- | :--- | :--- |
+| **Incompatibilidad de Rutas en Windows con Separadores Invertidos (`\`)**. | Excepción `FileNotFoundError` al guardar trazas o abrir grillas generadas en sistemas POSIX/Linux. | Utilizar las herramientas de PyPrinting 3.0 o ejecutar el script de compatibilidad `core/hdf5_container.py -> unpack_to_legacy()` que normaliza las rutas de acceso. |
+| **Falta de Protección Anti-Paso en Criterio de Parada**. | Cierre prematuro del obturador ante cualquier fluctuación espuria o cruce browniano transitorio (nodo vacío). | Migrar la ejecución a **PyPrinting 3.0 (`app.py`)**, activando el Modo 1 o Modo 4 con $N_{\text{hold}} \ge 5$ pasos sostenidos. |
+| **Bloqueo de la GUI durante Adquisiciones Largas por Monohilo**. | La ventana de PyPrinting 2 no responde (`No responde` en Windows) mientras adquiere a alta frecuencia. | No forzar el cierre del proceso en Windows; esperar a que finalice la rampa analógica o utilizar PyPrinting 3.0 que corre en hilos `QThread` no bloqueantes. |
+
+---
+
+## 8. 🔗 Referencias Cruzadas
+- [[SYS-401_Auditoria_Comparativa_PyPrinting_v2_vs_v3|🔍 SYS-401: Auditoría Comparativa PyPrinting v2 vs v3]]
+- [[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica|🌐 SYS-103: Regímenes de Coordenadas e Invariancia Cinemática]]
+- [[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO|📑 SYS-104: Matriz de Intercambio de Archivos y Formatos I/O]]
+- [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5|📦 CAT-401: Estándar de Serialización HDF5]]
+- [[MOD-01_Microscopio_Derecho_App|🔬 MOD-01: Microscopio Derecho — Suite Principal]]
+- [[MOD-02_Measurements_Printing_y_Dimeros|🎯 MOD-02: Measurements, Optical Printing y Dímeros]]
+- [[MANUAL_USUARIO|📘 Manual de Usuario Principal]]

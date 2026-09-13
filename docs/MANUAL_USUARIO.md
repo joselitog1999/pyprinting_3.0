@@ -10,7 +10,7 @@
 
 ## 📖 Índice General
 
-0. [Compendio Teórico: Física de Pinzas Ópticas, Nanomateriales y Optical Printing](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/00_Fundamentos_Fisicos_Optical_Printing_y_Nanomateriales.md)
+0. [Biblioteca de Fundamentos Físicos, Electrodinámica y Nanomateriales](#0-biblioteca-de-fundamentos-físicos-electrodinámica-y-nanomateriales)
 1. [Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")](#1-panel-de-inicio-principal-mainpy--bienvenidos-al-printing)
    - [1.1 Visión General, Filosofía de Diseño y Arquitectura Multihilo](#11-visión-general-filosofía-de-diseño-y-arquitectura-multihilo)
    - [1.2 Selección Global de Modo Seguro (`SAFE_MODE`) vs. Modo Laboratorio Real](#12-selección-global-de-modo-seguro-safe_mode-vs-modo-laboratorio-real)
@@ -24,38 +24,39 @@
    - [2.5 Métricas Analíticas y Alineación Sub-nanométrica de PSF](#25-métricas-analíticas-y-alineación-sub-nanométrica-de-psf)
    - [2.6 Operación de Umbralización No Lineal de Ruido ($P\%$)](#26-operación-de-umbralización-no-lineal-de-ruido-p)
    - [2.7 Algoritmo de Estabilización Z Axial por Autocorrelación de Pearson](#27-algoritmo-de-estabilización-z-axial-por-autocorrelación-de-pearson)
-   - [2.8 Mapeo Físico de Coordenadas y Calibración de Platina Piezoeléctrica PI](#28-mapeo-físico-de-coordenadas-y-calibración-de-platina-piezoeléctrica-pi)
+   - [2.8 Mapeo Físico de Coordenadas, Regímenes de Referencia e Invariancia Cinemática](#28-mapeo-físico-de-coordenadas-regímenes-de-referencia-e-invariancia-cinemática)
    - [2.9 Formulación Matemática y Análisis de los 5 Criterios de Parada (Modos 0 a 4)](#29-formulación-matemática-y-análisis-de-los-5-criterios-de-parada-modos-0-a-4)
    - [2.10 Control Adaptativo de Deriva Termomecánica ($\vec{v}_{\text{drift}}$) y Estimador de Tiempo Restante (ETA)](#210-control-adaptativo-de-deriva-termomecánica-vecv_textdrift-y-estimador-de-tiempo-restante-eta)
-3. [Módulo 1: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)](#3-módulo-1-microscopio-derecho-apppy--pyprinting-30-suite-completa)
+3. [Módulo 01: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)](#3-módulo-1-microscopio-derecho-apppy--pyprinting-30-suite-completa)
    - [3.1 Menú Principal (`Files`, `Tools`, `Measurements`, `Help`)](#31-menú-principal-files-tools-measurements-help)
    - [3.2 Dock: Confocal (Mapeo 2D/3D & Algoritmos de Centrado)](#32-dock-confocal-mapeo-2d3d--algoritmos-de-centrado)
    - [3.3 Dock: Trace (Trazas Temporales & Calibración Power BS)](#33-dock-trace-trazas-temporales--calibración-power-bs)
    - [3.4 Dock: Focus z (Autofoco Axial Dinámico)](#34-dock-focus-z-autofoco-axial-dinámico)
    - [3.5 Dock: Shutters / Flipper (Seguridad Óptica & Modo Alineación)](#35-dock-shutters--flipper-seguridad-óptica--modo-alineación)
    - [3.6 Dock: Nanopositioning (Platina Piezoeléctrica PI)](#36-dock-nanopositioning-platina-piezoeléctrica-pi)
-   - [3.7 Ventana de Mediciones (Printing Automatizado de Grillas, Healing Pass & Dímeros)](#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
-4. [Módulo 2: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)](#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
-5. [Módulo 3: Microscopio Contrapropagante (`contrapropagante.py`)](#5-módulo-3-microscopio-contrapropagante-contrapropagantepy)
-6. [Módulo 4: PyPrinting 2 (Legacy — `PyPrinting_UNSAM.py`)](#6-módulo-4-pyprinting-2-legacy--pyprinting_unsampy)
-7. [Módulo 5: Cámara Live View (`camera.py` — Suite Canon EDSDK & Microfotónica)](#7-módulo-5-cámara-live-view-camerapy--suite-canon-edsdk--microfotónica)
-8. [Módulo 6: Modulación Láser 532 nm (`Laser532Window`)](#8-módulo-6-modulación-láser-532-nm-laser532window)
-9. [Módulo 7: PSF Analyzer (`psf_analyzer.py`)](#9-módulo-7-psf-analyzer-psf_analyzerpy)
-10. [Módulo 8: Analizador de Imágenes Estáticas (`image_analyzer.py`)](#10-módulo-8-analizador-de-imágenes-estáticas-image_analyzerpy)
-11. [Módulo 13: Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)](#11-módulo-13-suite-de-análisis-espectral-y-quimiometría-raman-raman_analyzerpy)
-12. [Módulo 14: Analizador y Procesador Avanzado de Espectros SIF (Andor Solis — `sif_analyzer.py`)](#12-módulo-14-analizador-y-procesador-avanzado-de-espectros-sif-andor-solis--sif_analyzerpy)
-13. [Módulo 9: Documentación y Créditos del Autor](#13-módulo-9-documentación-y-créditos-del-autor)
-14. [Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)](#14-módulo-11-diseñador-universal-de-redes-cristalinas-2d-grid_generatorpy)
-15. [Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso](#15-módulo-12-procedimientos-operativos-estandarizados-sop-y-protocolos-paso-a-paso)
-16. [Tabla Completa de Parámetros Globales (`config.py`)](#16-tabla-completa-de-parámetros-globales-configpy)
-17. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#17-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
-18. [Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)](#18-modelo-metrológico-de-incertidumbre-y-criterios-sub-píxel-norma-isogum)
-19. [Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)](#19-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
-20. [Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real](#20-arquitectura-de-hilos-concurrencia-y-estabilidad-en-tiempo-real)
-21. [Tabla de Atajos de Teclado (Shortcuts)](#21-tabla-de-atajos-de-teclado-shortcuts)
-22. [Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)](#22-guía-de-resolución-de-problemas-y-diagnóstico-troubleshooting)
-23. [Preguntas Frecuentes (FAQ)](#23-preguntas-frecuentes-faq)
-24. [Guía de Referencia de Archivos y Reportes Metrológicos](#24-guía-de-referencia-de-archivos-y-reportes-metrológicos)
+   - [3.7 Ventana de Mediciones (MOD-02: Printing Automatizado de Grillas, Healing Pass & Dímeros)](#37-ventana-de-mediciones-printing-automatizado-de-grillas--dímeros)
+4. [Módulo 06: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)](#4-módulo-2-pyspectrum-30-pyspectrumpy--espectroscopía-step--glue-y-mapeo-hiperespectral)
+5. [Módulo 03: Microscopio Contrapropagante (`contrapropagante.py`)](#5-módulo-3-microscopio-contrapropagante-contrapropagantepy)
+6. [Módulo 15: PyPrinting 2 Legacy (`PyPrinting_UNSAM.py`)](#6-módulo-4-pyprinting-2-legacy--pyprinting_unsampy)
+7. [Módulo 04: Cámara Live View (`camera.py` — Suite Canon EDSDK & Microfotónica)](#7-módulo-5-cámara-live-view-camerapy--suite-canon-edsdk--microfotónica)
+8. [Módulo 05: Modulación Láser 532 nm (`Laser532Window`)](#8-módulo-6-modulación-láser-532-nm-laser532window)
+9. [Módulo 09: PSF Analyzer (`psf_analyzer.py`)](#9-módulo-7-psf-analyzer-psf_analyzerpy)
+10. [Módulo 10: Analizador de Imágenes Estáticas (`image_analyzer.py`)](#10-módulo-8-analizador-de-imágenes-estáticas-image_analyzerpy)
+11. [Módulo 11: Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)](#11-módulo-13-suite-de-análisis-espectral-y-quimiometría-raman-raman_analyzerpy)
+12. [Módulo 12: Analizador y Procesador Avanzado de Espectros SIF (Andor Solis — `sif_analyzer.py`)](#12-módulo-14-analizador-y-procesador-avanzado-de-espectros-sif-andor-solis--sif_analyzerpy)
+13. [Módulo 08: Analizador de Desorden y Estructura de Redes Cristalinas 2D (`lattice_disorder_gui.py`)](#13-módulo-15-analizador-de-desorden-y-estructura-de-redes-cristalinas-2d-lattice_disorder_guipy)
+14. [Módulo 07: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)](#14-módulo-11-diseñador-universal-de-redes-cristalinas-2d-grid_generatorpy)
+15. [Módulo 14: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso](#15-módulo-12-procedimientos-operativos-estandarizados-sop-y-protocolos-paso-a-paso)
+16. [Módulo 13: Tablero de Seguridad de Hardware y Asistente de Presets (`hardware_dashboard.py` / `preset_wizard.py`)](#19-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
+17. [Tabla Completa de Parámetros Globales (`config.py`)](#16-tabla-completa-de-parámetros-globales-configpy)
+18. [Flujos de Trabajo Experimentales (Protocolos Paso a Paso)](#17-flujos-de-trabajo-experimentales-protocolos-paso-a-paso)
+19. [Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)](#18-modelo-metrológico-de-incertidumbre-y-criterios-sub-píxel-norma-isogum)
+20. [Protección de Exclusión Mutua en Hardware Real (Modo Laboratorio)](#19-protección-de-exclusión-mutua-en-hardware-real-modo-laboratorio)
+21. [Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real](#20-arquitectura-de-hilos-concurrencia-y-estabilidad-en-tiempo-real)
+22. [Tabla de Atajos de Teclado (Shortcuts)](#21-tabla-de-atajos-de-teclado-shortcuts)
+23. [Guía de Resolución de Problemas y Diagnóstico (Troubleshooting)](#22-guía-de-resolución-de-problemas-y-diagnóstico-troubleshooting)
+24. [Preguntas Frecuentes (FAQ)](#23-preguntas-frecuentes-faq)
+25. [Guía de Referencia de Archivos y Reportes Metrológicos](#24-guía-de-referencia-de-archivos-y-reportes-metrológicos)
 
 ---
 
@@ -99,24 +100,41 @@ En la barra superior del panel principal **`main.py`** se encuentra el selector 
 
 ---
 
-### 1.3 Navegación e Índice de Módulos en Grilla Simétrica $3 \times 3$
-El lanzador organiza los 9 módulos del laboratorio en una grilla simétrica de 3 filas y 3 columnas:
+### 1.3 Navegación e Índice de Módulos en el Lanzador Principal (`main.py`)
+El lanzador organiza las 12 aplicaciones del laboratorio estructuradas visualmente en **3 bloques temáticos** delimitados por subtítulos estilizados con gradientes Catppuccin Mocha:
 
 ```
-┌─────────────────────────┬─────────────────────────┬─────────────────────────┐
-│ 🔬 Fila 1 - Columna 1   │ 🔮 Fila 1 - Columna 2   │ 🔍 Fila 1 - Columna 3   │
-│ Microscopio Derecho     │ PySpectrum 3.0          │ Microscopio             │
-│ (app.py)                │ (Operativo Shamrock+CCD)│ Contrapropagante (Dual) │
-├─────────────────────────┼─────────────────────────┼─────────────────────────┤
-│ 🏛️ Fila 2 - Columna 1   │ 📷 Fila 2 - Columna 2   │ ⚡ Fila 2 - Columna 3   │
-│ PyPrinting 2 (Legacy)   │ Cámara Live View        │ Modulación Láser        │
-│ (PyPrinting_UNSAM.py)   │ (camera.py)             │ 532 nm (Laser532Window) │
-├─────────────────────────┼─────────────────────────┼─────────────────────────┤
-│ 🧬 Fila 3 - Columna 1   │ 🖼️ Fila 3 - Columna 2   │ 📚 Fila 3 - Columna 3   │
-│ PSF Analyzer            │ Analizador de Imágenes  │ Documentación           │
-│ (psf_analyzer.py)       │ (image_analyzer.py)     │ y Créditos del Autor    │
-└─────────────────────────┴─────────────────────────┴─────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 🔬 APLICACIONES INSTRUMENTALES Y CONTROL DE HARDWARE                                            │
+│ Estaciones de nanofabricación asistida por luz, espectroscopía confocal y visión en vivo        │
+├───────────────────────────────┬───────────────────────────────┬─────────────────────────────────┤
+│ 🔬 Microscopio Derecho        │ 🌈 PySpectrum 3.0             │ 🔍 M. Contrapropagante          │
+│ PyPrinting 3.0 Suite Completa │ Espectrometría Shamrock+CCD   │ Pinzas Ópticas Duales TOP/BOT   │
+├───────────────────────────────┼───────────────────────────────┼─────────────────────────────────┤
+│ 📷 Cámara Live View           │ ⚡ Láser 532 nm               │ 🕸️ Diseñador de Redes 2D        │
+│ Réflex Canon EOS 500D (EDSDK) │ Control Analógico DAC ao2     │ Cristalográfica & Síntesis      │
+└───────────────────────────────┴───────────────────────────────┴─────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 📊 HERRAMIENTAS DE ANÁLISIS, ESPECTROSCOPÍA Y PROCESAMIENTO                                     │
+│ Suites especializadas de álgebra espectral, quimiometría, metrología de PSF y microscopía      │
+├───────────────────────────────┬───────────────────────────────┬─────────────────────────────────┤
+│ 🌈 Analizador SIF (Andor)     │ 🔬 Analizador Raman & SERS    │ 🎯 PSF Analyzer                 │
+│ Decodificador SIF 1D/2D, Fano │ Desconvolución & PCA Quimiom. │ Gauss 2D Anisotrópico / Donut   │
+├───────────────────────────────┴───────────────────────────────┼─────────────────────────────────┤
+│ 🖼️ Analizador de Imágenes                                      │ (Espacio reservado              │
+│ Campo Amplio, Richardson-Lucy, Métricas SNR y FWHM            │  para expansión)                │
+└───────────────────────────────────────────────────────────────┴─────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ ⚙️ DOCUMENTACIÓN, DIAGNÓSTICOS Y CONFIGURACIÓN                                                  │
+│ Tablero de salud de instrumentos, telemetría USB, manuales operativos y créditos científicos    │
+├───────────────────────────────────────────────────────────────┬─────────────────────────────────┤
+│ 🎛️ Tablero de Hardware & Conexiones                           │ 📚 Documentación y Créditos     │
+│ Perfiles de Inicio, Aislamiento y Reconexión USB              │ Manuales, Papers y Referencias  │
+└───────────────────────────────────────────────────────────────┴─────────────────────────────────┘
 ```
+
 
 ---
 
@@ -131,7 +149,7 @@ Para garantizar la autosuficiencia formativa del laboratorio, el manual y la arq
   2. Explorar el lanzador `main.py` y abrir la **Cámara Live View** (`camera.py`).
   3. Practicar el centrado de muestras con las reglas en micrómetros.
   4. Abrir el **Microscopio Derecho** (`app.py`), observar trazas en vivo con **F1** y ejecutar un autofoco Z con **F8**.
-  5. Cargar un preset básico en la ventana de **Printing** y seguir el [Protocolo Básico de Impresión (Módulo 12)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md).
+  5. Cargar un preset básico en la ventana de **Printing** y seguir el [[MOD-14_Protocolos_Laboratorio_SOP|Protocolo Básico de Impresión (MOD-14)]].
 
 #### 🟡 Nivel 2: Intermedio / Investigador Experimental
 * **Enfoque**: Operación de nanofabricación en laboratorio real, optimización de parámetros y caracterización espectral.
@@ -154,191 +172,149 @@ Para garantizar la autosuficiencia formativa del laboratorio, el manual y la arq
 
 ## 2. Fundamentos Físicos, Formulación Matemática & Mapeo de Hardware
 
+> [!NOTE] Compendio Teórico y Biblioteca Científica Rigurosa
+> Para preservar la naturaleza operativa del presente manual de usuario, las deducciones electrodinámicas analíticas, formulaciones de mecánica cuántica y demostraciones formales completas han sido desacopladas y residen en los reportes canónicos de la biblioteca científica:
+> - **Electrodinámica y Fuerzas Ópticas**: `[[CAT-109_Electrodinamica_Fuerzas_Opticas_y_Termoplasmonica_Printing|CAT-109: Electrodinámica, Fuerzas Ópticas y Termoplasmónica]]`
+> - **Fisicoquímica de Coloides y Silanización**: `[[CAT-110_Fisicoquimica_Coloides_DLVO_y_Funcionalizacion_Superficies|CAT-110: Fisicoquímica de Coloides, DLVO y Silanización]]`
+> - **Resonancia Plasmónica y Dímeros**: `[[CAT-103_Control_Lazo_Cerrado_Fototermico_y_Sintesis_Dimeros|CAT-103: Control de Lazo Cerrado y Síntesis de Dímeros]]`
+> - **Alineación y Modelado Analítico de PSF**: `[[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica|CAT-202: Cota de Cramér-Rao en Localización Óptica]]` y `[[CAT-108_Teoria_Optica_Telescopio_Rele_4f_y_Canales_Confocales|CAT-108: Teoría Óptica Relé 4f y Canales Confocales]]`
+> - **Regímenes Cinemáticos y Coordenadas**: `[[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica|SYS-103: Regímenes de Coordenadas e Invariancia Cinemática]]`
+> - **Criterios de Parada y Control Adaptativo**: `[[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D|CAT-101: Protocolo de Impresión Fototérmica]]`
+
 ### 2.1 Impresión Óptica Fototérmica de Nanopartículas Coloidales
-La **impresión óptica** logra la deposición espacial dirigida de nanopartículas coloidales metálicas (Au, Ag) desde una solución líquida sobre sustratos transparentes (vidrio o silicio). La interacción electromagnética está dominada por la fuerza de gradiente óptico $\mathbf{F}_{\text{grad}}$ y la fuerza de dispersión/absorción $\mathbf{F}_{\text{scat}}$:
 
-$$\mathbf{F}_{\text{grad}} = \frac{1}{4} \varepsilon_m \operatorname{Re}(\alpha) \nabla |\mathbf{E}|^2$$
+> [!NOTE] Deducción Teórica Formal
+> Para el tratamiento electromagnético detallado, tensores de Maxwell, ecuación de Smoluchowski y fuerzas de dispersión/gradiente completas, consultar **`[[CAT-109_Electrodinamica_Fuerzas_Opticas_y_Termoplasmonica_Printing]]`** y la química superficial DLVO en **`[[CAT-110_Fisicoquimica_Coloides_DLVO_y_Funcionalizacion_Superficies]]`**.
 
-$$\mathbf{F}_{\text{scat}} = \frac{k^4}{6\pi} |\alpha|^2 \frac{n_m}{c} \mathbf{S}$$
-
-donde $\alpha$ es la polarizabilidad de Clausius-Mossotti dada por:
-
-$$\alpha = 3 V \frac{\varepsilon_p - \varepsilon_m}{\varepsilon_p + 2\varepsilon_m}$$
-
-Al sintonizar la longitud de onda de excitación con la **Resonancia de Plasmón de Superficie Localizado (LSPR)** del oro ($\approx 532\ \text{nm}$), $\operatorname{Re}(\alpha)$ se maximiza, atrayendo fuertemente la nanopartícula hacia el punto de máxima intensidad en el centro de la cintura del haz focalizado ($\nabla |\mathbf{E}|^2$).
+La **impresión óptica** logra la deposición espacial dirigida de nanopartículas coloidales metálicas (Au, Ag) desde una solución líquida sobre sustratos de vidrio funcionalizados con APTES. La interacción electromagnética está dominada por:
+1. **Fuerza de Gradiente Óptico** ($\mathbf{F}_{\text{grad}} \propto \operatorname{Re}(\alpha) \nabla |\mathbf{E}|^2$): Atrae la nanopartícula hacia el punto de máxima intensidad en el foco del láser ($\approx 532\ \text{nm}$, sintonizado con la resonancia LSPR del oro).
+2. **Fuerza de Dispersión y Radiación** ($\mathbf{F}_{\text{scat}} \propto |\alpha|^2 \mathbf{S}$): Empuja la partícula en la dirección de propagación del haz hacia el sustrato.
+3. **Anclaje Irreversible por Potencial DLVO**: Superada la barrera electrostática gracias a la presión de radiación y el calentamiento local plasmotérmico, la partícula colapsa en el pozo de Van der Waals superficial.
 
 ---
 
 ### 2.2 Ensamblado Guiado de Nanodímeros Plasmónicos y Campo Cercano
-La fabricación de **nanodímeros plasmónicos** consiste en posicionar una segunda nanopartícula a una distancia gap sub-100 nm de una primera partícula previamente depositada. Al aproximarse a distancias nanométricas, el acoplamiento de campo cercano modifica la polarizabilidad efectiva $\alpha_{\text{eff}}$, creando un punto caliente plasmónico (*hot-spot*) que amplifica exponencialmente la intensidad Raman (SERS):
 
-$$\mathbf{E}_{\text{local}} \propto \left( \frac{d}{r} \right)^{-3} \mathbf{E}_0$$
+> [!NOTE] Fundamento Físico de Hot-Spots y Polarización
+> Para la teoría de acoplamiento plasmónico dipolar, hibridación de plasmones y amplificación SERS $\mathbf{E}^4$, consultar **`[[CAT-103_Control_Lazo_Cerrado_Fototermico_y_Sintesis_Dimeros]]`** y el manual operativo **`[[MOD-02_Measurements_Printing_y_Dimeros]]`**.
+
+La fabricación de **nanodímeros plasmónicos** consiste en posicionar una segunda nanopartícula a una distancia de separación (*gap*) sub-100 nm de una primera partícula previamente fijada. Al aproximarse a distancias nanométricas, el acoplamiento de campo cercano crea un punto caliente plasmónico (*hot-spot*) que amplifica exponencialmente la intensidad Raman (SERS). La secuencia de impresión guiada sigue el protocolo:
 
 ```
-[Partícula 1 Deposita] ──> [Escaneo Confocal Local] ──> [Fit Gaussiano (x1, y1)] ──> [Offset Δx, Δy] ──> [Deposición Partícula 2]
+[Partícula 1 Fijada] ──► [Escaneo Confocal Local] ──► [Fit Sub-píxel (x1, y1)] ──► [Offset Vectorial Δx, Δy] ──► [Impresión Partícula 2]
 ```
 
 ---
 
 ### 2.3 Modelo Analítico Gaussiano 2D Anisotrópico de 7 Parámetros
-Para caracterizar la distribución de intensidad fototérmica o de fluorescencia en el plano focal horizontal ($XY$), el sistema ajusta una Gaussiana 2D elíptica inclinada en un ángulo $\theta$ mediante mínimos cuadrados no lineales (`scipy.optimize.curve_fit`):
 
+> [!NOTE] Formulación Matemática y Algoritmo de Ajuste
+> Para las ecuaciones analíticas completas de la matriz de curvatura elíptica y los límites de incertidumbre Cramér-Rao, consultar **`[[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica]]`** y el manual **`[[MOD-09_PSF_Analyzer_Optica_Difraccion]]`**.
+
+Para caracterizar la distribución de intensidad en el plano focal horizontal ($XY$), el sistema ajusta una Gaussiana 2D elíptica inclinada en un ángulo $\theta$ mediante mínimos cuadrados no lineales (`scipy.optimize.curve_fit`):
 $$G(x, y) = Z_{\text{offset}} + A \cdot \exp\left( -\left[ a(x - x_0)^2 + 2b(x - x_0)(y - y_0) + c(y - y_0)^2 \right] \right)$$
-
-Los coeficientes de la matriz cuadrática de rotación son:
-
-$$a = \frac{\cos^2\theta}{2\sigma_x^2} + \frac{\sin^2\theta}{2\sigma_y^2}, \quad b = -\frac{\sin(2\theta)}{4\sigma_x^2} + \frac{\sin(2\theta)}{4\sigma_y^2}, \quad c = \frac{\sin^2\theta}{2\sigma_x^2} + \frac{\cos^2\theta}{2\sigma_y^2}$$
-
-El Ancho Completo a la Mitad del Máximo (FWHM) a lo largo de los ejes principales de la elipse se calcula mediante:
-
-$$\text{FWHM}_x = 2\sqrt{2\ln 2} \cdot \sigma_x \approx 2.354820 \cdot \sigma_x, \quad \text{FWHM}_y = 2.354820 \cdot \sigma_y$$
+El software extrae automáticamente los centroides sub-píxel $(x_0, y_0)$, la rotación elíptica $\theta$ y los anchos a media altura $\text{FWHM}_x \approx 2.3548 \cdot \sigma_x$ y $\text{FWHM}_y \approx 2.3548 \cdot \sigma_y$.
 
 ---
 
 ### 2.4 Modelo Analítico Haz Vortex / Donut (Laguerre-Gauss $LG_{01}$)
-Para caracterizar haces con singularidad de fase espiral ($e^{i l \phi}$) o donas de depleción en nanoscopía STED, el módulo **PSF Analyzer** y el widget **Confocal** ajustan la distribución analítica Laguerre-Gauss de primer orden $LG_{01}$:
 
-$$I_{\text{donut}}(x, y) = Z_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right)$$
+> [!NOTE] Óptica de Haces Singulares y STED
+> Para la teoría de orden topológico, carga de vórtice y propagación en relé 4f, consultar **`[[CAT-108_Teoria_Optica_Telescopio_Rele_4f_y_Canales_Confocales]]`** y **`[[MOD-09_PSF_Analyzer_Optica_Difraccion]]`**.
 
-donde la distancia radial elíptica normalizada $r_n^2$ está definida por:
-
-$$r_n^2(x, y) = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
+Para caracterizar haces con singularidad de fase espiral ($e^{i l \phi}$) o donas de depleción en nanoscopía STED, el módulo **PSF Analyzer** y el widget **Confocal** ajustan la distribución analítica Laguerre-Gauss $LG_{01}$:
+$$I_{\text{donut}}(x, y) = Z_{\text{offset}} + A \cdot r_n^2(x, y) \cdot \exp\left( - r_n^2(x, y) \right) \quad \text{con} \quad r_n^2 = \frac{(x - x_0)^2}{2\sigma_x^2} + \frac{(y - y_0)^2}{2\sigma_y^2}$$
 
 ---
 
 ### 2.5 Métricas Analíticas y Alineación Sub-nanométrica de PSF
-El módulo **PSF Analyzer** computa cuantitativamente la calidad analítica de la PSF y la desalineación espacial entre el canal de excitación verde (Canal 1) y el donut rojo de depleción (Canal 2):
 
-1. **Desalineación Vectorial Dual ($\Delta r_{\text{nm}}$)**:
-   $$\Delta r_{\text{nm}} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2} \times 1000 \quad [\text{nm}]$$
-2. **Radio del Anillo Donut ($r_0$)**:
-   $$r_0 = \sqrt{\sigma_x \cdot \sigma_y} \quad [\mu\text{m}]$$
-3. **Elipticidad del Donut ($a/b$)**:
-   $$\text{Elipticidad} = \frac{\sigma_x}{\sigma_y} \quad (\text{o viceversa si } \sigma_y > \sigma_x)$$
-4. **Calidad del Cero Central ($I_{\min}/I_{\max}$)**: Intensidad residual en el nulo central dividida por la intensidad de pico del anillo. Un valor $<0.05$ representa un nulo óptico de alta calidad.
-5. **Uniformidad Angular ($\sigma_{\theta}/\bar{I}$)**: Desviación estándar de la intensidad tomada circularmente a lo largo del anillo dividida por la intensidad media del anillo.
-6. **Bondad de Ajuste Statistic ( $R^2$, $\text{RMS}$ y $\chi^2_{\text{red}}$ )**:
-   $$R^2 = 1 - \frac{\sum (Z_i - Z_{\text{fit}, i})^2}{\sum (Z_i - \bar{Z})^2}, \quad \text{RMS} = \sqrt{\frac{1}{N} \sum_{i=1}^N (Z_i - Z_{\text{fit}, i})^2}$$
+> [!NOTE] Parámetros de Calidad y Benchmarking
+> Consultar el reporte metrológico **`[[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica]]`** para la justificación de umbrales.
+
+El módulo **PSF Analyzer** computa cuantitativamente:
+1. **Desalineación Vectorial Dual ($\Delta r_{\text{nm}}$)**: $\Delta r_{\text{nm}} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2} \times 1000$ [nm].
+2. **Radio del Anillo Donut ($r_0$)**: $r_0 = \sqrt{\sigma_x \cdot \sigma_y}$ [$\mu\text{m}$].
+3. **Elipticidad del Donut**: $\sigma_x/\sigma_y$.
+4. **Calidad del Cero Central ($I_{\min}/I_{\max}$)**: Intensidad residual en el nulo central dividida por el pico del anillo ($<0.05$ representa alta calidad óptica).
+5. **Bondad de Ajuste**: Coeficiente de determinación $R^2$ y residuo cuadrático medio $\text{RMS}$.
 
 ---
 
 ### 2.6 Operación de Umbralización No Lineal de Ruido ($P\%$)
 El casillero **`Filtro (%)`** aplica un operador no lineal por corte de umbral sobre la matriz normalizada $Z_n \in [0.0, 1.0]$:
-
 $$Z_f[x, y] = \begin{cases} Z_n[x, y] & \text{si } Z_n[x, y] \ge \frac{P}{100} \\ 0.0 & \text{si } Z_n[x, y] < \frac{P}{100} \end{cases}$$
 
 ---
 
 ### 2.7 Algoritmo de Estabilización Z Axial por Autocorrelación de Pearson
-Para corregir la deriva térmica del plano de enfoque axial ($Z$), el sistema adquiere un perfil de intensidad $I(z)$ y calcula el coeficiente de correlación cruzada normalizado de Pearson respecto a la firma congelada de referencia $I_{\text{ref}}(z)$:
 
+> [!NOTE] Arquitectura y Temporización
+> Para la orquestación del hilo axial y prevención de colisión con el cubreobjetos, consultar **`[[SYS-101_Arquitectura_Hilos_Concurrencia_QThread]]`** y el manual **`[[MOD-01_Microscopio_Derecho_App]]`**.
+
+Para corregir la deriva térmica del plano de enfoque axial ($Z$), el sistema adquiere un perfil de intensidad $I(z)$ y calcula el coeficiente de correlación cruzada normalizado de Pearson respecto a la firma congelada de referencia $I_{\text{ref}}(z)$:
 $$r(z) = \frac{\sum (I(z) - \bar{I})(I_{\text{ref}}(z) - \bar{I}_{\text{ref}})}{\sqrt{\sum (I(z) - \bar{I})^2 \sum (I_{\text{ref}}(z) - \bar{I}_{\text{ref}})^2}}$$
+El desplazamiento óptimo en Z corresponde al máximo de $r(z)$, garantizando enfoque sub-micrométrico continuo durante toda la jornada experimental.
 
 ---
 
 ### 2.8 Mapeo Físico de Coordenadas, Regímenes de Referencia e Invariancia Cinemática
 
-En la plataforma **PyPrinting 3.0**, la muestra se encuentra montada sobre una platina piezoeléctrica triaxial Physik Instrumente (PI E-517/E-736, rango $0.0 - 100.0\ \mu\text{m}$), mientras que el haz láser focalizado por el objetivo de alta apertura numérica ($NA \ge 1.40$) se mantiene estático en el espacio del laboratorio $\mathcal{R}_{\text{lab}}$.
+> [!NOTE] Especificación Formal de Cinemática y Metadatos
+> Para la deducción matricial completa de las transformaciones afines y la sincronización inter-módulos, consultar el reporte canónico **`[[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica]]`**.
+
+En la plataforma **PyPrinting 3.0**, la muestra se encuentra montada sobre una platina piezoeléctrica triaxial Physik Instrumente (PI E-517/E-736, rango $0.0 - 100.0\ \mu\text{m}$), mientras que el haz láser focalizado se mantiene estático en el espacio del laboratorio.
 
 #### 1. Cinemática de Movimiento Relativo (Muestra vs. Láser)
 Cuando la platina desplaza mecánicamente la muestra con velocidad $\mathbf{v}_{\text{sample}}$, el punto focal del láser respecto al sustrato se mueve con velocidad exactamente opuesta:
 $$\mathbf{v}_{\text{laser}/\text{sample}} = -\mathbf{v}_{\text{sample}/\text{lab}}$$
-
-En la cámara réflex Canon EOS 500D (orientación de la imagen en monitor):
-- **Desplazamiento del Láser hacia la DERECHA ($+X_{\text{laser}}$)** $\iff$ La platina física mueve la muestra hacia la izquierda ($\mathbf{v}_{\text{sample}} \propto -\hat{\mathbf{x}}$), correspondiente al **Eje 2 de la platina PI**.
-- **Desplazamiento del Láser hacia ABAJO ($+Y_{\text{laser}}$)** $\iff$ La platina física mueve la muestra hacia arriba ($\mathbf{v}_{\text{sample}} \propto -\hat{\mathbf{y}}$), correspondiente al **Eje 1 de la platina PI**.
-- **Eje Axial Óptico ($Z_{\text{óptico}}$)** $\iff$ Movimiento del foco hacia el interior de la muestra, correspondiente al **Eje 3 de la platina PI**.
+- **Desplazamiento hacia la Derecha ($+X_{\text{laser}}$)** $\iff$ La platina mueve la muestra a la izquierda (Eje 2 PI).
+- **Desplazamiento hacia Abajo ($+Y_{\text{laser}}$)** $\iff$ La platina mueve la muestra hacia arriba (Eje 1 PI).
+- **Eje Axial Óptico ($Z_{\text{óptico}}$)** $\iff$ Movimiento del foco hacia el interior de la muestra (Eje 3 PI).
 
 #### 2. Los 3 Regímenes de Coordenadas Seleccionables
-Para armonizar la práctica histórica con la intuición visual directa y la nanofabricación orientada a muestras, el sistema incorpora tres marcos de referencia seleccionables dinámicamente desde el **Dock Nanopositioning** o el **Tablero de Hardware**:
-
 | Régimen | Perspectiva Metrológica | Casilla 1 (Eje 1 PI) | Casilla 2 (Eje 2 PI) | Casilla 3 (Eje 3 PI) | Aplicación Típica |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`Legacy`** | Convención histórica de PyPrinting 2 | `X =` (Vertical en pantalla) | `Y =` (Horizontal en pantalla) | `Z =` (Axial) | Compatibilidad retrospectiva estricta con protocolos 2017-2024. |
-| **`Laser Ref`** | Marco visual del monitor / cámara | `Y (Vert) =` (Eje vertical hacia abajo) | `X (Horiz) =` (Eje horizontal a derecha) | `Z (Axial) =` | **Recomendado**: Alineación óptica directa, confocal y coincidencia 1:1 con la cámara. |
-| **`Sample Ref`** | Marco intrínseco del sustrato de vidrio | `Y (Muestra) =` (Eje intrínseco de muestra) | `X (Muestra) =` (Eje intrínseco de muestra) | `Z (Axial) =` | Fabricación de metasuperficies, correlación directa con AFM, SEM y litografía. |
+| **`Legacy`** | Convención histórica PyPrinting 2 | `X =` (Vertical en pantalla) | `Y =` (Horizontal en pantalla) | `Z =` (Axial) | Compatibilidad retrospectiva estricta con protocolos 2017-2024. |
+| **`Laser Ref`** | Marco visual del monitor / cámara | `Y (Vert) =` (Eje vertical hacia abajo) | `X (Horiz) =` (Eje horizontal a derecha) | `Z (Axial) =` | **Recomendado**: Alineación óptica directa, confocal y cámara. |
+| **`Sample Ref`** | Marco intrínseco del sustrato de vidrio | `Y (Muestra) =` | `X (Muestra) =` | `Z (Axial) =` | Metasuperficies, correlación con AFM, SEM y litografía. |
 
-#### 3. Principio Rector de Invariancia de Hardware
 > [!IMPORTANT]
-> **Invariancia Cinemática Absoluta**: La selección del régimen de coordenadas **NO modifica en un solo nanómetro la actuación física ni las señales enviadas a la controladora PI**.
-> Las casillas de entrada `Go To` y de lectura `Read Position` siguen gobernando exactamente los mismos canales físicos de hardware:
-> - Casilla 1 $\longrightarrow$ Siempre comanda y lee el **Eje 1 de la platina PI**.
-> - Casilla 2 $\longrightarrow$ Siempre comanda y lee el **Eje 2 de la platina PI**.
-> - Casilla 3 $\longrightarrow$ Siempre comanda y lee el **Eje 3 de la platina PI**.
->
-> Lo que cambia de manera 100% reactiva y en tiempo real es la **nomenclatura textual** (`X`, `Y (Vert)`, `Y (Muestra)`), los rótulos de los ejes en los gráficos confocales y de impresión, y los metadatos exportados en `grid_info.txt`.
+> **Invariancia Cinemática Absoluta**: La selección del régimen de coordenadas **NO modifica en un solo nanómetro la actuación física ni las señales enviadas a la controladora PI**. Las casillas gobiernan siempre los mismos canales físicos de hardware (Casilla 1 $\to$ Eje 1, Casilla 2 $\to$ Eje 2, Casilla 3 $\to$ Eje 3).
 
 ---
 
 ### 2.9 Formulación Matemática y Análisis de los 5 Criterios de Parada (Modos 0 a 4)
-En la impresión óptica fototérmica y el ensamblado de nanodímeros plasmónicos, el cierre oportuno del obturador es crítico para detener la irradiación de forma inmediata al detectar la deposición de una nanopartícula metálica. Esto evita el sobrecalentamiento local, la fusión fototérmica del nanoensamblado y la deposición no deseada de partículas secundarias. **PyPrinting 3.0** incluye 5 criterios de parada seleccionables dinámicamente en la interfaz de mediciones (`measurements.py` / `app.py`):
 
-1. **Modo 0: Legacy (Salto Relativo Estándar)**
-   - **Formulación Matemática**:
-     $$I_{\text{new}}[t] > \text{Umbral\_Relativo} \cdot I_{\text{old}}$$
-   - **Propósito & Utilidad**: Mantiene $100\%$ de compatibilidad retroactiva con rutinas históricas y secuencias estándar de PyPrinting 2.
-   - **Mapeo de Parámetros**: Requiere ingresar el `Umbral` relativo (ej. $1.20$ indica un $20\%$ de incremento sobre la línea base).
+> [!NOTE] Justificación Experimental y Protocolos
+> Para el análisis estadístico de eficiencia de parada y curvas de deposición, consultar **`[[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D]]`** y el manual **`[[MOD-02_Measurements_Printing_y_Dimeros]]`**.
 
-2. **Modo 1: Salto Relativo + Umbral Absoluto (V) & Anti-Paso ($N_{\text{hold}}$ Steps)**
-   - **Formulación Matemática**:
-     $$\text{Condición}(t) = \left( \frac{I_{\text{new}}[t]}{I_{\text{old}}} > \text{Umbral\_Relativo} \right) \quad \mathbf{OR} \quad \left( I_{\text{new}}[t] > V_{\text{abs}} \right)$$
-     $$\text{Cierre Obturador} \iff \text{Condición}(t) = \text{True} \quad \forall t \in [t_0, t_0 + N_{\text{hold}} \cdot \Delta t]$$
-   - **Propósito & Utilidad**:
-     - *Resolución a $t=0$*: Elimina el problema de la impresión instantánea donde $I_{\text{old}}$ ya inicia en un nivel alto y el salto relativo resulta insuficiente para disparar la parada.
-     - *Filtro Anti-Paso*: Evita cierres falsos del obturador provocados por partículas que cruzan transitoriamente el foco volando sin depositarse.
-   - **Mapeo de Parámetros**: Requiere `Umbral Absoluto (V)` ($V_{\text{abs}}$) y `N_hold` (número de muestras analógicas consecutivas a $1\text{ kHz}$ en las que debe sostenerse la señal, ej. $N_{\text{hold}}=5$).
-
-3. **Modo 2: Derivada Temporal Adaptativa & Aplanamiento ($dI/dt$)**
-   - **Formulación Matemática**:
-     Derivada temporal discreta filtrada en tiempo real:
-     $$\frac{dI}{dt}[t] = \frac{I[t] - I[t - 5\Delta t]}{5\Delta t} \quad [\text{V/s}]$$
-     $$\text{Cierre Obturador} \iff \left( \frac{dI}{dt}[t] < \text{Slope\_Flat} \right) \quad \mathbf{AND} \quad \left( I_{\text{new}}[t] > I_{\text{old}} + \Delta V \right)$$
-   - **Propósito & Utilidad**: Diseñado para perfiles de deposición continua con crecimiento exponencial $I(t) = I_0 + A(1 - e^{-t/\tau})$. Evalúa la meseta superior de la curva y gatilla el cierre una vez que la tasa de incremento se aplana ($\frac{dI}{dt} \to 0$), indicando que la partícula ha finalizado su acomodamiento físico en el sustrato.
-   - **Mapeo de Parámetros**: Requiere `Slope Min` (pendiente mínima de activación en V/s) y `Slope Flat` (derivada máxima permitida en la meseta para confirmar la deposición).
-
-4. **Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado ($K_{\text{scale}}, P\%$)**
-   - **Formulación Matemática**:
-     Cálculo físico automatizado del voltaje de umbral objetivo a partir de la imagen confocal previa:
-     1. Fondo de vidrio limpio: $V_{\text{vidrio}} = \min(V_{\text{raw}})$
-     2. Factor de escala de potencia: $K_{\text{scale}} = \frac{P_{\text{print}}}{P_{\text{scan}}}$
-     3. Voltaje pico reescalado: $V_{\text{pico\_reescalado}} = V_{\text{vidrio}} + K_{\text{scale}} \cdot (V_{\text{pico\_raw}} - V_{\text{vidrio}})$
-     4. Voltaje de umbral objetivo: $V_{\text{umbral}} = V_{\text{vidrio}} + \frac{P\%}{100} \cdot (V_{\text{pico\_reescalado}} - V_{\text{vidrio}})$
-   - **Propósito & Utilidad**: Automatiza metrológicamente el cálculo del voltaje absoluto en Volts eliminando la estimación manual por parte del operador. Relaciona directamente la intensidad detectada en el barrido confocal ($P_{\text{scan}}$) con la potencia de impresión ($P_{\text{print}}$).
-   - **Información y Archivos Adicionales**: Genera y guarda automáticamente en disco el mapa confocal reescalado en formatos `.txt` y `.tiff` (`NPscan_rescaled_00i.txt` y `NPscan_rescaled_00i.tiff`).
-   - **Mapeo de Parámetros**: Requiere `Ratio K` ($P_{\text{print}}/P_{\text{scan}}$) y `Umbral Porcentual P%` (ej. $50.0\%$).
-
-5. **Modo 4: Criterio Híbrido Tri-Factor (All-In-One)**
-   - **Formulación Matemática**:
-     $$\text{Cierre Obturador} \iff \left[ \text{Modo 1 (Salto/Absoluto)} \;\mathbf{AND}\; \text{Modo 2 (Aplanamiento } dI/dt) \right] \quad \text{sostenido durante } N_{\text{hold}} \text{ pasos}$$
-   - **Propósito & Utilidad**: Máxima robustez experimental para muestras complejas o bajas relaciones señal-ruido. Combina la protección anti-paso, la detección instantánea a $t=0$, el umbral absoluto en Volts y la verificación de aplanamiento de derivada temporal.
-   - **Mapeo de Parámetros**: Utiliza la combinación total de parámetros (`Umbral`, `V_abs`, `N_hold`, `Slope_Flat`, `Ratio_K`, `P%`).
+1. **Modo 0: Legacy (Salto Relativo Estándar)**: Cierre si $I_{\text{new}}[t] > \text{Umbral} \cdot I_{\text{old}}$. Mantiene $100\%$ compatibilidad con rutinas históricas.
+2. **Modo 1: Salto Relativo + Umbral Absoluto & Anti-Paso ($N_{\text{hold}}$ Steps)**: 
+   $$\text{Condición}(t) = \left( \frac{I_{\text{new}}[t]}{I_{\text{old}}} > \text{Umbral} \right) \;\mathbf{OR}\; \left( I_{\text{new}}[t] > V_{\text{abs}} \right) \quad \text{sostenido durante } N_{\text{hold}} \text{ pasos}$$
+   Elimina fallas a $t=0$ y evita falsos cierres por partículas flotantes.
+3. **Modo 2: Derivada Temporal Adaptativa & Aplanamiento ($dI/dt$)**: Gatilla cuando la tasa de crecimiento fototérmico se aplana ($dI/dt < \text{Slope\_Flat}$), indicando acomodamiento final.
+4. **Modo 3: Calibración Confocal Raw & Umbral Absoluto Reescalado ($K_{\text{scale}}, P\%$)**: Automatiza el voltaje de corte relacionando la potencia de escaneo $P_{\text{scan}}$ con la potencia de impresión $P_{\text{print}}$.
+5. **Modo 4: Criterio Híbrido Tri-Factor (All-In-One)**: Combina Modo 1 y Modo 2 bajo filtro sostenido $N_{\text{hold}}$, ofreciendo la máxima robustez en muestras ruidosas.
 
 ---
 
 ### 2.10 Control Adaptativo de Deriva Termomecánica ($\vec{v}_{\text{drift}}$) y Estimador de Tiempo Restante (ETA)
 
-Durante la nanofabricación prolongada de grillas de gran escala ($N > 50$ partículas), la dilatación térmica de la celda de fluido y la relajación de esfuerzos mecánicos generan una **deriva lateral y axial continua** ($\sim 0.5 - 5\ \text{nm}/\text{min}$).
+> [!NOTE] Algoritmos de Compensación In-Situ
+> Para el modelo físico de deriva y la autocompletitud por *Healing Pass*, consultar **`[[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D]]`** y **`[[CAT-104_Compensacion_Inclinacion_Z_Confocal_y_Healing_Pass]]`**.
 
-#### 1. Estimación Temporal de Velocidad de Deriva ($\vec{v}_{\text{drift}}$):
-Tras cada ciclo de re-cuadratura sobre la Partícula Ancla $P_0$ en el tiempo $t_k$, el sistema registra la desviación espacial $(\Delta x_k, \Delta y_k)$ respecto a la posición nominal inicial $(x_0, y_0)$:
-
-$$\vec{v}_{\text{drift}}(t_k) = \frac{(\Delta x_k - \Delta x_{k-1}, \Delta y_k - \Delta y_{k-1})}{t_k - t_{k-1}}$$
-
-#### 2. Periodo de Corrección Adaptativo ($T_{\text{drift}}$):
-Si la velocidad de deriva excede el límite de tolerancia de posicionamiento $\epsilon_{\text{tol}} \approx 10\ \text{nm}$, el sistema recalcula dinámicamente el intervalo de tiempo seguro entre re-centrados:
-
-$$T_{\text{drift}} = \max\left( T_{\text{min}}, \min\left( T_{\text{max}}, \frac{\epsilon_{\text{tol}}}{|\vec{v}_{\text{drift}}|} \right) \right)$$
-
-#### 3. Estimador Predictivo de Tiempo Restante (ETA):
-Frente al indicador de *Total Targets*, la suite calcula en tiempo real el tiempo estimado para finalizar la nanofabricación:
-
-$$\text{ETA}(k) = \bar{t}_{\text{raw}} \cdot (N_{\text{total}} - k) + N_{\text{drift\_checks\_rem}} \cdot t_{\text{confocal\_scan}}$$
-
-donde $\bar{t}_{\text{raw}}$ es la media móvil del tiempo de tránsito/fijación de las partículas previas (tomando $15.0\ \text{s}$ por defecto al inicio) y $k$ es el índice de partícula actual.
+1. **Estimación Temporal de Velocidad de Deriva ($\vec{v}_{\text{drift}}$)**: Registra la desviación $(\Delta x, \Delta y)$ en la Partícula Ancla $P_0$ entre cuadrugaciones sucesivas:
+   $$\vec{v}_{\text{drift}}(t_k) = \frac{(\Delta x_k - \Delta x_{k-1}, \Delta y_k - \Delta y_{k-1})}{t_k - t_{k-1}}$$
+2. **Periodo de Corrección Adaptativo ($T_{\text{drift}}$)**: Modula dinámicamente la frecuencia de centrado: $T_{\text{drift}} = \max\left( T_{\text{min}}, \min\left( T_{\text{max}}, \frac{\epsilon_{\text{tol}}}{|\vec{v}_{\text{drift}}|} \right) \right)$.
+3. **Estimador Predictivo de Tiempo Restante (ETA)**: Computa en vivo el tiempo para finalizar el lote:
+   $$\text{ETA}(k) = \bar{t}_{\text{raw}} \cdot (N_{\text{total}} - k) + N_{\text{drift\_checks\_rem}} \cdot t_{\text{confocal\_scan}}$$
 
 ---
 
-## 3. Módulo 1: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)
+## 3. Módulo 01: Microscopio Derecho (`app.py` — PyPrinting 3.0 Suite Completa)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-01_Microscopio_Derecho_App|MOD-01: Microscopio Derecho — Suite Principal (app.py)]] para la maqueta visual ASCII completa, catálogo I/O y modos de falla.
 
 ### 3.1 Menú Principal (`Files`, `Tools`, `Measurements`, `Help`)
 * **Menú `Files`**:
@@ -449,13 +425,12 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
 
 ---
 
-### 3.7 Ventana de Mediciones (Printing Automatizado de Grillas & Dímeros)
+### 3.7 Ventana de Mediciones (MOD-02: Printing Automatizado de Grillas & Dímeros)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-02_Measurements_Printing_y_Dimeros|MOD-02: Measurements, Optical Printing y Dímeros]] para especificaciones de criterios de parada, deriva y autocompletitud.
+> 🔬 **Protocolo Experimental Completo**: Consultar [[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D|CAT-101: Protocolo Operativo de Impresión Fototérmica de Grillas 2D]].
 
 La ventana emergente de **Mediciones** (`measurements.py`) coordina la impresión automatizada nodo a nodo de arrays de nanopartículas y el ensamblado de nanoestructuras acopladas.
-
-> [!NOTE]
-> Para consultar el protocolo experimental completo paso a paso ("DO PRINTING") y la guía detallada de operación, remítase al reporte especializado:  
-> [Guía y Protocolo de Impresión de Grillas (reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md)
 
 #### 3.7.1 Controles Principales de `Printing` y `Dimers`
 - **`Custom Name` (Nombre Personalizado de Lote)**: Casilla interactiva de texto para asignar un nombre descriptivo a la subcarpeta del lote y a los reportes de optimización (ej. `AuNP_60nm_BatchA`). Si se deja vacía, se utiliza automáticamente el nombre de la grilla (`<GridName>`, ej. `5x5_drift_5.0umx5.0um`).
@@ -559,7 +534,7 @@ Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquet
 
 > [!NOTE]
 > Para consultar el informe técnico completo sobre compresión *lossless* `shuffle+gzip` y benchmarks de velocidad, consulte:  
-> [Contenedor Científico HDF5 (reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md)
+> [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5|CAT-401: Estándar de Serialización Jerárquica en Contenedor HDF5 (.h5)]].
 
 #### 3.8 Tablero de Conexiones & Seguridad de Hardware (`HardwareDashboardWindow`, `HardwareDashboardWidget` & `HardwareManager`)
 El **Tablero de Conexiones y Seguridad de Hardware** constituye el centro neurálgico de telemetría y aislamiento del sistema. Se encuentra configurado como una **ventana independiente flotante** (`HardwareDashboardWindow`) accesible desde:
@@ -634,7 +609,9 @@ El módulo de trazas temporales incluye análisis espectral en tiempo real para 
 
 ---
 
-## 4. Módulo 2: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)
+## 4. Módulo 06: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-06_PySpectrum_Espectroscopia_Shamrock|MOD-06: PySpectrum 3.0 — Espectroscopía y Mapeo Hiperespectral]] para Shamrock 500i, Step & Glue y calibración en hardware.
 
 El panel **`🌈 PySpectrum 3.0`** (Fila 1, Columna 2 del lanzador `main.py`) es la estación central para la caracterización espectral de nanopartículas, cosido de banda ancha (*Step and Glue*), mapeo hiperespectral 2D/3D y cinéticas nanofotónicas.
 
@@ -708,7 +685,9 @@ Para garantizar la integridad mecánica y óptica del espectrómetro Shamrock 50
 
 ---
 
-## 5. Módulo 3: Microscopio Contrapropagante (`contrapropagante.py`)
+## 5. Módulo 03: Microscopio Contrapropagante (`contrapropagante.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-03_Microscopio_Contrapropagante|MOD-03: Microscopio Contrapropagante]] para alineación dual TOP/BOT y trampas ópticas simétricas.
 
 El microscopio contrapropagante dual (`contrapropagante.py`) representa una **suite de software equivalente al microscopio derecho (`app.py`)**, compartiendo exactamente la misma infraestructura multihilo, el motor de mediciones automatizadas (`measurements.py`), el Tablero de Conexiones de Hardware (`HardwareDashboardWidget`), la gestión de presets en archivos `.txt`, la Transformada de Fourier (FFT) de trazas y el sistema de auto-recuperación ante cortes eléctricos.
 
@@ -735,14 +714,18 @@ A diferencia del microscopio monomodo de un solo objetivo, `contrapropagante.py`
 
 ---
 
-## 6. Módulo 4: PyPrinting 2 (Legacy — `PyPrinting_UNSAM.py`)
+## 6. Módulo 15: PyPrinting 2 Legacy (`PyPrinting_UNSAM.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-15_PyPrinting2_Legacy_Compatibilidad|MOD-15: PyPrinting 2 Legacy — Guía de Compatibilidad y Migración]] para compatibilidad retrospectiva y desempaquetado de datos.
 
 El botón **`🏛️ Iniciar PyPrinting 2`** (Fila 2, Columna 1 del lanzador `main.py`) ejecuta la versión histórica del sistema situada en `../printing2/PyPrinting_UNSAM.py`:
 * Permite a los investigadores ejecutar secuencias de impresión antiguas, verificar compatibilidad de archivos de datos `.txt` legacy y comparar el desempeño de algoritmos de centrado preexistentes.
 
 ---
 
-## 7. Módulo 5: Cámara Live View (`camera.py` — Suite Canon EDSDK & Microfotónica)
+## 7. Módulo 04: Cámara Live View (`camera.py` — Suite Canon EDSDK & Microfotónica)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-04_Camara_Live_View_Canon_EDSDK|MOD-04: Cámara Live View Canon EDSDK]] para integración réflex, calibración micrométrica y tracking SMLM.
 
 El botón **`📷 Iniciar Cámara Live View`** (Fila 2, Columna 2 del lanzador `main.py`) o el comando `python camera.py` ejecutan la suite unificada resultante de la fusión de `canon_test.py` y `modules/camera.py`:
 
@@ -790,9 +773,29 @@ El botón **`📷 Iniciar Cámara Live View`** (Fila 2, Columna 2 del lanzador `
 ### 7.6 Visor Emergente Desplegable de Diagnóstico EDSDK (`EDSDKLogDialog`)
 - El panel de mensajes de diagnóstico EDSDK se aloja en una ventana modal emergente desplegable que no ocupa espacio en el panel principal. Se abre presionando el botón **`📜 Ver Log de Diagnóstico EDSDK`**.
 
+### 7.7 Estabilidad de Hardware, Desacople de Eventos, Prevención de Cuelgues y Ciclo de Vida USB
+Para garantizar una experiencia continua sin cuelgues en el laboratorio y proteger la electrónica de la Canon EOS 500D:
+1. **Throttling USB en Panning y Navegación (~12 Hz):**
+   - El arrastre interactivo con el mouse en el canvas o en la miniatura PiP puede generar más de 500 eventos por segundo. Para evitar colapsar el microprocesador DIGIC 4 de la cámara por el bus USB, las coordenadas de hardware se regulan con un temporizador de antirrebote (`_throttle_zoom_center_timer`, 80 ms). El canvas local responde de forma instantánea a 60 FPS.
+2. **Temporizador de Adquisición Único y Controlado (25.0 FPS):**
+   - El worker de cámara (`CanonWorker`) opera mediante un único `QTimer` periódico configurado a 40 ms (25.0 FPS) con guarda de exclusión `_is_fetching`. Se erradicó la recursión de llamadas `singleShot`, evitando que cambios rápidos de ISO o Tv dupliquen temporizadores en segundo plano.
+3. **Aceleración Gráfica y Descarte de Cuadros (Frame-Dropping):**
+   - Si la GPU o el hilo de GUI se encuentra ocupado renderizando o redimensionando la interfaz, la guarda `_is_rendering_frame` descarta fotogramas intermedios de forma automática, garantizando que la memoria de Qt no colapse.
+   - En `pg.ImageItem`, se fuerza `autoLevels=False` y `levels=(0, 255)`, suprimiendo el cálculo intensivo de CPU que buscaba máximos y mínimos sobre 2.2 millones de elementos por cuadro.
+4. **Desacople Reentrante en Pantalla Completa y Resize:**
+   - La transición a pantalla completa o cambios de tamaño de ventana difieren el re-encuadre con un temporizador de 50 ms (`_resize_debounce_timer`), permitiendo que el gestor de ventanas de Windows complete el redibujado antes de calcular la geometría de aspecto fijo (`lockAspect=True`).
+5. **Cierre Limpio y Descenso Forzado del Espejo Réflex (`Graceful Teardown`):**
+   - Al cerrar la ventana (`closeEvent`), se emite la orden de apagado EVF para descender mecánicamente el espejo y liberar el obturador. El hilo se termina ordenadamente con `thread.quit()` y `thread.wait(2000)`. Además, un gancho global en `core/canon_edsdk.py` (`atexit`) garantiza la liberación del puerto USB ante salidas imprevistas.
+6. **Clamping Metrológico de Coordenadas de Sensor (4752×3168):**
+   - El controlador de bajo nivel valida y restringe estrictamente que las coordenadas solicitadas para zoom 5x y 10x se ubiquen dentro del plano físico del sensor de 15.1 MP, absorbiendo no-bloqueantemente estados de cámara ocupada (`EDS_ERR_DEVICE_BUSY`).
+7. **Debounce en Detección de Partículas (`TrackpyDialog`):**
+   - Los cambios de parámetros en los controles numéricos de Trackpy y Picasso se ejecutan con un retardo de 250 ms, permitiendo ingresar valores sin que el diálogo se bloquee calculando en cada dígito.
+
 ---
 
-## 8. Módulo 6: Modulación Láser 532 nm (`Laser532Window`)
+## 8. Módulo 05: Modulación Láser 532 nm (`Laser532Window`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-05_Modulacion_Laser_Potencias|MOD-05: Modulación Láser de Potencias]] para atenuación analógica por DAC AO2 y disparo de obturadores TTL.
 
 El botón **`⚡ Iniciar Control Láser 532`** (Fila 2, Columna 3 del lanzador `main.py`) despliega la ventana flotante de modulación analógica:
 * **Control de Potencia por Voltaje DAC**:
@@ -804,7 +807,9 @@ El botón **`⚡ Iniciar Control Láser 532`** (Fila 2, Columna 3 del lanzador `
 
 ---
 
-## 9. Módulo 7: PSF Analyzer (`psf_analyzer.py`)
+## 9. Módulo 09: PSF Analyzer (`psf_analyzer.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-09_PSF_Analyzer_Optica_Difraccion|MOD-09: PSF Analyzer & Óptica de Difracción]] para perfiles 1D, ajustes Gaussianos 2D y co-alineación de haces.
 
 El botón **`📊 Iniciar PSF Analyzer`** (Fila 3, Columna 1 del lanzador `main.py`) o el comando `python psf_analyzer.py` abren la estación de metrología óptica de haces y nanopartículas. A partir de la versión 3.0, incorpora una **arquitectura bi-modal de dos pestañas**:
 
@@ -836,7 +841,9 @@ Permite la comparación síncrona entre los dos canales confocales del microscop
 
 ---
 
-## 10. Módulo 8: Analizador de Imágenes Estáticas (`image_analyzer.py`)
+## 10. Módulo 10: Analizador de Imágenes Estáticas (`image_analyzer.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-10_Image_Analyzer_Tracking|MOD-10: Analizador de Imágenes Estáticas y Tracking Sub-Píxel]] para Deconvolución Richardson-Lucy en tiempo real y reglas $\mu\text{m}$.
 
 El botón **`📐 Iniciar Analizador de Imágenes`** (Fila 3, Columna 2 del lanzador `main.py`) abre la herramienta de inspección gráfica sobre archivos en disco:
 * **Calibración µm/píxel**: Carga imágenes `.tif`, `.png`, `.jpg` y permite definir la escala fotónica.
@@ -845,7 +852,9 @@ El botón **`📐 Iniciar Analizador de Imágenes`** (Fila 3, Columna 2 del lanz
 
 ---
 
-## 11. Módulo 13: Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)
+## 11. Módulo 11: Suite de Análisis Espectral y Quimiometría Raman (`raman_analyzer.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-11_Raman_Analyzer_Suite_Quimiometria|MOD-11: Suite Raman Analyzer & Quimiometría]] para desespicado MAD, AsLS/AirPLS/ModPoly y PCA SVD.
 
 El módulo **Raman Analyzer** es la estación analítica integral para espectroscopía Raman y dispersión Raman amplificada por superficie (SERS). Se ejecuta mediante el botón dedicado en `main.py` o directamente con `python raman_analyzer.py`:
 
@@ -891,7 +900,9 @@ Diseñada para cinéticas químicas, series temporales SERS y comparaciones de l
 
 ---
 
-## 12. Módulo 14: Analizador y Procesador Avanzado de Espectros SIF (Andor Solis — `sif_analyzer.py`)
+## 12. Módulo 12: Analizador y Procesador Avanzado de Espectros SIF (Andor Solis — `sif_analyzer.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-12_Analizador_SIF_Andor_Solis|MOD-12: Analizador Espectral SIF]] para el protocolo de 7 pasos, ergonomía en 5 pestañas y modelos LSPR (Fano/Gauss).
 
 El botón **`🌈 Iniciar Analizador SIF (Andor)`** o el comando `python sif_analyzer.py` despliegan la estación analítica especializada de PyPrinting 3.0 para archivos binarios nativos `.sif` adquiridos mediante cámaras EMCCD Andor iXon3 y espectrógrafos Andor Shamrock 500i bajo el entorno Andor Solis.
 
@@ -987,17 +998,38 @@ La interfaz organiza el análisis en 5 pestañas de progresión continua. Cada b
 * **Propagación en Vivo:** La matriz 2D filtrada fila a fila actualiza instantáneamente el mapa de calor 2D y el promedio 1D, alimentando automáticamente las pestañas 4 y 5.
 
 #### Pestaña 4: 📊 4. Transmisión ($T_{\text{calc}}$ vs $T_{\text{meas}}$)
-* **Propósito:** Calcular la transmitancia espectral de la muestra respecto al sustrato y evaluar los residuos instrumentales.
-* **Fila 1 (Curvas y Residuos):** Checkboxes `[x] T_calc` (verde), `[x] T_meas` (azul punteado), `[x] Mostrar Residuos` (gráfico inferior con $\Delta T = T_{\text{calc}} - T_{\text{meas}}$) y `Auto-Escala`.
-* **Fila 2 (Panel Agrupado ⚙️ Opciones de Cálculo 2D):**
-  - `(o) Ruta A (Promedios 1D)`: Promedia primero las ROI verticales de señal y referencia y luego calcula el cociente:
-    $$T_A(\lambda) = \frac{\langle L(y, \lambda) \rangle_Y - \langle D(y, \lambda) \rangle_Y}{\langle R(y, \lambda) \rangle_Y} \times 100\%$$
-    *(Recomendada para máxima relación señal/ruido).*
-  - `(o) Ruta B (Píxel a Píxel 2D)`: Evalúa la transmitancia local para cada píxel $(y, \lambda)$ y luego promedia el mapa 2D resultante:
-    $$T_B(y, \lambda) = \frac{L(y, \lambda) - D(y, \lambda)}{R(y, \lambda)} \times 100\%, \quad T_B(\lambda) = \langle T_B(y, \lambda) \rangle_Y$$
-    *(Exclusión mutua física garantizada por `QButtonGroup`).*
-  - `[x] Comparar A y B`: Superpone ambas curvas simultáneamente para validar uniformidad espacial.
-  - `[x] Noise Gate`: Anula la transmitancia en regiones de nula emisión halógena ($R(\lambda) < 1.05 \cdot D(\lambda)$) suprimiendo divergencias en los extremos del espectro.
+* **Propósito:** Calcular la transmitancia espectral de la muestra respecto al sustrato, contrastar las dos rutas metodológicas 2D, ejecutar el pipeline de filtrado en cascada y evaluar los residuos instrumentales e incertidumbres.
+* **Fila 1 (Configuración de Cálculo Físico & Pipeline de Filtrado en Cascada — Enfoque A):**
+  - **Panel `⚙️ Opciones de Cálculo 2D`**:
+    - `(●) Ruta A (Promedios 1D)`: Promedia primero las ROI verticales de señal y referencia y luego calcula el cociente:
+      $$T_A(\lambda) = \frac{\langle L(y, \lambda) \rangle_Y - \langle D(y, \lambda) \rangle_Y}{\langle R(y, \lambda) \rangle_Y} \times 100\%$$
+      *(Recomendada para máxima relación señal/ruido).*
+    - `(○) Ruta B (Píxel a Píxel 2D)`: Evalúa la transmitancia local para cada píxel $(y, \lambda)$ en la matriz del sensor y luego promedia las filas del ROI:
+      $$T_B(y, \lambda) = \frac{L(y, \lambda) - D(y, \lambda)}{R(y, \lambda)} \times 100\%, \quad T_B(\lambda) = \langle T_B(y, \lambda) \rangle_Y$$
+      *(Exclusión mutua garantizada por `QButtonGroup`).*
+    - `[x] Comparar A y B`: Superpone ambas curvas simultáneamente para validar uniformidad espacial y gradientes.
+    - `Noise Gate`: Umbral mínimo de cuentas en la referencia ($R(\lambda) > \text{Gate}$) para evitar divergencias o división por cero en regiones sin emisión de lámpara.
+  - **Panel `🧹 Pipeline de Filtrado en T(λ)` (Cadena Cascada Multietapa & Panel Contextual):**
+    Permite aplicar secuencialmente hasta 3 fases de procesamiento sobre la transmitancia:
+    1. **Fase 1 (Pre-acondicionamiento de Picos):** `[x] Despike` con selector de umbral $k_\sigma$ ($2.0 - 15.0$, defecto $4.0$). Elimina rayos cósmicos y transitorios espurios locales por mediana móvil o perfil adaptativo.
+    2. **Fase 2 (Denoising Físico Instrumental):** `[x] Wiener` con factor de agresividad $\alpha$ ($0.1 - 10.0$, defecto $1.0$). Filtro inverso óptimo en el dominio frecuencial basado en la Densidad Espectral de Potencia (PSD) del Dark.
+    3. **Fase 3 (Suavizado Espectral Matemático con Panel Sensible al Contexto):** Selector de método `[Ninguno, Savitzky-Golay, Fourier Lowpass, Media Móvil]`. Las casillas de parámetros se reconfiguran dinámicamente:
+       - **Savitzky-Golay:** Despliega `Ventana (pts):` (número impar, 3 a 101) y `Orden p:` (grado del polinomio $p \in [1, 5]$, acotado automáticamente a $p < W$).
+       - **Fourier Lowpass:** Despliega `Corte fc:` (frecuencia de corte relativa respecto a Nyquist, $0.01 - 0.50$).
+       - **Media Móvil:** Despliega `Ventana (pts):` ($2 - 51$).
+       - **Ninguno:** Oculta automáticamente los campos de parámetros para una interfaz limpia y minimalista.
+* **Fila 2 (Curvas Visibles & Acciones):**
+  - **Panel `👁️ Curvas Visibles`**: `[x] T_calc (%)` (verde), `[x] T_meas SIF (%)` (azul punteado) y `[x] Banda Incertidumbre (±σ_T)` (área sombreada semitransparente).
+  - Botón `Auto-Escala`: Encuadre automático de los gráficos.
+  - Botón **`⚡ Recalcular`**: Fuerza la actualización de todo el pipeline científico en las 5 ventanas.
+
+> [!IMPORTANT]
+> **Origen y Atribución Física de la Banda de Incertidumbre $\pm \sigma_T$ (ISO/GUM):**  
+> * **¿A qué curva corresponde la banda de incertidumbre?** La banda sombreada $\pm \sigma_T(\lambda)$ corresponde **estricta y exclusivamente a $T_{\text{calc}}$**, NO a $T_{\text{meas}}$.
+> * **¿Por qué no a $T_{\text{meas}}$?** $T_{\text{meas}}$ es un vector 1D precalculado por el firmware/software de Andor Solis y almacenado en el Canal 0 del archivo binario `.sif`. Dicho arreglo carece en su metadata de información de varianza, covarianza o dispersión instrumental píxel a píxel. Por tanto, sobre $T_{\text{meas}}$ es físicamente imposible computar una banda de incertidumbre sin asumir modelos heurísticos arbitrarios.
+> * **Fundamentación Teórica de $T_{\text{calc}} \pm \sigma_T$:** Para $T_{\text{calc}}$, el motor científico evalúa analíticamente la propagación de errores conforme a la norma internacional **ISO/IEC Guide 98-3 (GUM)**:
+>   $$\sigma_T^2(\lambda) = \left(\frac{\partial T}{\partial L}\right)^2 \sigma_L^2(\lambda) + \left(\frac{\partial T}{\partial R}\right)^2 \sigma_R^2(\lambda) + \left(\frac{\partial T}{\partial D}\right)^2 \sigma_D^2(\lambda)$$
+>   donde $\sigma_L^2$ y $\sigma_R^2$ integran el ruido de disparo fotónico Poissoniano ($\sqrt{N/G}$) más el ruido de lectura electrónico del sensor EMCCD ($\sigma_{\text{readout}}$), mientras que $\sigma_D^2(\lambda)$ proviene de la varianza espectral empírica caracterizada en el canal Dark del detector criogénico. Gráficamente, el área se traza entre $[T_{\text{calc}}(\lambda) - \sigma_T(\lambda)]$ y $[T_{\text{calc}}(\lambda) + \sigma_T(\lambda)]$.
 
 #### Pestaña 5: 🔬 5. Extinción & Ajuste Plasmónico
 * **Propósito:** Computar la extinción óptica de la nanopartícula:
@@ -1097,11 +1129,122 @@ Cualquier operador puede procesar una serie espectral completa siguiendo este pr
 
 > [!NOTE]
 > Para consultar el informe técnico exhaustivo sobre la arquitectura, análisis de causa raíz y benchmarks de la herramienta, consulte:  
-> [Reporte Técnico: Arquitectura, Ergonomía y Propagación de Filtros en el Analizador SIF (`reportes/sistema/Reporte_Tecnico_Analizador_SIF_Arquitectura_Ergonomia_y_Filtros.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Analizador_SIF_Arquitectura_Ergonomia_y_Filtros.md).
+> [Reporte Técnico: Arquitectura, Ergonomía y Propagación de Filtros en el Analizador SIF (`reportes/sistema/SYS-304_Arquitectura_Analizador_SIF_y_Filtros_Cascada.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/SYS-304_Arquitectura_Analizador_SIF_y_Filtros_Cascada.md).
 
 ---
 
-## 13. Módulo 9: Documentación y Créditos del Autor
+## 13. Módulo 08: Analizador de Desorden y Estructura de Redes Cristalinas 2D (`lattice_disorder_gui.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-08_Analizador_Desorden_Redes_2D|MOD-08: Analizador de Desorden y Redes 2D]] para SMLM, NUFFT 2D por BLAS GEMM y calibración Monte Carlo Debye-Waller.
+
+El botón **`✨ Analizador de Redes & Desorden`** (en la categoría de *Herramientas de Análisis y Procesamiento* del lanzador `main.py` o ejecutando directamente `python analysis/lattice_disorder_gui.py`) abre la suite metrológica dedicada a la caracterización cristalográfica de redes 2D nanofabricadas.
+
+### 13.1 Arquitectura en 4 Pestañas Secuenciales (Workflow Wizard)
+Siguiendo la ergonomía modular de SIF Analyzer, la suite se estructura en un flujo secuencial continuo:
+1. **Pestaña 1 (📍 Espacio Real & SMLM):** Carga dual de imágenes confocales (`.tiff`, `.png`, `.h5`) o tablas de coordenadas previas (`.csv`, `.txt`), configuración métrica ($\text{nm/px}$), panel dinámico de detección (Picasso / Trackpy), superposición de partículas detectadas (cian) y nodos vacantes (rojo), métricas de KDTree acotado, pipeline de curación de clústeres, inspección manual de puntos sospechosos y sub-panel interactivo de la función de distribución radial $g(r)$.
+2. **Pestaña 2 (📊 Espacio Recíproco & Fourier):** Mapa de difracción 2D continuo $S(f_x, f_y)$ mediante NUFFT acelerada por BLAS en $\log_{10}(1+S)$ con retículo en $\text{nm}^{-1}$, marcas de cruces en los picos de Bragg ajustados, perfiles transversales 1D integrados con ajuste gaussiano analítico en tiempo real, selector de tamaño de grilla ($256$ vs $512$), control reactivo de corte DC, tarjeta de parámetros de red ($a_x, a_y, a_{\text{mean}}$, anisotropía, alturas $H_x, H_y$, $\text{FWHM}$ y longitud de correlación $\xi$) y botón de propagación a Monte Carlo en 1 clic.
+3. **Pestaña 3 (🔄 Monte Carlo & Debye-Waller):** Simulación estocástica asíncrona en hilo dedicado (`QThread`) con barra de progreso interactiva, inyección explícita de la fracción de vacancias $p = f_{\text{vac}}$, soporte para anisotropía cristalográfica de red ($a_x \neq a_y$) con evaluación simultánea de curvas Debye-Waller duales para $X$ (azul) e $Y$ (rojo), muestreo continuo de alta resolución en la campana de Bragg (81 o 121 puntos continuos) para suprimir el error de cuantización por efecto peine (*picket-fence*), isomorfismo de cuadratura mediante integración de banda transversal idéntica a la Pestaña 2, proyección gráfica de las alturas experimentales e interpolación numérica de $\sigma_{\text{real}, x}, \sigma_{\text{real}, y} \pm \Delta \sigma$ junto a los dos coeficientes $R^2_x, R^2_y$, con persistencia completa en disco (`.npz`).
+4. **Pestaña 4 (📤 Ficha Metrológica & Exportación):** Ficha metrológica consolidada de 12 parámetros cuantitativos, exportadores de coordenadas `.csv` (con parámetros extendidos de localización), resumen metrológico `.txt`, curva de calibración `.csv` y generador de galería de 5 figuras científicas listas para publicación a 600 DPI (formatos SVG y PNG).
+
+---
+
+### 13.2 Ergonomía de Visualización: Barra de Capas Desacoplada en 2 Filas
+Para evitar el solapamiento o truncamiento de controles al reducir el ancho de la ventana, la barra superior de visibilidad de capas se organiza en una grilla compacta de dos filas (`QGridLayout` integrado en `QScrollArea`):
+* **Fila 1 (Capas Estructurales Principales):** `[x] Imagen Raw`, `[x] Partículas`, `[x] Vacancias`, `[x] Red Teórica`, `[x] Enlaces NN`.
+* **Fila 2 (Capas de Diagnóstico & Herramientas):** `[x] Clústeres/Multímeros`, `[x] Contornos Clúster`, `[x] Residuos dx/dy`, `[x] Caja ROI`, `[✂️ Aplicar Recorte]`, `[🔍 Reset Zoom]`.
+
+Esta disposición desacoplada permite redimensionar la ventana horizontalmente sin colapsar las casillas de verificación ni ocultar los selectores numéricos.
+
+---
+
+### 13.3 Pipeline de Curación Espacial, Balance Topológico y Desacople de Multímeros
+
+El módulo implementa un flujo de curación en tres fases que combina la inspección global con la intervención localizada:
+
+```mermaid
+graph TD
+    SMLM[1. Detección Inicial Picasso/Trackpy] --> ManCur[2. Selección Manual & Eliminación Espurias]
+    ManCur --> TopoVac[3. Balance Topológico N_vac = N_tot - N_part]
+    TopoVac --> SuspInspect[4. Inspección de Punto Sospechoso]
+    SuspInspect --> ContourCalc[Cálculo de Contorno Local & Momento Luminoso V_Omega]
+    ContourCalc --> DecoupleFit[5. Ajuste Multi-Gaussiano de n Partículas]
+    DecoupleFit --> AutoUpdate[Actualización Reactiva: Gráfico + Zoom + Fourier]
+```
+
+1. **Selección y Eliminación Manual de Partículas Espurias:**  
+   El operador puede seleccionar partículas arrastrando un recuadro de selección o haciendo clic sobre detecciones erróneas (polvo, partículas fuera del array, artefactos de borde). El botón **`🗑️ Eliminar Selección`** purga las partículas marcadas y **`💾 Confirmar Curación`** consolida el conjunto activo.
+2. **Determinación Rigurosa de Vacancias por Balance Topológico:**  
+   A diferencia de los métodos heurísticos de asignación geométrica que introducen vacancias falsas ante la presencia de multímeros no resueltos, el sistema evalúa el número de vacancias estrictamente por el balance canónico:
+   $$N_{\text{vac}} = N_x \times N_y - N_{\text{partículas}}$$
+   Las coordenadas de las vacancias se proyectan sobre los nodos de la red ideal que quedan desprovistos de partículas tras la asignación por KDTree acotado (`distance_upper_bound = a/2`).
+3. **Grupo 5: Inspección de Punto Sospechoso (Manual):**  
+   Permite al operador resolver manualmente manchas complejas, dímeros coalescidos o cadenas de nanopartículas (patrones en "L" o "S") que los localizadores automáticos registraron como una sola partícula brillante:
+   - **Selección Unitaria:** Al seleccionar una única partícula candidata en la tabla o en el gráfico, el panel calcula dinámicamente:
+     * El contorno local $\Omega$ por umbralización de Otsu/Watershed.
+     * El volumen luminoso integrado $V_\Omega = \sum_{p \in \Omega} I_p$ y el área $A_\Omega$.
+     * El cociente respecto a la PSF calibrada de partículas aisladas: $V_\Omega / V_0$ y $A_\Omega / A_0$.
+     * La estimación entera del número de partículas contenidas: $n = \text{round}(V_\Omega / V_0)$.
+   - **Botón `🎯 Desacoplar Spot (Fit)`:**  
+     Ejecuta una regresión no lineal por mínimos cuadrados amortiguados (Levenberg-Marquardt) ajustando $n$ gaussianas 2D anisotrópicas simultáneas dentro del parche:
+     $$I(x, y) = I_{\text{bg}} + \sum_{k=1}^n A_k \exp\left( -\frac{(x - x_k)^2 + (y - y_k)^2}{2 w_0^2} \right)$$
+     donde $w_0$ proviene de la anchura media de PSF calibrada.
+   - **Comportamiento Reactivo Inmediato:**  
+     Al resolverse el ajuste, el punto coalescido original se sustituye por las $n$ nuevas partículas localizadas, la escena gráfica se refresca instantáneamente, la cámara realiza un auto-enfoque con zoom en la región desacoplada, el balance de vacancias se actualiza de inmediato y el factor de estructura 2D de Fourier se propaga en tiempo real.
+
+---
+
+### 13.4 Espacio Recíproco & Fourier NUFFT 2D Acelerado por BLAS
+
+La Pestaña 2 evalúa el factor de estructura estático continuo sobre las coordenadas de superresolución $\{(x_j, y_j)\}_{j=1}^N$ sin proyectar a grillas intermedias de píxeles:
+$$S(\mathbf{q}) = \frac{1}{N} \left| \sum_{j=1}^N e^{-i \mathbf{q} \cdot \mathbf{r}_j} \right|^2$$
+
+1. **Aceleración Tensorial BLAS GEMM ($M = E_y \cdot E_x^T$):**  
+   Aprovechando la separabilidad de la base exponencial $e^{-2\pi i (f_x x + f_y y)} = e^{-2\pi i f_y y} \cdot e^{-2\pi i f_x x}$, el cálculo se formula como el producto matricial de dos matrices de dimensión $(N_{\text{bins}} \times N)$:
+   $$E_x[u, j] = e^{-2\pi i f_x[u] x_j}, \quad E_y[v, j] = e^{-2\pi i f_y[v] y_j}$$
+   $$M = E_y \cdot E_x^T \in \mathbb{C}^{N_{\text{bins}} \times N_{\text{bins}}}, \quad S(f_x, f_y) = \frac{1}{N} |M|^2$$
+   Esto reduce la complejidad algorítmica de $O(N \cdot N_{\text{bins}}^2)$ a $O(N \cdot N_{\text{bins}})$, delegando la contracción tensorial a las rutinas vectorizadas de OpenBLAS/MKL.
+2. **Selector de Grilla Espectral 2D (`combo_bins`):**  
+   - `256 x 256 (Rápido)`: Tiempo de cálculo de $\approx 18\ \text{ms}$, ideal para exploración interactiva y actualización continua.
+   - `512 x 512 (Alta Resolución)`: Tiempo de cálculo de $\approx 85\ \text{ms}$, duplica la densidad de muestreo frecuencial ($\Delta f = 2 f_{\max} / N_{\text{bins}}$), permitiendo resolver con máxima nitidez el perfil transversal y el FWHM de los picos de Bragg estrechos en redes ultra-ordenadas.
+   - `1024 x 1024 (Ultra Resolución)`: Tiempo de cálculo de $\approx 190\ \text{ms}$, genera una matriz espectral continua de $10^6$ puntos, eliminando por completo cualquier sesgo por efecto *picket-fence* y estabilizando el ajuste no-lineal para publicaciones de alta exigencia metrológica.
+3. **Corte DC Central (`spin_dc_cut`):**  
+   En $f=(0,0)$, la suma coherente alcanza su máximo absoluto $S(0,0) = N \approx 850$. El lóbulo de difracción de la apertura cuadrada finita de la red ($\text{sinc}^2(f_x L_x) \text{sinc}^2(f_y L_y)$) posee colas que saturan la escala de color y oscurecen los picos de Bragg $(H \approx 30\text{--}200)$.  
+   El control **`Corte DC`** (factor relativo respecto a la frecuencia fundamental $f_0 = 1/a$, por defecto $0.35$) excluye del percentil de auto-escalado la región $\|(f_x, f_y)\| < \text{Corte DC} \cdot f_0$, garantizando un contraste visual óptimo de la estructura cristalográfica.
+4. **Reactividad Total en Controles:**  
+   Cualquier modificación en el selector de grilla, el corte DC o el ancho de la banda de integración 1D actualiza y renderiza automáticamente el factor de estructura y los ajustes gaussianos de los perfiles transversales sin requerir clics adicionales.
+
+---
+
+### 13.5 Fundamentos Físicos y Mejoras Metrológicas Clave
+- **Atenuación por Vacancias $(1-p)^2$ en Debye-Waller:**  
+  La teoría cinemática de difracción con ocupación estocástica demuestra que la intensidad del pico coherente de Bragg escala estrictamente como:
+  $$I(\mathbf{G}) = N_0^2 (1 - p)^2 e^{-G^2 \sigma^2} + N_0 (1 - p) [1 - (1 - p) e^{-G^2 \sigma^2}]$$
+  Un $10\%$ de vacancias ($p = 0.10$) atenúa la altura del pico en $(0.9)^2 = 0.81$ (un $19\%$ de caída) **incluso con desorden cero ($\sigma = 0$)**. La nueva suite desacopla este factor incorporándolo explícitamente en el modelo analítico y removiendo esa misma fracción $p$ en las simulaciones Monte Carlo, aislando el desorden posicional puro $\sigma$.
+- **Monte Carlo de Alta Densidad, Isomorfismo de Cuadratura y Anisotropía Dual ($a_x \neq a_y$):**  
+  La calibración estocástica implementa un muestreo continuo de $81\text{--}121$ puntos en la campana de Bragg que elimina el efecto peine (*picket-fence*), incorpora la banda transversal de cuadratura ($[-\Delta f_\perp, +\Delta f_\perp]$) para compatibilidad física idéntica con la Pestaña 2, y genera curvas de calibración duales $H_x(\sigma, a_x)$ y $H_y(\sigma, a_y)$ con ajustes independientes para resolver desórdenes en redes anisotrópicas sin sesgo.
+- **Exclusión Estricta de Richardson-Lucy (RL) en Picasso:**  
+  Picasso asume una mancha de difracción óptica gaussiana no perturbada con estadística de Poisson/Gaussiana para el ajuste MLE/LQ. La deconvolución previa por RL destruye la física de la PSF e induce errores numéricos. En PyPrinting 3.0, RL se encuentra **restringido y aislado exclusivamente para el motor Trackpy**.
+- **Compensación Nativa del Offset de Caja en Picasso (`box_radius = box // 2`):**  
+  Corrige de forma transparente la omisión de `box_offset` en `picassosr` mediante la casilla configurable `[x] Compensar offset de caja (+box/2)`.
+- **NUFFT 2D Continua vs. Discretización Histórica en Histogramas:**  
+  El cálculo continuo sobre coordenadas nanométricas directas mediante factorización tensorial BLAS ($M = E_y \cdot E_x^T$, $\approx 18\ \text{ms}$) erradica el piso artificial de $14.4\ \text{nm}$ inyectado por `histogram2d` a $50\ \text{nm/px}$, preservando el mapa 2D de difracción y la detección de picos 2D.
+- **Alineación por Fase Circular & Residuos Cartesianos No-Sesgados:**  
+  La fase de traslación cristalina $(x_0, y_0)$ se calcula por media circular de Fourier (inmune a paridad par/impar de $N$), la cota `distance_upper_bound = a/2` elimina saltos espurios de vacancias a $450\ \text{nm}$, y el cálculo univariado $\sigma_x = \text{std}(\Delta x), \sigma_y = \text{std}(\Delta y)$ erradica la subestimación del $34.5\%$ inducida por la distribución de Rayleigh en distancias euclidianas 2D.
+- **Presets de Operación de 1-Clic & ROI Interactivo de 4 Reglas:**  
+  Incorpora un selector de configuraciones pre-calibradas (`✨ Confocal Estándar 30x30 (500 nm)`, `🔬 Alta Densidad`, `☀️ Fondo Claro`, `📷 Fluorescencia`) con serialización JSON, 4 reglas infinitas discontinuas para encuadre interactivo con recorte instantáneo sin relocalizar (`[✂️ Aplicar Recorte]`), auto-escalado dinámico a 16-bit (`uint16`) para imágenes float32 e inversión automática para microscopía de transmisión.
+
+---
+
+### 13.6 Referencias Cruzadas y Reportes Científicos
+Para una profundización exhaustiva en la teoría física, las derivaciones analíticas y los benchmarks computacionales, consulte los documentos complementarios en la suite:
+* 📄 **Manual Técnico del Módulo 08:** [[MOD-08_Analizador_Desorden_Redes_2D|MOD-08: Analizador de Desorden y Redes 2D]].
+* 🔬 **Reporte de Superresolución y Curación:** [[CAT-204_Curacion_Fotometrica_Desacople_MultiGaussiano_Consistencia|CAT-204: Curación Fotométrica y Desacople Multi-Gaussiano]].
+* ⚡ **Reporte Teórico de NUFFT & BLAS GEMM:** [[CAT-307_Computacion_NUFFT_Factor_Estructura_Optimizacion_BLAS|CAT-307: Computación NUFFT 2D y Optimización BLAS]].
+* 📐 **Metrología y Fundamentos de $g(r)$ en Redes 2D:** [[CAT-303_Derivacion_Matematica_Distribucion_Radial_gr_Correccion_Borde|CAT-303: Derivación Matemática g(r)]] y [[CAT-304_Metrologia_Experimental_Conchas_Coordinacion_gr_Redes_2D|CAT-304: Metrología Experimental de Conchas de Coordinación en Redes 2D]].
+
+---
+
+### 13.7 Documentación y Créditos del Autor (Lanzador)
 
 El botón **`📚 Documentación y Créditos`** (Fila 3, Columna 3 del lanzador `main.py`) despliega el acceso rápido a los manuales del sistema y los créditos del autor:
 * **Manual de Usuario**: Abre el presente archivo `MANUAL_USUARIO.md`.
@@ -1112,7 +1255,9 @@ El botón **`📚 Documentación y Créditos`** (Fila 3, Columna 3 del lanzador 
 
 ---
 
-## 14. Módulo 11: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)
+## 14. Módulo 07: Diseñador Universal de Redes Cristalinas 2D (`grid_generator.py`)
+
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-07_Disenador_Redes_2D_Grid_Generator|MOD-07: Diseñador de Redes 2D]] para las 15 familias cristalográficas, bases atómicas complejas, exclusión $d_{\min}$ y sincronización multirégimen.
 
 El botón **`📐 Diseñador de Redes 2D`** (en la tarjeta del lanzador `main.py` o menú `Tools -> Diseñador de Redes 2D` en `app.py` con `Ctrl+G`) abre la aplicación especializada para la síntesis de redes periódicas:
 
@@ -1123,14 +1268,15 @@ El botón **`📐 Diseñador de Redes 2D`** (en la tarjeta del lanzador `main.py
 - **Acción Rápida de Carga Directa (1-Click)**: Botón `🚀 Cargar Directo en Measurements` que transfiere la matriz de coordenadas $(3, N)$ directamente a la memoria de impresión de `Measurements` sin necesidad de guardar o cargar archivos en disco.
 - **Visualizador de Celda Unidad en Vivo**: Gráfico microscópico en el panel izquierdo que muestra el paralelogramo de la celda, los vectores base $\mathbf{a}_1, \mathbf{a}_2$ y los átomos coloreados según su material.
 - **Generación de Recetas Multi-Paso y Encabezados Metrológicos**: Particionado automático de archivos `.txt` de impresión según los materiales únicos asignados, incorporando la **Partícula Ancla ($P_0$) en la primera fila** de cada archivo y encabezados comentados con `# Coordinate Regime: ...` (compatibles 100% con `np.loadtxt`).
-- *Documentación Completa*: [Manual Detallado del Diseñador 2D (`docs/modulos/11_Disenador_Redes_2D_Grid_Generator.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/11_Disenador_Redes_2D_Grid_Generator.md).
+- *Documentación Completa*: Consultar [[MOD-07_Disenador_Redes_2D_Grid_Generator|MOD-07: Diseñador de Redes 2D]].
 
 ---
 
-## 15. Módulo 12: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso
+## 15. Módulo 14: Procedimientos Operativos Estandarizados (SOP) y Protocolos Paso a Paso
 
-Para la operación completa del setup experimental en laboratorio, consulte el manual protocolar dedicado:
-[Procedimientos Operativos Estandarizados (SOP) — Protocolo Paso a Paso (`docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/modulos/12_Protocolos_Operacion_Paso_a_Paso_Laboratorio.md).
+> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-14_Protocolos_Laboratorio_SOP|MOD-14: Protocolos de Laboratorio SOP]] para el protocolo experimental paso a paso exhaustivo en 7 fases.
+
+Para la operación completa del setup experimental en laboratorio, consulte el manual protocolar dedicado: [[MOD-14_Protocolos_Laboratorio_SOP|MOD-14: Protocolos de Laboratorio SOP]].
 
 ### Resumen de Fases Operativas:
 1. **Fase 1: Pre-Vuelo**: Encendido y flotación de mesa óptica, estabilización térmica de láser 532 nm (20 min), inicio de chasis NI-DAQmx Dev1, controladora PI E-517 y cámara réflex Canon EOS 500D.
@@ -1182,7 +1328,7 @@ Para la operación completa del setup experimental en laboratorio, consulte el m
 ## 18. Modelo Metrológico de Incertidumbre y Criterios Sub-píxel (Norma ISO/GUM)
 
 Para consultar el análisis físico formal y las derivaciones según la norma internacional **ISO/IEC Guide 98-3 (GUM)**, remítase al informe técnico del repositorio:
-[Incertidumbre Metrológica ISO/GUM (`reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md).
+[[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia|CAT-203: Presupuesto de Incertidumbre Metrológica ISO/GUM en Microscopía]].
 
 ### Resumen Metrológico con Hardware y Óptica Real:
 * **Cadena Óptica Estándar de Nanofabricación**:
@@ -1221,7 +1367,7 @@ Cuando la casilla **`Modo Seguro (Simulación)`** en `main.py` se encuentra **de
 ## 20. Arquitectura de Hilos, Concurrencia y Estabilidad en Tiempo Real
 
 Para un análisis detallado de la topología de hilos, consulte el reporte formal:  
-[Arquitectura de Hilos y Concurrencia (reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md)
+[Arquitectura de Hilos y Concurrencia (reportes/sistema/SYS-101_Arquitectura_Hilos_Concurrencia_QThread.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/SYS-101_Arquitectura_Hilos_Concurrencia_QThread.md)
 
 ### Resumen de la Topología Multihilo:
 * **Main UI Thread (Hilo Principal)**: Maneja la interfaz gráfica PyQt6, gráficos PyQtGraph y eventos de usuario.
@@ -1286,14 +1432,14 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 
 ### 22.6 El Flipper Óptico no conmuta o arroja error de recurso ocupado NI-DAQmx (-200088)
 * **Causa 1 (Puntero C zombi en PyDAQmx)**: Tras invocar `task.close()`, el handle C subyacente es liberado pero la variable Python aún referencia el objeto primitivo. Al intentar reasignar canales analógicos `Dev1/ao0` o `Dev1/ao1`, el driver arroja `DAQmxError -200088: Task cannot be performed because specified resource is reserved`.
-  * **Solución**: La arquitectura desacoplada de PyPrinting 3.0 gestiona esto reseteando explícitamente `_task_flipper_up = None` y `_task_flipper_down = None`, invocando `close_all_tasks()` de forma segura y validando el estado con `task.is_task_done()` antes de despachar el pulso de 5V x 100 ms. Para más detalles, consulte [Reporte Técnico: Actuación de Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md).
+  * **Solución**: La arquitectura desacoplada de PyPrinting 3.0 gestiona esto reseteando explícitamente `_task_flipper_up = None` y `_task_flipper_down = None`, invocando `close_all_tasks()` de forma segura y validando el estado con `task.is_task_done()` antes de despachar el pulso de 5V x 100 ms. Para más detalles, consulte [Reporte Técnico: Actuación de Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx.md).
 * **Causa 2 (Bucle infinito de señales Qt)**: Si el flipper se conmuta mediante `powerbutton.setChecked()`, Qt emite automáticamente la señal `toggled`, disparando un ciclo recursivo si el callback manipula el botón.
   * **Solución**: Utilice siempre la señal de usuario desacoplada `powerbutton.clicked` en lugar de `toggled`.
 * **Causa 3 (Confusión de Canales Flipper vs Shutter)**: El Flipper de Potencia opera por pulsos analógicos de 5V en `ao0`/`ao1` (atenuador OD), mientras que los obturadores de seguridad operan en líneas digitales `port0/line0:3`. Nunca deben mezclarse en el software ni atarse al corte de emergencia del watchdog.
 
 ### 22.7 Advertencia "Lock Focus Requerido" al activar Compensación de Inclinación Z (Confocal Tilt)
 * **Causa**: El usuario presiona el botón `📐 Inclinación Z` en el Dock Confocal sin haber calibrado previamente un perfil de enfoque de referencia mediante `Lock Focus` (`F9`).
-  * **Solución**: El algoritmo de plano inclinado $z(x,y) = z_0 + \alpha(x-x_c) + \beta(y-y_c)$ requiere conocer la cota de máxima reflexión en el centro de la grilla ($z_0$) para calcular los desplazamientos relativos de las 4 esquinas. Ejecute primero `Go to max` (`F8`) sobre la interfaz vidrio-agua, luego `Lock focus` (`F9`), y finalmente presione `📐 Inclinación Z`. Consulte el informe [Compensación de Inclinación Confocal Tilt y Healing Pass](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md).
+  * **Solución**: El algoritmo de plano inclinado $z(x,y) = z_0 + \alpha(x-x_c) + \beta(y-y_c)$ requiere conocer la cota de máxima reflexión en el centro de la grilla ($z_0$) para calcular los desplazamientos relativos de las 4 esquinas. Ejecute primero `Go to max` (`F8`) sobre la interfaz vidrio-agua, luego `Lock focus` (`F9`), y finalmente presione `📐 Inclinación Z`. Consulte el informe [[CAT-104_Compensacion_Inclinacion_Z_Confocal_y_Healing_Pass|CAT-104: Compensación de Inclinación Z Confocal y Healing Pass]].
 
 ### 22.8 Nodos faltantes o timeout difusivo durante impresión de grillas (Uso del Healing Pass)
 * **Causa**: Fluctuación local de concentración coloidal provocando que el tiempo browniano de llegada de una partícula exceda el límite de seguridad $\tau_{\text{safe}} = 10\ \text{s}$.
@@ -1315,7 +1461,7 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 El sistema normaliza la matriz de intensidad entre $0.0$ y $1.0$, aplica el filtrado umbral no lineal al $30\%$ ($Z_f = 0$ si $Z_n < 0.30$) e integra un ajuste no lineal por mínimos cuadrados (`scipy.optimize.curve_fit`) sobre la función Gaussiana 2D anisotropica de 7 parámetros. Las coordenadas $(x_0, y_0)$ resultantes poseen precisión sub-nanométrica.
 
 ### 23.2 ¿Dónde se documenta el modelo metrológico de incertidumbre?
-Se encuentra detallado en la norma metrológica del laboratorio: [Incertidumbre Metrológica ISO/GUM (reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md), respaldando la resolución de $0.35\ \text{nm}$.
+Se encuentra detallado en la norma metrológica del laboratorio: [[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia|CAT-203: Presupuesto de Incertidumbre Metrológica ISO/GUM en Microscopía]], respaldando la resolución de $0.35\ \text{nm}$.
 
 ### 23.3 ¿Cómo funciona el botón de Shutter 532 nm en la ventana de Modulación Láser?
 En la ventana flotante **`Laser532Window`** (accesible desde la Fila 2, Columna 2 del lanzador), el botón conmuta dinámicamente:
@@ -1330,22 +1476,24 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 
 | Subsistema / Módulo | Condición de Borde (Ruptura) | Firma Experimental | Acción Correctiva Física (No sólo reiniciar software) |
 | :--- | :--- | :--- | :--- |
-| **00. Física y Coloide** | Cavitación térmica ($T > 280\ ^\circ\text{C}$). | Salto a $10\ \text{V}$ y caída a $0\ \text{V}$; microburbuja. | Bajar voltaje AO2 a $< 1.5\ \text{V}$ ($P < 8\ \text{mW}$) y cambiar cubreobjetos. |
-| **00. Sustrato** | Degradación de silano APTES. | Salto en fotodiodo sin fijación (rebote). | Limpieza Piranha fresca ($3:1\ \text{H}_2\text{SO}_4:\text{H}_2\text{O}_2$) y re-silanizar con APTES al $1\%$. |
-| **01. Detección Confocal** | Saturación de fotodiodo PDA. | Trazas/mapas recortados planos a $+10.0\ \text{V}$. | Conmutar ganancia PDA a un paso inferior ($20\ \text{dB}$ / $0\ \text{dB}$) o insertar filtro ND. |
-| **01. Pinhole Óptico** | Desalineación de pinhole ($> 50\ \mu\text{m}$). | Fondo elevado, SNR $< 3$, PSF distorsionada. | Ajustar tornillos micrométricos $X-Y$ del pinhole sobre partícula fija hasta maximizar señal. |
-| **02. Impresión Grillas** | Falsos positivos por partículas de paso. | Salto transitorio $< 20\ \text{ms}$, nodo vacío. | Aumentar filtro $N_{\text{hold}}$ a $5 - 8$ muestras y fijar Modo 1 o Modo 4 en la GUI. |
-| **02. Impresión Grillas** | Timeout difusivo ($t > 20\ \text{s}$). | Traza plana en ruido basal sin salto. | Comprobar apertura física del obturador, subir ligeramente potencia o aplicar *Healing Pass*. |
-| **03. Contrapropagante** | Desalineación colineal ($\|\Delta \mathbf{r}\| > 100\ \text{nm}$). | Partícula expulsada lateralmente sin atrape 3D. | Ajustar espejos de acoplamiento superior hasta que residual $\|\Delta \mathbf{r}\| \le 20\ \text{nm}$. |
-| **04. Cámara CMOS** | Bloqueo USB EDSDK / Sleep Mode. | Visor Live View congelado, 0 FPS. | Apagar *Auto Power Off* en el menú físico de la Canon réflex y conectar fuente continua. |
-| **05. Ajuste de PSF** | Aberración esférica por cubreobjetos. | PSF asimétrica, $\text{FWHM} > 380\ \text{nm}$. | Ajustar collar de inmersión del objetivo a marca `#1.5` ($170\ \mu\text{m}$) y limpiar aceite. |
-| **06. Imagen & Deconv.** | Artefactos de anillo (*Ringing* RL). | Halos oscuros concéntricos artificiales. | Limitar iteraciones Richardson-Lucy a $15 - 25$ y aplicar filtrado gaussiano previo. |
-| **07. Láser 532 nm** | Inestabilidad térmica en DPSS Ventus. | Ruido $RMS > 5\%$ y saltos de modo en traza. | Esperar al menos $20\ \text{min}$ de calentamiento térmico tras encender la fuente láser. |
-| **08. Tablero DAQmx** | Conflicto de tareas NI-DAQmx (-200088). | Error de recurso ocupado en consola. | Pulsar `Reset DAQ Tasks` en el Dashboard para invocar `task.stop()` / `task.close()` forzado. |
-| **09. Espectroscopía** | Saturación CCD Andor ($> 65535\ \text{ADU}$). | Picos espectrales truncados y *blooming*. | Reducir tiempo de exposición a $0.1\ \text{s}$ o estrechar ranuras de entrada a $\le 50\ \mu\text{m}$. |
-| **10. Analizador SIF** | $R(\lambda) \le D(\lambda)$ o fondo duplicado. | Transmitancias disparadas $>1000\%$. | Activar flag `ref_is_bg_corrected` o seleccionar *Noise Gate* en la Pestaña 4. |
-| **11. Diseñador 2D** | Violación de proximidad ($d < d_{\text{min}}$). | Superposición de partículas en canvas 2D. | Incrementar constantes de red $(a, b)$ o ajustar coordenadas fraccionales $(u, v)$ en base atómica. |
-| **12. Operación Lab** | Rotura de cubreobjetos por sobre-carrera. | Derrame de aceite/líquido sobre objetivo. | Bajar macrométrico manual, limpiar con isopropanol y colocar nuevo cubreobjetos `#1.5`. |
+| **[[CAT-109_Electrodinamica_Fuerzas_Opticas_y_Termoplasmonica_Printing\|Física & Termoplasmónica]]** | Cavitación térmica ($T > 280\ ^\circ\text{C}$). | Salto a $10\ \text{V}$ y caída a $0\ \text{V}$; microburbuja. | Bajar voltaje AO2 a $< 1.5\ \text{V}$ ($P < 8\ \text{mW}$) y cambiar cubreobjetos. |
+| **[[CAT-110_Fisicoquimica_Coloides_DLVO_y_Funcionalizacion_Superficies\|Coloides & Sustrato]]** | Degradación de silano APTES. | Salto en fotodiodo sin fijación (rebote). | Limpieza Piranha fresca ($3:1\ \text{H}_2\text{SO}_4:\text{H}_2\text{O}_2$) y re-silanizar con APTES al $1\%$. |
+| **[[MOD-01_Microscopio_Derecho_App\|MOD-01 Confocal]]** | Saturación de fotodiodo PDA. | Trazas/mapas recortados planos a $+10.0\ \text{V}$. | Conmutar ganancia PDA a un paso inferior ($20\ \text{dB}$ / $0\ \text{dB}$) o insertar filtro ND. |
+| **[[MOD-01_Microscopio_Derecho_App\|MOD-01 Pinhole]]** | Desalineación de pinhole ($> 50\ \mu\text{m}$). | Fondo elevado, SNR $< 3$, PSF distorsionada. | Ajustar tornillos micrométricos $X-Y$ del pinhole sobre partícula fija hasta maximizar señal. |
+| **[[MOD-02_Measurements_Printing_y_Dimeros\|MOD-02 Printing]]** | Falsos positivos por partículas de paso. | Salto transitorio $< 20\ \text{ms}$, nodo vacío. | Aumentar filtro $N_{\text{hold}}$ a $5 - 8$ muestras y fijar Modo 1 o Modo 4 en la GUI. |
+| **[[MOD-02_Measurements_Printing_y_Dimeros\|MOD-02 Printing]]** | Timeout difusivo ($t > 20\ \text{s}$). | Traza plana en ruido basal sin salto. | Comprobar apertura física del obturador, subir ligeramente potencia o aplicar *Healing Pass*. |
+| **[[MOD-03_Microscopio_Contrapropagante\|MOD-03 Contrapropagante]]** | Desalineación colineal ($\|\Delta \mathbf{r}\| > 100\ \text{nm}$). | Partícula expulsada lateralmente sin atrape 3D. | Ajustar espejos de acoplamiento superior hasta que residual $\|\Delta \mathbf{r}\| \le 20\ \text{nm}$. |
+| **[[MOD-04_Camara_Live_View_Canon_EDSDK\|MOD-04 Cámara CMOS]]** | Bloqueo USB EDSDK / Sleep Mode. | Visor Live View congelado, 0 FPS. | Apagar *Auto Power Off* en el menú físico de la Canon réflex y conectar fuente continua. |
+| **[[MOD-05_Modulacion_Laser_Potencias\|MOD-05 Láser 532 nm]]** | Inestabilidad térmica en DPSS Ventus. | Ruido $RMS > 5\%$ y saltos de modo en traza. | Esperar al menos $20\ \text{min}$ de calentamiento térmico tras encender la fuente láser. |
+| **[[MOD-06_PySpectrum_Espectroscopia_Shamrock\|MOD-06 PySpectrum]]** | Saturación CCD Andor ($> 65535\ \text{ADU}$). | Picos espectrales truncados y *blooming*. | Reducir tiempo de exposición a $0.1\ \text{s}$ o estrechar ranuras de entrada a $\le 50\ \mu\text{m}$. |
+| **[[MOD-07_Disenador_Redes_2D_Grid_Generator\|MOD-07 Diseñador 2D]]** | Violación de proximidad ($d < d_{\text{min}}$). | Superposición de partículas en canvas 2D. | Incrementar constantes de red $(a, b)$ o ajustar coordenadas fraccionales $(u, v)$ en base atómica. |
+| **[[MOD-08_Analizador_Desorden_Redes_2D\|MOD-08 Redes 2D]]** | Asignación errónea por multímeros coalescidos. | Vacancias falsas en grilla ideal. | Aplicar desacople multi-gaussiano (Fit) y re-evaluar balance topológico $N_{\text{vac}}$. |
+| **[[MOD-09_PSF_Analyzer_Optica_Difraccion\|MOD-09 PSF Analyzer]]** | Aberración esférica por cubreobjetos. | PSF asimétrica, $\text{FWHM} > 380\ \text{nm}$. | Ajustar collar de inmersión del objetivo a marca `#1.5` ($170\ \mu\text{m}$) y limpiar aceite. |
+| **[[MOD-10_Image_Analyzer_Tracking\|MOD-10 Image Analyzer]]** | Artefactos de anillo (*Ringing* RL). | Halos oscuros concéntricos artificiales. | Limitar iteraciones Richardson-Lucy a $15 - 25$ y aplicar filtrado gaussiano previo. |
+| **[[MOD-11_Raman_Analyzer_Suite_Quimiometria\|MOD-11 Raman Analyzer]]** | Rayos cósmicos sobre bandas analíticas. | Picos espurios agudos de 1 píxel. | Activar desespicado estadístico MAD y verificar con espectro promedio $\mu \pm \sigma$. |
+| **[[MOD-12_Analizador_SIF_Andor_Solis\|MOD-12 Analizador SIF]]** | $R(\lambda) \le D(\lambda)$ o fondo duplicado. | Transmitancias disparadas $>1000\%$. | Activar flag `ref_is_bg_corrected` o seleccionar *Noise Gate* en la Pestaña 4. |
+| **[[MOD-13_Hardware_Dashboard_y_Presets\|MOD-13 Dashboard]]** | Conflicto de tareas NI-DAQmx (-200088). | Error de recurso ocupado en consola. | Pulsar `Reset DAQ Tasks` en el Dashboard para invocar `task.stop()` / `task.close()` forzado. |
+| **[[MOD-14_Protocolos_Laboratorio_SOP\|MOD-14 Operación Lab]]** | Rotura de cubreobjetos por sobre-carrera. | Derrame de aceite/líquido sobre objetivo. | Bajar macrométrico manual, limpiar con isopropanol y colocar nuevo cubreobjetos `#1.5`. |
 
 ---
 
@@ -1380,6 +1528,9 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 | **`core/`** | [core/shutters.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py) | **Control de Obturadores & Láser 532 nm**: Conmutación TTL de obturadores (`port0/line0:3`), modulación analógica AO2 y flippers desacoplados (`ao0`/`ao1`). |
 | **`core/`** | [core/nidaq.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nidaq.py) | **Capa HAL de National Instruments**: Generación/lectura de formas de onda por NI-DAQmx (multicanal $100\text{ kHz}$) y gestión limpia de tareas. |
 | **`core/`** | [core/canon_edsdk.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/canon_edsdk.py) | **Wrapper C/Python Canon EDSDK**: Integración nativa a bajo nivel con la DLL de Canon (EVF live stream & propiedades ISO/Tv). |
+| **`core/`** | [core/raman_engine.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/raman_engine.py) | **Motor Espectral y Quimiometría Raman**: Desespicado MAD, sustracción de línea base (AsLS, AirPLS, ModPoly) y descomposición multivariada PCA SVD. |
+| **`core/`** | [core/localization_pipeline.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/localization_pipeline.py) | **Pipeline Unificado de Super-Resolución SMLM**: Localización sub-píxel por GaussMLE / Trackpy y Deconvolución Richardson-Lucy 2D con reescalado uint16. |
+| **`analysis/`**| [analysis/multi_spectrum_widget.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/multi_spectrum_widget.py) | **Visualizador Multi-Espectral**: Superposición interactiva de espectros, cálculo de promedios con bandas $\pm \sigma$ e inspección multicanal. |
 | **`analysis/`**| [analysis/psf.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/psf.py) | **Librería de Ajustes Fotométricos**: Modelos Gaussianos 2D, Donut Laguerre-Gauss 01 y estimación de centroide. |
 | **`analysis/`**| [analysis/spiral.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/spiral.py) | **Trayectorias Helicoidales**: Algoritmo de transformación de matriz simétrica a espiral continua en sentido horario/antihorario. |
 | **`analysis/`**| [analysis/image_analyzer.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/analysis/image_analyzer.py) | **Analizador Gráfico de Imágenes**: Herramienta de medición espacial y calibración en $\mu\text{m}/\text{px}$ sobre fotos guardadas. |
@@ -1392,35 +1543,54 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 
 El laboratorio cuenta con un repositorio documental completo organizado en las carpetas [`reportes/sistema/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/) y [`reportes/cientificos/`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/) (ver índice general en [`reportes/README.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/README.md)):
 
-#### 🔬 A. Reportes Científicos, Físicos y Protocolos Experimentales (`reportes/cientificos/`)
-1. 🔬 [Guía Protocolar Paso a Paso "DO PRINTING"](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Protocolo_y_Guia_de_Impresion_de_Grillas_PyPrinting3.md): Procedimiento completo para alineación, enfoque, origen de coordenadas, presets y ejecución de grillas regulares y personalizadas.
-2. 📐 [Diseño y Generación de Redes Cristalinas 2D](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Diseno_y_Generacion_de_Redes_Cristalinas_2D_PyPrinting3.md): Síntesis cristalográfica de 15 familias, bases fraccionales $(u,v)$, restricción $d_{\text{min}}$ y recetas multi-paso $P_0$.
-3. 📊 [Incertidumbre Metrológica ISO/GUM](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Incertidumbre_Metrologica_PyPrinting3.md): Evaluación formal del presupuesto de incertidumbre, ajuste Gaussiano 2D / Donut LG01 y resolución sub-píxel ($u_c \approx 0.35\ \text{nm}$).
-4. 🧮 [Algoritmo de Parada e Impresión de Grillas](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Algoritmo_Printing_y_Dimers_PyPrinting3.md): Formulación matemática de los 5 criterios de parada (Modos 0 a 4), filtro anti-paso $N_{\text{hold}}$ y dímeros sub-100 nm.
-5. 📐 [Compensación de Inclinación Confocal Tilt y Healing Pass](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Compensacion_de_Inclinacion_Confocal_Tilt_y_Healing_Pass_PyPrinting3.md): Geometría de 4 esquinas para compensación axial $Z(x,y)$, rango de Rayleigh y algoritmo de autocompletitud de redes con autofoco in-situ.
-6. 📍 [Corrección de Deriva Termomecánica (Drift Correction)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Correccion_de_Deriva_Termomecanica_Drift_Correction_PyPrinting3.md): Método de partícula ancla P0 para compensación $X-Y$ en tiempo real post-autofoco Z.
-7. ⏱️ [Control Adaptativo de Frecuencia de Autofoco y Deriva](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Control_Adaptativo_de_Frecuencia_de_Autofoco_y_Deriva_PyPrinting3.md): Lazo cerrado de modulación de frecuencia ($N_{\text{adaptive}}, \tau_{\text{safe}}$) según la velocidad de deriva instantánea $\vec{v}_{\text{drift}}$.
-8. 📈 [Análisis Time-Volt y Tracking Avanzado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Analisis_Time_Volt_y_Tracking_Avanzado_PyPrinting3.md): Ajuste cinético no lineal de trazas de fotodiodo ($V_{\text{low}}, V_{\text{high}}, \Delta V, t_{\text{step}}$), latencias y reportes estadísticos.
-9. 🖼️ [Deconvolución Richardson-Lucy y Trackpy](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Deconvolucion_Richardson_Lucy_y_Trackpy_PyPrinting3.md): Modelo bayesiano MLE, calibración de PSF y seguimiento centroidal de partículas coloidales.
-10. 📦 [Contenedor Científico Unificado HDF5 (.h5)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/cientificos/Contenedor_Cientifico_HDF5_PyPrinting3.md): Serialización jerárquica de lotes, compresión lossless `shuffle+gzip` y compatibilidad FAIR.
+#### 🔬 A. Biblioteca de Reportes Científicos y Metrológicos (`reportes/cientificos/`)
+- [[CAT-001_Apendice_Maestro_Compendio_e_Instructivo_Cientifico|📘 CAT-001: Apéndice Maestro, Compendio e Instructivo Científico]]
+- [[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D|🔬 CAT-101: Protocolo Operativo de Impresión Fototérmica de Grillas 2D]]
+- [[CAT-102_Sintesis_Cristalografica_Redes_2D_y_Particula_Ancla|📐 CAT-102: Síntesis Cristalográfica de Redes 2D y Partícula Ancla]]
+- [[CAT-103_Control_Lazo_Cerrado_Fototermico_y_Sintesis_Dimeros|🎯 CAT-103: Control de Lazo Cerrado Fototérmico y Síntesis de Dímeros]]
+- [[CAT-104_Compensacion_Inclinacion_Z_Confocal_y_Healing_Pass|📐 CAT-104: Compensación de Inclinación Z Confocal y Healing Pass]]
+- [[CAT-105_Compensacion_Deriva_Termomecanica_Particula_Ancla_P0|📍 CAT-105: Compensación de Deriva Termomecánica con Partícula Ancla P0]]
+- [[CAT-106_Control_Adaptativo_Frecuencia_Autofoco_Gradiente_Deriva|⏱️ CAT-106: Control Adaptativo de Frecuencia de Autofoco y Deriva]]
+- [[CAT-107_Cinetica_Captura_Fotodiodo_Time_Volt_Filtro_Nhold|📈 CAT-107: Cinética de Captura en Fotodiodo (Time-Volt) y Filtro Nhold]]
+- [[CAT-108_Teoria_Optica_Telescopio_Rele_4f_y_Canales_Confocales|🔬 CAT-108: Teoría Óptica del Telescopio Relé 4f y Canales Confocales]]
+- [[CAT-109_Electrodinamica_Fuerzas_Opticas_y_Termoplasmonica_Printing|⚡ CAT-109: Electrodinámica, Fuerzas Ópticas y Termoplasmónica en Optical Printing]]
+- [[CAT-110_Fisicoquimica_Coloides_DLVO_y_Funcionalizacion_Superficies|🧪 CAT-110: Fisicoquímica de Coloides, Potencial DLVO y Silanización con APTES]]
+- [[CAT-201_Deconvolucion_Optica_Richardson_Lucy_y_Tracking_Trackpy|🖼️ CAT-201: Deconvolución Óptica Richardson-Lucy y Tracking con Trackpy]]
+- [[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica|📏 CAT-202: Derivación Matemática de la Cota de Cramér-Rao en Localización Óptica]]
+- [[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia|📊 CAT-203: Presupuesto de Incertidumbre Metrológica ISO/GUM en Microscopía]]
+- [[CAT-204_Curacion_Fotometrica_Desacople_MultiGaussiano_Consistencia|🔬 CAT-204: Curación Fotométrica, Desacople Multi-Gaussiano y Consistencia]]
+- [[CAT-301_Algoritmos_Espacio_Real_KDTree_Asignacion_Monte_Carlo|💎 CAT-301: Algoritmos en Espacio Real: KDTree y Asignación Monte Carlo]]
+- [[CAT-302_Caracterizacion_Fisica_Desorden_Defectos_Redes_SMLM|📊 CAT-302: Caracterización Física de Desorden y Defectos en Redes SMLM]]
+- [[CAT-303_Derivacion_Matematica_Distribucion_Radial_gr_Correccion_Borde|📐 CAT-303: Derivación Matemática de la Distribución Radial g(r) y Corrección de Borde]]
+- [[CAT-304_Metrologia_Experimental_Conchas_Coordinacion_gr_Redes_2D|🔬 CAT-304: Metrología Experimental de Conchas de Coordinación en Redes 2D]]
+- [[CAT-305_Derivacion_Matematica_Factor_Estructura_Debye_Waller|📐 CAT-305: Derivación Matemática del Factor de Estructura y Atenuación Debye-Waller]]
+- [[CAT-306_Metrologia_Optica_Difraccion_Bragg_y_Perfiles_Redes_2D|📏 CAT-306: Metrología Óptica de Difracción de Bragg y Perfiles en Redes 2D]]
+- [[CAT-307_Computacion_NUFFT_Factor_Estructura_Optimizacion_BLAS|⚡ CAT-307: Computación NUFFT 2D del Factor de Estructura y Optimización BLAS]]
+- [[CAT-308_Metrologia_Analitica_Directa_Picos_Bragg_Fourier_2D|📐 CAT-308: Metrología Analítica Directa de Picos de Bragg en Fourier 2D]]
+- [[CAT-309_Teoria_Paracristal_Hosemann_Perdida_Orden_2D|💎 CAT-309: Teoría del Paracristal de Hosemann y Pérdida de Orden de Largo Alcance]]
+- [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5|📦 CAT-401: Estándar de Serialización Jerárquica en Contenedor HDF5 (.h5)]]
 
-#### ⚙️ B. Reportes de Estado del Sistema y Mantenimiento Técnico (`reportes/sistema/`)
-1. 📝 [Informe de Estado, Evaluación Multidimensional y Estándares de Diseño](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Informe_de_Estado_Mejoras_y_Estandares_de_Diseno_PyPrinting3.md): Resumen técnico, matriz de módulos, métricas de Graphify y los 5 Estándares de Diseño.
-2. 🧵 [Arquitectura de Hilos y Concurrencia](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Arquitectura_de_Hilos_y_Concurrencia_PyPrinting3.md): Diagnóstico de concurrencia multihilo PyQt6 (`instrumentThread`, `confocalThread`, `cameraThread`) y seguridad de hilos.
-3. 🔌 [Diagnóstico de Señales y Conexiones Frontend-Backend](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_de_Senales_y_Conexiones_PyPrinting3.md): Auditoría completa de la red de comunicación Qt (`pyqtSignal` / `@pyqtSlot`) y temporización de hardware.
-4. 🔍 [Diagnóstico Integral Comparativo frente a PyPrinting 2](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Diagnostico_Integral_y_Comparativo_PyPrinting3.md): Evaluación profunda de flujos de trabajo, mejoras arquitectónicas e integridad lógica.
-5. 🐞 [Reporte de Bugs y Plan de Acción de Desarrollo](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_de_Bugs_y_Errores_Rutina_Printing_PyPrinting3.md): Auditoría histórica de correcciones, excepciones resueltas y evolución del software.
-6. 📄 [Matriz de Intercambio de Archivos entre Programas](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Matriz_de_Intercambio_de_Archivos_PyPrinting3.md): Mapa completo de formatos `.tiff`, `.npy`, `.csv`, `.txt`, presets y serialización de posiciones.
-7. 🌳 [Respuestas de Arquitectura y Evaluación de Graphify](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Respuestas_Graphify_y_Evaluacion_Arquitectonica_PyPrinting3.md): Análisis estático AST de Graphify, desacoplamiento y topología de comunidades de código.
-8. 📷 [Módulo Cámara Canon EOS 500D](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Modulo_Camara_Canon_EOS500D_PyPrinting3.md): Integración nativa EDSDK C++/Python, Live View a 25 FPS, búferes RAM y Trackpy.
-9. 🛡️ [Seguridad Óptica, Watchdog y Control de Obturadores](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Seguridad_Optica_Watchdog_y_Control_de_Obturadores.md): Fail-safe activo con latido (*heartbeat*), conmutación de obturadores (`line0:3`) y corte de emergencia NI-DAQmx.
-10. 🔧 [Actuación de Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Actuacion_Flipper_y_Watchdog_Desacoplado.md): Análisis de causa raíz, ciclo de vida de tareas NI-DAQmx (evasión de -200088), pulso de 5V y desacoplamiento de seguridad.
-11. 🌈 [Calibración Espectral y Actuación de Flippers](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Calibracion_Espectral_y_Actuacion_Flippers_PyPrinting3.md): Ajuste gaussiano sub-píxel orden 0, offsets Ctypes Shamrock SDK, reactividad flipper Qt y Step & Glue.
-12. 🔬 [Espectrómetro Shamrock 500i y Cámara iXon3 en PySpectrum](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Sistema_Espectrometro_Shamrock500i_iXon3_PySpectrum.md): Arquitectura completa de espectrometría PySpectrum, calibraciones EEPROM y modos de adquisición.
-13. 📐 [Arquitectura Óptica del Microscopio Derecho y Espectrometría](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Arquitectura_Optica_Microscopio_Derecho_y_Espectrometria.md): Trazado optomecánico completo, 3 canales confocales con filtros Notch, pinholes dedicados y 10 técnicas operativas.
-14. 💡 [Control y Comunicación de Láseres Excelsior, OBIS y MPBC](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Analisis_Control_Laseres_Excelsior_OBIS_MPBC.md): Comunicación serie RS-232/USB, comandos SCPI, calibración analógica de potencia y modulación en BFP.
-15. ⚖️ [Comparativo Andor Solis vs PySpectrum](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Comparativo_Andor_Solis_vs_PySpectrum.md): Auditoría integral feature-by-feature frente a la suite comercial Solis, ventajas de calibración y flujo de investigación.
-16. 🔬 [Analizador SIF: Arquitectura, Ergonomía y Propagación de Filtros](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/Reporte_Tecnico_Analizador_SIF_Arquitectura_Ergonomia_y_Filtros.md): Evaluación de causa raíz, resolución matemática de canales Solis, propagación 2D/1D y benchmarks.
+#### ⚙️ B. Biblioteca de Reportes de Sistema, Software e Instrumentación (`reportes/sistema/`)
+- [[SYS-001_Estandares_Diseno_Arquitectura_PyPrinting3|🏛️ SYS-001: Estándares de Diseño y Arquitectura de PyPrinting 3.0]]
+- [[SYS-002_Evaluacion_Arquitectonica_AST_y_Metricas_Graphify|🌳 SYS-002: Evaluación Arquitectónica AST y Métricas Graphify]]
+- [[SYS-101_Arquitectura_Hilos_Concurrencia_QThread|🧵 SYS-101: Arquitectura de Hilos y Concurrencia QThread]]
+- [[SYS-102_Senales_Slots_PyQt6_y_Temporizacion_DAQmx|🔌 SYS-102: Señales, Slots PyQt6 y Temporización DAQmx]]
+- [[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica|🌐 SYS-103: Regímenes de Coordenadas e Invariancia Cinemática]]
+- [[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO|📑 SYS-104: Matriz de Intercambio de Archivos y Formatos I/O]]
+- [[SYS-105_Pipeline_Unificado_Localizacion_Super_Resolucion|🔬 SYS-105: Pipeline Unificado de Localización Super-Resolución (SMLM)]]
+- [[SYS-201_Seguridad_Optica_Watchdog_y_Obturadores|🛡️ SYS-201: Seguridad Óptica, Watchdog y Control de Obturadores]]
+- [[SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx|🔧 SYS-202: Actuación de Flipper y Ciclo de Vida DAQmx]]
+- [[SYS-203_Control_Comunicaciones_Laseres_RS232_SCPI|💡 SYS-203: Control y Comunicaciones de Láseres (RS-232 / SCPI)]]
+- [[SYS-204_Modulo_Camara_Canon_EDSDK_y_Buffer_RAM|📷 SYS-204: Módulo de Cámara Canon EDSDK y Búfer RAM]]
+- [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|🔬 SYS-301: Sistema Espectrómetro Shamrock 500i y Cámara iXon3]]
+- [[SYS-302_Calibracion_Espectral_y_Sincronizacion_Flippers|🌈 SYS-302: Calibración Espectral y Sincronización de Flippers]]
+- [[SYS-303_Protocolo_Metrologico_Calibracion_Espectrometro|📏 SYS-303: Protocolo Metrológico de Calibración del Espectrómetro]]
+- [[SYS-304_Arquitectura_Analizador_SIF_y_Filtros_Cascada|🔬 SYS-304: Arquitectura del Analizador SIF y Filtros en Cascada]]
+- [[SYS-305_Arquitectura_Optomecanica_Microscopio_Derecho_y_Ruteo_Espectral|📐 SYS-305: Arquitectura Optomecánica del Microscopio Derecho y Ruteo Espectral]]
+- [[SYS-306_Arquitectura_Motor_Raman_y_Quimiometria_Multiespectral|🧪 SYS-306: Arquitectura del Motor Raman y Quimiometría Multiespectral]]
+- [[SYS-401_Auditoria_Comparativa_PyPrinting_v2_vs_v3|🔍 SYS-401: Auditoría Comparativa PyPrinting v2 vs v3]]
+- [[SYS-402_Auditoria_Comparativa_Andor_Solis_vs_PySpectrum|⚖️ SYS-402: Auditoría Comparativa Andor Solis vs PySpectrum 3.0]]
+- [[SYS-403_Registro_Bugs_Causa_Raiz_Rutina_Printing|🐞 SYS-403: Registro de Bugs y Causa Raíz en Rutina de Printing]]
 
 #### 📚 C. Bibliografía Científica Fundacional (`docs/bibliografia/`)
 1. 🎓 **Dr. Julián Gargiulo (2017)**: *Impresión óptica de nanopartículas metálicas*. Tesis Doctoral, FCEN, Universidad de Buenos Aires / CIBION-CONICET. [Archivo local: `docs/bibliografia/Julian_Gargiulo_2017.pdf`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/bibliografia/Julian_Gargiulo_2017.pdf).
