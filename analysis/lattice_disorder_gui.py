@@ -36,7 +36,8 @@ from PyQt6.QtWidgets import (
     QSplitter, QGroupBox, QLabel, QPushButton, QComboBox, QCheckBox,
     QSpinBox, QDoubleSpinBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QFileDialog, QMessageBox, QTabWidget, QScrollArea, QFrame,
-    QProgressBar, QStackedWidget, QLineEdit, QButtonGroup, QMenu
+    QProgressBar, QStackedWidget, QLineEdit, QButtonGroup, QMenu,
+    QDialog, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QColor, QFont
@@ -61,6 +62,7 @@ from core.lattice_disorder import (
     compute_structure_factor_2d,
     extract_1d_profiles,
     fit_bragg_peak_1d,
+    fit_bragg_peak_double_gaussian,
     analyze_reciprocal_space_2d,
     analyze_real_space_kdtree,
     compute_radial_distribution_function,
@@ -75,8 +77,10 @@ from core.lattice_disorder import (
     inspect_single_spot_photometry,
     resolve_single_spot_multi_gaussian,
     find_optimal_grid_bounding_box,
-    compute_analytical_bragg_relations
+    compute_analytical_bragg_relations,
+    calibrate_from_psf_image
 )
+from analysis.figure_export_studio import FigureExportStudioDialog
 
 
 def get_pyqtgraph_colormap(name: str):
@@ -507,6 +511,20 @@ class LatticeDisorderWindow(QMainWindow):
         # Worker asíncrono
         self.mc_worker: Optional[MonteCarloWorker] = None
 
+        # Reglas visuales e interactividad de g(r)
+        self.line_rdf_rmin: Optional[pg.InfiniteLine] = None
+        self.line_rdf_rmax: Optional[pg.InfiniteLine] = None
+        self.line_rdf_bg: Optional[pg.InfiniteLine] = None
+        self._updating_rdf_rules_internally: bool = False
+
+        # Reglas visuales y ajuste de picos individuales en Espacio Recíproco
+        self.peak_tuning_dict: Dict[str, Dict[str, Any]] = {}
+        self.line_peak_fmin: Optional[pg.InfiniteLine] = None
+        self.line_peak_fmax: Optional[pg.InfiniteLine] = None
+        self.line_peak_bg: Optional[pg.InfiniteLine] = None
+        self._current_tuned_plot: Optional[pg.PlotWidget] = None
+        self._updating_peak_rules_internally: bool = False
+
         self._init_ui()
 
     def _init_ui(self):
@@ -588,6 +606,14 @@ class LatticeDisorderWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error al Exportar Gráfico", f"No se pudo exportar el gráfico:\n{str(e)}")
 
+    def _open_figure_export_studio(self, plot_widget: pg.PlotWidget, default_name: str, display_title: str = ""):
+        """Abre el diálogo interactivo de exportación científica multicapa (FigureExportStudioDialog)."""
+        try:
+            dlg = FigureExportStudioDialog(plot_widget, parent=self, title=display_title, default_filename=default_name)
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Error en Estudio de Exportación", f"No se pudo abrir el estudio de exportación:\n{str(e)}")
+
     def _setup_plot_export_menu(self, plot_widget: pg.PlotWidget, default_name: str, display_title: str):
         """Habilita menú contextual de clic derecho para exportar y auto-rango en el gráfico."""
         plot_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -598,7 +624,10 @@ class LatticeDisorderWindow(QMainWindow):
                 "QMenu::item { padding: 5px 18px; } "
                 "QMenu::item:selected { background-color: #313244; color: #89b4fa; }"
             )
-            act_exp = menu.addAction(f"💾 Exportar '{display_title}' (PNG 600 DPI / SVG)...")
+            act_studio = menu.addAction("🎨 Abrir en Estudio de Exportación Científica (SVG / PNG / DAT)...")
+            act_studio.triggered.connect(lambda: self._open_figure_export_studio(plot_widget, default_name, display_title))
+            menu.addSeparator()
+            act_exp = menu.addAction(f"💾 Exportar Rápido '{display_title}' (PNG 600 DPI / SVG)...")
             act_exp.triggered.connect(lambda: self._export_single_plot(plot_widget, default_name))
             act_reset = menu.addAction("🔍 Restablecer Vista (Auto-Rango)")
             act_reset.triggered.connect(plot_widget.enableAutoRange)
@@ -695,6 +724,21 @@ class LatticeDisorderWindow(QMainWindow):
         self.btn_save_preset.clicked.connect(self._on_save_custom_preset_json)
         h_pre_btns.addWidget(self.btn_save_preset)
         lay_pre.addLayout(h_pre_btns)
+
+        self.btn_load_psf = QPushButton("🔬 Calibrar con PSF Confocal (psf.tiff)...")
+        self.btn_load_psf.setStyleSheet("color: #89dceb; font-weight: bold;")
+        self.btn_load_psf.setToolTip(make_tooltip(
+            "Calibración Óptica con PSF Confocal Única",
+            "Cargue una micrografía confocal de nanopartícula única (ej. 100 nm Au NP) para calibrar las condiciones iniciales de Picasso, Trackpy y RL.",
+            "Ajusta una Gaussiana 2D para estimar sigma_psf, FWHM, fotones integrados V₀ y gradiente de Sobel, auto-llenando los parámetros editables."
+        ))
+        self.btn_load_psf.clicked.connect(self._on_calibrate_psf)
+        lay_pre.addWidget(self.btn_load_psf)
+
+        self.lbl_psf_calib_info = QLabel("PSF Confocal: No calibrada")
+        self.lbl_psf_calib_info.setStyleSheet("color: #a6adc8; font-size: 10px; font-family: monospace;")
+        self.lbl_psf_calib_info.setWordWrap(True)
+        lay_pre.addWidget(self.lbl_psf_calib_info)
 
         left_layout.addWidget(grp_preset)
 
@@ -1182,9 +1226,18 @@ class LatticeDisorderWindow(QMainWindow):
             "Margen de variación admitido en el brillo y área de una partícula antes de catalogarla como dímero o cúmulo.",
             "Intervalo de confianza porcentual [1 - tol, 1 + tol] aplicado a los múltiplos enteros del volumen fotométrico V₀."
         ))
-        self.spin_cluster_tolerance.valueChanged.connect(self._on_recalc_grid)
         h_tol.addWidget(self.spin_cluster_tolerance)
         lay_cur.addLayout(h_tol)
+
+        self.btn_detect_clusters = QPushButton("🔍 Detectar Aglomerados y Cadenas")
+        self.btn_detect_clusters.setObjectName("primaryBtn")
+        self.btn_detect_clusters.setToolTip(make_tooltip(
+            "Detectar Aglomerados, Cadenas y Sobrepuestas",
+            "Identifica componentes conexas con distancia d < 0.6 a_nom y analiza firmas fotométricas V/V₀ y área A/A₀.",
+            "Segmenta contornos de iso-intensidad con Green-Gauss y puebla la tabla de cúmulos para curación."
+        ))
+        self.btn_detect_clusters.clicked.connect(self._on_detect_clusters)
+        lay_cur.addWidget(self.btn_detect_clusters)
 
         # Tabla rápida de aglomerados enriquecida con fotometría
         self.table_clusters = QTableWidget(0, 7)
@@ -1205,6 +1258,44 @@ class LatticeDisorderWindow(QMainWindow):
         lbl_single = QLabel("Acción Cúmulo Seleccionado:")
         lbl_single.setStyleSheet("color: #f9e2af; font-weight: bold; font-size: 11px;")
         lay_cur.addWidget(lbl_single)
+
+        # Control interactivo de contorno y número de gaussianas para el cúmulo seleccionado
+        h_c_cfg = QHBoxLayout()
+        h_c_cfg.addWidget(QLabel("Umbral (%):"))
+        self.spin_cluster_contour_thresh = QDoubleSpinBox()
+        self.spin_cluster_contour_thresh.setRange(5.0, 80.0)
+        self.spin_cluster_contour_thresh.setValue(20.0)
+        self.spin_cluster_contour_thresh.setSingleStep(5.0)
+        self.spin_cluster_contour_thresh.setToolTip(make_tooltip(
+            "Umbral de Contorno Fotométrico (%)",
+            "Nivel de corte de intensidad sobre el fondo local para delimitar la silueta del cúmulo seleccionado.",
+            "Umbral relativo Ith = Ibg + (thr/100)*(Imax - Ibg) para calcular el contorno de Green sobre el parche."
+        ))
+        self.spin_cluster_contour_thresh.valueChanged.connect(self._on_cluster_contour_thresh_changed)
+        h_c_cfg.addWidget(self.spin_cluster_contour_thresh)
+
+        h_c_cfg.addWidget(QLabel("Fitear (n):"))
+        self.spin_cluster_n_gaussians = QSpinBox()
+        self.spin_cluster_n_gaussians.setRange(1, 8)
+        self.spin_cluster_n_gaussians.setValue(2)
+        self.spin_cluster_n_gaussians.setToolTip(make_tooltip(
+            "Número de Gaussianas a Fitear (n)",
+            "Cantidad de componentes gaussianas independientes para descomponer este cúmulo.",
+            "Orden del modelo multi-emisor n_particles para optimización no lineal por Levenberg-Marquardt."
+        ))
+        h_c_cfg.addWidget(self.spin_cluster_n_gaussians)
+        lay_cur.addLayout(h_c_cfg)
+
+        self.btn_cluster_add_particles = QPushButton("➕ Añadir Partículas al Contorno (Modo Clic)")
+        self.btn_cluster_add_particles.setCheckable(True)
+        self.btn_cluster_add_particles.setStyleSheet("QPushButton:checked { background-color: #f9e2af; color: #11111b; font-weight: bold; }")
+        self.btn_cluster_add_particles.setToolTip(make_tooltip(
+            "Añadir Partículas al Contorno",
+            "Active este botón y haga clic sobre partículas en el visor para incorporarlas manualmente al cúmulo seleccionado.",
+            "Permite asociar partículas contiguas o satélites no reconocidas automáticamente dentro del contorno activo."
+        ))
+        self.btn_cluster_add_particles.toggled.connect(self._on_toggle_add_particles_to_cluster)
+        lay_cur.addWidget(self.btn_cluster_add_particles)
 
         self.btn_resolve_selected_gaussian = QPushButton("🎯 Desacoplar Sel. (Fit Multi-Gauss)")
         self.btn_resolve_selected_gaussian.setObjectName("primaryBtn")
@@ -1378,7 +1469,6 @@ class LatticeDisorderWindow(QMainWindow):
             "Tolerancia admitida (típicamente 5-15%) para validar que el conteo total de sitios coincida con la red teórica.",
             "Criterio de coherencia metrológica: |M + n_vac - N²| / N² <= margen/100."
         ))
-        self.spin_consistency_margin.valueChanged.connect(self._on_recalc_grid)
         h_marg.addWidget(self.spin_consistency_margin)
         lay_met.addLayout(h_marg)
 
@@ -1394,7 +1484,8 @@ class LatticeDisorderWindow(QMainWindow):
 
         self.lbl_real_metrics = QLabel(
             "Partículas: -\n"
-            "Vacancias: -%\n"
+            "Vacancias Prácticas: -% (- vac)\n"
+            "Vacancias Teóricas: -% (- vac)\n"
             "Desorden σ_x: - nm\n"
             "Desorden σ_y: - nm\n"
             "Desorden Medio σ_pos: - nm\n"
@@ -1424,7 +1515,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Avanza a la pestaña 2 para calcular la difracción 2D y evaluar los picos armónicos de Bragg.",
             "Conmuta la interfaz y alimenta el motor espectral continuo NUFFT 2D con las coordenadas curadas."
         ))
-        btn_go_tab2.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        btn_go_tab2.clicked.connect(self._on_go_to_reciprocal)
         lay_met.addWidget(btn_go_tab2)
 
         left_layout.addWidget(grp_metrics)
@@ -1702,9 +1793,40 @@ class LatticeDisorderWindow(QMainWindow):
 
         # Plot 2: Función de Distribución Radial g(r)
         h_p2_hdr = QHBoxLayout()
-        lbl_p2 = QLabel("Función de Distribución Radial g(r) y Primer Pico de Coordinación:")
+        lbl_p2 = QLabel("Función de Distribución Radial g(r):")
         lbl_p2.setStyleSheet("font-weight: bold; color: #cba6f7;")
         h_p2_hdr.addWidget(lbl_p2)
+
+        self.chk_rdf_manual_roi = QCheckBox("📏 Reglas Visuales ROI")
+        self.chk_rdf_manual_roi.setStyleSheet("color: #fab387; font-weight: bold; font-size: 11px;")
+        self.chk_rdf_manual_roi.setToolTip(make_tooltip(
+            "Activar Reglas Visuales para g(r)",
+            "Habilita 2 líneas verticales (r_min, r_max) y 1 línea horizontal (línea base) arrastrables en el visor g(r).",
+            "Permite acotar visualmente la ventana del primer pico de coordinación y fijar o liberar el fondo."
+        ))
+        self.chk_rdf_manual_roi.toggled.connect(self._on_toggle_rdf_manual_roi)
+        h_p2_hdr.addWidget(self.chk_rdf_manual_roi)
+
+        self.chk_rdf_fix_bg = QCheckBox("Fijar Fondo")
+        self.chk_rdf_fix_bg.setStyleSheet("color: #f38ba8; font-size: 10px;")
+        self.chk_rdf_fix_bg.setToolTip(make_tooltip(
+            "Fijar Línea Base de g(r)",
+            "Fija la altura constante del fondo al nivel de la regla horizontal en lugar de optimizarla libremente.",
+            "Condición de frontera en mínimos cuadrados: bg = const impuesta por la posición de la regla horizontal."
+        ))
+        self.chk_rdf_fix_bg.toggled.connect(self._on_rdf_rules_changed)
+        h_p2_hdr.addWidget(self.chk_rdf_fix_bg)
+
+        self.btn_reset_rdf_rules = QPushButton("↺")
+        self.btn_reset_rdf_rules.setFixedWidth(28)
+        self.btn_reset_rdf_rules.setToolTip(make_tooltip(
+            "Restablecer Reglas Visuales de g(r)",
+            "Restaura los límites de búsqueda nominales [0.65 a_nom, 1.35 a_nom] para el primer pico.",
+            "Devuelve las líneas verticales r_min y r_max a la ventana por defecto."
+        ))
+        self.btn_reset_rdf_rules.clicked.connect(self._on_reset_rdf_rules)
+        h_p2_hdr.addWidget(self.btn_reset_rdf_rules)
+
         h_p2_hdr.addStretch()
 
         btn_exp_rdf = QPushButton("💾 Exportar...")
@@ -1727,6 +1849,26 @@ class LatticeDisorderWindow(QMainWindow):
             "Función de correlación par g(r) = (dN/dr)/(2π r ρ dr) con exclusión estérica y ajuste gaussiano del primer pico en r ~ a."
         ))
         self._setup_plot_export_menu(self.plot_rdf, "fig02_distribucion_radial_gr", "Distribución Radial g(r)")
+
+        # Inicializar las 3 líneas móviles de g(r)
+        self.line_rdf_rmin = pg.InfiniteLine(
+            pos=300.0, angle=90, movable=True,
+            pen=pg.mkPen('#fab387', width=1.8, style=Qt.PenStyle.DashLine),
+            label="rmin: {value:.1f}", labelOpts={'position': 0.85, 'color': '#fab387'}
+        )
+        self.line_rdf_rmax = pg.InfiniteLine(
+            pos=600.0, angle=90, movable=True,
+            pen=pg.mkPen('#fab387', width=1.8, style=Qt.PenStyle.DashLine),
+            label="rmax: {value:.1f}", labelOpts={'position': 0.85, 'color': '#fab387'}
+        )
+        self.line_rdf_bg = pg.InfiniteLine(
+            pos=0.0, angle=0, movable=True,
+            pen=pg.mkPen('#f38ba8', width=1.8, style=Qt.PenStyle.DotLine),
+            label="Base: {value:.2f}", labelOpts={'position': 0.15, 'color': '#f38ba8'}
+        )
+        for line in [self.line_rdf_rmin, self.line_rdf_rmax, self.line_rdf_bg]:
+            line.sigPositionChangeFinished.connect(self._on_rdf_rules_changed)
+
         right_layout.addWidget(self.plot_rdf, stretch=2)
 
         splitter.addWidget(scroll_area)
@@ -1801,6 +1943,163 @@ class LatticeDisorderWindow(QMainWindow):
         h3.addWidget(self.spin_dc_cut)
         lay_rec.addLayout(h3)
 
+        # Controles de Ajuste 1D & Sintonización Fina de Picos Individuales
+        grp_peak_tuning = QGroupBox("Sintonización y Ajuste de Picos 1D")
+        grp_peak_tuning.setToolTip(make_tooltip(
+            "Sintonización y Ajuste Individual de Picos 1D",
+            "Permite seleccionar cualquier pico de la jerarquía cristalográfica, elegir modelo simple o doble gaussiana, "
+            "delimitar interactivamente la ventana de búsqueda (ROI) con reglas visuales y fijar o liberar la línea base.",
+            "Ajusta modelos I(f) = H*exp(...) + bg o Doble Gaussiana con restricciones visuales directas en los gráficos de corte."
+        ))
+        lay_pt = QVBoxLayout(grp_peak_tuning)
+
+        h_pk_sel = QHBoxLayout()
+        h_pk_sel.addWidget(QLabel("Pico:"))
+        self.combo_tune_peak = QComboBox()
+        self.combo_tune_peak.addItems([
+            "(1, 0) Fundamental X",
+            "(0, 1) Fundamental Y",
+            "(1, 1) Diagonal 45°",
+            "(2, 0) 2do Orden X",
+            "(0, 2) 2do Orden Y"
+        ])
+        self.combo_tune_peak.setToolTip(make_tooltip(
+            "Pico Cristalográfico a Sintonizar",
+            "Selecciona el pico sobre el cual actuarán las reglas visuales interactivas y los parámetros de ajuste.",
+            "Conmuta las reglas de ROI hacia el gráfico de corte 1D correspondiente (Corte X, Corte Y o Corte Diagonal)."
+        ))
+        self.combo_tune_peak.currentIndexChanged.connect(self._on_tune_peak_changed)
+        h_pk_sel.addWidget(self.combo_tune_peak)
+        lay_pt.addLayout(h_pk_sel)
+
+        h_pk_mod = QHBoxLayout()
+        h_pk_mod.addWidget(QLabel("Modelo:"))
+        self.combo_peak_model = QComboBox()
+        self.combo_peak_model.addItems(["Doble Gaussiana (Doublet)", "Gaussiana Simple"])
+        self.combo_peak_model.setToolTip(make_tooltip(
+            "Modelo Espectral para el Pico",
+            "Gaussiana Simple para reflexiones coherentes estándar, o Doble Gaussiana para picos desdoblados o con hombros.",
+            "Descompone el pico en dos centros independientes con selección de componente principal según criterio."
+        ))
+        h_pk_mod.addWidget(self.combo_peak_model)
+        lay_pt.addLayout(h_pk_mod)
+
+        h_crit = QHBoxLayout()
+        h_crit.addWidget(QLabel("Criterio:"))
+        self.combo_peak_criterion = QComboBox()
+        self.combo_peak_criterion.addItems(["Pico Más Alto (Amplitud)", "Más Cercano a Frecuencia Nominal"])
+        self.combo_peak_criterion.setToolTip(make_tooltip(
+            "Criterio de Selección de Pico Principal",
+            "Determina cuál de las dos gaussianas define el vector recíproco y parámetro de red principal.",
+            "Filtro de selección: amplitud máxima (H_max) o proximidad mínima a la frecuencia nominal esperada."
+        ))
+        h_crit.addWidget(self.combo_peak_criterion)
+        lay_pt.addLayout(h_crit)
+
+        # Reglas visuales ROI y Fondo para el pico
+        h_pk_chks = QHBoxLayout()
+        self.chk_peak_manual_roi = QCheckBox("📏 Reglas Visuales ROI")
+        self.chk_peak_manual_roi.setStyleSheet("color: #fab387; font-weight: bold; font-size: 11px;")
+        self.chk_peak_manual_roi.setToolTip(make_tooltip(
+            "Activar Reglas Visuales para el Pico",
+            "Muestra 2 líneas verticales (f_min, f_max) y 1 línea horizontal (fondo) en el corte 1D correspondiente.",
+            "Arrastre las líneas en el corte 1D para acotar la ventana de ajuste y aislar el pico de difracción."
+        ))
+        self.chk_peak_manual_roi.toggled.connect(self._on_toggle_peak_rules)
+        h_pk_chks.addWidget(self.chk_peak_manual_roi)
+
+        self.chk_peak_fix_bg = QCheckBox("Fijar Base")
+        self.chk_peak_fix_bg.setStyleSheet("color: #f38ba8; font-size: 10px;")
+        self.chk_peak_fix_bg.setToolTip(make_tooltip(
+            "Fijar Línea Base de Fondo",
+            "Fija la altura constante del fondo al nivel de la regla horizontal en lugar de optimizarla libremente.",
+            "Impone bg = const en la minimización de mínimos cuadrados no lineales."
+        ))
+        self.chk_peak_fix_bg.toggled.connect(self._on_peak_spin_changed)
+        h_pk_chks.addWidget(self.chk_peak_fix_bg)
+        lay_pt.addLayout(h_pk_chks)
+
+        # Spinboxes para visualización / ajuste numérico de las reglas
+        h_sp_f = QHBoxLayout()
+        h_sp_f.addWidget(QLabel("f_min:"))
+        self.spin_peak_fmin = QDoubleSpinBox()
+        self.spin_peak_fmin.setRange(0.0, 0.05)
+        self.spin_peak_fmin.setDecimals(5)
+        self.spin_peak_fmin.setSingleStep(0.0002)
+        self.spin_peak_fmin.valueChanged.connect(self._on_peak_spin_changed)
+        h_sp_f.addWidget(self.spin_peak_fmin)
+
+        h_sp_f.addWidget(QLabel("f_max:"))
+        self.spin_peak_fmax = QDoubleSpinBox()
+        self.spin_peak_fmax.setRange(0.0, 0.05)
+        self.spin_peak_fmax.setDecimals(5)
+        self.spin_peak_fmax.setSingleStep(0.0002)
+        self.spin_peak_fmax.valueChanged.connect(self._on_peak_spin_changed)
+        h_sp_f.addWidget(self.spin_peak_fmax)
+        lay_pt.addLayout(h_sp_f)
+
+        h_sp_bg = QHBoxLayout()
+        h_sp_bg.addWidget(QLabel("Base (bg):"))
+        self.spin_peak_bg = QDoubleSpinBox()
+        self.spin_peak_bg.setRange(0.0, 1e7)
+        self.spin_peak_bg.setDecimals(2)
+        self.spin_peak_bg.setSingleStep(10.0)
+        self.spin_peak_bg.valueChanged.connect(self._on_peak_spin_changed)
+        h_sp_bg.addWidget(self.spin_peak_bg)
+
+        self.btn_reset_peak_rules = QPushButton("↺")
+        self.btn_reset_peak_rules.setFixedWidth(28)
+        self.btn_reset_peak_rules.setToolTip(make_tooltip(
+            "Restablecer Reglas del Pico",
+            "Restaura la ventana y línea base automáticas basadas en la frecuencia nominal del pico.",
+            "Reubica las reglas visuales en el centro del pico seleccionado."
+        ))
+        self.btn_reset_peak_rules.clicked.connect(self._on_reset_peak_rules)
+        h_sp_bg.addWidget(self.btn_reset_peak_rules)
+        lay_pt.addLayout(h_sp_bg)
+
+        self.btn_apply_peak_fit = QPushButton("🎯 Re-Ajustar Pico Seleccionado")
+        self.btn_apply_peak_fit.setObjectName("accentBtn")
+        self.btn_apply_peak_fit.setToolTip(make_tooltip(
+            "Re-Ajustar Pico Seleccionado",
+            "Aplica el modelo y límites especificados exclusivamente sobre este pico y actualiza el gráfico y métricas.",
+            "Ejecuta curve_fit con los límites impuestos por las reglas visuales y actualiza el análisis analítico directo."
+        ))
+        self.btn_apply_peak_fit.clicked.connect(self._on_apply_selected_peak_fit)
+        lay_pt.addWidget(self.btn_apply_peak_fit)
+
+        self.chk_double_peak = QCheckBox("Doble Gaussiana Global")
+        self.chk_double_peak.setChecked(False)
+        self.chk_double_peak.setStyleSheet("color: #a6adc8; font-size: 10px;")
+        self.chk_double_peak.setToolTip(make_tooltip(
+            "Activar Doble Gaussiana Globalmente",
+            "Aplica ajuste de doble gaussiana en todos los cortes de difracción por defecto.",
+            "Descompone simultáneamente todos los picos de difracción en dos componentes independientes."
+        ))
+        self.chk_double_peak.toggled.connect(self._on_recalculate_reciprocal)
+        lay_pt.addWidget(self.chk_double_peak)
+
+        lay_rec.addWidget(grp_peak_tuning)
+
+        # Inicializar las 3 líneas móviles de sintonización de picos
+        self.line_peak_fmin = pg.InfiniteLine(
+            pos=0.001, angle=90, movable=True,
+            pen=pg.mkPen('#fab387', width=1.5, style=Qt.PenStyle.DashLine),
+            label="fmin: {value:.5f}", labelOpts={'position': 0.85, 'color': '#fab387'}
+        )
+        self.line_peak_fmax = pg.InfiniteLine(
+            pos=0.003, angle=90, movable=True,
+            pen=pg.mkPen('#fab387', width=1.5, style=Qt.PenStyle.DashLine),
+            label="fmax: {value:.5f}", labelOpts={'position': 0.85, 'color': '#fab387'}
+        )
+        self.line_peak_bg = pg.InfiniteLine(
+            pos=0.0, angle=0, movable=True,
+            pen=pg.mkPen('#f38ba8', width=1.5, style=Qt.PenStyle.DotLine),
+            label="Base: {value:.2f}", labelOpts={'position': 0.15, 'color': '#f38ba8'}
+        )
+        for line in [self.line_peak_fmin, self.line_peak_fmax, self.line_peak_bg]:
+            line.sigPositionChangeFinished.connect(self._on_peak_line_dragged)
+
         btn_recalc_fourier = QPushButton("⚡ Recalcular Espectro 2D")
         btn_recalc_fourier.setObjectName("primaryBtn")
         btn_recalc_fourier.setToolTip(make_tooltip(
@@ -1839,6 +2138,15 @@ class LatticeDisorderWindow(QMainWindow):
             "Inversión espectral a_x = 1/f_x0, a_y = 1/f_y0, anisotropía a_x - a_y, y longitud de coherencia reticular xi = 2π / FWHM."
         ))
         lay_lat.addWidget(self.lbl_recip_metrics)
+
+        self.btn_sync_curated = QPushButton("🔄 Actualizar con Puntos Curados")
+        self.btn_sync_curated.setToolTip(make_tooltip(
+            "Actualizar con Puntos Curados",
+            "Recalcula el espacio recíproco y actualiza Monte Carlo con las coordenadas y vacancias prácticas curadas.",
+            "Re-ejecuta el análisis recíproco con las partículas activas de locs_df e inyecta a_x, a_y y f_vac_prac en la simulación."
+        ))
+        self.btn_sync_curated.clicked.connect(self._on_sync_curated_to_reciprocal)
+        lay_lat.addWidget(self.btn_sync_curated)
 
         btn_propagate = QPushButton("Propagar a Monte Carlo ➔")
         btn_propagate.setObjectName("accentBtn")
@@ -2363,6 +2671,51 @@ class LatticeDisorderWindow(QMainWindow):
         self.chk_show_multi_order.toggled.connect(self._plot_debye_waller)
         lay_sim.addWidget(self.chk_show_multi_order)
 
+        h_mc_orders = QHBoxLayout()
+        self.chk_mc_order1 = QCheckBox("1er Orden (1,0)/(0,1)")
+        self.chk_mc_order1.setChecked(True)
+        self.chk_mc_order1.setStyleSheet("color: #89b4fa; font-weight: bold; font-size: 10px;")
+        self.chk_mc_order1.setToolTip(make_tooltip(
+            "Habilitar 1er Orden en Debye-Waller",
+            "Muestra la curva y proyecta los picos de primer orden (1,0) y (0,1) sobre la curva Debye-Waller.",
+            "Inversión canónica H1 -> sigma_1."
+        ))
+        self.chk_mc_order1.toggled.connect(self._plot_debye_waller)
+        h_mc_orders.addWidget(self.chk_mc_order1)
+
+        self.chk_mc_diag = QCheckBox("Diagonal (1,1)")
+        self.chk_mc_diag.setChecked(True)
+        self.chk_mc_diag.setStyleSheet("color: #cba6f7; font-weight: bold; font-size: 10px;")
+        self.chk_mc_diag.setToolTip(make_tooltip(
+            "Habilitar Diagonal (1,1) en Debye-Waller",
+            "Muestra la curva y proyecta el pico diagonal de orden cruzado (1,1) sobre la curva Debye-Waller.",
+            "Inversión cruzada H_diag -> sigma_diag para coherencia 2D."
+        ))
+        self.chk_mc_diag.toggled.connect(self._plot_debye_waller)
+        h_mc_orders.addWidget(self.chk_mc_diag)
+
+        self.chk_mc_order2 = QCheckBox("2do Orden (2,0)")
+        self.chk_mc_order2.setChecked(True)
+        self.chk_mc_order2.setStyleSheet("color: #f9e2af; font-weight: bold; font-size: 10px;")
+        self.chk_mc_order2.setToolTip(make_tooltip(
+            "Habilitar 2do Orden en Debye-Waller",
+            "Muestra la curva y proyecta el pico armónico de segundo orden (2,0) sobre la curva Debye-Waller.",
+            "Inversión de segundo orden H2 -> sigma_2 para evaluación paracristalina."
+        ))
+        self.chk_mc_order2.toggled.connect(self._plot_debye_waller)
+        h_mc_orders.addWidget(self.chk_mc_order2)
+        lay_sim.addLayout(h_mc_orders)
+
+        h_mc_exec = QHBoxLayout()
+        self.btn_sync_curated_mc = QPushButton("🔄 Actualizar con Puntos Curados")
+        self.btn_sync_curated_mc.setToolTip(make_tooltip(
+            "Actualizar con Puntos Curados",
+            "Sincroniza los parámetros de red y vacancias prácticas de las partículas curadas con Monte Carlo.",
+            "Actualiza spin_mc_n, spin_mc_ax, spin_mc_ay y spin_mc_vac con las métricas curadas más recientes."
+        ))
+        self.btn_sync_curated_mc.clicked.connect(self._on_sync_curated_to_reciprocal)
+        h_mc_exec.addWidget(self.btn_sync_curated_mc)
+
         self.btn_run_mc = QPushButton("🚀 Iniciar Simulación Monte Carlo")
         self.btn_run_mc.setObjectName("masterBtn")
         self.btn_run_mc.setToolTip(make_tooltip(
@@ -2371,7 +2724,8 @@ class LatticeDisorderWindow(QMainWindow):
             "Ejecuta MonteCarloWorker en un QThread independiente, invocando funciones C/BLAS vectorizadas de alta velocidad."
         ))
         self.btn_run_mc.clicked.connect(self._on_run_monte_carlo)
-        lay_sim.addWidget(self.btn_run_mc)
+        h_mc_exec.addWidget(self.btn_run_mc)
+        lay_sim.addLayout(h_mc_exec)
 
         self.btn_cancel_mc = QPushButton("⏹ Cancelar Simulación")
         self.btn_cancel_mc.setObjectName("dangerBtn")
@@ -2495,6 +2849,9 @@ class LatticeDisorderWindow(QMainWindow):
         self.plot_dw.showGrid(x=True, y=True, alpha=0.3)
         self.plot_dw.setLabel('bottom', 'Desorden Posicional σ', units='nm')
         self.plot_dw.setLabel('left', 'Intensidad Coherente del Pico H')
+        self.plot_dw_legend = self.plot_dw.addLegend(offset=(15, 15))
+        self.plot_dw_legend.setBrush(pg.mkBrush(24, 24, 37, 200))
+        self.plot_dw_legend.setPen(pg.mkPen('#45475a'))
         self.plot_dw.setToolTip(make_tooltip(
             "Curva de Atenuación de Debye-Waller: H(σ, p)",
             "Relación entre el desorden posicional σ y la altura del pico de Bragg. La línea punteada indica el desorden de su muestra. Clic derecho para exportar (PNG 600 DPI / SVG).",
@@ -2525,43 +2882,88 @@ class LatticeDisorderWindow(QMainWindow):
         ))
         layout.addWidget(lbl_title)
 
-        # Tabla de Métricas
+        # Tabla de Métricas con Contraste Optimizado y Tooltips
         self.table_metrics = QTableWidget(18, 2)
         self.table_metrics.setHorizontalHeaderLabels(["Parámetro Metrológico", "Valor Experimental"])
         self.table_metrics.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table_metrics.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table_metrics.setAlternatingRowColors(True)
+        self.table_metrics.setStyleSheet(
+            "QTableWidget { background-color: #181825; color: #cdd6f4; gridline-color: #313244; font-size: 11px; } "
+            "QTableWidget::item { padding: 4px 8px; } "
+            "QTableWidget::item:alternate { background-color: #1e1e2e; color: #cdd6f4; } "
+            "QTableWidget::item:selected { background-color: #313244; color: #89b4fa; font-weight: bold; } "
+            "QHeaderView::section { background-color: #11111b; color: #cba6f7; font-weight: bold; padding: 6px; border: 1px solid #313244; }"
+        )
         self.table_metrics.setToolTip(make_tooltip(
             "Tabla Metrológica de Parámetros de Red",
-            "Contiene todos los parámetros cuantitativos calculados organizados en 18 filas. Haga doble clic para copiar.",
+            "Contiene todos los parámetros cuantitativos calculados organizados en 18 filas. Pase el cursor sobre cada fila para ver su fundamento físico y matemático.",
             "Matriz estandarizada de resultados experimentales con propagación de errores e índices de consistencia cruzada."
         ))
 
-        rows = [
-            ("Archivo de Muestra", "-"),
-            ("Dimensiones Nominales de Red (N x N)", "-"),
-            ("Período Experimental a_x / a_y / a_mean", "-"),
-            ("Anisotropía de Red (a_x - a_y)", "-"),
-            ("Fracción de Vacancias f_vac", "-"),
-            ("Desorden Espacio Real (KDTree) σ_x / σ_y", "-"),
-            ("Desorden Espacio Real Medio σ_pos", "-"),
-            ("Desorden Radial (g(r)) σ_rdf", "-"),
-            ("Desorden Recíproco (Debye-Waller) σ_real,x / σ_real,y", "-"),
-            ("Desorden Recíproco Medio σ_dw", "-"),
-            ("Longitud de Correlación Espectral ξ_x / ξ_y", "-"),
-            ("Diagnóstico de Deriva (FWHM_x / FWHM_y)", "-"),
-            ("Consistencia Cruzada (Real vs Recíproco)", "-"),
-            ("Aglomerados / Filamentos Detectados", "-"),
-            ("Jerarquía de Bragg (H_diag/H1, H2/H1, SBR)", "-"),
-            ("Mosaico Angular Δθ / Cizallamiento γ", "-"),
-            ("Triple Inversión Debye-Waller (σ1 / σ_diag / σ2)", "-"),
-            ("Inversión Analítica Directa σ(H₂/H₁) / σ(Wilson)", "-")
+        rows_info = [
+            ("Archivo de Muestra", "-",
+             "Identificador del archivo analizado.",
+             "Nombre de la micrografía confocal o tabla de coordenadas fuente."),
+            ("Dimensiones Nominales de Red (N x N)", "-",
+             "Tamaño lateral del cristal 2D.",
+             "Número de partículas por fila y columna. Fija el total de sitios teóricos N²."),
+            ("Período Experimental a_x / a_y / a_mean", "-",
+             "Espaciado físico entre partículas en nanómetros.",
+             "Inversión espectral continua a_i = 1/f_peak,i derivada de la NUFFT 2D."),
+            ("Anisotropía de Red (a_x - a_y)", "-",
+             "Diferencia de período reticular entre ejes cartesianos.",
+             "Δa = a_x - a_y [nm]. Detecta distorsión uniaxial ortorrómbica."),
+            ("Fracción de Vacancias f_vac (Prácticas / Teóricas)", "-",
+             "Tasa de sitios desocupados en la red.",
+             "V_prac = N² - M_grid (canónica) vs V_teor = celdas desocupadas bajo cota r < a/2."),
+            ("Desorden Espacio Real (KDTree) σ_x / σ_y", "-",
+             "Desviación estándar de los centros respecto a nodos ideales.",
+             "Dispersión cartesiana cuadrática media σ_x y σ_y calculada por árbol KDTree."),
+            ("Desorden Espacio Real Medio σ_pos", "-",
+             "Desorden posicional global en nanómetros.",
+             "Varianza euclidiana promedio σ_pos = sqrt((σ_x² + σ_y²)/2)."),
+            ("Desorden Radial (g(r)) σ_rdf", "-",
+             "Ancho gaussiano de la primera esfera de coordinación.",
+             "Desvío estándar del primer pico de la RDF: σ_rdf = FWHM / 2.355 [nm]."),
+            ("Desorden Recíproco (Debye-Waller) σ_real,x / σ_real,y", "-",
+             "Desorden obtenido por inversión estocástica en Fourier.",
+             "Inversión de reflectividad experimental H_exp sobre curva de Monte Carlo."),
+            ("Desorden Recíproco Medio σ_dw", "-",
+             "Promedio del desorden Debye-Waller en ambos ejes.",
+             "σ_dw = (σ_real,x + σ_real,y)/2 para comparación cruzada directa con σ_pos."),
+            ("Longitud de Correlación Espectral ξ_x / ξ_y", "-",
+             "Distancia de coherencia reticular de fase.",
+             "ξ = 2π / FWHM_peak [nm]. Acotada en redes finitas o con defectos."),
+            ("Diagnóstico de Deriva (FWHM_x / FWHM_y)", "-",
+             "Relación de anchos de Bragg entre ejes ortogonales.",
+             "Cociente de FWHM. Si difiere significativamente de 1.0 indica deriva piezoeléctrica o astigmatismo."),
+            ("Consistencia Cruzada (Real vs Recíproco)", "-",
+             "Discrepancia absoluta Δσ = |σ_pos - σ_dw|.",
+             "Criterio de coherencia: Δσ < 5.0 nm confirma acuerdo excelente entre ambos métodos."),
+            ("Aglomerados / Filamentos Detectados", "-",
+             "Conteo de dímeros, trímeros y cúmulos sobrepuestos.",
+             "Partículas con firmas fotométricas V > 1.25 V₀ o distancias d < 0.6 a."),
+            ("Jerarquía de Bragg (H_diag/H1, H2/H1, SBR)", "-",
+             "Ratios de intensidad de reflexiones de orden superior.",
+             "H_diag/H1 (orden cruzado), H2/H1 (armónico 2do) y relación señal/fondo difuso."),
+            ("Mosaico Angular Δθ / Cizallamiento γ", "-",
+             "Dispersión azimutal de Bragg y deformación angular.",
+             "Δθ evalúa rotación de dominios y γ = θ_xy - 90° mide deformación de cizalla."),
+            ("Triple Inversión Debye-Waller (σ1 / σ_diag / σ2)", "-",
+             "Desorden deducido en tres familias cristalográficas independientes.",
+             "Clasifica la red en Tipo I (Debye-Waller puro) o Tipo II (Paracristal acumulativo)."),
+            ("Inversión Analítica Directa σ(H₂/H₁) / σ(Wilson)", "-",
+             "Desorden estimado instantáneamente por relaciones analíticas directas.",
+             "Inversión analítica σ(H₂/H₁) y pendiente lineal en el Wilson plot.")
         ]
-        for r, (param, val) in enumerate(rows):
+        for r, (param, val, tt_basic, tt_exp) in enumerate(rows_info):
             it0 = QTableWidgetItem(param)
             it0.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            it0.setToolTip(make_tooltip(param, tt_basic, tt_exp))
             it1 = QTableWidgetItem(val)
             it1.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            it1.setToolTip(make_tooltip(f"Valor: {param}", f"Valor medido para {param}.", tt_exp))
             self.table_metrics.setItem(r, 0, it0)
             self.table_metrics.setItem(r, 1, it1)
 
@@ -2883,6 +3285,20 @@ class LatticeDisorderWindow(QMainWindow):
         nearest_idx = int(np.argmin(dists))
         search_radius = self.spin_a_nominal.value() * 0.4
         if dists[nearest_idx] <= search_radius:
+            if hasattr(self, 'btn_cluster_add_particles') and self.btn_cluster_add_particles.isChecked() and self.selected_cluster_id is not None:
+                if self.cluster_results:
+                    for c in self.cluster_results.get('clusters', []):
+                        if c.get('id') == self.selected_cluster_id:
+                            if nearest_idx not in c['indices']:
+                                c['indices'].append(nearest_idx)
+                            c['n_det'] = len(c['indices'])
+                            self.selected_particle_indices.add(nearest_idx)
+                            if hasattr(self, 'spin_cluster_n_gaussians'):
+                                self.spin_cluster_n_gaussians.setValue(max(2, len(c['indices'])))
+                            self._on_cluster_contour_thresh_changed()
+                            self._update_selected_status()
+                            self._redraw_selection_overlay()
+                            return
             if nearest_idx in self.selected_particle_indices:
                 self.selected_particle_indices.remove(nearest_idx)
             else:
@@ -3033,6 +3449,8 @@ class LatticeDisorderWindow(QMainWindow):
 
         self.curation_history.append(self.locs_df.copy())
 
+        n_gauss = self.spin_cluster_n_gaussians.value() if hasattr(self, 'spin_cluster_n_gaussians') else None
+
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
             self.cluster_results,
@@ -3044,7 +3462,8 @@ class LatticeDisorderWindow(QMainWindow):
             target_cluster_id=self.selected_cluster_id,
             image_2d=self.image_2d,
             signature_dict=self.monomer_signature,
-            tolerance_pct=tol
+            tolerance_pct=tol,
+            n_gaussians=n_gauss
         )
 
         n_rem = stats.get('particles_removed', 0)
@@ -3514,6 +3933,13 @@ class LatticeDisorderWindow(QMainWindow):
         self._update_selected_status()
         self._redraw_selection_overlay()
 
+        # Actualizar selector n de componentes gaussianas
+        if hasattr(self, 'spin_cluster_n_gaussians'):
+            n_comp = int(target_cluster.get('n_est', max(2, len(indices))))
+            self.spin_cluster_n_gaussians.blockSignals(True)
+            self.spin_cluster_n_gaussians.setValue(n_comp)
+            self.spin_cluster_n_gaussians.blockSignals(False)
+
         # Resaltar contorno fotométrico seleccionado
         if self.highlight_contour_item is not None:
             self.plot_real_space.removeItem(self.highlight_contour_item)
@@ -3550,6 +3976,28 @@ class LatticeDisorderWindow(QMainWindow):
         idx_min = int(np.argmin(dists))
         search_r = self.spin_a_nominal.value() * 0.4
         if dists[idx_min] < search_r:
+            # Modo Clic: Añadir / Quitar Partículas al Contorno Activo
+            if hasattr(self, 'btn_cluster_add_particles') and self.btn_cluster_add_particles.isChecked() and self.selected_cluster_id is not None:
+                if self.cluster_results is not None and 'clusters' in self.cluster_results:
+                    for cl in self.cluster_results['clusters']:
+                        if cl.get('id') == self.selected_cluster_id:
+                            cur_indices = list(cl.get('indices', []))
+                            if idx_min in cur_indices:
+                                cur_indices.remove(idx_min)
+                            else:
+                                cur_indices.append(idx_min)
+                            cl['indices'] = cur_indices
+                            cl['n_det'] = len(cur_indices)
+                            if len(cur_indices) > 0:
+                                cl['com_x'] = float(np.mean(x[cur_indices]))
+                                cl['com_y'] = float(np.mean(y[cur_indices]))
+                            self.selected_particle_indices = set(int(i) for i in cur_indices)
+                            self._update_selected_status()
+                            self._redraw_selection_overlay()
+                            self._on_cluster_contour_thresh_changed()
+                            self._populate_cluster_table(self.cluster_results)
+                            return
+
             if idx_min in self.selected_particle_indices:
                 self.selected_particle_indices.remove(idx_min)
             else:
@@ -3557,11 +4005,585 @@ class LatticeDisorderWindow(QMainWindow):
             self._update_selected_status()
             self._redraw_selection_overlay()
 
-    def _on_recalc_grid(self):
-        if self.locs_df is None or self.locs_df.empty:
+    def _on_go_to_reciprocal(self):
+        if self.locs_df is not None and len(self.locs_df) > 0:
+            self._on_recalculate_reciprocal()
+        self.tabs.setCurrentIndex(1)
+
+    def _render_detected_particles_only(self):
+        scale_nm = self.spin_scale.value()
+
+        # Visualizar en plot_real_space
+        self.plot_real_space.clear()
+
+        if self.image_2d is not None:
+            self.img_item = pg.ImageItem(self.image_2d.T)
+            self.img_item.setRect(pg.QtCore.QRectF(
+                0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+            ))
+            cmap_name = self.combo_colormap.currentText()
+            self.img_item.setColorMap(get_pyqtgraph_colormap(cmap_name))
+            self.img_item.setVisible(self.chk_layer_img.isChecked())
+            self.plot_real_space.addItem(self.img_item)
+        else:
+            self.img_item = None
+
+        if self.locs_df is not None and len(self.locs_df) > 0:
+            x_nm = self.locs_df['x_nm'].values
+            y_nm = self.locs_df['y_nm'].values
+
+            # Superponer partículas detectadas (Cian)
+            self.scatter_det = pg.ScatterPlotItem(
+                x=x_nm,
+                y=y_nm,
+                size=8,
+                pen=pg.mkPen('#89dceb', width=1.5),
+                brush=pg.mkBrush(137, 220, 235, 120),
+                symbol='o'
+            )
+            self.scatter_det.sigClicked.connect(self._on_scatter_det_clicked)
+            self.scatter_det.setVisible(self.chk_layer_det.isChecked())
+            self.plot_real_space.addItem(self.scatter_det)
+
+            self.lbl_real_metrics.setText(
+                f"Partículas Detectadas: {len(self.locs_df)}\n"
+                f"Aglomerados / Cadenas: Pendiente (Presione '🔍 Detectar Aglomerados')\n"
+                f"Grilla / Vacancias: Pendiente (Presione '📐 Ajustar Grilla')\n"
+                f"g(r): Pendiente de cálculo"
+            )
+            self.lbl_real_metrics.setStyleSheet(
+                "font-family: monospace; font-size: 11px; color: #89b4fa; "
+                "background: #181825; border: 1px solid #313244; border-radius: 4px; padding: 6px;"
+            )
+            self.lbl_consistency.setText("Paso 1 Completado: Partículas localizadas.")
+            self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #89b4fa;")
+
+        # Limpiar referencias de superposiciones previas
+        self.scatter_clusters = None
+        self.scatter_vac = None
+        self.scatter_grid = None
+        self.cluster_lines_items = []
+        self.cluster_contour_items = []
+        self.table_clusters.setRowCount(0)
+        self.lbl_cluster_summary.setText("Aglomerados: - | Sobrepuestas: -")
+        self.plot_rdf.clear()
+
+        # Re-agregar las 4 reglas móviles de ROI
+        for line in [self.line_roi_xmin, self.line_roi_xmax, self.line_roi_ymin, self.line_roi_ymax]:
+            if line not in self.plot_real_space.items():
+                self.plot_real_space.addItem(line)
+            line.setVisible(self.chk_layer_roi.isChecked())
+
+    def _on_detect_clusters(self):
+        if self.locs_df is None or len(self.locs_df) == 0:
+            QMessageBox.warning(self, "Atención", "Primero debe detectar o cargar partículas.")
             return
-        self._update_real_space_analysis()
+
+        scale_nm = self.spin_scale.value()
+        a_nom = self.spin_a_nominal.value()
+        x_nm = self.locs_df['x_nm'].values
+        y_nm = self.locs_df['y_nm'].values
+
+        photons_arr = self.locs_df['photons'].values if 'photons' in self.locs_df.columns else (
+            self.locs_df['mass'].values if 'mass' in self.locs_df.columns else None
+        )
+        tol_val = self.spin_cluster_tolerance.value() if hasattr(self, 'spin_cluster_tolerance') else 20.0
+
+        self.cluster_results = detect_clusters_and_chains(
+            x_nm, y_nm,
+            a_nominal=a_nom,
+            r_cluster_factor=0.60,
+            photons=photons_arr,
+            image_2d=self.image_2d,
+            locs_df=self.locs_df,
+            scale_nm=scale_nm,
+            signature_dict=self.monomer_signature,
+            tolerance_pct=tol_val
+        )
+        if self.monomer_signature is None and self.cluster_results and 'signature' in self.cluster_results and self.cluster_results['signature']:
+            self.monomer_signature = self.cluster_results['signature']
+
+        # Limpiar elementos anteriores de cúmulos en el visor
+        for item in self.cluster_lines_items:
+            if item in self.plot_real_space.items():
+                self.plot_real_space.removeItem(item)
+        self.cluster_lines_items = []
+
+        for item in self.cluster_contour_items:
+            if item in self.plot_real_space.items():
+                self.plot_real_space.removeItem(item)
+        self.cluster_contour_items = []
+
+        if self.scatter_clusters and self.scatter_clusters in self.plot_real_space.items():
+            self.plot_real_space.removeItem(self.scatter_clusters)
+            self.scatter_clusters = None
+
+        # Dibujar líneas de conexión entre pares en cúmulo
+        if self.cluster_results and len(self.cluster_results.get('pair_lines', [])) > 0:
+            for (lx1, ly1, lx2, ly2) in self.cluster_results['pair_lines']:
+                line_item = pg.PlotDataItem(
+                    [lx1, lx2], [ly1, ly2],
+                    pen=pg.mkPen('#fab387', width=2, style=Qt.PenStyle.DashLine)
+                )
+                line_item.setVisible(self.chk_layer_clusters.isChecked())
+                self.plot_real_space.addItem(line_item)
+                self.cluster_lines_items.append(line_item)
+
+        # Dibujar contornos fotométricos segmentados
+        if self.cluster_results and len(self.cluster_results.get('clusters', [])) > 0:
+            for c in self.cluster_results['clusters']:
+                poly = c.get('contour_polygon_nm', [])
+                if len(poly) > 2:
+                    poly_arr = np.array(poly)
+                    poly_closed = np.vstack([poly_arr, poly_arr[0]])
+                    c_item = pg.PlotDataItem(
+                        poly_closed[:, 0], poly_closed[:, 1],
+                        pen=pg.mkPen('#f9e2af', width=1.5, style=Qt.PenStyle.DashLine)
+                    )
+                    c_item.setVisible(self.chk_layer_contours.isChecked())
+                    self.plot_real_space.addItem(c_item)
+                    self.cluster_contour_items.append(c_item)
+
+        # Superponer partículas pertenecientes a aglomerados
+        if self.cluster_results and self.cluster_results.get('n_clusters', 0) > 0:
+            cl_indices = list(self.cluster_results.get('cluster_particle_indices', []))
+            if len(cl_indices) > 0:
+                cl_x = x_nm[cl_indices]
+                cl_y = y_nm[cl_indices]
+                self.scatter_clusters = pg.ScatterPlotItem(
+                    x=cl_x,
+                    y=cl_y,
+                    size=12,
+                    pen=pg.mkPen('#fab387', width=2),
+                    brush=pg.mkBrush(250, 179, 135, 140),
+                    symbol='t'
+                )
+                self.scatter_clusters.setVisible(self.chk_layer_clusters.isChecked())
+                self.plot_real_space.addItem(self.scatter_clusters)
+
+        self._update_cluster_table()
+        n_cl = self.cluster_results.get('n_clusters', 0) if self.cluster_results else 0
+        n_ov = self.cluster_results.get('n_overlapping_spots', 0) if self.cluster_results else 0
+        self.statusBar().showMessage(f"Detección de cúmulos completada: {n_cl} aglomerados, {n_ov} sobrepuestas.", 5000)
+
+    def _on_recalc_grid(self):
+        if self.locs_df is None or len(self.locs_df) == 0:
+            QMessageBox.warning(self, "Atención", "Primero debe detectar o cargar partículas.")
+            return
+
+        a_nom = self.spin_a_nominal.value()
+        n_side = self.spin_n_side.value()
+        x_nm = self.locs_df['x_nm'].values
+        y_nm = self.locs_df['y_nm'].values
+        margin_pct = self.spin_consistency_margin.value() if hasattr(self, 'spin_consistency_margin') else 10.0
+
+        # 1. KDTree Bounded con chequeo de margen físico
+        self.kdtree_results = analyze_real_space_kdtree(
+            x_nm, y_nm, a=a_nom, n_side=n_side, margin_percent=margin_pct
+        )
+
+        # 2. Función de Distribución Radial g(r)
+        rmin = self.line_rdf_rmin.value() if (hasattr(self, 'line_rdf_rmin') and self.line_rdf_rmin and hasattr(self, 'chk_rdf_manual_roi') and self.chk_rdf_manual_roi.isChecked()) else None
+        rmax = self.line_rdf_rmax.value() if (hasattr(self, 'line_rdf_rmax') and self.line_rdf_rmax and hasattr(self, 'chk_rdf_manual_roi') and self.chk_rdf_manual_roi.isChecked()) else None
+        bg_val = self.line_rdf_bg.value() if (hasattr(self, 'line_rdf_bg') and self.line_rdf_bg and hasattr(self, 'chk_rdf_fix_bg') and self.chk_rdf_fix_bg.isChecked()) else None
+
+        self.rdf_results = compute_radial_distribution_function(
+            x_nm, y_nm, a_nominal=a_nom, r_roi_min=rmin, r_roi_max=rmax, fixed_bg=bg_val
+        )
+
+        # Actualizar tarjeta de métricas y consistencia
+        kd = self.kdtree_results
+        rdf = self.rdf_results
+
+        v_prac = kd.get('n_vac_prac', kd.get('vacant_count', 0))
+        f_prac_pct = kd.get('f_vac_prac_percent', kd.get('f_vac_percent', 0.0))
+        v_teor = kd.get('n_vac_teor', kd.get('vacant_count', 0))
+        f_teor_pct = kd.get('f_vac_teor_percent', kd.get('f_vac_percent', 0.0))
+        m_assigned = kd.get('assigned_particles', kd.get('matched_count', 0))
+
+        det_info = (
+            f"Sitios Totales N²: {kd['N_total_sites']} | Partículas Asignadas M: {m_assigned}\n"
+            f"• Vacancias Prácticas (N² - M): {v_prac} ({f_prac_pct:.1f}%)\n"
+            f"• Vacancias Teóricas (Nodos Libres): {v_teor} ({f_teor_pct:.1f}%)\n"
+            f"Partículas en ROI: {kd['particles_detected']} (En Grilla: {kd.get('particles_in_grid', kd['particles_detected'])}, Fuera: {kd.get('particles_outside_grid', 0)})\n"
+            f"Nodos Multi-ocupados: {kd.get('multi_occupied_count', 0)}"
+        )
+
+        alert_block = ""
+        if kd.get('excess_particles', False):
+            alert_block = (
+                f"\n\n⚠️ ALERTA:\n"
+                f"Detectadas ({kd['particles_detected']}) > Sitios Nominales ({kd['N_total_sites']})\n"
+                f"Ratio = {kd['detection_ratio']:.2f} > 1.0\n"
+                f"Active las reglas de ROI para recortar o resuelva aglomerados."
+            )
+            self.lbl_real_metrics.setStyleSheet(
+                "font-family: monospace; font-size: 11px; color: #f38ba8; "
+                "background: #312028; border: 1px solid #f38ba8; border-radius: 4px; padding: 6px;"
+            )
+        else:
+            self.lbl_real_metrics.setStyleSheet(
+                "font-family: monospace; font-size: 11px; color: #a6e3a1; "
+                "background: #181825; border: 1px solid #313244; border-radius: 4px; padding: 6px;"
+            )
+
+        self.lbl_real_metrics.setText(
+            f"{det_info}\n"
+            f"Desorden σ_x: {kd['sigma_x']:.2f} nm | σ_y: {kd['sigma_y']:.2f} nm\n"
+            f"Desorden Medio σ_pos: {kd['sigma_pos']:.2f} nm\n"
+            f"Ancho g(r) σ_rdf: {rdf['sigma_rdf']:.2f} nm"
+            f"{alert_block}"
+        )
+
+        c_ok = kd.get('consistency_ok', True)
+        c_msg = kd.get('consistency_msg', 'Consistencia: OK')
+        if c_ok:
+            self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #a6e3a1; font-weight: bold;")
+        else:
+            self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #f38ba8; font-weight: bold;")
+        self.lbl_consistency.setText(c_msg)
+
+        # Actualizar scatter de vacancias y grilla
+        if self.scatter_vac and self.scatter_vac in self.plot_real_space.items():
+            self.plot_real_space.removeItem(self.scatter_vac)
+            self.scatter_vac = None
+
+        if len(kd['vacant_points']) > 0:
+            vac_x = kd['vacant_points'][:, 0]
+            vac_y = kd['vacant_points'][:, 1]
+            self.scatter_vac = pg.ScatterPlotItem(
+                x=vac_x,
+                y=vac_y,
+                size=11,
+                pen=pg.mkPen('#f38ba8', width=2),
+                brush=pg.mkBrush(243, 139, 168, 80),
+                symbol='x'
+            )
+            self.scatter_vac.setVisible(self.chk_layer_vac.isChecked())
+            self.plot_real_space.addItem(self.scatter_vac)
+
+        if self.scatter_grid and self.scatter_grid in self.plot_real_space.items():
+            self.plot_real_space.removeItem(self.scatter_grid)
+            self.scatter_grid = None
+
+        if len(kd['grid_points']) > 0:
+            grid_x = kd['grid_points'][:, 0]
+            grid_y = kd['grid_points'][:, 1]
+            self.scatter_grid = pg.ScatterPlotItem(
+                x=grid_x,
+                y=grid_y,
+                size=5,
+                pen=pg.mkPen('#a6adc8', width=1),
+                brush=pg.mkBrush(166, 173, 200, 60),
+                symbol='+'
+            )
+            self.scatter_grid.setVisible(self.chk_layer_grid.isChecked())
+            self.plot_real_space.addItem(self.scatter_grid)
+
+        # Dibujar / actualizar g(r)
+        self._plot_rdf_results()
+        self._update_metrics_table()
+        self.statusBar().showMessage("Grilla óptima, vacancias y g(r) calculados exitosamente.", 5000)
+
+    def _plot_rdf_results(self):
+        if self.rdf_results is None:
+            return
+        rdf = self.rdf_results
+        a_nom = self.spin_a_nominal.value()
+
+        self.plot_rdf.clear()
+        if len(rdf['r']) > 0:
+            self.plot_rdf.plot(
+                rdf['r'], rdf['gr'],
+                pen=pg.mkPen('#a6e3a1', width=2),
+                name='g(r) Experimental'
+            )
+            line_a = pg.InfiniteLine(pos=a_nom, angle=90, pen=pg.mkPen('#f9e2af', style=Qt.PenStyle.DashLine))
+            self.plot_rdf.addItem(line_a)
+            r_diff = rdf.get('r_diffraction_limit', 250.0)
+            if r_diff > 0:
+                line_diff = pg.InfiniteLine(
+                    pos=r_diff, angle=90,
+                    pen=pg.mkPen('#f38ba8', width=1, style=Qt.PenStyle.DotLine)
+                )
+                self.plot_rdf.addItem(line_diff)
+
+            # Ajuste Gaussiano explicativo del 1er pico de coordinación
+            fit_r = rdf.get('fit_r')
+            fit_gr = rdf.get('fit_gr')
+            fit_r0 = rdf.get('first_peak_r', a_nom)
+            fit_fwhm = rdf.get('fwhm_rdf', 0.0)
+            sigma_rdf = rdf.get('sigma_rdf', 0.0)
+            fit_h = rdf.get('height_rdf', 1.0)
+            bg_fit = rdf.get('bg_rdf', 0.0)
+
+            if fit_r is not None and len(fit_r) > 0 and fit_gr is not None and len(fit_gr) > 0:
+                self.plot_rdf.plot(
+                    fit_r, fit_gr,
+                    pen=pg.mkPen('#89dceb', width=2.2, style=Qt.PenStyle.DashLine),
+                    name='Ajuste Gaussiano 1er Pico'
+                )
+                line_r0 = pg.InfiniteLine(
+                    pos=fit_r0, angle=90,
+                    pen=pg.mkPen('#89dceb', width=1.5, style=Qt.PenStyle.DotLine)
+                )
+                self.plot_rdf.addItem(line_r0)
+
+                # Línea horizontal de FWHM a media altura sobre el fondo
+                half_h = bg_fit + fit_h / 2.0
+                fwhm_half = fit_fwhm / 2.0
+                if fit_fwhm > 0 and fit_h > 0:
+                    self.plot_rdf.plot(
+                        [fit_r0 - fwhm_half, fit_r0 + fwhm_half],
+                        [half_h, half_h],
+                        pen=pg.mkPen('#fab387', width=2),
+                        name='FWHM 1er Pico'
+                    )
+
+                # Tarjeta de texto explicativa sobre el gráfico
+                badge_text = (
+                    f"<div style='background-color: rgba(24, 24, 37, 190); padding: 6px 10px; "
+                    f"border: 1px solid #89dceb; border-radius: 5px; color: #cdd6f4; font-size: 10px;'>"
+                    f"<b>1er Pico de Coordinación:</b><br>"
+                    f"• Centro r₀: <b>{fit_r0:.1f} nm</b> (Nominal: {a_nom:.0f} nm)<br>"
+                    f"• Ancho FWHM: <b>{fit_fwhm:.1f} nm</b><br>"
+                    f"• Desorden local σ_rdf: <b>{sigma_rdf:.1f} nm</b><br>"
+                    f"• Fondo Base: <b>{bg_fit:.2f}</b>"
+                    f"</div>"
+                )
+                txt_item = pg.TextItem(html=badge_text, anchor=(1, 0))
+                max_r = float(np.max(rdf['r'])) if len(rdf['r']) > 0 else a_nom * 2
+                max_gr = float(np.max(rdf['gr'])) if len(rdf['gr']) > 0 else 2.0
+                txt_item.setPos(max_r * 0.95, max_gr * 0.95)
+                self.plot_rdf.addItem(txt_item)
+
+        # Reglas visuales si están activas
+        if hasattr(self, 'chk_rdf_manual_roi') and self.chk_rdf_manual_roi.isChecked():
+            if self.line_rdf_rmin not in self.plot_rdf.items():
+                self.plot_rdf.addItem(self.line_rdf_rmin)
+            if self.line_rdf_rmax not in self.plot_rdf.items():
+                self.plot_rdf.addItem(self.line_rdf_rmax)
+            if self.line_rdf_bg not in self.plot_rdf.items():
+                self.plot_rdf.addItem(self.line_rdf_bg)
+
+    def _on_toggle_rdf_manual_roi(self, checked: bool):
+        if not checked:
+            if self.line_rdf_rmin in self.plot_rdf.items():
+                self.plot_rdf.removeItem(self.line_rdf_rmin)
+            if self.line_rdf_rmax in self.plot_rdf.items():
+                self.plot_rdf.removeItem(self.line_rdf_rmax)
+            if self.line_rdf_bg in self.plot_rdf.items():
+                self.plot_rdf.removeItem(self.line_rdf_bg)
+            if self.locs_df is not None and len(self.locs_df) > 0 and self.kdtree_results is not None:
+                self._on_recalc_grid()
+        else:
+            a_nom = self.spin_a_nominal.value()
+            self._updating_rdf_rules_internally = True
+            try:
+                self.line_rdf_rmin.setValue(a_nom * 0.65)
+                self.line_rdf_rmax.setValue(a_nom * 1.35)
+                self.line_rdf_bg.setValue(0.0)
+            finally:
+                self._updating_rdf_rules_internally = False
+            self._plot_rdf_results()
+
+    def _on_reset_rdf_rules(self):
+        a_nom = self.spin_a_nominal.value()
+        self._updating_rdf_rules_internally = True
+        try:
+            self.line_rdf_rmin.setValue(a_nom * 0.65)
+            self.line_rdf_rmax.setValue(a_nom * 1.35)
+            self.line_rdf_bg.setValue(0.0)
+        finally:
+            self._updating_rdf_rules_internally = False
+        self._on_rdf_rules_changed()
+
+    def _on_rdf_rules_changed(self):
+        if self._updating_rdf_rules_internally or self.locs_df is None or len(self.locs_df) == 0:
+            return
+        a_nom = self.spin_a_nominal.value()
+        x_nm = self.locs_df['x_nm'].values
+        y_nm = self.locs_df['y_nm'].values
+
+        rmin = self.line_rdf_rmin.value() if (hasattr(self, 'chk_rdf_manual_roi') and self.chk_rdf_manual_roi.isChecked()) else None
+        rmax = self.line_rdf_rmax.value() if (hasattr(self, 'chk_rdf_manual_roi') and self.chk_rdf_manual_roi.isChecked()) else None
+        bg_val = self.line_rdf_bg.value() if (hasattr(self, 'chk_rdf_fix_bg') and self.chk_rdf_fix_bg.isChecked()) else None
+
+        self.rdf_results = compute_radial_distribution_function(
+            x_nm, y_nm, a_nominal=a_nom, r_roi_min=rmin, r_roi_max=rmax, fixed_bg=bg_val
+        )
+        self._plot_rdf_results()
+
+        # Actualizar métrica en tarjeta si existe kdtree
+        if self.kdtree_results is not None:
+            kd = self.kdtree_results
+            rdf = self.rdf_results
+            v_prac = kd.get('n_vac_prac', kd.get('vacant_count', 0))
+            f_prac_pct = kd.get('f_vac_prac_percent', kd.get('f_vac_percent', 0.0))
+            v_teor = kd.get('n_vac_teor', kd.get('vacant_count', 0))
+            f_teor_pct = kd.get('f_vac_teor_percent', kd.get('f_vac_percent', 0.0))
+            m_assigned = kd.get('assigned_particles', kd.get('matched_count', 0))
+            det_info = (
+                f"Sitios Totales N²: {kd['N_total_sites']} | Partículas Asignadas M: {m_assigned}\n"
+                f"• Vacancias Prácticas (N² - M): {v_prac} ({f_prac_pct:.1f}%)\n"
+                f"• Vacancias Teóricas (Nodos Libres): {v_teor} ({f_teor_pct:.1f}%)\n"
+                f"Partículas en ROI: {kd['particles_detected']} (En Grilla: {kd.get('particles_in_grid', kd['particles_detected'])}, Fuera: {kd.get('particles_outside_grid', 0)})\n"
+                f"Nodos Multi-ocupados: {kd.get('multi_occupied_count', 0)}"
+            )
+            self.lbl_real_metrics.setText(
+                f"{det_info}\n"
+                f"Desorden σ_x: {kd['sigma_x']:.2f} nm | σ_y: {kd['sigma_y']:.2f} nm\n"
+                f"Desorden Medio σ_pos: {kd['sigma_pos']:.2f} nm\n"
+                f"Ancho g(r) σ_rdf: {rdf['sigma_rdf']:.2f} nm"
+            )
+
+    def _get_peak_info(self, idx: int):
+        peak_keys = ['x_1st', 'y_1st', 'diag', 'x_2nd', 'y_2nd']
+        pk_key = peak_keys[idx]
+        a_nom = self.spin_a_nominal.value() if hasattr(self, 'spin_a_nominal') else 450.0
+        f0_nom = 1.0 / a_nom if a_nom > 0 else 1.0 / 450.0
+
+        if pk_key == 'x_1st':
+            plot_widget = self.plot_cut_x
+            target_f = (self.reciprocal_results['fit_x']['f0'] if self.reciprocal_results and self.reciprocal_results.get('fit_x') and self.reciprocal_results['fit_x']['f0'] > 1e-9 else f0_nom)
+        elif pk_key == 'y_1st':
+            plot_widget = self.plot_cut_y
+            target_f = (self.reciprocal_results['fit_y']['f0'] if self.reciprocal_results and self.reciprocal_results.get('fit_y') and self.reciprocal_results['fit_y']['f0'] > 1e-9 else f0_nom)
+        elif pk_key == 'diag':
+            plot_widget = getattr(self, 'plot_cut_diag', self.plot_cut_x)
+            target_f = (self.reciprocal_results['fit_diag']['f0'] if self.reciprocal_results and self.reciprocal_results.get('fit_diag') and self.reciprocal_results['fit_diag']['f0'] > 1e-9 else f0_nom * np.sqrt(2.0))
+        elif pk_key == 'x_2nd':
+            plot_widget = self.plot_cut_x
+            target_f = (self.reciprocal_results['fit_x_2nd']['f0'] if self.reciprocal_results and self.reciprocal_results.get('fit_x_2nd') and self.reciprocal_results['fit_x_2nd']['f0'] > 1e-9 else 2.0 * f0_nom)
+        else:  # 'y_2nd'
+            plot_widget = self.plot_cut_y
+            target_f = (self.reciprocal_results['fit_y_2nd']['f0'] if self.reciprocal_results and self.reciprocal_results.get('fit_y_2nd') and self.reciprocal_results['fit_y_2nd']['f0'] > 1e-9 else 2.0 * f0_nom)
+
+        return pk_key, plot_widget, target_f
+
+    def _on_tune_peak_changed(self, idx: int):
+        pk_key, target_plot, target_f = self._get_peak_info(idx)
+
+        # Retirar líneas del gráfico anterior
+        if self._current_tuned_plot is not None:
+            for line in [self.line_peak_fmin, self.line_peak_fmax, self.line_peak_bg]:
+                if line in self._current_tuned_plot.items():
+                    self._current_tuned_plot.removeItem(line)
+
+        self._current_tuned_plot = target_plot
+
+        # Cargar configuración previa si existe en self.peak_tuning_dict
+        cfg = self.peak_tuning_dict.get(pk_key, {})
+        fmin = cfg.get('f_min', target_f * 0.75)
+        fmax = cfg.get('f_max', target_f * 1.25)
+        bg = cfg.get('fixed_bg', 0.0)
+        fix_bg = cfg.get('fixed_bg') is not None
+        model = cfg.get('model', 'double' if self.chk_double_peak.isChecked() else 'single')
+        crit = cfg.get('peak_selection_mode', 'highest')
+
+        self._updating_peak_rules_internally = True
+        try:
+            self.combo_peak_model.setCurrentIndex(0 if model == 'double' else 1)
+            self.combo_peak_criterion.setCurrentIndex(0 if crit == 'highest' else 1)
+            self.chk_peak_fix_bg.setChecked(fix_bg)
+            self.spin_peak_fmin.setValue(fmin)
+            self.spin_peak_fmax.setValue(fmax)
+            self.spin_peak_bg.setValue(bg if bg is not None else 0.0)
+
+            self.line_peak_fmin.setValue(fmin)
+            self.line_peak_fmax.setValue(fmax)
+            self.line_peak_bg.setValue(bg if bg is not None else 0.0)
+        finally:
+            self._updating_peak_rules_internally = False
+
+        # Si las reglas visuales están activas, colocarlas en el nuevo gráfico objetivo
+        if self.chk_peak_manual_roi.isChecked() and target_plot is not None:
+            for line in [self.line_peak_fmin, self.line_peak_fmax, self.line_peak_bg]:
+                if line not in target_plot.items():
+                    target_plot.addItem(line)
+
+    def _on_toggle_peak_rules(self, checked: bool):
+        idx = self.combo_tune_peak.currentIndex()
+        pk_key, target_plot, target_f = self._get_peak_info(idx)
+
+        if not checked:
+            if self._current_tuned_plot is not None:
+                for line in [self.line_peak_fmin, self.line_peak_fmax, self.line_peak_bg]:
+                    if line in self._current_tuned_plot.items():
+                        self._current_tuned_plot.removeItem(line)
+        else:
+            self._current_tuned_plot = target_plot
+            if target_plot is not None:
+                for line in [self.line_peak_fmin, self.line_peak_fmax, self.line_peak_bg]:
+                    if line not in target_plot.items():
+                        target_plot.addItem(line)
+
+    def _on_reset_peak_rules(self):
+        idx = self.combo_tune_peak.currentIndex()
+        _, _, target_f = self._get_peak_info(idx)
+        self._updating_peak_rules_internally = True
+        try:
+            fmin = target_f * 0.75
+            fmax = target_f * 1.25
+            self.spin_peak_fmin.setValue(fmin)
+            self.spin_peak_fmax.setValue(fmax)
+            self.spin_peak_bg.setValue(0.0)
+            self.line_peak_fmin.setValue(fmin)
+            self.line_peak_fmax.setValue(fmax)
+            self.line_peak_bg.setValue(0.0)
+        finally:
+            self._updating_peak_rules_internally = False
+
+    def _on_peak_spin_changed(self):
+        if self._updating_peak_rules_internally:
+            return
+        self._updating_peak_rules_internally = True
+        try:
+            self.line_peak_fmin.setValue(self.spin_peak_fmin.value())
+            self.line_peak_fmax.setValue(self.spin_peak_fmax.value())
+            self.line_peak_bg.setValue(self.spin_peak_bg.value())
+        finally:
+            self._updating_peak_rules_internally = False
+
+    def _on_peak_line_dragged(self):
+        if self._updating_peak_rules_internally:
+            return
+        self._updating_peak_rules_internally = True
+        try:
+            fmin = self.line_peak_fmin.value()
+            fmax = self.line_peak_fmax.value()
+            bg = self.line_peak_bg.value()
+            self.spin_peak_fmin.setValue(round(fmin, 6))
+            self.spin_peak_fmax.setValue(round(fmax, 6))
+            self.spin_peak_bg.setValue(round(bg, 2))
+        finally:
+            self._updating_peak_rules_internally = False
+
+    def _on_apply_selected_peak_fit(self):
+        if self.locs_df is None or len(self.locs_df) == 0:
+            QMessageBox.warning(self, "Atención", "No hay datos cargados para ajustar.")
+            return
+
+        idx = self.combo_tune_peak.currentIndex()
+        pk_key, _, _ = self._get_peak_info(idx)
+
+        model_type = 'double' if self.combo_peak_model.currentIndex() == 0 else 'single'
+        crit_type = 'highest' if self.combo_peak_criterion.currentIndex() == 0 else 'closest_nominal'
+
+        fmin = self.spin_peak_fmin.value() if self.chk_peak_manual_roi.isChecked() else None
+        fmax = self.spin_peak_fmax.value() if self.chk_peak_manual_roi.isChecked() else None
+        fixed_bg = self.spin_peak_bg.value() if self.chk_peak_fix_bg.isChecked() else None
+
+        self.peak_tuning_dict[pk_key] = {
+            'model': model_type,
+            'peak_selection_mode': crit_type,
+            'f_min': fmin,
+            'f_max': fmax,
+            'fixed_bg': fixed_bg
+        }
+
         self._on_recalculate_reciprocal()
+        self.statusBar().showMessage(f"Pico {self.combo_tune_peak.currentText()} re-ajustado exitosamente ({model_type}).", 4000)
 
     def _on_roi_line_dragged(self):
         if self._updating_roi_internally:
@@ -3731,15 +4753,19 @@ class LatticeDisorderWindow(QMainWindow):
                 f"Partículas: {len(df)}"
             )
 
-            # Procesar directamente
-            self._update_real_space_analysis()
-            self._on_recalculate_reciprocal()
+            # Procesar paso 1 (sólo detección y renderizado)
+            self.kdtree_results = None
+            self.cluster_results = None
+            self.rdf_results = None
+            self.reciprocal_results = None
+            self._render_detected_particles_only()
 
             QMessageBox.information(
                 self,
-                "Coordenadas Cargadas",
-                f"Se cargaron {len(df)} coordenadas directas.\n"
-                "Se omitió la etapa de detección y se calcularon métricas de espacio real y Fourier."
+                "Coordenadas Cargadas (Paso 1)",
+                f"Se cargaron {len(df)} coordenadas directas.\n\n"
+                "• Siguiente paso recomendado: '🔍 Detectar Aglomerados y Cadenas' en el Grupo 5.\n"
+                "• Para ajustar grilla y vacancias: '📐 Ajustar Grilla y Calcular Vacancias' en el Grupo 6."
             )
         except Exception as e:
             QMessageBox.critical(self, "Error al Cargar Coordenadas", f"Detalle: {str(e)}")
@@ -3836,251 +4862,27 @@ class LatticeDisorderWindow(QMainWindow):
             else:
                 self.locs_df = self.locs_df_raw.copy()
 
-            self._update_real_space_analysis()
-            self._on_recalculate_reciprocal()
+            self.kdtree_results = None
+            self.cluster_results = None
+            self.rdf_results = None
+            self.reciprocal_results = None
+            self._render_detected_particles_only()
 
-            if self.kdtree_results and self.kdtree_results.get('excess_particles', False):
-                QMessageBox.warning(
-                    self,
-                    "⚠️ Alerta: Partículas Excedentes",
-                    f"{self.kdtree_results['excess_alert']}\n\n"
-                    "Sugerencia: Use las 4 reglas móviles de la Pestaña 1 y presione '✂️ Aplicar Recorte' "
-                    "para aislar la red y excluir partículas de fondo o impurezas."
-                )
-            else:
-                QMessageBox.information(
-                    self,
-                    "Detección Exitosa",
-                    f"Se detectaron {len(self.locs_df)} partículas (Total en imagen: {len(self.locs_df_raw)}).\n"
-                    "Métricas actualizadas en Espacio Real y Espacio Recíproco."
-                )
+            QMessageBox.information(
+                self,
+                "Detección Exitosa (Paso 1)",
+                f"Se detectaron {len(self.locs_df)} partículas (Total en imagen: {len(self.locs_df_raw)}).\n\n"
+                "• Siguiente paso recomendado: '🔍 Detectar Aglomerados y Cadenas' en el Grupo 5.\n"
+                "• Para ajustar grilla y vacancias: '📐 Ajustar Grilla y Calcular Vacancias' en el Grupo 6."
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error en Detección", f"Detalle: {str(e)}")
 
     def _update_real_space_analysis(self):
-        scale_nm = self.spin_scale.value()
-        a_nom = self.spin_a_nominal.value()
-        n_side = self.spin_n_side.value()
-
-        # Visualizar en plot_real_space
-        self.plot_real_space.clear()
-
-        if self.image_2d is not None:
-            self.img_item = pg.ImageItem(self.image_2d.T)
-            self.img_item.setRect(pg.QtCore.QRectF(
-                0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
-            ))
-            cmap_name = self.combo_colormap.currentText()
-            self.img_item.setColorMap(get_pyqtgraph_colormap(cmap_name))
-            self.img_item.setVisible(self.chk_layer_img.isChecked())
-            self.plot_real_space.addItem(self.img_item)
-        else:
-            self.img_item = None
-
-        # Superponer partículas si existen
+        self._render_detected_particles_only()
         if self.locs_df is not None and len(self.locs_df) > 0:
-            x_nm = self.locs_df['x_nm'].values
-            y_nm = self.locs_df['y_nm'].values
-
-            margin_pct = self.spin_consistency_margin.value() if hasattr(self, 'spin_consistency_margin') else 10.0
-            # 1. KDTree Bounded con chequeo de margen físico
-            self.kdtree_results = analyze_real_space_kdtree(
-                x_nm, y_nm, a=a_nom, n_side=n_side, margin_percent=margin_pct
-            )
-
-            # 2. Función de Distribución Radial g(r)
-            self.rdf_results = compute_radial_distribution_function(x_nm, y_nm, a_nominal=a_nom)
-
-            # Actualizar tarjeta de métricas
-            kd = self.kdtree_results
-            rdf = self.rdf_results
-
-            det_info = (
-                f"Sitios Totales N²: {kd['N_total_sites']} | Ocupados: {kd.get('matched_count', 0)}\n"
-                f"Vacancias (N² - N_occ): {kd['vacant_count']} ({kd['f_vac_percent']:.1f}%)\n"
-                f"Partículas en ROI: {kd['particles_detected']} (En Grilla: {kd.get('particles_in_grid', kd['particles_detected'])}, Fuera: {kd.get('particles_outside_grid', 0)})\n"
-                f"Nodos Multi-ocupados: {kd.get('multi_occupied_count', 0)}"
-            )
-
-            alert_block = ""
-            if kd.get('excess_particles', False):
-                alert_block = (
-                    f"\n\n⚠️ ALERTA:\n"
-                    f"Detectadas ({kd['particles_detected']}) > Sitios Nominales ({kd['N_total_sites']})\n"
-                    f"Ratio = {kd['detection_ratio']:.2f} > 1.0\n"
-                    f"Active las reglas de ROI para recortar o resuelva aglomerados."
-                )
-                self.lbl_real_metrics.setStyleSheet(
-                    "font-family: monospace; font-size: 11px; color: #f38ba8; "
-                    "background: #312028; border: 1px solid #f38ba8; border-radius: 4px; padding: 6px;"
-                )
-            else:
-                self.lbl_real_metrics.setStyleSheet(
-                    "font-family: monospace; font-size: 11px; color: #a6e3a1; "
-                    "background: #181825; border: 1px solid #313244; border-radius: 4px; padding: 6px;"
-                )
-
-            self.lbl_real_metrics.setText(
-                f"{det_info}\n"
-                f"Desorden σ_x: {kd['sigma_x']:.2f} nm | σ_y: {kd['sigma_y']:.2f} nm\n"
-                f"Desorden Medio σ_pos: {kd['sigma_pos']:.2f} nm\n"
-                f"Ancho g(r) σ_rdf: {rdf['sigma_rdf']:.2f} nm"
-                f"{alert_block}"
-            )
-
-            c_ok = kd.get('consistency_ok', True)
-            c_msg = kd.get('consistency_msg', 'Consistencia: OK')
-            if c_ok:
-                self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #a6e3a1; font-weight: bold;")
-            else:
-                self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #f38ba8; font-weight: bold;")
-            self.lbl_consistency.setText(c_msg)
-
-            # Superponer partículas detectadas (Cian)
-            self.scatter_det = pg.ScatterPlotItem(
-                x=x_nm,
-                y=y_nm,
-                size=8,
-                pen=pg.mkPen('#89dceb', width=1.5),
-                brush=pg.mkBrush(137, 220, 235, 120),
-                symbol='o'
-            )
-            self.scatter_det.sigClicked.connect(self._on_scatter_det_clicked)
-            self.scatter_det.setVisible(self.chk_layer_det.isChecked())
-            self.plot_real_space.addItem(self.scatter_det)
-
-            # Detección de Aglomerados y Cadenas (Gusanitos/Dímeros/Sobrepuestas) con Fotometría
-            photons_arr = self.locs_df['photons'].values if 'photons' in self.locs_df.columns else (self.locs_df['mass'].values if 'mass' in self.locs_df.columns else None)
-            tol_val = self.spin_cluster_tolerance.value() if hasattr(self, 'spin_cluster_tolerance') else 20.0
-            self.cluster_results = detect_clusters_and_chains(
-                x_nm, y_nm,
-                a_nominal=a_nom,
-                r_cluster_factor=0.60,
-                photons=photons_arr,
-                image_2d=self.image_2d,
-                locs_df=self.locs_df,
-                scale_nm=scale_nm,
-                signature_dict=self.monomer_signature,
-                tolerance_pct=tol_val
-            )
-            if self.cluster_results and 'signature' in self.cluster_results and self.cluster_results['signature']:
-                self.monomer_signature = self.cluster_results['signature']
-            self._update_cluster_table()
-
-            # Dibujar líneas de conexión entre pares en cúmulo
-            self.cluster_lines_items = []
-            if self.cluster_results and len(self.cluster_results.get('pair_lines', [])) > 0:
-                for (lx1, ly1, lx2, ly2) in self.cluster_results['pair_lines']:
-                    line_item = pg.PlotDataItem(
-                        [lx1, lx2], [ly1, ly2],
-                        pen=pg.mkPen('#fab387', width=2, style=Qt.PenStyle.DashLine)
-                    )
-                    line_item.setVisible(self.chk_layer_clusters.isChecked())
-                    self.plot_real_space.addItem(line_item)
-                    self.cluster_lines_items.append(line_item)
-
-            # Dibujar contornos fotométricos segmentados (Amarillo suave)
-            self.cluster_contour_items = []
-            self.highlight_contour_item = None
-            if self.cluster_results and len(self.cluster_results.get('clusters', [])) > 0:
-                for c in self.cluster_results['clusters']:
-                    poly = c.get('contour_polygon_nm', [])
-                    if len(poly) > 2:
-                        poly_arr = np.array(poly)
-                        poly_closed = np.vstack([poly_arr, poly_arr[0]])
-                        c_item = pg.PlotDataItem(
-                            poly_closed[:, 0], poly_closed[:, 1],
-                            pen=pg.mkPen('#f9e2af', width=1.5, style=Qt.PenStyle.DashLine)
-                        )
-                        c_item.setVisible(self.chk_layer_contours.isChecked())
-                        self.plot_real_space.addItem(c_item)
-                        self.cluster_contour_items.append(c_item)
-
-            # Superponer partículas pertenecientes a aglomerados (Naranja suave / Triángulo)
-            if self.cluster_results and self.cluster_results.get('n_clusters', 0) > 0:
-                cl_indices = list(self.cluster_results.get('cluster_particle_indices', []))
-                if len(cl_indices) > 0:
-                    cl_x = x_nm[cl_indices]
-                    cl_y = y_nm[cl_indices]
-                    self.scatter_clusters = pg.ScatterPlotItem(
-                        x=cl_x,
-                        y=cl_y,
-                        size=12,
-                        pen=pg.mkPen('#fab387', width=2),
-                        brush=pg.mkBrush(250, 179, 135, 140),
-                        symbol='t'
-                    )
-                    self.scatter_clusters.setVisible(self.chk_layer_clusters.isChecked())
-                    self.plot_real_space.addItem(self.scatter_clusters)
-                else:
-                    self.scatter_clusters = None
-            else:
-                self.scatter_clusters = None
-
-            # Superponer vacancias (Rojo)
-            if len(kd['vacant_points']) > 0:
-                vac_x = kd['vacant_points'][:, 0]
-                vac_y = kd['vacant_points'][:, 1]
-                self.scatter_vac = pg.ScatterPlotItem(
-                    x=vac_x,
-                    y=vac_y,
-                    size=11,
-                    pen=pg.mkPen('#f38ba8', width=2),
-                    brush=pg.mkBrush(243, 139, 168, 80),
-                    symbol='x'
-                )
-                self.scatter_vac.setVisible(self.chk_layer_vac.isChecked())
-                self.plot_real_space.addItem(self.scatter_vac)
-            else:
-                self.scatter_vac = None
-
-            # Superponer malla ideal (Gris suave / Cruz)
-            if len(kd['grid_points']) > 0:
-                grid_x = kd['grid_points'][:, 0]
-                grid_y = kd['grid_points'][:, 1]
-                self.scatter_grid = pg.ScatterPlotItem(
-                    x=grid_x,
-                    y=grid_y,
-                    size=5,
-                    pen=pg.mkPen('#a6adc8', width=1),
-                    brush=pg.mkBrush(166, 173, 200, 60),
-                    symbol='+'
-                )
-                self.scatter_grid.setVisible(self.chk_layer_grid.isChecked())
-                self.plot_real_space.addItem(self.scatter_grid)
-            else:
-                self.scatter_grid = None
-
-            # Redibujar superposición de selección activa
-            self._redraw_selection_overlay()
-
-            # Graficar g(r)
-            self.plot_rdf.clear()
-            if len(rdf['r']) > 0:
-                self.plot_rdf.plot(
-                    rdf['r'], rdf['gr'],
-                    pen=pg.mkPen('#a6e3a1', width=2),
-                    name='g(r)'
-                )
-                line_a = pg.InfiniteLine(pos=a_nom, angle=90, pen=pg.mkPen('#f9e2af', style=Qt.PenStyle.DashLine))
-                self.plot_rdf.addItem(line_a)
-                r_diff = rdf.get('r_diffraction_limit', 250.0)
-                if r_diff > 0:
-                    line_diff = pg.InfiniteLine(
-                        pos=r_diff, angle=90,
-                        pen=pg.mkPen('#f38ba8', width=1, style=Qt.PenStyle.DotLine)
-                    )
-                    self.plot_rdf.addItem(line_diff)
-
-            if self.reciprocal_results is not None:
-                self._update_analytical_panels_and_plots(self.reciprocal_results)
-            self._update_metrics_table()
-
-        # Re-agregar las 4 reglas móviles de ROI
-        for line in [self.line_roi_xmin, self.line_roi_xmax, self.line_roi_ymin, self.line_roi_ymax]:
-            if line not in self.plot_real_space.items():
-                self.plot_real_space.addItem(line)
-            line.setVisible(self.chk_layer_roi.isChecked())
+            self._on_detect_clusters()
+            self._on_recalc_grid()
 
     def _on_recalculate_reciprocal(self):
         if self.locs_df is None or len(self.locs_df) == 0:
@@ -4093,14 +4895,19 @@ class LatticeDisorderWindow(QMainWindow):
         n_bins = 256 if idx_bins == 0 else (512 if idx_bins == 1 else 1024)
         band_bins = self.spin_band.value()
         dc_cut = self.spin_dc_cut.value() if hasattr(self, 'spin_dc_cut') else 0.35
+        use_double = self.chk_double_peak.isChecked() if hasattr(self, 'chk_double_peak') else False
+        peak_mode = ('amplitude' if self.combo_peak_criterion.currentIndex() == 0 else 'closest_nominal') if hasattr(self, 'combo_peak_criterion') else 'amplitude'
 
-        # Análisis espectral completo
+        # Análisis espectral completo con soporte de doble pico y ajuste manual individualizado
         self.reciprocal_results = analyze_reciprocal_space_2d(
             x_nm, y_nm,
             a_nominal=a_nom,
             n_bins=n_bins,
             band_width_bins=band_bins,
-            dc_cut_factor=dc_cut
+            dc_cut_factor=dc_cut,
+            use_double_peak=use_double,
+            peak_selection_mode=peak_mode,
+            peak_tuning=getattr(self, 'peak_tuning_dict', None)
         )
 
         res = self.reciprocal_results
@@ -4176,45 +4983,100 @@ class LatticeDisorderWindow(QMainWindow):
         # Graficar cortes 1D: Eje X
         self.plot_cut_x.clear()
         self.plot_cut_x.plot(fx, res['profile_x'], pen=pg.mkPen('#89dceb', width=2), name='Exp')
-        if res['fit_x']['success']:
+        fit_x = res['fit_x']
+        if fit_x['success']:
+            fit_name = 'Fit Doble Pico X' if fit_x.get('is_double_peak') else 'Fit 1er Orden X'
             self.plot_cut_x.plot(
-                res['fit_x']['fit_f'], res['fit_x']['fit_curve'],
+                fit_x['fit_f'], fit_x['fit_curve'],
                 pen=pg.mkPen('#a6e3a1', width=2, style=Qt.PenStyle.DashLine),
-                name='Fit 1er Orden'
+                name=fit_name
             )
+            # Si es doble pico, graficar componentes individuales y línea base
+            if fit_x.get('is_double_peak'):
+                if 'comp1_curve' in fit_x and fit_x['comp1_curve'] is not None:
+                    self.plot_cut_x.plot(fit_x['fit_f'], fit_x['comp1_curve'], pen=pg.mkPen('#89b4fa', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 1')
+                if 'comp2_curve' in fit_x and fit_x['comp2_curve'] is not None:
+                    self.plot_cut_x.plot(fit_x['fit_f'], fit_x['comp2_curve'], pen=pg.mkPen('#fab387', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 2')
+                if 'baseline_curve' in fit_x and fit_x['baseline_curve'] is not None:
+                    self.plot_cut_x.plot(fit_x['fit_f'], fit_x['baseline_curve'], pen=pg.mkPen('#6c7086', width=1.0, style=Qt.PenStyle.DotLine), name='Línea Base')
+
         if res.get('fit_x_2nd') and res['fit_x_2nd']['success']:
+            fit_x_2nd = res['fit_x_2nd']
+            fit_name_2x = 'Fit Doble 2do Orden X' if fit_x_2nd.get('is_double_peak') else 'Fit 2do Orden X'
             self.plot_cut_x.plot(
-                res['fit_x_2nd']['fit_f'], res['fit_x_2nd']['fit_curve'],
+                fit_x_2nd['fit_f'], fit_x_2nd['fit_curve'],
                 pen=pg.mkPen('#f9e2af', width=1.8, style=Qt.PenStyle.DashLine),
-                name='Fit 2do Orden'
+                name=fit_name_2x
             )
+            if fit_x_2nd.get('is_double_peak'):
+                if 'comp1_curve' in fit_x_2nd and fit_x_2nd['comp1_curve'] is not None:
+                    self.plot_cut_x.plot(fit_x_2nd['fit_f'], fit_x_2nd['comp1_curve'], pen=pg.mkPen('#89b4fa', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 1 (2X)')
+                if 'comp2_curve' in fit_x_2nd and fit_x_2nd['comp2_curve'] is not None:
+                    self.plot_cut_x.plot(fit_x_2nd['fit_f'], fit_x_2nd['comp2_curve'], pen=pg.mkPen('#fab387', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 2 (2X)')
+                if 'baseline_curve' in fit_x_2nd and fit_x_2nd['baseline_curve'] is not None:
+                    self.plot_cut_x.plot(fit_x_2nd['fit_f'], fit_x_2nd['baseline_curve'], pen=pg.mkPen('#6c7086', width=1.0, style=Qt.PenStyle.DotLine), name='Línea Base (2X)')
 
         # Graficar cortes 1D: Eje Y
         self.plot_cut_y.clear()
         self.plot_cut_y.plot(fy, res['profile_y'], pen=pg.mkPen('#cba6f7', width=2), name='Exp')
-        if res['fit_y']['success']:
+        fit_y = res['fit_y']
+        if fit_y['success']:
+            fit_name_y = 'Fit Doble Pico Y' if fit_y.get('is_double_peak') else 'Fit 1er Orden Y'
             self.plot_cut_y.plot(
-                res['fit_y']['fit_f'], res['fit_y']['fit_curve'],
+                fit_y['fit_f'], fit_y['fit_curve'],
                 pen=pg.mkPen('#a6e3a1', width=2, style=Qt.PenStyle.DashLine),
-                name='Fit 1er Orden'
+                name=fit_name_y
             )
+            if fit_y.get('is_double_peak'):
+                if 'comp1_curve' in fit_y and fit_y['comp1_curve'] is not None:
+                    self.plot_cut_y.plot(fit_y['fit_f'], fit_y['comp1_curve'], pen=pg.mkPen('#89b4fa', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 1')
+                if 'comp2_curve' in fit_y and fit_y['comp2_curve'] is not None:
+                    self.plot_cut_y.plot(fit_y['fit_f'], fit_y['comp2_curve'], pen=pg.mkPen('#fab387', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 2')
+                if 'baseline_curve' in fit_y and fit_y['baseline_curve'] is not None:
+                    self.plot_cut_y.plot(fit_y['fit_f'], fit_y['baseline_curve'], pen=pg.mkPen('#6c7086', width=1.0, style=Qt.PenStyle.DotLine), name='Línea Base')
+
         if res.get('fit_y_2nd') and res['fit_y_2nd']['success']:
+            fit_y_2nd = res['fit_y_2nd']
+            fit_name_2y = 'Fit Doble 2do Orden Y' if fit_y_2nd.get('is_double_peak') else 'Fit 2do Orden Y'
             self.plot_cut_y.plot(
-                res['fit_y_2nd']['fit_f'], res['fit_y_2nd']['fit_curve'],
+                fit_y_2nd['fit_f'], fit_y_2nd['fit_curve'],
                 pen=pg.mkPen('#f9e2af', width=1.8, style=Qt.PenStyle.DashLine),
-                name='Fit 2do Orden'
+                name=fit_name_2y
             )
+            if fit_y_2nd.get('is_double_peak'):
+                if 'comp1_curve' in fit_y_2nd and fit_y_2nd['comp1_curve'] is not None:
+                    self.plot_cut_y.plot(fit_y_2nd['fit_f'], fit_y_2nd['comp1_curve'], pen=pg.mkPen('#89b4fa', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 1 (2Y)')
+                if 'comp2_curve' in fit_y_2nd and fit_y_2nd['comp2_curve'] is not None:
+                    self.plot_cut_y.plot(fit_y_2nd['fit_f'], fit_y_2nd['comp2_curve'], pen=pg.mkPen('#fab387', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 2 (2Y)')
+                if 'baseline_curve' in fit_y_2nd and fit_y_2nd['baseline_curve'] is not None:
+                    self.plot_cut_y.plot(fit_y_2nd['fit_f'], fit_y_2nd['baseline_curve'], pen=pg.mkPen('#6c7086', width=1.0, style=Qt.PenStyle.DotLine), name='Línea Base (2Y)')
 
         # Graficar cortes 1D: Diagonal 45°
         if hasattr(self, 'plot_cut_diag'):
             self.plot_cut_diag.clear()
             self.plot_cut_diag.plot(res['f_diag'], res['profile_diag'], pen=pg.mkPen('#f38ba8', width=2), name='Exp Diag')
             if res.get('fit_diag') and res['fit_diag']['success']:
+                fit_diag = res['fit_diag']
+                fit_name_d = 'Fit Doble (1,1)' if fit_diag.get('is_double_peak') else 'Fit (1,1)'
                 self.plot_cut_diag.plot(
-                    res['fit_diag']['fit_f'], res['fit_diag']['fit_curve'],
+                    fit_diag['fit_f'], fit_diag['fit_curve'],
                     pen=pg.mkPen('#cba6f7', width=1.8, style=Qt.PenStyle.DashLine),
-                    name='Fit (1,1)'
+                    name=fit_name_d
                 )
+                if fit_diag.get('is_double_peak'):
+                    if 'comp1_curve' in fit_diag and fit_diag['comp1_curve'] is not None:
+                        self.plot_cut_diag.plot(fit_diag['fit_f'], fit_diag['comp1_curve'], pen=pg.mkPen('#89b4fa', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 1 (Diag)')
+                    if 'comp2_curve' in fit_diag and fit_diag['comp2_curve'] is not None:
+                        self.plot_cut_diag.plot(fit_diag['fit_f'], fit_diag['comp2_curve'], pen=pg.mkPen('#fab387', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 2 (Diag)')
+                    if 'baseline_curve' in fit_diag and fit_diag['baseline_curve'] is not None:
+                        self.plot_cut_diag.plot(fit_diag['fit_f'], fit_diag['baseline_curve'], pen=pg.mkPen('#6c7086', width=1.0, style=Qt.PenStyle.DotLine), name='Línea Base (Diag)')
+
+        # Restaurar reglas visuales del pico seleccionado si están activas
+        if hasattr(self, 'chk_peak_manual_roi') and self.chk_peak_manual_roi.isChecked():
+            if self._current_tuned_plot is not None:
+                for line in [self.line_peak_fmin, self.line_peak_fmax, self.line_peak_bg]:
+                    if line not in self._current_tuned_plot.items():
+                        self._current_tuned_plot.addItem(line)
 
         self._update_analytical_panels_and_plots(res)
         self._update_metrics_table()
@@ -4565,86 +5427,92 @@ class LatticeDisorderWindow(QMainWindow):
         s_vals = mc['sigma_values']
         is_aniso = mc.get('is_anisotropic', False)
         show_multi = getattr(self, 'chk_show_multi_order', None) is None or self.chk_show_multi_order.isChecked()
+        show_order1 = self.chk_mc_order1.isChecked() if hasattr(self, 'chk_mc_order1') else True
+        show_diag = (self.chk_mc_diag.isChecked() if hasattr(self, 'chk_mc_diag') else True) and show_multi
+        show_order2 = (self.chk_mc_order2.isChecked() if hasattr(self, 'chk_mc_order2') else True) and show_multi
 
         self.plot_dw.clear()
+        if hasattr(self, 'plot_dw_legend') and self.plot_dw_legend is not None:
+            self.plot_dw_legend.clear()
 
         # 1. Graficar Curvas de Calibración MC y Ajustes
-        if is_aniso:
-            # Eje X
-            H_mean_x = mc['H_mean_x']
-            H_std_x = mc['H_std_x']
-            fit_x = mc['fit_x']
-            curve_up_x = H_mean_x + H_std_x
-            curve_down_x = np.clip(H_mean_x - H_std_x, 0, None)
-            c_up_x = self.plot_dw.plot(s_vals, curve_up_x, pen=pg.mkPen(None))
-            c_down_x = self.plot_dw.plot(s_vals, curve_down_x, pen=pg.mkPen(None))
-            fill_x = pg.FillBetweenItem(c_down_x, c_up_x, brush=pg.mkBrush(137, 180, 250, 35))
-            self.plot_dw.addItem(fill_x)
+        if show_order1:
+            if is_aniso:
+                # Eje X
+                H_mean_x = mc['H_mean_x']
+                H_std_x = mc['H_std_x']
+                fit_x = mc['fit_x']
+                curve_up_x = H_mean_x + H_std_x
+                curve_down_x = np.clip(H_mean_x - H_std_x, 0, None)
+                c_up_x = self.plot_dw.plot(s_vals, curve_up_x, pen=pg.mkPen(None))
+                c_down_x = self.plot_dw.plot(s_vals, curve_down_x, pen=pg.mkPen(None))
+                fill_x = pg.FillBetweenItem(c_down_x, c_up_x, brush=pg.mkBrush(137, 180, 250, 35))
+                self.plot_dw.addItem(fill_x)
 
-            self.plot_dw.plot(
-                s_vals, H_mean_x, pen=None,
-                symbol='o', symbolSize=7,
-                symbolBrush=pg.mkBrush('#89b4fa'), symbolPen=pg.mkPen('#cdd6f4'),
-                name=f"MC X (ax={mc['a_x']:.1f}nm)"
-            )
-            if fit_x['success']:
                 self.plot_dw.plot(
-                    fit_x['s_dense'], fit_x['H_fit_dense'],
-                    pen=pg.mkPen('#89b4fa', width=2),
-                    name='Fit DW X'
+                    s_vals, H_mean_x, pen=None,
+                    symbol='o', symbolSize=7,
+                    symbolBrush=pg.mkBrush('#89b4fa'), symbolPen=pg.mkPen('#cdd6f4'),
+                    name=f"MC X (ax={mc['a_x']:.1f}nm)"
                 )
+                if fit_x['success']:
+                    self.plot_dw.plot(
+                        fit_x['s_dense'], fit_x['H_fit_dense'],
+                        pen=pg.mkPen('#89b4fa', width=2),
+                        name='Fit DW X'
+                    )
 
-            # Eje Y
-            H_mean_y = mc['H_mean_y']
-            H_std_y = mc['H_std_y']
-            fit_y = mc['fit_y']
-            curve_up_y = H_mean_y + H_std_y
-            curve_down_y = np.clip(H_mean_y - H_std_y, 0, None)
-            c_up_y = self.plot_dw.plot(s_vals, curve_up_y, pen=pg.mkPen(None))
-            c_down_y = self.plot_dw.plot(s_vals, curve_down_y, pen=pg.mkPen(None))
-            fill_y = pg.FillBetweenItem(c_down_y, c_up_y, brush=pg.mkBrush(243, 139, 168, 35))
-            self.plot_dw.addItem(fill_y)
+                # Eje Y
+                H_mean_y = mc['H_mean_y']
+                H_std_y = mc['H_std_y']
+                fit_y = mc['fit_y']
+                curve_up_y = H_mean_y + H_std_y
+                curve_down_y = np.clip(H_mean_y - H_std_y, 0, None)
+                c_up_y = self.plot_dw.plot(s_vals, curve_up_y, pen=pg.mkPen(None))
+                c_down_y = self.plot_dw.plot(s_vals, curve_down_y, pen=pg.mkPen(None))
+                fill_y = pg.FillBetweenItem(c_down_y, c_up_y, brush=pg.mkBrush(243, 139, 168, 35))
+                self.plot_dw.addItem(fill_y)
 
-            self.plot_dw.plot(
-                s_vals, H_mean_y, pen=None,
-                symbol='s', symbolSize=7,
-                symbolBrush=pg.mkBrush('#f38ba8'), symbolPen=pg.mkPen('#cdd6f4'),
-                name=f"MC Y (ay={mc['a_y']:.1f}nm)"
-            )
-            if fit_y['success']:
                 self.plot_dw.plot(
-                    fit_y['s_dense'], fit_y['H_fit_dense'],
-                    pen=pg.mkPen('#f38ba8', width=2, style=Qt.PenStyle.DashLine),
-                    name='Fit DW Y'
+                    s_vals, H_mean_y, pen=None,
+                    symbol='s', symbolSize=7,
+                    symbolBrush=pg.mkBrush('#f38ba8'), symbolPen=pg.mkPen('#cdd6f4'),
+                    name=f"MC Y (ay={mc['a_y']:.1f}nm)"
                 )
-        else:
-            # Modo Isotrópico
-            H_mean = mc['H_mean']
-            H_std = mc['H_std']
-            fit = mc['fit']
+                if fit_y['success']:
+                    self.plot_dw.plot(
+                        fit_y['s_dense'], fit_y['H_fit_dense'],
+                        pen=pg.mkPen('#f38ba8', width=2, style=Qt.PenStyle.DashLine),
+                        name='Fit DW Y'
+                    )
+            else:
+                # Modo Isotrópico
+                H_mean = mc['H_mean']
+                H_std = mc['H_std']
+                fit = mc['fit']
 
-            curve_up = H_mean + H_std
-            curve_down = np.clip(H_mean - H_std, 0, None)
-            c_up = self.plot_dw.plot(s_vals, curve_up, pen=pg.mkPen(None))
-            c_down = self.plot_dw.plot(s_vals, curve_down, pen=pg.mkPen(None))
-            fill_item = pg.FillBetweenItem(c_down, c_up, brush=pg.mkBrush(137, 180, 250, 40))
-            self.plot_dw.addItem(fill_item)
+                curve_up = H_mean + H_std
+                curve_down = np.clip(H_mean - H_std, 0, None)
+                c_up = self.plot_dw.plot(s_vals, curve_up, pen=pg.mkPen(None))
+                c_down = self.plot_dw.plot(s_vals, curve_down, pen=pg.mkPen(None))
+                fill_item = pg.FillBetweenItem(c_down, c_up, brush=pg.mkBrush(137, 180, 250, 40))
+                self.plot_dw.addItem(fill_item)
 
-            self.plot_dw.plot(
-                s_vals, H_mean, pen=None,
-                symbol='o', symbolSize=7,
-                symbolBrush=pg.mkBrush('#89b4fa'), symbolPen=pg.mkPen('#cdd6f4'),
-                name='Simulación MC (1er Orden)'
-            )
-            if fit['success']:
                 self.plot_dw.plot(
-                    fit['s_dense'], fit['H_fit_dense'],
-                    pen=pg.mkPen('#a6e3a1', width=2),
-                    name='Ajuste Debye-Waller (1er Orden)'
+                    s_vals, H_mean, pen=None,
+                    symbol='o', symbolSize=7,
+                    symbolBrush=pg.mkBrush('#89b4fa'), symbolPen=pg.mkPen('#cdd6f4'),
+                    name='Simulación MC (1er Orden)'
                 )
+                if fit['success']:
+                    self.plot_dw.plot(
+                        fit['s_dense'], fit['H_fit_dense'],
+                        pen=pg.mkPen('#a6e3a1', width=2),
+                        name='Ajuste Debye-Waller (1er Orden)'
+                    )
 
         # Curvas secundarias Multi-Orden (Diagonal y 2do Armónico)
-        if show_multi and 'H_mean_diag' in mc and mc['H_mean_diag'] is not None:
+        if show_diag and 'H_mean_diag' in mc and mc['H_mean_diag'] is not None:
             H_diag = mc['H_mean_diag']
             fit_diag = mc.get('fit_diag', {})
             self.plot_dw.plot(
@@ -4660,7 +5528,7 @@ class LatticeDisorderWindow(QMainWindow):
                     name='Fit DW Diag (1,1)'
                 )
 
-        if show_multi and 'H_mean_2' in mc and mc['H_mean_2'] is not None:
+        if show_order2 and 'H_mean_2' in mc and mc['H_mean_2'] is not None:
             H_2 = mc['H_mean_2']
             fit_2 = mc.get('fit_2', {})
             self.plot_dw.plot(
@@ -4685,13 +5553,15 @@ class LatticeDisorderWindow(QMainWindow):
             if is_aniso:
                 sx, ds_x = interpolate_disorder(Hx, s_vals, mc['H_mean_x'], mc['H_std_x'])
                 sy, ds_y = interpolate_disorder(Hy, s_vals, mc['H_mean_y'], mc['H_std_y'])
-                self.plot_dw.plot([0, sx, sx], [Hx, Hx, 0], pen=pg.mkPen('#89b4fa', width=1.5, style=Qt.PenStyle.DashLine))
-                self.plot_dw.plot([0, sy, sy], [Hy, Hy, 0], pen=pg.mkPen('#f38ba8', width=1.5, style=Qt.PenStyle.DashLine))
+                if show_order1:
+                    self.plot_dw.plot([0, sx, sx], [Hx, Hx, 0], pen=pg.mkPen('#89b4fa', width=1.5, style=Qt.PenStyle.DashLine))
+                    self.plot_dw.plot([0, sy, sy], [Hy, Hy, 0], pen=pg.mkPen('#f38ba8', width=1.5, style=Qt.PenStyle.DashLine))
             else:
                 sx, ds_x = interpolate_disorder(Hx, s_vals, mc['H_mean'], mc['H_std'])
                 sy, ds_y = interpolate_disorder(Hy, s_vals, mc['H_mean'], mc['H_std'])
-                self.plot_dw.plot([0, sx, sx], [Hx, Hx, 0], pen=pg.mkPen('#f9e2af', width=1.5, style=Qt.PenStyle.DashLine))
-                self.plot_dw.plot([0, sy, sy], [Hy, Hy, 0], pen=pg.mkPen('#f38ba8', width=1.5, style=Qt.PenStyle.DashLine))
+                if show_order1:
+                    self.plot_dw.plot([0, sx, sx], [Hx, Hx, 0], pen=pg.mkPen('#f9e2af', width=1.5, style=Qt.PenStyle.DashLine))
+                    self.plot_dw.plot([0, sy, sy], [Hy, Hy, 0], pen=pg.mkPen('#f38ba8', width=1.5, style=Qt.PenStyle.DashLine))
 
             s_prom = (sx + sy) / 2.0
             mc['sx_interp'] = sx
@@ -4705,7 +5575,7 @@ class LatticeDisorderWindow(QMainWindow):
                 H_meas_diag = r['H_diag']
                 s_diag, ds_diag = interpolate_disorder(H_meas_diag, s_vals, mc['H_mean_diag'], mc.get('H_std_diag'))
                 mc['s_diag_interp'] = s_diag
-                if show_multi:
+                if show_diag:
                     self.plot_dw.plot([0, s_diag, s_diag], [H_meas_diag, H_meas_diag, 0], pen=pg.mkPen('#cba6f7', width=1.5, style=Qt.PenStyle.DashLine))
 
             # Inversión 2do Orden
@@ -4715,8 +5585,38 @@ class LatticeDisorderWindow(QMainWindow):
                 H_meas_2 = r['H_x_2nd']
                 s_2, ds_2 = interpolate_disorder(H_meas_2, s_vals, mc['H_mean_2'], mc.get('H_std_2'))
                 mc['s_2_interp'] = s_2
-                if show_multi:
+                if show_order2:
                     self.plot_dw.plot([0, s_2, s_2], [H_meas_2, H_meas_2, 0], pen=pg.mkPen('#f9e2af', width=1.5, style=Qt.PenStyle.DashLine))
+
+            # 3. Marcadores Interactivos de Coincidencia (Match Points)
+            match_pts = []
+            if show_order1:
+                if is_aniso:
+                    match_pts.append({'name': 'Pico Bragg X (1,0)', 's': sx, 'ds': ds_x, 'H': Hx, 'color': '#89b4fa', 'sym': 'o'})
+                    match_pts.append({'name': 'Pico Bragg Y (0,1)', 's': sy, 'ds': ds_y, 'H': Hy, 'color': '#f38ba8', 'sym': 's'})
+                else:
+                    match_pts.append({'name': 'Pico Fundamental X/Y (1,0)', 's': sx, 'ds': ds_x, 'H': Hx, 'color': '#89b4fa', 'sym': 'o'})
+                    match_pts.append({'name': 'Pico Fundamental Y (0,1)', 's': sy, 'ds': ds_y, 'H': Hy, 'color': '#f38ba8', 'sym': 's'})
+
+            if s_diag is not None and show_diag:
+                match_pts.append({'name': 'Pico Diagonal Cruzado (1,1)', 's': s_diag, 'ds': ds_diag, 'H': H_meas_diag, 'color': '#cba6f7', 'sym': 'd'})
+            if s_2 is not None and show_order2:
+                match_pts.append({'name': 'Pico Armónico 2do Orden (2,0)', 's': s_2, 'ds': ds_2, 'H': H_meas_2, 'color': '#f9e2af', 'sym': 't'})
+
+            spots_list = []
+            for mp in match_pts:
+                spots_list.append({
+                    'pos': (mp['s'], mp['H']),
+                    'size': 14,
+                    'pen': pg.mkPen('#ffffff', width=2),
+                    'brush': pg.mkBrush(mp['color']),
+                    'symbol': mp['sym'],
+                    'data': mp
+                })
+
+            self.scatter_match_dw = pg.ScatterPlotItem(spots=spots_list)
+            self.scatter_match_dw.sigClicked.connect(self._on_dw_match_point_clicked)
+            self.plot_dw.addItem(self.scatter_match_dw)
 
             # Diagnóstico Físico de Consistencia del Cristal
             if s_diag is not None and s_2 is not None:
@@ -4836,10 +5736,13 @@ class LatticeDisorderWindow(QMainWindow):
 
         if self.kdtree_results is not None:
             kd = self.kdtree_results
-            c_ratio = kd.get('consistency_sum', kd['particles_detected'] + kd['vacant_count'])
-            tot = kd.get('N_total_sites', self.spin_n_side.value() ** 2)
-            c_tag = f" [Suma M+Vac={c_ratio}/{tot}]"
-            self.table_metrics.item(4, 1).setText(f"{kd['f_vac_percent']:.1f}% ({kd['vacant_count']} vacancias){c_tag}")
+            v_prac = kd.get('n_vac_prac', kd.get('vacant_count', 0))
+            f_prac_pct = kd.get('f_vac_prac_percent', kd.get('f_vac_percent', 0.0))
+            v_teor = kd.get('n_vac_teor', kd.get('vacant_count', 0))
+            f_teor_pct = kd.get('f_vac_teor_percent', kd.get('f_vac_percent', 0.0))
+            self.table_metrics.item(4, 1).setText(
+                f"Prácticas: {f_prac_pct:.1f}% ({v_prac} vac) | Teóricas: {f_teor_pct:.1f}% ({v_teor} vac)"
+            )
             self.table_metrics.item(5, 1).setText(f"σ_x={kd['sigma_x']:.2f} nm / σ_y={kd['sigma_y']:.2f} nm")
             self.table_metrics.item(6, 1).setText(f"{kd['sigma_pos']:.2f} nm")
 
@@ -5006,6 +5909,310 @@ class LatticeDisorderWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Error al Exportar Galería", f"Error durante la exportación:\n{str(e)}")
+
+    # --------------------------------------------------------------------------
+    # MÉTODOS DE CALIBRACIÓN ÓPTICA, CURACIÓN DE CÚMULOS Y SINCRONIZACIÓN
+    # --------------------------------------------------------------------------
+
+    def _on_calibrate_psf(self):
+        """Calibra condiciones iniciales (Picasso, Trackpy, RL, Fotometría) a partir de una PSF confocal experimental."""
+        default_dir = os.path.join(os.path.dirname(__file__), "..", "reserva")
+        if not os.path.isdir(default_dir):
+            default_dir = os.getcwd()
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Seleccionar Micrografía de PSF Confocal (ej. 100 nm Au NP)",
+            default_dir,
+            "Imágenes Científicas (*.tiff *.tif *.png *.h5);;Todos los Archivos (*)"
+        )
+        if not file_path:
+            return
+
+        # Diálogo para confirmar escala espacial y factor de potencia láser
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Parámetros de Calibración PSF Confocal")
+        dlg_lay = QVBoxLayout(dlg)
+
+        lbl_desc = QLabel(
+            "Configure los parámetros ópticos para el ajuste de la PSF confocal.\n"
+            "El ajuste estimará el ancho óptico σ_psf, FWHM, fotones V₀ y gradiente de Sobel."
+        )
+        lbl_desc.setStyleSheet("color: #cdd6f4; font-size: 11px;")
+        dlg_lay.addWidget(lbl_desc)
+
+        form_lay = QGridLayout()
+        form_lay.addWidget(QLabel("Escala Espacial (nm/px):"), 0, 0)
+        spin_scale_psf = QDoubleSpinBox()
+        spin_scale_psf.setRange(1.0, 1000.0)
+        spin_scale_psf.setValue(self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0)
+        form_lay.addWidget(spin_scale_psf, 0, 1)
+
+        form_lay.addWidget(QLabel("Factor Potencia Láser (P_red / P_psf):"), 1, 0)
+        spin_pwr = QDoubleSpinBox()
+        spin_pwr.setRange(0.01, 100.0)
+        spin_pwr.setValue(1.0)
+        spin_pwr.setSingleStep(0.1)
+        form_lay.addWidget(spin_pwr, 1, 1)
+        dlg_lay.addLayout(form_lay)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btn_box.accepted.connect(dlg.accept)
+        btn_box.rejected.connect(dlg.reject)
+        dlg_lay.addWidget(btn_box)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        scale_nm = spin_scale_psf.value()
+        pwr_factor = spin_pwr.value()
+
+        try:
+            # Cargar imagen PSF
+            psf_img = None
+            try:
+                import tifffile
+                psf_img = tifffile.imread(file_path)
+            except Exception:
+                pass
+
+            if psf_img is None:
+                from PIL import Image
+                pil_img = Image.open(file_path)
+                psf_img = np.array(pil_img)
+
+            if psf_img is None:
+                raise ValueError("No se pudo decodificar el archivo de imagen PSF.")
+
+            if psf_img.ndim > 2:
+                psf_img = psf_img[0] if psf_img.shape[0] < psf_img.shape[-1] else psf_img[:, :, 0]
+
+            psf_img = psf_img.astype(np.float64)
+
+            # Normalización respecto a imagen de red activa si está disponible
+            target_max = float(np.nanmax(self.image_2d)) if self.image_2d is not None else None
+
+            # Ajuste de PSF y extracción de condiciones iniciales
+            calib = calibrate_from_psf_image(
+                psf_img,
+                scale_nm=scale_nm,
+                laser_power_factor=pwr_factor,
+                target_img_max=target_max
+            )
+
+            # Actualizar firma del monómero
+            self.monomer_signature = calib['monomer_signature']
+
+            # Auto-llenar campos GUI manteniendo edición abierta
+            self.spin_scale.setValue(scale_nm)
+
+            # Trackpy
+            tp = calib['trackpy']
+            self.spin_diameter.setValue(int(tp['diameter']))
+            self.spin_minmass.setValue(float(tp['minmass']))
+            self.spin_separation.setValue(float(tp['separation']))
+
+            # Picasso
+            pic = calib['picasso']
+            self.spin_box_size.setValue(int(pic['box_size']))
+            self.spin_net_grad.setValue(float(pic['min_net_gradient']))
+
+            # Richardson-Lucy
+            rl = calib['richardson_lucy']
+            self.spin_rl_sigma.setValue(float(rl['psf_sigma']))
+
+            # Actualizar etiquetas informativas
+            info_txt = (
+                f"PSF Calibrada: σ={calib['sigma_psf_nm']:.1f} nm (FWHM={calib['fwhm_nm']:.1f} nm) | "
+                f"V₀={calib['V0']:.1f} fotones | Sobel={calib['max_gradient']:.2f}"
+            )
+            self.lbl_psf_calib_info.setText(info_txt)
+            self.lbl_psf_calib_info.setStyleSheet("color: #a6e3a1; font-size: 10px; font-family: monospace;")
+
+            mono_txt = f"Firma Monómero: V₀={calib['V0']:.1f} | A₀={calib['A0']:.1f} px² | σ_psf={calib['sigma_psf_nm']:.1f} nm"
+            self.lbl_monomer_signature.setText(mono_txt)
+
+            QMessageBox.information(
+                self,
+                "Calibración Óptica con PSF Exitosa",
+                f"Se calibraron con éxito los parámetros a partir de:\n{os.path.basename(file_path)}\n\n"
+                f"• Ancho difraccional σ_psf: {calib['sigma_psf_nm']:.2f} nm ({calib['sigma_psf_px']:.2f} px)\n"
+                f"• FWHM difraccional: {calib['fwhm_nm']:.2f} nm\n"
+                f"• Fotones del monómero V₀: {calib['V0']:.1f}\n"
+                f"• Gradiente máximo de Sobel: {calib['max_gradient']:.2f}\n\n"
+                "Se han actualizado las condiciones iniciales para Trackpy, Picasso, Richardson-Lucy "
+                "y el Desacoplamiento Fotométrico. Todos los parámetros permanecen editables."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error en Calibración de PSF", f"Ocurrió un error al calibrar la PSF:\n{str(e)}")
+
+    def _on_cluster_contour_thresh_changed(self):
+        """Recalcula y actualiza dinámicamente el contorno fotométrico del cúmulo seleccionado con el umbral especificado."""
+        if self.selected_cluster_id is None or self.cluster_results is None:
+            return
+        clusters = self.cluster_results.get('clusters', [])
+        target_cluster = None
+        for cl in clusters:
+            if cl.get('id') == self.selected_cluster_id:
+                target_cluster = cl
+                break
+        if target_cluster is None or self.image_2d is None:
+            return
+
+        scale_nm = self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0
+        thresh_pct = self.spin_cluster_contour_thresh.value() / 100.0 if hasattr(self, 'spin_cluster_contour_thresh') else 0.20
+        sigma_psf_px = 1.5
+        if self.monomer_signature and 'sigma_psf_px' in self.monomer_signature:
+            sigma_psf_px = max(0.5, float(self.monomer_signature['sigma_psf_px']))
+        elif self.monomer_signature and 'sigma_nm' in self.monomer_signature:
+            sigma_psf_px = max(0.5, float(self.monomer_signature['sigma_nm']) / scale_nm)
+
+        com_x = float(target_cluster.get('com_x', 0.0))
+        com_y = float(target_cluster.get('com_y', 0.0))
+        cx_px = com_x / scale_nm
+        cy_px = com_y / scale_nm
+
+        indices = target_cluster.get('indices', [])
+        if len(indices) > 0 and self.locs_df is not None:
+            x_pts = self.locs_df['x_nm'].values[indices]
+            y_pts = self.locs_df['y_nm'].values[indices]
+            d_max_nm = float(np.max(np.hypot(x_pts - com_x, y_pts - com_y)))
+            half = int(np.ceil(d_max_nm / scale_nm + 2.5 * sigma_psf_px))
+        else:
+            half = int(np.ceil(3.5 * sigma_psf_px))
+        half = max(half, 6)
+
+        H_img, W_img = self.image_2d.shape[:2]
+        x_min = max(0, int(round(cx_px)) - half)
+        x_max = min(W_img, int(round(cx_px)) + half + 1)
+        y_min = max(0, int(round(cy_px)) - half)
+        y_max = min(H_img, int(round(cy_px)) + half + 1)
+
+        patch = self.image_2d[y_min:y_max, x_min:x_max]
+        if patch.size == 0:
+            return
+
+        border_px = np.concatenate([patch[0, :], patch[-1, :], patch[:, 0], patch[:, -1]])
+        bg = float(np.percentile(border_px, 50))
+        sig = np.clip(patch - bg, 0, None)
+        max_sig = float(np.max(sig))
+        thresh_val = bg + thresh_pct * max_sig if max_sig > 0 else bg
+        mask_binary = (patch > thresh_val).astype(np.uint8)
+
+        contour_poly_nm = []
+        try:
+            import cv2
+            contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                largest_cnt = max(contours, key=cv2.contourArea)
+                cnt_pts = largest_cnt.squeeze()
+                if cnt_pts.ndim == 2:
+                    for pt in cnt_pts:
+                        px_glob = x_min + pt[0]
+                        py_glob = y_min + pt[1]
+                        contour_poly_nm.append((float(px_glob * scale_nm), float(py_glob * scale_nm)))
+        except Exception:
+            pass
+
+        target_cluster['contour_polygon_nm'] = contour_poly_nm
+
+        if self.highlight_contour_item is not None:
+            self.plot_real_space.removeItem(self.highlight_contour_item)
+            self.highlight_contour_item = None
+
+        if len(contour_poly_nm) > 2:
+            poly_arr = np.array(contour_poly_nm)
+            poly_closed = np.vstack([poly_arr, poly_arr[0]])
+            self.highlight_contour_item = pg.PlotDataItem(
+                poly_closed[:, 0], poly_closed[:, 1],
+                pen=pg.mkPen('#f9e2af', width=3.0)
+            )
+            self.highlight_contour_item.setVisible(self.chk_layer_contours.isChecked())
+            self.plot_real_space.addItem(self.highlight_contour_item)
+
+    def _on_toggle_add_particles_to_cluster(self, checked: bool):
+        """Activa o desactiva el modo interactivo de clic para agregar o remover partículas del cúmulo seleccionado."""
+        if checked:
+            if self.selected_cluster_id is None:
+                QMessageBox.information(
+                    self,
+                    "Modo Añadir Partículas al Contorno",
+                    "Seleccione primero un cúmulo en la tabla de aglomerados para definir a cuál asociar partículas."
+                )
+                self.btn_cluster_add_particles.setChecked(False)
+                return
+            self.statusBar().showMessage(
+                f"Modo Clic Activo: Haga clic en partículas del visor para añadirlas o removerlas del Cúmulo #{self.selected_cluster_id}."
+            )
+        else:
+            self.statusBar().showMessage("Modo Añadir Partículas desactivado.")
+
+    def _on_sync_curated_to_reciprocal(self):
+        """Sincroniza las coordenadas curadas con el Espacio Recíproco (Tab 2) y actualiza la sección de metrología analítica sin cambiar de pestaña."""
+        if self.locs_df is None or self.locs_df.empty:
+            QMessageBox.warning(self, "Atención", "No hay coordenadas disponibles para sincronizar.")
+            return
+
+        # 1. Recalcular espacio recíproco y metrología analítica directa con las coordenadas actuales curadas
+        self._on_recalculate_reciprocal()
+
+        # 2. Propagar parámetros a Monte Carlo de forma silenciosa (sin cambiar de pestaña ni abrir popups)
+        if self.reciprocal_results is not None:
+            res = self.reciprocal_results
+            a_mean = res['a_mean']
+            a_x = res.get('a_x', a_mean)
+            a_y = res.get('a_y', a_mean)
+            aniso = abs(a_x - a_y)
+            is_aniso = aniso > 1.0
+
+            self.spin_mc_ax.setValue(a_x)
+            self.spin_mc_ay.setValue(a_y)
+            self.chk_mc_anisotropy.setChecked(is_aniso)
+            self.spin_mc_ay.setEnabled(is_aniso)
+            self.spin_mc_n.setValue(self.spin_n_side.value())
+
+            if self.kdtree_results is not None:
+                self.spin_mc_vac.setValue(self.kdtree_results.get('f_vac_percent', 0.0))
+
+            band_bins = self.spin_band.value()
+            idx_bins = self.combo_bins.currentIndex()
+            n_bins = 256 if idx_bins == 0 else (512 if idx_bins == 1 else 1024)
+            fmax = 2.5 / a_mean if a_mean > 0 else 1.0
+            delta_f = (2.0 * fmax) / n_bins
+            band_nm = band_bins * delta_f
+            self.spin_mc_band.setValue(band_nm)
+
+            self.statusBar().showMessage(
+                "✅ Puntos curados sincronizados con Espacio Recíproco (sección analítica y parámetros MC actualizados).",
+                5000
+            )
+
+    def _on_dw_match_point_clicked(self, item, points):
+        """Muestra un callout metrológico detallado al hacer clic en un punto de coincidencia de Debye-Waller."""
+        if len(points) == 0:
+            return
+        pt = points[0]
+        data = pt.data()
+        if not data:
+            return
+        name = data.get('name', 'Punto de Intersección')
+        s = data.get('s', 0.0)
+        ds = data.get('ds', 0.0)
+        H = data.get('H', 0.0)
+        rel_unc = (ds / max(s, 1e-6) * 100.0)
+
+        QMessageBox.information(
+            self,
+            f"Metrología Debye-Waller: {name}",
+            f"<h3>{name}</h3>"
+            f"<p><b>Dispersión estocástica interpolada (σ):</b> {s:.2f} ± {ds:.2f} nm</p>"
+            f"<p><b>Altura de pico normalizada experimental (H):</b> {H:.4f}</p>"
+            f"<p><b>Incertidumbre relativa (Δσ / σ):</b> {rel_unc:.1f}%</p>"
+            f"<hr>"
+            f"<p style='color: #a6adc8; font-size: 11px;'><i>Este punto representa la proyección de la altura Bragg medida "
+            f"sobre la curva de calibración estocástica Monte Carlo, desacoplando estrictamente el factor canónico "
+            f"de vacancias (V_prac = N² - M).</i></p>"
+        )
 
 
 # ==============================================================================

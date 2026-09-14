@@ -138,7 +138,10 @@ def fit_bragg_peak_1d(
     profile: np.ndarray,
     a_nominal: float = 450.0,
     search_half_width_factor: float = 0.40,
-    dc_cut_factor: float = 0.40
+    dc_cut_factor: float = 0.40,
+    f_min: Optional[float] = None,
+    f_max: Optional[float] = None,
+    fixed_bg: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Ajusta el pico de Bragg principal (primer orden positivo) en un perfil 1D.
@@ -155,15 +158,24 @@ def fit_bragg_peak_1d(
         Fracción de 1/a_nominal para acotar la ventana de búsqueda del pico.
     dc_cut_factor : float
         Corte inferior para ignorar la componente continua DC.
+    f_min, f_max : float, opcional
+        Cotas explícitas de ROI visual. Si se definen, invalidan los factores automáticos.
+    fixed_bg : float, opcional
+        Valor fijo para la línea base de fondo.
 
     Retorna:
     --------
     Diccionario con parámetros ajustados: f0, a, height, fwhm, xi, bg, fit_curve, success.
     """
     f0_target = 1.0 / a_nominal
-    f_min_search = f0_target * (1.0 - search_half_width_factor)
-    f_max_search = f0_target * (1.0 + search_half_width_factor)
-    f_dc_cut = f0_target * dc_cut_factor
+    if f_min is not None and f_max is not None:
+        f_min_search = min(float(f_min), float(f_max))
+        f_max_search = max(float(f_min), float(f_max))
+        f_dc_cut = f_min_search
+    else:
+        f_min_search = f0_target * (1.0 - search_half_width_factor)
+        f_max_search = f0_target * (1.0 + search_half_width_factor)
+        f_dc_cut = f0_target * dc_cut_factor
 
     # Máscara de frecuencias positivas en la región de interés
     mask = (f >= max(f_dc_cut, f_min_search)) & (f <= f_max_search)
@@ -188,14 +200,21 @@ def fit_bragg_peak_1d(
     idx_max = np.argmax(p_roi)
     f0_init = f_roi[idx_max]
     H_init = p_roi[idx_max] - float(np.min(p_roi))
-    bg_init = float(np.min(p_roi))
+    bg_init = float(fixed_bg) if fixed_bg is not None else float(np.min(p_roi))
     sigma_f_init = f0_target * 0.10
 
     # Ajuste por mínimos cuadrados no lineales
     p0 = [max(H_init, 1e-3), f0_init, sigma_f_init, bg_init, 0.0]
+    if fixed_bg is not None:
+        bg_low = float(fixed_bg) - 1e-6
+        bg_high = float(fixed_bg) + 1e-6
+    else:
+        bg_low = 0.0
+        bg_high = np.inf
+
     bounds = (
-        [0.0, f_min_search, 1e-6, 0.0, -np.inf],
-        [np.inf, f_max_search, f0_target, np.inf, np.inf]
+        [0.0, f_min_search, 1e-6, bg_low, -np.inf],
+        [np.inf, f_max_search, f0_target * 2.0, bg_high, np.inf]
     )
 
     try:
@@ -228,6 +247,182 @@ def fit_bragg_peak_1d(
         'bg': float(bg_fit),
         'fit_f': f_roi,
         'fit_curve': fit_curve
+    }
+
+
+def _double_gaussian_with_bg(f, H1, f1, s1, H2, f2, s2, bg, slope):
+    """Modelo de doble gaussiana con fondo lineal para picos desdoblados / doublets."""
+    return (H1 * np.exp(-((f - f1) ** 2) / (2.0 * s1 ** 2)) +
+            H2 * np.exp(-((f - f2) ** 2) / (2.0 * s2 ** 2)) +
+            bg + slope * (f - f1))
+
+
+def fit_bragg_peak_double_gaussian(
+    f: np.ndarray,
+    profile: np.ndarray,
+    a_nominal: float = 450.0,
+    search_half_width_factor: float = 0.40,
+    dc_cut_factor: float = 0.40,
+    peak_selection_mode: str = 'highest',
+    f_min: Optional[float] = None,
+    f_max: Optional[float] = None,
+    fixed_bg: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Ajusta un modelo de Doble Gaussiana sobre el perfil 1D para resolver picos
+    desdoblados (doublets), hombros o satélites cristalográficos.
+
+    Parámetros:
+    -----------
+    f : np.ndarray
+        Frecuencias espaciales [nm^-1].
+    profile : np.ndarray
+        Densidad espectral 1D.
+    a_nominal : float
+        Período nominal esperado [nm].
+    search_half_width_factor : float
+        Fracción de 1/a_nominal para acotar la ventana de búsqueda.
+    dc_cut_factor : float
+        Corte inferior para ignorar la componente continua DC.
+    peak_selection_mode : str
+        'highest': elige como pico primario el de mayor amplitud.
+        'closest_nominal': elige como primario el más cercano a 1/a_nominal.
+    f_min, f_max : float, opcional
+        Límites explícitos de ROI visuales en nm^-1.
+    fixed_bg : float, opcional
+        Línea base fija para el ajuste.
+
+    Retorna:
+    --------
+    Diccionario con parámetros del pico primario y del secundario, curvas de ajuste y éxito.
+    """
+    f0_target = 1.0 / a_nominal
+    if f_min is not None and f_max is not None:
+        f_min_search = min(float(f_min), float(f_max))
+        f_max_search = max(float(f_min), float(f_max))
+        f_dc_cut = f_min_search
+    else:
+        f_min_search = f0_target * (1.0 - search_half_width_factor)
+        f_max_search = f0_target * (1.0 + search_half_width_factor)
+        f_dc_cut = f0_target * dc_cut_factor
+
+    mask = (f >= max(f_dc_cut, f_min_search)) & (f <= f_max_search)
+    f_roi = f[mask]
+    p_roi = profile[mask]
+
+    if len(f_roi) < 8:
+        res_simple = fit_bragg_peak_1d(
+            f, profile, a_nominal, search_half_width_factor, dc_cut_factor,
+            f_min=f_min, f_max=f_max, fixed_bg=fixed_bg
+        )
+        res_simple['is_double_peak'] = False
+        res_simple['secondary_peak'] = None
+        res_simple['comp1_curve'] = None
+        res_simple['comp2_curve'] = None
+        res_simple['baseline_curve'] = None
+        return res_simple
+
+    peaks_indices, _ = find_peaks(p_roi, distance=max(2, len(f_roi) // 10))
+    if len(peaks_indices) >= 2:
+        top_two = sorted(peaks_indices, key=lambda idx: p_roi[idx], reverse=True)[:2]
+        top_two.sort()
+        f1_init, f2_init = f_roi[top_two[0]], f_roi[top_two[1]]
+        H1_init, H2_init = p_roi[top_two[0]] - float(np.min(p_roi)), p_roi[top_two[1]] - float(np.min(p_roi))
+    else:
+        idx_max = np.argmax(p_roi)
+        f1_init = f_roi[idx_max]
+        H1_init = p_roi[idx_max] - float(np.min(p_roi))
+        delta_f = f0_target * 0.08
+        f2_init = f1_init + delta_f if (f1_init + delta_f < f_max_search) else (f1_init - delta_f)
+        H2_init = H1_init * 0.4
+
+    bg_init = float(fixed_bg) if fixed_bg is not None else float(np.min(p_roi))
+    s1_init = f0_target * 0.08
+    s2_init = f0_target * 0.08
+
+    p0 = [max(H1_init, 1e-3), f1_init, s1_init, max(H2_init, 1e-3), f2_init, s2_init, bg_init, 0.0]
+
+    if fixed_bg is not None:
+        bg_low = float(fixed_bg) - 1e-6
+        bg_high = float(fixed_bg) + 1e-6
+    else:
+        bg_low = 0.0
+        bg_high = np.inf
+
+    bounds = (
+        [0.0, f_min_search, 1e-6, 0.0, f_min_search, 1e-6, bg_low, -np.inf],
+        [np.inf, f_max_search, f0_target * 2.0, np.inf, f_max_search, f0_target * 2.0, bg_high, np.inf]
+    )
+
+    try:
+        popt, _ = curve_fit(_double_gaussian_with_bg, f_roi, p_roi, p0=p0, bounds=bounds, maxfev=3000)
+        H1_f, f1_f, s1_f, H2_f, f2_f, s2_f, bg_f, slope_f = popt
+        success = True
+    except Exception:
+        simple_res = fit_bragg_peak_1d(
+            f, profile, a_nominal, search_half_width_factor, dc_cut_factor,
+            f_min=f_min, f_max=f_max, fixed_bg=fixed_bg
+        )
+        simple_res['is_double_peak'] = False
+        simple_res['secondary_peak'] = None
+        simple_res['comp1_curve'] = None
+        simple_res['comp2_curve'] = None
+        simple_res['baseline_curve'] = None
+        return simple_res
+
+    if peak_selection_mode == 'closest_nominal':
+        if abs(f1_f - f0_target) <= abs(f2_f - f0_target):
+            primary = (H1_f, f1_f, s1_f)
+            secondary = (H2_f, f2_f, s2_f)
+        else:
+            primary = (H2_f, f2_f, s2_f)
+            secondary = (H1_f, f1_f, s1_f)
+    else:  # 'highest'
+        if H1_f >= H2_f:
+            primary = (H1_f, f1_f, s1_f)
+            secondary = (H2_f, f2_f, s2_f)
+        else:
+            primary = (H2_f, f2_f, s2_f)
+            secondary = (H1_f, f1_f, s1_f)
+
+    H_pri, f0_pri, s_pri = primary
+    H_sec, f0_sec, s_sec = secondary
+
+    a_pri = 1.0 / abs(f0_pri) if f0_pri > 1e-9 else a_nominal
+    a_sec = 1.0 / abs(f0_sec) if f0_sec > 1e-9 else a_nominal
+    fwhm_pri = 2.35482 * abs(s_pri)
+    fwhm_sec = 2.35482 * abs(s_sec)
+    xi_pri = 1.0 / (2.0 * np.pi * fwhm_pri) if fwhm_pri > 1e-9 else 0.0
+
+    fit_curve = _double_gaussian_with_bg(f_roi, H1_f, f1_f, s1_f, H2_f, f2_f, s2_f, bg_f, slope_f)
+    comp1_curve = _gaussian_with_bg(f_roi, H1_f, f1_f, s1_f, bg_f, slope_f)
+    comp2_curve = _gaussian_with_bg(f_roi, H2_f, f2_f, s2_f, bg_f, slope_f)
+    baseline_curve = bg_f + slope_f * (f_roi - f0_target)
+
+    return {
+        'success': success,
+        'is_double_peak': True,
+        'peak_selection_mode': peak_selection_mode,
+        'f0': float(f0_pri),
+        'a': float(a_pri),
+        'height': float(H_pri),
+        'fwhm': float(fwhm_pri),
+        'sigma_f': float(s_pri),
+        'xi': float(xi_pri),
+        'bg': float(bg_f),
+        'fit_f': f_roi,
+        'fit_curve': fit_curve,
+        'comp1_curve': comp1_curve,
+        'comp2_curve': comp2_curve,
+        'baseline_curve': baseline_curve,
+        'secondary_peak': {
+            'f0': float(f0_sec),
+            'a': float(a_sec),
+            'height': float(H_sec),
+            'fwhm': float(fwhm_sec),
+            'sigma_f': float(s_sec),
+            'xi': float(1.0 / (2.0 * np.pi * fwhm_sec) if fwhm_sec > 1e-9 else 0.0)
+        }
     }
 
 
@@ -273,7 +468,10 @@ def fit_secondary_bragg_peak_1d(
     profile: np.ndarray,
     target_f: float,
     expected_order: float = 1.0,
-    search_half_width_factor: float = 0.25
+    search_half_width_factor: float = 0.25,
+    f_min: Optional[float] = None,
+    f_max: Optional[float] = None,
+    fixed_bg: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Ajusta un pico de Bragg secundario (diagonal u orden armónico superior) en un perfil 1D.
@@ -291,6 +489,10 @@ def fit_secondary_bragg_peak_1d(
         utilizado para calcular el período fundamental equivalente a = expected_order / f0.
     search_half_width_factor : float
         Ventana relativa de búsqueda en torno a target_f.
+    f_min, f_max : float, opcional
+        Límites explícitos de frecuencia [nm^-1] provenientes de reglas visuales de ROI.
+    fixed_bg : float, opcional
+        Línea base constante fija para el ajuste.
     """
     if target_f <= 1e-9:
         return {
@@ -306,10 +508,14 @@ def fit_secondary_bragg_peak_1d(
             'fit_curve': np.array([])
         }
 
-    f_min = target_f * (1.0 - search_half_width_factor)
-    f_max = target_f * (1.0 + search_half_width_factor)
+    if f_min is not None and f_max is not None:
+        f_min_search = min(float(f_min), float(f_max))
+        f_max_search = max(float(f_min), float(f_max))
+    else:
+        f_min_search = target_f * (1.0 - search_half_width_factor)
+        f_max_search = target_f * (1.0 + search_half_width_factor)
 
-    mask = (f >= f_min) & (f <= f_max)
+    mask = (f >= f_min_search) & (f <= f_max_search)
     f_roi = f[mask]
     p_roi = profile[mask]
 
@@ -329,14 +535,22 @@ def fit_secondary_bragg_peak_1d(
 
     idx_max = np.argmax(p_roi)
     f0_init = f_roi[idx_max]
-    H_init = p_roi[idx_max] - float(np.min(p_roi))
-    bg_init = float(np.min(p_roi))
+    bg_init = float(fixed_bg) if fixed_bg is not None else float(np.min(p_roi))
+    H_init = p_roi[idx_max] - bg_init
     sigma_f_init = target_f * 0.08
 
     p0 = [max(H_init, 1e-3), f0_init, sigma_f_init, bg_init, 0.0]
+
+    if fixed_bg is not None:
+        bg_low = float(fixed_bg) - 1e-6
+        bg_high = float(fixed_bg) + 1e-6
+    else:
+        bg_low = 0.0
+        bg_high = np.inf
+
     bounds = (
-        [0.0, f_min, 1e-6, 0.0, -np.inf],
-        [np.inf, f_max, target_f, np.inf, np.inf]
+        [0.0, f_min_search, 1e-6, bg_low, -np.inf],
+        [np.inf, f_max_search, target_f, bg_high, np.inf]
     )
 
     try:
@@ -367,6 +581,168 @@ def fit_secondary_bragg_peak_1d(
         'bg': float(bg_fit),
         'fit_f': f_roi,
         'fit_curve': fit_curve
+    }
+
+
+def fit_secondary_bragg_peak_double_gaussian(
+    f: np.ndarray,
+    profile: np.ndarray,
+    target_f: float,
+    expected_order: float = 1.0,
+    search_half_width_factor: float = 0.25,
+    peak_selection_mode: str = 'highest',
+    f_min: Optional[float] = None,
+    f_max: Optional[float] = None,
+    fixed_bg: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Ajusta un modelo de Doble Gaussiana con fondo lineal sobre un pico secundario
+    (orden armónico superior [2,0], [0,2] o diagonal [1,1]) para resolver doublets o satélites.
+    """
+    if target_f <= 1e-9:
+        return {
+            'success': False,
+            'is_double_peak': False,
+            'f0': 0.0,
+            'a': 0.0,
+            'height': 0.0,
+            'fwhm': 0.0,
+            'sigma_f': 0.0,
+            'xi': 0.0,
+            'bg': 0.0,
+            'fit_f': np.array([]),
+            'fit_curve': np.array([]),
+            'comp1_curve': None,
+            'comp2_curve': None,
+            'baseline_curve': None,
+            'secondary_peak': None
+        }
+
+    if f_min is not None and f_max is not None:
+        f_min_search = min(float(f_min), float(f_max))
+        f_max_search = max(float(f_min), float(f_max))
+    else:
+        f_min_search = target_f * (1.0 - search_half_width_factor)
+        f_max_search = target_f * (1.0 + search_half_width_factor)
+
+    mask = (f >= f_min_search) & (f <= f_max_search)
+    f_roi = f[mask]
+    p_roi = profile[mask]
+
+    if len(f_roi) < 8:
+        res_simple = fit_secondary_bragg_peak_1d(
+            f, profile, target_f, expected_order, search_half_width_factor,
+            f_min=f_min, f_max=f_max, fixed_bg=fixed_bg
+        )
+        res_simple['is_double_peak'] = False
+        res_simple['secondary_peak'] = None
+        res_simple['comp1_curve'] = None
+        res_simple['comp2_curve'] = None
+        res_simple['baseline_curve'] = None
+        return res_simple
+
+    peaks_indices, _ = find_peaks(p_roi, distance=max(2, len(f_roi) // 10))
+    if len(peaks_indices) >= 2:
+        top_two = sorted(peaks_indices, key=lambda idx: p_roi[idx], reverse=True)[:2]
+        top_two.sort()
+        f1_init, f2_init = f_roi[top_two[0]], f_roi[top_two[1]]
+        H1_init = p_roi[top_two[0]] - float(np.min(p_roi))
+        H2_init = p_roi[top_two[1]] - float(np.min(p_roi))
+    else:
+        idx_max = np.argmax(p_roi)
+        f1_init = f_roi[idx_max]
+        H1_init = p_roi[idx_max] - float(np.min(p_roi))
+        delta_f = target_f * 0.08
+        f2_init = f1_init + delta_f if (f1_init + delta_f < f_max_search) else (f1_init - delta_f)
+        H2_init = H1_init * 0.4
+
+    bg_init = float(fixed_bg) if fixed_bg is not None else float(np.min(p_roi))
+    s1_init = target_f * 0.08
+    s2_init = target_f * 0.08
+
+    p0 = [max(H1_init, 1e-3), f1_init, s1_init, max(H2_init, 1e-3), f2_init, s2_init, bg_init, 0.0]
+
+    if fixed_bg is not None:
+        bg_low = float(fixed_bg) - 1e-6
+        bg_high = float(fixed_bg) + 1e-6
+    else:
+        bg_low = 0.0
+        bg_high = np.inf
+
+    bounds = (
+        [0.0, f_min_search, 1e-6, 0.0, f_min_search, 1e-6, bg_low, -np.inf],
+        [np.inf, f_max_search, target_f * 2.0, np.inf, f_max_search, target_f * 2.0, bg_high, np.inf]
+    )
+
+    try:
+        popt, _ = curve_fit(_double_gaussian_with_bg, f_roi, p_roi, p0=p0, bounds=bounds, maxfev=3000)
+        H1_f, f1_f, s1_f, H2_f, f2_f, s2_f, bg_f, slope_f = popt
+        success = True
+    except Exception:
+        simple_res = fit_secondary_bragg_peak_1d(
+            f, profile, target_f, expected_order, search_half_width_factor,
+            f_min=f_min, f_max=f_max, fixed_bg=fixed_bg
+        )
+        simple_res['is_double_peak'] = False
+        simple_res['secondary_peak'] = None
+        simple_res['comp1_curve'] = None
+        simple_res['comp2_curve'] = None
+        simple_res['baseline_curve'] = None
+        return simple_res
+
+    if peak_selection_mode == 'closest_nominal':
+        if abs(f1_f - target_f) <= abs(f2_f - target_f):
+            primary = (H1_f, f1_f, s1_f)
+            secondary = (H2_f, f2_f, s2_f)
+        else:
+            primary = (H2_f, f2_f, s2_f)
+            secondary = (H1_f, f1_f, s1_f)
+    else:  # 'highest'
+        if H1_f >= H2_f:
+            primary = (H1_f, f1_f, s1_f)
+            secondary = (H2_f, f2_f, s2_f)
+        else:
+            primary = (H2_f, f2_f, s2_f)
+            secondary = (H1_f, f1_f, s1_f)
+
+    H_pri, f0_pri, s_pri = primary
+    H_sec, f0_sec, s_sec = secondary
+
+    a_pri = float(expected_order / abs(f0_pri)) if f0_pri > 1e-9 else 0.0
+    a_sec = float(expected_order / abs(f0_sec)) if f0_sec > 1e-9 else 0.0
+    fwhm_pri = 2.35482 * abs(s_pri)
+    fwhm_sec = 2.35482 * abs(s_sec)
+    xi_pri = 1.0 / (2.0 * np.pi * fwhm_pri) if fwhm_pri > 1e-9 else 0.0
+
+    fit_curve = _double_gaussian_with_bg(f_roi, H1_f, f1_f, s1_f, H2_f, f2_f, s2_f, bg_f, slope_f)
+    comp1_curve = _gaussian_with_bg(f_roi, H1_f, f1_f, s1_f, bg_f, slope_f)
+    comp2_curve = _gaussian_with_bg(f_roi, H2_f, f2_f, s2_f, bg_f, slope_f)
+    baseline_curve = bg_f + slope_f * (f_roi - target_f)
+
+    return {
+        'success': success,
+        'is_double_peak': True,
+        'peak_selection_mode': peak_selection_mode,
+        'f0': float(f0_pri),
+        'a': float(a_pri),
+        'height': float(H_pri),
+        'fwhm': float(fwhm_pri),
+        'sigma_f': float(s_pri),
+        'xi': float(xi_pri),
+        'bg': float(bg_f),
+        'fit_f': f_roi,
+        'fit_curve': fit_curve,
+        'comp1_curve': comp1_curve,
+        'comp2_curve': comp2_curve,
+        'baseline_curve': baseline_curve,
+        'secondary_peak': {
+            'f0': float(f0_sec),
+            'a': float(a_sec),
+            'height': float(H_sec),
+            'fwhm': float(fwhm_sec),
+            'sigma_f': float(s_sec),
+            'xi': float(1.0 / (2.0 * np.pi * fwhm_sec) if fwhm_sec > 1e-9 else 0.0)
+        }
     }
 
 
@@ -446,14 +822,18 @@ def analyze_reciprocal_space_2d(
     a_nominal: float = 450.0,
     n_bins: int = 256,
     band_width_bins: int = 3,
-    dc_cut_factor: float = 0.35
+    dc_cut_factor: float = 0.35,
+    use_double_peak: bool = False,
+    peak_selection_mode: str = 'highest',
+    peak_tuning: Optional[Dict[str, Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     Ejecuta el análisis espectral 2D metrológico completo:
     1. Cálculo de NUFFT 2D continua y factor de estructura S(fx, fy).
-    2. Extracción de cortes transversales 1D y ajuste gaussiano de picos de Bragg fundamentales (1, 0) y (0, 1).
+    2. Extracción de cortes transversales 1D y ajuste gaussiano de picos de Bragg fundamentales (1, 0) y (0, 1)
+       con soporte para simple o doble gaussiana (resolución de doublets/splitting).
     3. Extracción de corte diagonal 45° y ajuste del pico de orden cruzado (1, 1).
-    4. Ajuste de picos armónicos de segundo orden (2, 0) y (0, 2).
+    4. Ajuste de picos armónicos de segundo orden (2, 0) y (0, 2) con soporte de simple/doble gaussiana.
     5. Medición de anchos transversales y cuantificación del mosaico angular / curvatura de escaneo.
     6. Verificación de ortogonalidad cristalográfica y cizallamiento (shear strain).
     7. Cuantificación del fondo difuso incoherente y relación señal/fondo (SBR).
@@ -461,9 +841,38 @@ def analyze_reciprocal_space_2d(
     fx, fy, S = compute_structure_factor_2d(x, y, a_nominal=a_nominal, n_bins=n_bins)
     _, prof_x, _, prof_y = extract_1d_profiles(S, fx, fy, band_width_bins=band_width_bins)
 
+    t_x1 = (peak_tuning or {}).get('x_1st', {})
+    t_y1 = (peak_tuning or {}).get('y_1st', {})
+    t_diag = (peak_tuning or {}).get('diag', {})
+    t_x2 = (peak_tuning or {}).get('x_2nd', {})
+    t_y2 = (peak_tuning or {}).get('y_2nd', {})
+
     # 1. Picos Fundamentales de 1er Orden
-    fit_x = fit_bragg_peak_1d(fx, prof_x, a_nominal=a_nominal, dc_cut_factor=dc_cut_factor)
-    fit_y = fit_bragg_peak_1d(fy, prof_y, a_nominal=a_nominal, dc_cut_factor=dc_cut_factor)
+    m_x1 = t_x1.get('model', 'double' if use_double_peak else 'single')
+    if m_x1 == 'double':
+        fit_x = fit_bragg_peak_double_gaussian(
+            fx, prof_x, a_nominal=a_nominal, dc_cut_factor=dc_cut_factor,
+            peak_selection_mode=t_x1.get('peak_selection_mode', peak_selection_mode),
+            f_min=t_x1.get('f_min'), f_max=t_x1.get('f_max'), fixed_bg=t_x1.get('fixed_bg')
+        )
+    else:
+        fit_x = fit_bragg_peak_1d(
+            fx, prof_x, a_nominal=a_nominal, dc_cut_factor=dc_cut_factor,
+            f_min=t_x1.get('f_min'), f_max=t_x1.get('f_max'), fixed_bg=t_x1.get('fixed_bg')
+        )
+
+    m_y1 = t_y1.get('model', 'double' if use_double_peak else 'single')
+    if m_y1 == 'double':
+        fit_y = fit_bragg_peak_double_gaussian(
+            fy, prof_y, a_nominal=a_nominal, dc_cut_factor=dc_cut_factor,
+            peak_selection_mode=t_y1.get('peak_selection_mode', peak_selection_mode),
+            f_min=t_y1.get('f_min'), f_max=t_y1.get('f_max'), fixed_bg=t_y1.get('fixed_bg')
+        )
+    else:
+        fit_y = fit_bragg_peak_1d(
+            fy, prof_y, a_nominal=a_nominal, dc_cut_factor=dc_cut_factor,
+            f_min=t_y1.get('f_min'), f_max=t_y1.get('f_max'), fixed_bg=t_y1.get('fixed_bg')
+        )
 
     a_x = fit_x['a']
     a_y = fit_y['a']
@@ -475,11 +884,46 @@ def analyze_reciprocal_space_2d(
     f10_val = fit_x['f0'] if fit_x['f0'] > 1e-9 else (1.0 / a_nominal)
     f01_val = fit_y['f0'] if fit_y['f0'] > 1e-9 else (1.0 / a_nominal)
     f_diag_target = float(np.sqrt(f10_val ** 2 + f01_val ** 2))
-    fit_diag = fit_secondary_bragg_peak_1d(f_diag, prof_diag, target_f=f_diag_target, expected_order=np.sqrt(2.0))
+
+    m_diag = t_diag.get('model', 'double' if use_double_peak else 'single')
+    if m_diag == 'double':
+        fit_diag = fit_secondary_bragg_peak_double_gaussian(
+            f_diag, prof_diag, target_f=f_diag_target, expected_order=np.sqrt(2.0),
+            peak_selection_mode=t_diag.get('peak_selection_mode', peak_selection_mode),
+            f_min=t_diag.get('f_min'), f_max=t_diag.get('f_max'), fixed_bg=t_diag.get('fixed_bg')
+        )
+    else:
+        fit_diag = fit_secondary_bragg_peak_1d(
+            f_diag, prof_diag, target_f=f_diag_target, expected_order=np.sqrt(2.0),
+            f_min=t_diag.get('f_min'), f_max=t_diag.get('f_max'), fixed_bg=t_diag.get('fixed_bg')
+        )
 
     # 3. Picos Armónicos de 2do Orden (2, 0) y (0, 2)
-    fit_x_2nd = fit_secondary_bragg_peak_1d(fx, prof_x, target_f=2.0 * f10_val, expected_order=2.0)
-    fit_y_2nd = fit_secondary_bragg_peak_1d(fy, prof_y, target_f=2.0 * f01_val, expected_order=2.0)
+    m_x2 = t_x2.get('model', 'double' if use_double_peak else 'single')
+    if m_x2 == 'double':
+        fit_x_2nd = fit_secondary_bragg_peak_double_gaussian(
+            fx, prof_x, target_f=2.0 * f10_val, expected_order=2.0,
+            peak_selection_mode=t_x2.get('peak_selection_mode', peak_selection_mode),
+            f_min=t_x2.get('f_min'), f_max=t_x2.get('f_max'), fixed_bg=t_x2.get('fixed_bg')
+        )
+    else:
+        fit_x_2nd = fit_secondary_bragg_peak_1d(
+            fx, prof_x, target_f=2.0 * f10_val, expected_order=2.0,
+            f_min=t_x2.get('f_min'), f_max=t_x2.get('f_max'), fixed_bg=t_x2.get('fixed_bg')
+        )
+
+    m_y2 = t_y2.get('model', 'double' if use_double_peak else 'single')
+    if m_y2 == 'double':
+        fit_y_2nd = fit_secondary_bragg_peak_double_gaussian(
+            fy, prof_y, target_f=2.0 * f01_val, expected_order=2.0,
+            peak_selection_mode=t_y2.get('peak_selection_mode', peak_selection_mode),
+            f_min=t_y2.get('f_min'), f_max=t_y2.get('f_max'), fixed_bg=t_y2.get('fixed_bg')
+        )
+    else:
+        fit_y_2nd = fit_secondary_bragg_peak_1d(
+            fy, prof_y, target_f=2.0 * f01_val, expected_order=2.0,
+            f_min=t_y2.get('f_min'), f_max=t_y2.get('f_max'), fixed_bg=t_y2.get('fixed_bg')
+        )
 
     # 4. Mosaico Angular Transversal
     mosaic_x = measure_transversal_mosaic(S, fx, fy, peak_f0=f10_val, axis='x')
@@ -560,7 +1004,9 @@ def analyze_reciprocal_space_2d(
         'I_diffuse': I_diffuse,
         'sbr_x': sbr_x,
         'sbr_y': sbr_y,
-        'sbr_mean': sbr_mean
+        'sbr_mean': sbr_mean,
+        'use_double_peak': use_double_peak,
+        'peak_selection_mode': peak_selection_mode
     }
 
     # Cálculo y deducción de relaciones analíticas directas entre picos
@@ -1097,6 +1543,137 @@ def detect_clusters_and_chains(
         )
 
     return res
+
+
+def calibrate_from_psf_image(
+    psf_img: np.ndarray,
+    scale_nm: float = 50.0,
+    laser_power_factor: float = 1.0,
+    target_img_max: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Calibra de forma analítica y óptica los parámetros iniciales de detección para Trackpy,
+    Picasso (LQ/MLE), la Deconvolución Richardson-Lucy y el Desacople Fotométrico
+    a partir de una imagen confocal de nanopartícula única (psf.tiff).
+
+    Parámetros:
+    -----------
+    psf_img : np.ndarray
+        Matriz 2D de la PSF confocal (ej. 34x34 px).
+    scale_nm : float
+        Tamaño de píxel en nanómetros (por defecto 50.0 nm/px, estándar de laboratorio).
+    laser_power_factor : float
+        Factor multiplicador de potencia láser o escala de normalización de la PSF
+        (por defecto 1.0).
+    target_img_max : float, opcional
+        Intensidad máxima de la imagen de muestra destino, para cálculo automático
+        del factor de escala si la PSF está normalizada.
+
+    Retorna:
+    --------
+    Dict con parámetros ópticos calibrados, volúmenes de emisión, gradientes y presets.
+    """
+    img = np.asarray(psf_img, dtype=np.float64)
+    if img.ndim == 3:
+        img = img[0] if img.shape[0] < img.shape[2] else img[:, :, 0]
+    H, W = img.shape[:2]
+
+    # Fondo estimado en los bordes
+    border = np.concatenate([img[0, :], img[-1, :], img[:, 0], img[:, -1]])
+    bg_init = float(np.median(border))
+
+    # Ajuste Gaussiano 2D
+    yy, xx = np.indices((H, W))
+    coords = np.column_stack([xx.ravel(), yy.ravel()])
+
+    def gauss2d(xy, b, A, x0, y0, sx, sy):
+        return b + A * np.exp(-((xy[:, 0] - x0) ** 2 / (2.0 * sx ** 2) + (xy[:, 1] - y0) ** 2 / (2.0 * sy ** 2)))
+
+    p0 = [bg_init, float(np.max(img) - bg_init), W / 2.0, H / 2.0, 2.0, 2.0]
+    bounds = ([0.0, 0.0, 0.0, 0.0, 0.5, 0.5], [np.inf, np.inf, W, H, 20.0, 20.0])
+
+    try:
+        popt, _ = curve_fit(gauss2d, coords, img.ravel(), p0=p0, bounds=bounds, maxfev=1500)
+        bg_fit, A_fit, x0_fit, y0_fit, sx_fit, sy_fit = popt
+    except Exception:
+        bg_fit = bg_init
+        A_fit = float(np.max(img) - bg_init)
+        x0_fit, y0_fit = W / 2.0, H / 2.0
+        sx_fit, sy_fit = 2.13, 2.13
+
+    sx_fit = abs(float(sx_fit))
+    sy_fit = abs(float(sy_fit))
+    sigma_psf_px = float(np.sqrt(sx_fit * sy_fit))
+    sigma_psf_nm = float(sigma_psf_px * scale_nm)
+    fwhm_px = float(2.35482 * sigma_psf_px)
+    fwhm_nm = float(2.35482 * sigma_psf_nm)
+
+    # Considerar normalización y potencia láser
+    if target_img_max is not None and target_img_max > 0 and (A_fit + bg_fit) > 0:
+        eff_factor = float(target_img_max / (A_fit + bg_fit))
+    else:
+        eff_factor = float(laser_power_factor)
+
+    A_eff = float(A_fit * eff_factor)
+    V0 = float(2.0 * np.pi * A_eff * (sigma_psf_px ** 2))
+    A0 = float(np.pi * (2.0 * sigma_psf_px) ** 2)
+
+    # Gradiente máximo en r = sigma
+    max_gradient = float(A_eff / (sigma_psf_px * np.sqrt(np.e)))
+
+    # Presets recomendados
+    diam_suggested = int(2 * round(2.0 * sigma_psf_px) + 1)
+    if diam_suggested % 2 == 0:
+        diam_suggested += 1
+    diam_suggested = max(3, diam_suggested)
+
+    minmass_suggested = float(round(0.35 * V0, 3))
+    separation_suggested = float(round(2.5 * sigma_psf_px, 1))
+
+    box_size_suggested = diam_suggested
+    min_net_grad_suggested = float(round(0.50 * max_gradient, 3))
+
+    return {
+        'sigma_psf_px': sigma_psf_px,
+        'sigma_psf_nm': sigma_psf_nm,
+        'sigma_x_px': sx_fit,
+        'sigma_y_px': sy_fit,
+        'fwhm_px': fwhm_px,
+        'fwhm_nm': fwhm_nm,
+        'A0_amp': float(A_fit),
+        'A_eff': A_eff,
+        'bg': float(bg_fit),
+        'V0': V0,
+        'A0': A0,
+        'max_gradient': max_gradient,
+        'scale_nm': scale_nm,
+        'laser_power_factor': eff_factor,
+        'trackpy': {
+            'diameter': diam_suggested,
+            'minmass': minmass_suggested,
+            'separation': separation_suggested,
+            'noise_size': 1.0,
+            'percentile': 64
+        },
+        'picasso': {
+            'box_size': box_size_suggested,
+            'min_net_gradient': min_net_grad_suggested,
+            'method': 'gausslq',
+            'baseline': int(round(bg_fit * eff_factor))
+        },
+        'richardson_lucy': {
+            'psf_sigma': float(round(sigma_psf_px, 2)),
+            'iterations': 15
+        },
+        'monomer_signature': {
+            'V0': float(V0),
+            'A0': float(A0),
+            'sigma_psf_px': float(sigma_psf_px),
+            'sigma_psf_nm': float(sigma_psf_nm),
+            'bg': float(bg_fit),
+            'fwhm_nm': float(fwhm_nm)
+        }
+    }
 
 
 def calibrate_single_emitter_signature(
@@ -1722,7 +2299,8 @@ def resolve_clusters(
     image_2d: Optional[np.ndarray] = None,
     signature_dict: Optional[Dict[str, Any]] = None,
     scale_nm: float = 50.0,
-    tolerance_pct: float = 20.0
+    tolerance_pct: float = 20.0,
+    n_gaussians: Optional[int] = None
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], List[int]]:
     """
     Aplica una regla de resolución y desacoplamiento sobre los aglomerados detectados.
@@ -1786,10 +2364,13 @@ def resolve_clusters(
 
         elif action == 'multi_gaussian':
             # Estimar número de partículas a desacoplar
-            n_target = int(c.get('n_est', len(members)))
-            if n_target <= 1 and 'Sobrepuesta' in c.get('type', ''):
-                n_target = 2  # Desacoplar al menos en 2 emisores si es sobrepuesta
-            n_target = min(max(n_target, 1), 6)
+            if n_gaussians is not None and (target_cluster_id is None or c.get('id') == target_cluster_id):
+                n_target = int(n_gaussians)
+            else:
+                n_target = int(c.get('n_est', len(members)))
+                if n_target <= 1 and 'Sobrepuesta' in c.get('type', ''):
+                    n_target = 2  # Desacoplar al menos en 2 emisores si es sobrepuesta
+            n_target = min(max(n_target, 1), 8)
             if n_target <= 1:
                 continue
 
@@ -1871,7 +2452,8 @@ def resolve_clusters_dataframe(
     target_cluster_id: Optional[int] = None,
     image_2d: Optional[np.ndarray] = None,
     signature_dict: Optional[Dict[str, Any]] = None,
-    tolerance_pct: float = 20.0
+    tolerance_pct: float = 20.0,
+    n_gaussians: Optional[int] = None
 ) -> Tuple[Any, Dict[str, Any]]:
     """
     Aplica resolve_clusters sobre un DataFrame con coordenadas de localización.
@@ -1895,7 +2477,8 @@ def resolve_clusters_dataframe(
         image_2d=image_2d,
         signature_dict=signature_dict,
         scale_nm=scale_nm,
-        tolerance_pct=tolerance_pct
+        tolerance_pct=tolerance_pct,
+        n_gaussians=n_gaussians
     )
 
     n_orig_kept = len(df) - len(discarded_indices)
@@ -2120,8 +2703,19 @@ def analyze_real_space_kdtree(
 
         N_total_sites = len(all_grid_coords)
         matched_count = len(occupied_in_grid)
-        n_vac = len(vacant_indices)
-        f_vac = float(n_vac / N_total_sites) if N_total_sites > 0 else 0.0
+
+        # 1. Vacancias Teóricas (Celdas Vacías en la Grilla Óptima Bounded)
+        n_vac_teor = len(vacant_indices)
+        f_vac_teor = float(n_vac_teor / N_total_sites) if N_total_sites > 0 else 0.0
+
+        # 2. Vacancias Prácticas (Canónicas: Muestra dentro de ROI curada)
+        # N_partículas_en_grilla = M (partículas activas dentro del ROI post-curación)
+        n_vac_prac = max(0, N_total_sites - M)
+        f_vac_prac = float(n_vac_prac / N_total_sites) if N_total_sites > 0 else 0.0
+
+        # REGLA OBLIGATORIA: Asignar f_vac a las vacancias prácticas para todos los cálculos posteriores
+        f_vac = f_vac_prac
+        n_vac = n_vac_prac
     else:
         min_ix, max_ix, min_iy, max_iy = 0, n_side - 1, 0, n_side - 1
         grid_points = np.empty((0, 2))
@@ -2130,8 +2724,12 @@ def analyze_real_space_kdtree(
         valid_data = np.empty((0, 2))
         N_total_sites = (n_side * n_side) if (n_side and n_side > 0) else 0
         matched_count = 0
-        n_vac = N_total_sites
-        f_vac = 1.0
+        n_vac_teor = N_total_sites
+        f_vac_teor = 1.0
+        n_vac_prac = max(0, N_total_sites - M)
+        f_vac_prac = float(n_vac_prac / N_total_sites) if N_total_sites > 0 else 1.0
+        n_vac = n_vac_prac
+        f_vac = f_vac_prac
         particles_in_grid = 0
         particles_outside_grid = M
         multi_occupied_count = 0
@@ -2171,9 +2769,15 @@ def analyze_real_space_kdtree(
         'multi_occupied_count': multi_occupied_count,
         'matched_count': matched_count,
         'N_occupied_sites': matched_count,
-        'vacant_count': n_vac,
-        'f_vac': f_vac,
-        'f_vac_percent': f_vac * 100.0,
+        'vacant_count': n_vac_prac,
+        'n_vac_prac': n_vac_prac,
+        'f_vac_prac': f_vac_prac,
+        'f_vac_prac_percent': f_vac_prac * 100.0,
+        'n_vac_teor': n_vac_teor,
+        'f_vac_teor': f_vac_teor,
+        'f_vac_teor_percent': f_vac_teor * 100.0,
+        'f_vac': f_vac_prac,
+        'f_vac_percent': f_vac_prac * 100.0,
         'detection_ratio': detection_ratio,
         'excess_particles': excess_particles,
         'excess_alert': excess_alert,
@@ -2208,7 +2812,10 @@ def compute_radial_distribution_function(
     r_max_factor: float = 3.0,
     n_bins: int = 120,
     r_diffraction_limit: float = 250.0,
-    enforce_diffraction_limit: bool = True
+    enforce_diffraction_limit: bool = True,
+    r_roi_min: Optional[float] = None,
+    r_roi_max: Optional[float] = None,
+    fixed_bg: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Calcula la Función de Distribución Radial g(r) y determina el ancho
@@ -2222,6 +2829,8 @@ def compute_radial_distribution_function(
       o multímeros no resueltos, por lo que se impone g(r) = 0 como límite físico de resolución.
     - Ventana Sub-Red (r_diffraction_limit <= r < a_nominal): NO se asume g(r) = 0. Si hay partículas
       mal impresas, satélites o agregados, g(r) reporta su presencia para evaluar la calidad de fabricación.
+    - Reglas visuales ROI: r_roi_min y r_roi_max permiten acotar interactivamente la ventana del primer pico.
+    - fixed_bg: Permite fijar o liberar la línea base constante de fondo.
     """
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
@@ -2282,33 +2891,63 @@ def compute_radial_distribution_function(
     sublattice_defects_count = int(np.sum(counts[mask_defects]))
     sublattice_defect_ratio = float(sublattice_defects_count / len(pairs)) if len(pairs) > 0 else 0.0
 
-    # Búsqueda del primer pico de red alrededor de r = a_nominal
-    # El límite inferior respeta el límite de difracción instrumental sin presuponer rigidez
-    lower_bound = max(r_diffraction_limit, a_nominal * 0.65)
-    upper_bound = a_nominal * 1.35
+    # Búsqueda del primer pico de red
+    if r_roi_min is not None and r_roi_max is not None:
+        lower_bound = min(float(r_roi_min), float(r_roi_max))
+        upper_bound = max(float(r_roi_min), float(r_roi_max))
+    else:
+        # El límite inferior respeta el límite de difracción instrumental sin presuponer rigidez
+        lower_bound = max(r_diffraction_limit, a_nominal * 0.65)
+        upper_bound = a_nominal * 1.35
+
     mask_peak = (r_centers >= lower_bound) & (r_centers <= upper_bound)
     r_peak_region = r_centers[mask_peak]
     gr_peak_region = gr[mask_peak]
 
     sigma_rdf = 0.0
+    sigma_peak = 0.0
+    fwhm_rdf = 0.0
     first_peak_r = a_nominal
-    if len(r_peak_region) >= 5 and np.max(gr_peak_region) > 0.5:
+    fit_r = np.array([])
+    fit_gr = np.array([])
+    height_rdf = 0.0
+    bg_rdf = 0.0
+
+    if len(r_peak_region) >= 5 and np.max(gr_peak_region) > 0.1:
         idx_pk = np.argmax(gr_peak_region)
         first_peak_r = float(r_peak_region[idx_pk])
-        # Ajuste Gaussiano local para estimar el ancho
-        p0 = [np.max(gr_peak_region), first_peak_r, a_nominal * 0.08, float(np.min(gr_peak_region))]
+        bg_init = float(fixed_bg) if fixed_bg is not None else float(np.min(gr_peak_region))
+        H_init = max(float(np.max(gr_peak_region)) - bg_init, 1e-3)
+        p0 = [H_init, first_peak_r, a_nominal * 0.08, bg_init]
+
+        if fixed_bg is not None:
+            bg_low = float(fixed_bg) - 1e-6
+            bg_high = float(fixed_bg) + 1e-6
+        else:
+            bg_low = 0.0
+            bg_high = np.inf
+
+        bounds = ([0.0, lower_bound, 1e-3, bg_low], [np.inf, upper_bound, a_nominal, bg_high])
         try:
             popt, _ = curve_fit(
                 lambda r, A, r0, s, bg: A * np.exp(-((r - r0) ** 2) / (2 * s ** 2)) + bg,
                 r_peak_region,
                 gr_peak_region,
                 p0=p0,
-                bounds=([0, lower_bound, 1e-3, 0], [np.inf, upper_bound, a_nominal, np.inf]),
+                bounds=bounds,
                 maxfev=1000
             )
-            sigma_peak = abs(float(popt[2]))
+            A_fit, r0_fit, s_fit, bg_fit = popt
+            first_peak_r = float(r0_fit)
+            sigma_peak = abs(float(s_fit))
             # Para dos partículas fluctuando independientemente: Var(Delta r) = 2 * sigma^2
             sigma_rdf = sigma_peak / np.sqrt(2.0)
+            fwhm_rdf = 2.35482 * sigma_peak
+            height_rdf = float(A_fit)
+            bg_rdf = float(bg_fit)
+
+            fit_r = np.linspace(float(r_peak_region[0]), float(r_peak_region[-1]), 150)
+            fit_gr = A_fit * np.exp(-((fit_r - r0_fit) ** 2) / (2.0 * (s_fit ** 2))) + bg_fit
         except Exception:
             sigma_rdf = 0.0
 
@@ -2316,7 +2955,16 @@ def compute_radial_distribution_function(
         'r': r_centers,
         'gr': gr,
         'first_peak_r': first_peak_r,
+        'r0': first_peak_r,
         'sigma_rdf': float(sigma_rdf),
+        'sigma_peak': float(sigma_peak),
+        'fwhm_rdf': float(fwhm_rdf),
+        'height_rdf': height_rdf,
+        'bg_rdf': bg_rdf,
+        'fit_r': fit_r,
+        'fit_gr': fit_gr,
+        'r_roi_min': lower_bound,
+        'r_roi_max': upper_bound,
         'r_diffraction_limit': float(r_diffraction_limit),
         'sub_diffraction_artifacts': sub_diff_artifacts,
         'sublattice_defect_ratio': sublattice_defect_ratio
