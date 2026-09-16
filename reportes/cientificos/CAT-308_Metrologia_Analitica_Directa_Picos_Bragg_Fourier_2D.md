@@ -169,7 +169,7 @@ Por ello, el cociente $H_1 / H_0$ se clasifica en PyPrinting 3.0 como **métrico
 
 ---
 
-## 4. Regresión Multiorigen: El Gráfico de Wilson Bidimensional (Wilson Plot 2D)
+## 4. Regresión Multiorigen: El Gráfico de Wilson Bidimensional (Wilson Plot 2D Anisótropo)
 
 Cuando se dispone de múltiples reflexiones observables de orden superior $\{\mathbf{G}_{hk}\}$, en lugar de depender exclusivamente de un único cociente de dos picos, es metodológicamente superior formular una regresión lineal multivariada.
 
@@ -178,31 +178,38 @@ $$H(\mathbf{G}) = I_0 \, e^{-\sigma_{\text{pos}}^2 |\mathbf{G}|^2}$$
 donde $I_0 = N_{\text{det}} (1-p)$. Aplicando logaritmo:
 $$\ln[H(\mathbf{G})] = \ln[N_{\text{det}} (1-p)] - \sigma_{\text{pos}}^2 |\mathbf{G}|^2$$
 
-Definiendo la variable independiente $u = |\mathbf{G}|^2$ y la dependiente $y = \ln[H(\mathbf{G})]$:
-$$y = A - B u$$
-donde:
-- **Pendiente:** $B = \sigma_{\text{pos}}^2 \implies \sigma_{\text{pos}} = \sqrt{B}$
-- **Intersección:** $A = \ln[N_{\text{det}} (1-p)]$
+### 4.1 Desacoplamiento Anisótropo en Dimensiones Cartesianas ($X$ e $Y$)
+En nanopatrones fabricados mediante litografía láser o barrido piezoeléctrico, las fluctuaciones posicionales presentan anisotropía intrínseca ($\sigma_x \ne \sigma_y$) debido a asimetrías en el perfil del haz láser o derivas mecánicas unidireccionales.
 
-```
-  ln[H(G)] ^
-           |  * (0,0) [Intercept = ln(N_det(1-p))]
-           |   \
-           |    \
-           |     * {1,0}, {0,1}  (u = q_1^2)
-           |      \
-           |       * {1,1}        (u = 2 q_1^2)
-           |        \
-           |         \
-           |          * {2,0}, {0,2}  (u = 4 q_1^2)
-           |           \
-           +----------------------------------------> |G|^2
-                         Pendiente = - sigma_pos^2
-```
+PyPrinting 3.0 descompone la regresión de Wilson en dos ajustes lineales ortogonales independientes:
 
-### Extracción Simultánea de la Fracción de Vacancias ($p$):
-Si el número de localizaciones $N_{\text{det}}$ se conoce mediante el conteo directo de centroides en espacio real curado (vía [[CAT-204_Curacion_Fotometrica_Desacople_MultiGaussiano_Consistencia]]), la intersección $A$ permite resolver $p$ en forma cerrada:
-$$e^A = N_{\text{det}} (1-p) \implies 1 - p = \frac{e^A}{N_{\text{det}}} \implies \bbox[10px,border:1px solid #6366f1,background:#f5f3ff]{p = 1 - \frac{e^A}{N_{\text{det}}}}$$
+1. **Eje X (Familia $\{h, 0\}$):**
+   $$\ln[H(G_x)] = c_x + m_x G_x^2 \implies \sigma_{w, x} = \sqrt{-m_x}$$
+2. **Eje Y (Familia $\{0, k\}$):**
+   $$\ln[H(G_y)] = c_y + m_y G_y^2 \implies \sigma_{w, y} = \sqrt{-m_y}$$
+
+El pico diagonal cruzado $(1, 1)$ a $G_{\text{diag}}^2 = G_x^2 + G_y^2$ se incluye como testigo de consistencia 2D.
+
+### 4.2 Anclaje Forzado del Intercepto a $\ln(H_0)$ (Regresión de 1 Parámetro)
+La interfaz incluye la opción conmutable **`[x] Anclar Wilson a ln(H₀)`** (`chk_anchor_wilson_h0`):
+
+1. **Modo Libre (Default / 2 Parámetros):**
+   Se ajustan pendiente $m$ e intercepto $c$ mediante Mínimos Cuadrados Ordinarios (OLS). Es inmune a la sobreelevación del pico central $H_0$ debida a autofluorescencia o fondo difuso.
+2. **Modo Anclado (1 Parámetro):**
+   Se fuerza el intercepto al logaritmo natural de la altura del pico central medido:
+   $$c_x = c_y = \ln(H_0)$$
+   Las pendientes forzadas se deducen analíticamente en forma cerrada:
+   $$m_x = \frac{\sum_i G_{xi}^2 \left[ \ln(H_{xi}) - \ln(H_0) \right]}{\sum_i G_{xi}^4}, \quad \sigma_{w, x} = \sqrt{-m_x}$$
+   $$m_y = \frac{\sum_i G_{yi}^2 \left[ \ln(H_{yi}) - \ln(H_0) \right]}{\sum_i G_{yi}^4}, \quad \sigma_{w, y} = \sqrt{-m_y}$$
+
+#### Criterio Diagnóstico de Inflación de Fondo:
+El sistema compara automáticamente las pendientes ancladas con las deducidas a partir de los cocientes puros de alta frecuencia ($H_2 / H_1$). Si se detecta una discrepancia significativa:
+$$|c_{\text{libre}} - \ln(H_0)| > \tau_{\text{metrológica}}$$
+el software emite un dictamen alertando de que el pico directo $H_0$ está inflado por fondo óptico continuo no estructurado, recomendando utilizar el modo libre para evitar subestimaciones del desorden real.
+
+### 4.3 Extracción Simultánea de la Fracción de Vacancias ($p$):
+Si el número de localizaciones $N_{\text{det}}$ se conoce mediante el conteo directo de centroides en espacio real curado (vía [[CAT-204_Curacion_Fotometrica_Desacople_MultiGaussiano_Consistencia]]), la intersección $c$ permite resolver $p$ en forma cerrada:
+$$e^c = N_{\text{det}} (1-p) \implies 1 - p = \frac{e^c}{N_{\text{det}}} \implies \bbox[10px,border:1px solid #6366f1,background:#f5f3ff]{p = 1 - \frac{e^c}{N_{\text{det}}}}$$
 
 Esto otorga un desacoplamiento completo y simultáneo de $\sigma_{\text{pos}}$ y $p$ usando únicamente la estructura de difracción en espacio recíproco.
 

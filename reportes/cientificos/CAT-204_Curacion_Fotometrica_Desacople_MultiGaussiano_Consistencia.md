@@ -93,44 +93,62 @@ Esta formulación proporciona una precisión de sub-píxel en la medición del �
 
 ---
 
-## 5. Algoritmo de Desacople Multi-Gaussiano (Nonlinear Least Squares)
+## 5. Algoritmo de Desacople Multi-Gaussiano con Enmascaramiento Estricto y Cotas Físicas
 
-Cuando un punto sospechoso o aglomerado es identificado con multiplicidad $n \ge 2$, se resuelve el problema inverso de desacoplar los centros individuales $(x_j, y_j)$ de cada emisor mediante optimización no lineal.
+Cuando un punto sospechoso o aglomerado es identificado con multiplicidad $n \ge 2$, se resuelve el problema inverso de desacoplar los centros individuales $(x_j, y_j)$ de cada emisor mediante optimización no lineal (Levenberg-Marquardt o Truncated Newton con cotas de caja).
 
-### 5.1 Función Objetivo
-Se extrae un recorte local de la imagen $I(x, y)$ de tamaño $(2k+1) \times (2k+1)$ píxeles centrado en la mancha. El modelo óptico teórico para $n$ emisores con amplitudes $A_j$ y ancho óptico fijado por la PSF ($\sigma_{\text{psf}}$) es:
+### 5.1 Enmascaramiento Gráfico Estricto ($\text{patch}[\sim\text{mask}] = 0$)
+En versiones preliminares, el ajuste multi-gaussiano operaba sobre una caja rectangular delimitadora $\Omega = [-W, W] \times [-H, H]$. Si existían colas difraccionales de partículas vecinas o fluctuaciones del fondo fuera del cúmulo, el ajuste se distorsionaba desplazando artificialmente los centros ajustados.
 
-$$I_{\text{model}}(x, y; \boldsymbol{\theta}) = I_{\text{bg}} + \sum_{j=1}^n A_j \exp\left( -\frac{(x - x_j)^2 + (y - y_j)^2}{2 \sigma_{\text{psf}}^2} \right)$$
+Para garantizar aislamiento fotométrico absoluto, el algoritmo aplica una **máscara binaria cerrada $\mathcal{M}(x, y) \in \{0, 1\}$** obtenida a partir del contorno de iso-intensidad segmentado:
 
-donde el vector de parámetros a optimizar es:
-$$\boldsymbol{\theta} = \left[ I_{\text{bg}}, A_1, x_1, y_1, A_2, x_2, y_2, \dots, A_n, x_n, y_n \right] \in \mathbb{R}^{3n + 1}$$
+$$I_{\text{masked}}(x, y) = \begin{cases} I(x, y) & \text{si } (x, y) \in \mathcal{M} \\ 0 & \text{si } (x, y) \notin \mathcal{M} \end{cases}$$
 
-La función de pérdida cuadrática ponderada (*chi-cuadrado*) a minimizar es:
+La función de pérdida cuadrática minimizada se restringe exclusivamente a los píxeles interiores al contorno:
 
-$$\chi^2(\boldsymbol{\theta}) = \sum_{u, v \in \Omega} \left[ I(x_u, y_v) - I_{\text{model}}(x_u, y_v; \boldsymbol{\theta}) \right]^2$$
+$$\chi^2(\boldsymbol{\theta}) = \sum_{(u, v) \in \mathcal{M}} \left[ I(x_u, y_v) - I_{\text{model}}(x_u, y_v; \boldsymbol{\theta}) \right]^2$$
 
-### 5.2 Inicialización Heurística Robusta (k-Means Fotométrico)
-Dado que la optimización no lineal mediante el algoritmo de **Levenberg-Marquardt** es propensa a quedar atrapada en mínimos locales si se inicializa aleatoriamente, los centros iniciales $(x_j^{(0)}, y_j^{(0)})$ se determinan calculando los momentos de inercia y autovectores del tensor de segundo orden de la mancha:
+Cualquier señal fuera de la región gráficamente marcada queda estrictamente anulada a cero, erradicando la influencia de partículas adyacentes y fondos espurios.
 
-$$T = \begin{bmatrix} \mu_{xx} & \mu_{xy} \\ \mu_{xy} & \mu_{yy} \end{bmatrix}, \quad \mu_{xx} = \frac{\iint (x - x_c)^2 I(x, y) dx dy}{\iint I(x, y) dx dy}$$
+### 5.2 Restricciones Físicas de Partículas Idénticas (Tolerancia del 30% y $N \ge 2$)
+Dado que todas las nanopartículas impresas sobre el sustrato provienen del mismo lote coloidal monodisperso y del mismo proceso litográfico fototérmico, sus propiedades ópticas nominales son físicamente idénticas:
+- Amplitud máxima de pico monomérica: $A_0$
+- Volumen fotométrico integrado del monómero: $V_0 = 2\pi A_0 \sigma_{\text{psf}}^2$
+- Ancho difraccional de la Point Spread Function: $\sigma_{\text{psf}}$
 
-Los autovectores de $T$ definen el eje de elongación del dímero/trímero. Las posiciones iniciales se colocan simétricamente a lo largo de este eje principal espaciadas a una distancia inicial $d_0 \approx 0.5 \sigma_{\text{psf}}$, y las amplitudes iniciales se fijan en $A_j^{(0)} = I_{\text{max}} / n$.
+En presencia de la firma calibrada (`signature_dict`), el optimizador impone **cotas rígidas de caja (*box constraints*) del 30%** sobre los parámetros de cada partícula individual $j$:
 
-### 5.3 Restricciones Físicas de Optimización
-Para evitar divergencias numéricas:
-1. **Positividad de Amplitud:** $A_j > 0$.
-2. **Confinamiento Espacial:** $(x_j, y_j) \in \Omega$ (los emisores no pueden escapar de la caja de ajuste).
-3. **Separación Mínima:** Si dos centros resueltos colapsan a una distancia $d_{12} < 0.1 \sigma_{\text{psf}}$, el algoritmo fusiona automáticamente las soluciones para evitar sobredimensionamiento paramétrico (*overfitting*).
+$$A_j \in [0.70 \cdot A_0, \; 1.30 \cdot A_0]$$
+$$\sigma_j \in [0.70 \cdot \sigma_{\text{psf}}, \; 1.30 \cdot \sigma_{\text{psf}}] \quad (\text{o fijado a } \sigma_{\text{psf}})$$
+
+Asimismo, por estricta definición física, **un cúmulo u aglomerado consiste forzosamente en dos o más nanopartículas**:
+$$N_{\text{particles}} = \max\left(2, \; \operatorname{round}\left(\frac{V_\Omega}{V_0}\right)\right)$$
+Se elimina categóricamente la posibilidad de que un cúmulo colapse matemáticamente a $N=1$.
+
+### 5.3 Confinamiento Geométrico de Centros al Interior del Polígono
+Para evitar que algún emisor sea proyectado fuera del área física del cúmulo, se impone la condición de confinamiento geométrico:
+$$(x_j, y_j) \in \operatorname{Polygon}(\mathcal{M})$$
+acotando los límites de búsqueda en $x$ e $y$ a los extremos del polígono $[x_{\text{min}}^{\text{poly}}, x_{\text{max}}^{\text{poly}}] \times [y_{\text{min}}^{\text{poly}}, y_{\text{max}}^{\text{poly}}]$.
+
+### 5.4 Inicialización Heurística y Semillas Visuales Manuales
+La convergencia de la optimización no lineal depende fuertemente de los valores iniciales $\boldsymbol{\theta}^{(0)}$. PyPrinting 3.0 ofrece dos modos de inicialización:
+1. **Inicialización Automática (Tensor de Momentos):**
+   Calcula los momentos centrales de segundo orden de la mancha:
+   $$\mu_{xx} = \frac{\iint_{\mathcal{M}} (x - x_c)^2 I(x, y) dx dy}{\iint_{\mathcal{M}} I(x, y) dx dy}$$
+   y distribuye los $N$ centros a lo largo del autovector principal de máxima inercia.
+2. **Semillas Visuales Manuales (`manual_visual_seeds_nm`):**
+   El operador puede activar el modo **"📍 Marcar Semillas Visuales"** en la GUI y hacer clic directamente sobre los máximos visuales en el visor de espacio real. Las coordenadas marcadas se inyectan directamente como centros iniciales $(x_j^{(0)}, y_j^{(0)})$, permitiendo resolver con alta fidelidad cúmulos complejos con morfología no lineal (p. ej. trímeros en ángulo o cadenas compactas).
 
 ---
 
-## 6. Métodos Alternativos de Resolución de Cúmulos
+## 6. Métodos Alternativos y Creación Manual de Cúmulos
 
-PyPrinting 3.0 proporciona tres estrategias seleccionables por el usuario según el objetivo del análisis:
+PyPrinting 3.0 proporciona estrategias integrales para la gestión y resolución de cúmulos:
 
 ```
                   ┌─────────────────────────────────────┐
                   │      Cúmulo Detectado (n >= 2)      │
+                  │   (Automático o Creación Manual)    │
                   └──────────────────┬──────────────────┘
                                      │
          ┌───────────────────────────┼───────────────────────────┐
@@ -142,19 +160,21 @@ PyPrinting 3.0 proporciona tres estrategias seleccionables por el usuario según
 │ Resuelve n       │       │ Mantiene el emi- │       │ Condensa el      │
 │ emisores indivi- │       │ sor más cercano  │       │ cúmulo en su     │
 │ duales con pre-  │       │ al nodo ideal y  │       │ centro de masa   │
-│ cisión sub-px.   │       │ purga satélites. │       │ ponderado.       │
-│ Óptimo para re-  │       │ Óptimo para fil- │       │ Óptimo para es-  │
-│ cuperar vacan-   │       │ trar agregados   │       │ tudios globales  │
-│ cias reales.     │       │ de fondo parásito│       │ conservadores.   │
+│ cisión sub-px y  │       │ purga satélites. │       │ ponderado.       │
+│ cotas del 30%.   │       │ Óptimo para fil- │       │ Óptimo para es-  │
+│ Óptimo para re-  │       │ trar agregados   │       │ tudios globales  │
+│ cuperar vacan-   │       │ de fondo parásito│       │ conservadores.   │
+│ cias reales.     │       │                  │       │                  │
 └──────────────────┘       └──────────────────┘       └──────────────────┘
 ```
 
-1. **Desacople Multi-Gaussiano (`_on_resolve_selected_cluster_gaussian`):** Reemplaza el cúmulo por los $n$ emisores individuales calculados en la optimización. Es el método más riguroso para recuperar vacancias legítimas.
-2. **Conservar Nodo de Red (`_on_resolve_selected_cluster_nearest`):** Identifica el nodo ideal $(X_u, Y_v)$ de la red periódica más cercano al cúmulo y conserva únicamente la partícula con menor distancia euclidiana:
+1. **Desacople Multi-Gaussiano (`_on_resolve_selected_cluster_gaussian` / `_on_resolve_all_clusters_gaussian`):** Reemplaza el cúmulo por los $N$ emisores individuales desacoplados, ejecutando la cascada completa hacia KDTree y Espacio Recíproco.
+2. **Conservar Nodo de Red (`_on_resolve_selected_cluster_nearest`):** Identifica el nodo ideal $(X_u, Y_v)$ más cercano y conserva únicamente la partícula con menor residuo:
    $$j^* = \arg\min_j \| \mathbf{r}_j - \mathbf{R}_{\text{ideal}} \|$$
-   descartando los emisores restantes como impurezas de impresión o satélites espurios.
-3. **Fusión en Centro de Masa (`_on_resolve_selected_cluster_com`):** Fusiona todas las partículas del grupo en un único punto ponderado por su brillo fotométrico:
-   $$\mathbf{r}_{\text{COM}} = \frac{\sum_j I_j \mathbf{r}_j}{\sum_j I_j}$$
+3. **Creación de Cúmulo Manual (`create_manual_cluster`):**
+   Permite al usuario seleccionar arbitrariamente 2 o más partículas que no fueron agrupadas por el análisis de grafos y forzar su condensación en un cúmulo analítico con contorno fotométrico, cálculo de estequiometría $N \ge 2$ y representación en la tabla de aglomerados.
+4. **Superposición de Deconvolución Richardson-Lucy (RL):**
+   La imagen deconvolucionada se proyecta como una capa interactiva superpuesta en el visor de espacio real (`self.img_item_rl`, $z=2$) gobernada por la casilla `chk_overlay_rl`. Esto permite al usuario contrastar visualmente los centros atómicos resueltos frente a los picos de difracción re-enfocados antes y después del desacople.
 
 ---
 

@@ -160,13 +160,28 @@ Permite cargar los datos experimentales, seleccionar presets de 1-clic, ajustar 
 - **Grupo 5: Fases 2 y 3: Curación y Desacople Fotométrico:**
   - **Calibración Automática de Monómero:** Extrae $V_0, A_0$ y $\sigma_{\text{psf}}$ a partir de los cientos de emisores aislados ($d > 0.70 \cdot a$) presentes en la red.
   - **Tabla de Cúmulos y Aglomerados (7 columnas):** `[ID, Tipo, Det, Est, Vol/V₀, Área/A₀, Estado]` con códigos de color para identificar cúmulos `OK`, `SUB-RESUELTO` o `SOBRE-DETECTADO`.
+  - **Creación de Cúmulos Manuales (`btn_create_manual_cluster`):** Botón `[➕ Crear Cúmulo de Selección]` para agrupar 2 o más partículas marcadas manualmente, calculando su contorno fotométrico, estequiometría $N \ge 2$ y agregándolas formalmente a la tabla.
+  - **Modo Interactivo de Semillas Visuales Manuales (`btn_pick_visual_seeds`):**
+    - Botón conmutable `[📍 Marcar Semillas Visuales]` que permite colocar centros iniciales de partículas directamente con clics en el visor (cruces verdes `#a6e3a1` con etiquetas `S1, S2, ...`).
+    - Botones `[📋 Usar Detectadas como Semillas]` y `[🧹 Limpiar Semillas]`.
+    - Sincronización bidireccional automática con el selector $n$ de componentes gaussianas.
+  - **Enmascaramiento Gráfico Estricto (`patch[~mask] = 0`):**
+    - Tanto en cúmulos como en puntos sospechosos, los píxeles exteriores al contorno se anulan rígidamente a cero.
+    - La optimización evalúa residuos exclusivamente dentro de la máscara, evitando distorsiones por partículas adyacentes o fondo parásito.
+    - Confinamiento geométrico estricto de las coordenadas ajustadas $(x_k, y_k)$ al interior de la caja delimitadora del contorno.
+  - **Restricciones Físicas de Partículas Idénticas (Tolerancia del 30% y $N \ge 2$):**
+    - Cotas de caja en amplitud $A_k \in [0.70 \cdot A_0, 1.30 \cdot A_0]$ y ancho difraccional $\sigma_k \in [0.70 \cdot \sigma_{\text{psf}}, 1.30 \cdot \sigma_{\text{psf}}]$.
+    - Restricción estricta de estequiometría mínima de cúmulo: $N = \max(2, \operatorname{round}(V_\Omega / V_0))$.
   - **Sub-panel `🔍 Inspección de Punto Sospechoso (Manual)`:**
     - Al seleccionar 1 partícula en el visor de espacio real, calcula automáticamente el fondo local perimetral y segmenta el contorno fotométrico adaptativo (`spin_suspicious_thresh`, defecto 20%).
     - Muestra en vivo los ratios $V_{\Omega}/V_0$, $A_{\Omega}/A_0$ y la sugerencia estequiométrica $n_{\text{sugerido}}$.
-    - Botón **`🎯 Desacoplar Spot (Fit)`**: Ejecuta el ajuste multi-Gaussiano constreñido con $\sigma = \sigma_{\text{psf}}$ fijo, reemplaza el centroide único por las $n$ partículas desacopladas, actualiza de inmediato el gráfico con auto-enfoque centrado y recalcula la grilla y vacancias.
+    - Botón **`🎯 Desacoplar Spot (Fit)`**: Ejecuta el ajuste multi-Gaussiano enmascarado y constreñido, reemplaza el centroide único por las $n$ partículas desacopladas, actualiza de inmediato el gráfico con auto-enfoque centrado y recalcula la grilla y vacancias.
   - **Acciones en Lote y Uno a Uno:** Botones para desacoplar (`Fit Multi-Gauss`), conservar la partícula más cercana al nodo ideal (`Conservar Nodo`) o fusionar en el centro de masa (`Fusionar COM`), con historial completo `↺ Deshacer` y `↺ Restaurar Todo`.
+  - **Cascada Completa Sincronizada:** Cada acción de curación ejecuta en tiempo real la actualización de `locs_df`, recálculo de KDTree/vacancias y recálculo espectral de Fourier en la Pestaña 2.
 - **Barra de Capas Desacoplada en 2 Filas:**
-  - Reorganizada en dos sub-filas compactas (Fila 1: Mapa de color, TIFF, Partículas, Aglomerados, Contornos; Fila 2: Seleccionadas, Vacancias, Malla, Reglas ROI) que reduce el ancho mínimo de la ventana en más del $45\%$, permitiendo libre redimensionamiento horizontal sin truncamiento de controles.
+  - Fila 1: Mapa de color, `[x] 🖼️ TIFF`, `[ ] 🧹 Filtro Fondo`, `[ ] ✨ RL Deconv` (`chk_overlay_rl`), `[x] 🔵 Partículas (o)`, `[x] 🟠 Aglomerados`, `[x] 🔲 Contornos`.
+  - Fila 2: `[x] 🟣 Seleccionadas`, `[x] ❌ Vacancias (x)`, `[ ] 📐 Malla (+)`, `[x] 📏 Reglas ROI`.
+  - La capa `✨ RL Deconv` permite alternar y superponer instantáneamente la imagen procesada por Richardson-Lucy sobre el fondo TIFF original.
 - **Entrada Dual:** Si se carga un archivo de coordenadas directas (`.csv`, `.txt`), la aplicación salta automáticamente la etapa de localización y calcula de inmediato el espacio real y el espacio recíproco.
 - **Casilla `[x] Incluir parámetros extendidos`:** Si está tildada, exporta fotones, fondo, anchos gaussianos ($s_x, s_y$), excentricidad, señal y masa integrada.
 
@@ -199,11 +214,19 @@ Despliega el patrón de difracción 2D bidimensional $S(f_x, f_y)$ y los cortes 
 ```
 
 #### Características Clave
-- **Selector de Grilla Fourier 2D:** Permite conmutar al instante entre `256 x 256 (Rápida)` para exploración fluida y `512 x 512 (Alta Res.)` para publicaciones metrológicas donde el pico de Bragg contiene $> 18$ puntos discretos.
+- **Selector de Grilla Fourier 2D:** Permite conmutar al instante entre `256 x 256 (Rápida)` para exploración fluida y `512 x 512 (Alta Res.)` o `1024 x 1024` para publicaciones metrológicas donde el pico de Bragg contiene $> 18$ puntos discretos.
 - **Control de Corte DC (`f_cut / f0`):** Excluye la inmensa cola central de frecuencia cero ($S(0,0)=N \approx 850$), evitando que deslumbre o sesgue el ajuste gaussiano del pico de Bragg periódico ($f_0 = 1/a$).
 - **Reactividad Dinámica en Vivo:** Al alterar la grilla, la banda transversal o el corte DC, la interfaz recalcula en milisegundos el mapa 2D, los cortes 1D y las métricas cristalográficas sin necesidad de pulsar botones adicionales.
+- **Relaciones Analíticas Directas de Bragg y Gráfico de Wilson Anisótropo:**
+  - **4 Gráficos Científicos en Sub-Pestaña Analítica:**
+    1. *Gráfico de Wilson 2D:* Regresión multilogarítmica $\ln(H)$ vs $|\mathbf{G}|^2$ desacoplada independientemente para $X$ (azul `#89b4fa`) e $Y$ (naranja `#fab387`), con testigo diagonal $(1,1)$.
+    2. *Decaimiento de Debye-Waller Multi-Orden:* Compara las alturas de pico experimentales contra las curvas analíticas teóricas.
+    3. *Comparativa de Estabilidad de Ratios:* Diagnostica la coherencia de los 8 estimadores analíticos directos ($\sigma_{21, x}$, $\sigma_{21, y}$, $\sigma_{\text{diag}, x}$, $\sigma_{\text{diag}, y}$, etc.).
+    4. *Diagnóstico Paracristalino de Hosemann (FWHM vs m²):* Compara si el ensanchamiento difraccional responde a un desorden térmico de Debye-Waller Puro (Tipo I, ancho constante de Scherrer) o a desorden acumulativo de Paracristal (Tipo II, FWHM $\propto m^2$).
+  - **Casilla `[x] Anclar Wilson a ln(H₀)` (`chk_anchor_wilson_h0`):**
+    - Al marcarse, fuerza el intercepto al valor experimental medido $\ln(H_0)$ y deduce la pendiente analítica de 1 parámetro en milisegundos.
+    - Emite un badge de diagnóstico comparando las pendientes libres y forzadas para alertar si existe inflación del pico central por autofluorescencia o fondo de resina.
 - **Integración de Banda Transversal:** Integra una franja de $\pm 3\ \text{píxeles}$ alrededor de los ejes $f_y = 0$ y $f_x = 0$, absorbiendo rotaciones menores de la red ($<1.0^\circ$) sin pérdida de altura del pico de Bragg.
-- **Ajuste en Tiempo Real:** Las curvas teóricas ajustadas (línea punteada verde) se superponen en vivo sobre los perfiles experimentales para verificar visualmente que el pico ajustado corresponde a la red y no a ruido de bajas frecuencias.
 - **Botón `Propagar a Monte Carlo`:** Transfiere automáticamente $a_x, a_y$ (detectando anisotropía si $|a_x - a_y| > 1.0\ \text{nm}$), $N$, $f_{\text{vac}}$ y el ancho de banda recíproco $\Delta f_\perp$ a la Pestaña 3 con 1 clic.
 
 ---

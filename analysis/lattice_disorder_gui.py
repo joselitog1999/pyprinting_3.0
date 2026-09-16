@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
     QSpinBox, QDoubleSpinBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QFileDialog, QMessageBox, QTabWidget, QScrollArea, QFrame,
     QProgressBar, QStackedWidget, QLineEdit, QButtonGroup, QMenu,
-    QDialog, QDialogButtonBox
+    QDialog, QDialogButtonBox, QSlider
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QColor, QFont
@@ -72,6 +72,7 @@ from core.lattice_disorder import (
     save_calibration_curve,
     load_calibration_curve,
     detect_clusters_and_chains,
+    create_manual_cluster,
     resolve_clusters,
     resolve_clusters_dataframe,
     inspect_single_spot_photometry,
@@ -502,11 +503,18 @@ class LatticeDisorderWindow(QMainWindow):
 
         # Referencias a elementos gráficos de capas en Espacio Real
         self.img_item: Optional[pg.ImageItem] = None
+        self.image_rl: Optional[np.ndarray] = None
+        self.img_item_rl: Optional[pg.ImageItem] = None
+        self.image_filtered: Optional[np.ndarray] = None
+        self.img_item_filtered: Optional[pg.ImageItem] = None
         self.scatter_det: Optional[pg.ScatterPlotItem] = None
         self.scatter_clusters: Optional[pg.ScatterPlotItem] = None
         self.scatter_vac: Optional[pg.ScatterPlotItem] = None
         self.scatter_grid: Optional[pg.ScatterPlotItem] = None
         self.scatter_selected: Optional[pg.ScatterPlotItem] = None
+        self.manual_visual_seeds_nm: List[Tuple[float, float]] = []
+        self.scatter_visual_seeds: Optional[pg.ScatterPlotItem] = None
+        self.text_visual_seeds_items: List[pg.TextItem] = []
 
         # Worker asíncrono
         self.mc_worker: Optional[MonteCarloWorker] = None
@@ -930,6 +938,75 @@ class LatticeDisorderWindow(QMainWindow):
         h3.addWidget(self.spin_a_nominal)
         lay_grid.addLayout(h3)
 
+        # Sub-panel de Parámetros Especiales de Red (Ajuste Óptico)
+        grp_special = QGroupBox("⚙️ Parámetros Especiales de Red (Ajuste Óptico)")
+        grp_special.setStyleSheet(
+            "QGroupBox { font-size: 11px; font-weight: bold; color: #a6e3a1; "
+            "border: 1px solid #45475a; border-radius: 5px; margin-top: 6px; padding: 6px; }"
+        )
+        lay_spec = QVBoxLayout(grp_special)
+        lay_spec.setSpacing(6)
+
+        self.chk_use_contour_mask_fit = QCheckBox("Ajuste multi-gauss acotado a máscara de contorno")
+        self.chk_use_contour_mask_fit.setChecked(True)
+        self.chk_use_contour_mask_fit.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+        self.chk_use_contour_mask_fit.setToolTip(make_tooltip(
+            "Ajuste Acotado a Máscara de Contorno",
+            "Limita el ajuste de Gaussianas exclusivamente a los píxeles dentro del contorno gráfico marcado, enviando el resto a 0.",
+            "Elimina la influencia de colas difraccionales de partículas vecinas anulando los residuos fuera de la máscara."
+        ))
+        lay_spec.addWidget(self.chk_use_contour_mask_fit)
+
+        self.chk_constrain_centers_to_mask = QCheckBox("Restringir centros (x_k, y_k) al interior del contorno")
+        self.chk_constrain_centers_to_mask.setChecked(True)
+        self.chk_constrain_centers_to_mask.setStyleSheet("color: #89b4fa;")
+        self.chk_constrain_centers_to_mask.setToolTip(make_tooltip(
+            "Restricción Geométrica de Centros",
+            "Fuerza que las posiciones (x, y) de los emisores desacoplados permanezcan dentro de la envolvente de la zona marcada.",
+            "Cota rígida lb y ub sobre las coordenadas espaciales en la optimización por Levenberg-Marquardt."
+        ))
+        lay_spec.addWidget(self.chk_constrain_centers_to_mask)
+
+        # Filtro de fondo interactivo con CheckBox, SpinBox y Deslizador
+        h_bg_filt = QHBoxLayout()
+        self.chk_filter_preview = QCheckBox("Superponer Filtrado")
+        self.chk_filter_preview.setChecked(False)
+        self.chk_filter_preview.setStyleSheet("color: #f9e2af; font-weight: bold;")
+        self.chk_filter_preview.setToolTip(make_tooltip(
+            "Superponer Imagen Filtrada por Fondo",
+            "Muestra sobre el TIFF la imagen con el fondo sustraído según el porcentaje fijado en el deslizador.",
+            "Capa intermedia z=1 superpuesta entre la imagen original y la deconvolución RL."
+        ))
+        self.chk_filter_preview.toggled.connect(self._on_bg_filter_preview_toggled)
+        h_bg_filt.addWidget(self.chk_filter_preview)
+
+        self.spin_bg_filter_pct = QDoubleSpinBox()
+        self.spin_bg_filter_pct.setRange(1.0, 50.0)
+        self.spin_bg_filter_pct.setValue(20.0)
+        self.spin_bg_filter_pct.setSingleStep(1.0)
+        self.spin_bg_filter_pct.setSuffix("%")
+        self.spin_bg_filter_pct.setToolTip(make_tooltip(
+            "Filtro de Fondo (% del Máximo)",
+            "Nivel de corte de fondo relativo respecto al brillo pico local para filtrar ruido.",
+            "Umbral de corte sustractivo: I_cut = (pct/100) * I_max."
+        ))
+        self.spin_bg_filter_pct.valueChanged.connect(self._on_bg_filter_spin_changed)
+        h_bg_filt.addWidget(self.spin_bg_filter_pct)
+        lay_spec.addLayout(h_bg_filt)
+
+        self.slider_bg_filter = QSlider(Qt.Orientation.Horizontal)
+        self.slider_bg_filter.setRange(1, 50)
+        self.slider_bg_filter.setValue(20)
+        self.slider_bg_filter.setToolTip(make_tooltip(
+            "Deslizador de Filtro de Fondo",
+            "Deslice para ajustar en tiempo real el corte de fondo y ver la imagen filtrada superponerse al instante.",
+            "Actualización en vivo de la capa de fondo filtrado (z=1)."
+        ))
+        self.slider_bg_filter.valueChanged.connect(self._on_bg_filter_slider_changed)
+        lay_spec.addWidget(self.slider_bg_filter)
+
+        lay_grid.addWidget(grp_special)
+
         left_layout.addWidget(grp_grid)
 
         # Grupo 4: Fase 1: Detección Inicial de Partículas
@@ -1163,6 +1240,16 @@ class LatticeDisorderWindow(QMainWindow):
         h_rl.addWidget(self.spin_rl_sigma)
         lay_tp.addLayout(h_rl)
 
+        self.btn_run_rl_direct = QPushButton("⚡ Ejecutar Deconvolución RL")
+        self.btn_run_rl_direct.setStyleSheet("color: #f9e2af; font-weight: bold;")
+        self.btn_run_rl_direct.setToolTip(make_tooltip(
+            "Ejecutar Deconvolución Richardson-Lucy Directa",
+            "Aplica la deconvolución sobre la imagen TIFF cargada y la superpone como capa conmutable.",
+            "Inversión iterativa no lineal de la convolución por difracción generando la capa img_item_rl."
+        ))
+        self.btn_run_rl_direct.clicked.connect(self._on_run_rl_deconvolution)
+        lay_tp.addWidget(self.btn_run_rl_direct)
+
         self.stack_motor.addWidget(page_trackpy)
         lay_loc.addWidget(self.stack_motor)
 
@@ -1254,6 +1341,19 @@ class LatticeDisorderWindow(QMainWindow):
         self.table_clusters.cellClicked.connect(self._on_cluster_table_clicked)
         lay_cur.addWidget(self.table_clusters)
 
+        # Herramienta Crear Cúmulo Manual
+        h_clust_man = QHBoxLayout()
+        self.btn_create_manual_cluster = QPushButton("➕ Crear Cúmulo Manual (Sel)")
+        self.btn_create_manual_cluster.setObjectName("accentBtn")
+        self.btn_create_manual_cluster.setToolTip(make_tooltip(
+            "Crear Cúmulo Manual con Partículas Seleccionadas",
+            "Seleccione 2 o más partículas en el visor o tabla y presione aquí para asociarlas en un nuevo cúmulo con su contorno y estequiometría.",
+            "Permite aplicar sobre este grupo personalizado el desacople multi-gaussiano o las reglas de nodo/COM."
+        ))
+        self.btn_create_manual_cluster.clicked.connect(self._on_create_manual_cluster)
+        h_clust_man.addWidget(self.btn_create_manual_cluster)
+        lay_cur.addLayout(h_clust_man)
+
         # Acciones sobre el Cúmulo Seleccionado (Uno a Uno)
         lbl_single = QLabel("Acción Cúmulo Seleccionado:")
         lbl_single.setStyleSheet("color: #f9e2af; font-weight: bold; font-size: 11px;")
@@ -1296,6 +1396,38 @@ class LatticeDisorderWindow(QMainWindow):
         ))
         self.btn_cluster_add_particles.toggled.connect(self._on_toggle_add_particles_to_cluster)
         lay_cur.addWidget(self.btn_cluster_add_particles)
+
+        # Herramienta de Centros Visuales Manuales (Condiciones Iniciales)
+        h_seeds = QHBoxLayout()
+        self.btn_pick_visual_seeds = QPushButton("📍 Centros Visuales")
+        self.btn_pick_visual_seeds.setCheckable(True)
+        self.btn_pick_visual_seeds.setStyleSheet("QPushButton:checked { background-color: #a6e3a1; color: #11111b; font-weight: bold; }")
+        self.btn_pick_visual_seeds.setToolTip(make_tooltip(
+            "Marcar Centros Visuales (Modo Clic)",
+            "Active este botón y haga clic en el visor en las posiciones donde visualmente estima que hay partículas.",
+            "Estos puntos sirven como condiciones iniciales (initial_seeds) para el ajuste multi-gaussiano."
+        ))
+        self.btn_pick_visual_seeds.toggled.connect(self._on_toggle_pick_visual_seeds)
+        h_seeds.addWidget(self.btn_pick_visual_seeds)
+
+        self.btn_use_detected_as_seeds = QPushButton("📌 Usar Detectadas")
+        self.btn_use_detected_as_seeds.setToolTip(make_tooltip(
+            "Usar Partículas Detectadas como Semillas",
+            "Copia las posiciones de las partículas seleccionadas o del cúmulo como centros iniciales de ajuste.",
+            "Inicializa el optimizador no lineal directamente sobre las partículas detectadas existentes."
+        ))
+        self.btn_use_detected_as_seeds.clicked.connect(self._on_use_detected_as_seeds)
+        h_seeds.addWidget(self.btn_use_detected_as_seeds)
+
+        self.btn_clear_visual_seeds = QPushButton("🗑️ Limpiar")
+        self.btn_clear_visual_seeds.setToolTip("Borra los centros visuales marcados manualmente en el gráfico.")
+        self.btn_clear_visual_seeds.clicked.connect(self._on_clear_visual_seeds)
+        h_seeds.addWidget(self.btn_clear_visual_seeds)
+
+        self.lbl_visual_seeds_status = QLabel("Semillas: 0")
+        self.lbl_visual_seeds_status.setStyleSheet("color: #a6e3a1; font-weight: bold; font-size: 10px;")
+        h_seeds.addWidget(self.lbl_visual_seeds_status)
+        lay_cur.addLayout(h_seeds)
 
         self.btn_resolve_selected_gaussian = QPushButton("🎯 Desacoplar Sel. (Fit Multi-Gauss)")
         self.btn_resolve_selected_gaussian.setObjectName("primaryBtn")
@@ -1583,10 +1715,33 @@ class LatticeDisorderWindow(QMainWindow):
         self.chk_layer_img.setToolTip(make_tooltip(
             "Capa: Imagen TIFF de Microscopía",
             "Muestra u oculta la imagen original de fondo adquirida en el microscopio.",
-            "Controla la visibilidad de ImageItem posicionado en el espacio físico nanométrico."
+            "Controla la visibilidad de ImageItem posicionado en el espacio físico nanométrico (z=0)."
         ))
         self.chk_layer_img.toggled.connect(self._on_layer_visibility_changed)
         lay_row1.addWidget(self.chk_layer_img)
+
+        self.chk_layer_filtered = QCheckBox("🧹 Filtro Fondo")
+        self.chk_layer_filtered.setChecked(False)
+        self.chk_layer_filtered.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+        self.chk_layer_filtered.setToolTip(make_tooltip(
+            "Capa: Imagen Filtrada por Fondo/Ruido",
+            "Superpone la micrografía tras sustraer el fondo relativo al máximo según el deslizador.",
+            "Visualiza la capa intermedia filtrada (z=1) entre el TIFF original y la deconvolución RL."
+        ))
+        self.chk_layer_filtered.toggled.connect(self._on_layer_visibility_changed)
+        lay_row1.addWidget(self.chk_layer_filtered)
+
+        self.chk_layer_rl = QCheckBox("✨ RL Deconv")
+        self.chk_layer_rl.setChecked(False)
+        self.chk_layer_rl.setStyleSheet("color: #f9e2af; font-weight: bold;")
+        self.chk_layer_rl.setToolTip(make_tooltip(
+            "Capa: Deconvolución Richardson-Lucy",
+            "Superpone u oculta la imagen procesada por deconvolución iterativa sobre el TIFF original.",
+            "Visualiza la capa óptica de súper-resolución (z=2) con picos difraccionales re-enfocados."
+        ))
+        self.chk_layer_rl.toggled.connect(self._on_layer_visibility_changed)
+        lay_row1.addWidget(self.chk_layer_rl)
+        self.chk_overlay_rl = self.chk_layer_rl
 
         self.chk_layer_det = QCheckBox("🔵 Partículas (o)")
         self.chk_layer_det.setChecked(True)
@@ -2296,6 +2451,17 @@ class LatticeDisorderWindow(QMainWindow):
         h_ana_hdr.addWidget(lbl_ana_title)
         h_ana_hdr.addStretch()
 
+        self.chk_anchor_wilson_h0 = QCheckBox("Anclar Wilson a ln(H₀)")
+        self.chk_anchor_wilson_h0.setChecked(False)
+        self.chk_anchor_wilson_h0.setStyleSheet("font-size: 11px; color: #fab387; font-weight: bold; margin-right: 12px;")
+        self.chk_anchor_wilson_h0.setToolTip(make_tooltip(
+            "Anclar Intercepto de Wilson a ln(H₀)",
+            "Fija c_x = c_y = ln(H₀) en la regresión lineal del Gráfico de Wilson (ajuste forzado a través del origen q=0).",
+            "Fórmula de 1 parámetro: m = Σ G_i² (ln(H_i) - ln(H₀)) / Σ G_i⁴. Útil para redes ideales o fondo difuso sustraído. Si H₀ contiene autofluorescencia o fondo DC, introducirá sesgo en σ."
+        ))
+        self.chk_anchor_wilson_h0.toggled.connect(self._on_anchor_wilson_toggled)
+        h_ana_hdr.addWidget(self.chk_anchor_wilson_h0)
+
         btn_go_mc = QPushButton("Comparar con Monte Carlo ➔")
         btn_go_mc.setObjectName("accentBtn")
         btn_go_mc.setToolTip(make_tooltip(
@@ -2340,6 +2506,7 @@ class LatticeDisorderWindow(QMainWindow):
             "<b>σ (H₂ / H₁): - nm</b><br>"
             "<span style='color: #a6adc8; font-size: 10px;'>"
             "Estándar de Oro (Cancela p y N)<br>"
+            "H₁x, H₁y, H₂x/H₁x, H₂y/H₁y desglosados<br>"
             "Fórmula: σ = (a / 2π√3) √(ln(H₁/H₂))</span>"
         )
         self.lbl_card_h2h1.setStyleSheet(
@@ -2348,7 +2515,7 @@ class LatticeDisorderWindow(QMainWindow):
         self.lbl_card_h2h1.setToolTip(make_tooltip(
             "Razón H₂ / H₁ (Estándar de Oro de Inversión Analítica)",
             "La forma más pura y robusta de estimar el desorden sin calibración: el cociente entre el segundo armónico y el fundamental cancela totalmente las vacancias y el tamaño de muestra.",
-            "Fórmula cerrada: σ = (a / 2π√3) √(ln(H₁/H₂)). Dado que H(q) = N²(1-p)² exp(-q²σ²), al tomar el cociente H₂/H₁ el prefactor N²(1-p)² desaparece rigurosamente."
+            "Fórmula cerrada: σ = (a / 2π√3) √(ln(H₁/H₂)) evaluada independientemente para los ejes X e Y."
         ))
         lay_cards_grid.addWidget(self.lbl_card_h2h1, 0, 0)
 
@@ -2357,49 +2524,50 @@ class LatticeDisorderWindow(QMainWindow):
             "<b>σ (H_diag / H₁): - nm</b><br>"
             "<span style='color: #a6adc8; font-size: 10px;'>"
             "Coherencia 2D (Orden cruzado (1,1))<br>"
+            "H_diag/H₁x y H_diag/H₁y desglosados<br>"
             "Fórmula: σ = (a / 2π) √(ln(H₁/H_diag))</span>"
         )
         self.lbl_card_diag.setStyleSheet(
             "background-color: #181825; border: 1px solid #cba6f7; border-radius: 6px; padding: 8px; font-family: monospace;"
         )
         self.lbl_card_diag.setToolTip(make_tooltip(
-            "Razón Diagonal H_diag / H₁ (Coherencia 2D)",
-            "Estima el desorden a partir del orden cruzado (1,1) a 45°, sensible a la simetría y correlación bidimensional.",
-            "Fórmula cerrada: σ = (a / 2π) √(ln(H₁/H_diag)) ya que |G_diag|² = 2 |G₁|². Cancela N y vacancias p asumiendo desorden isotrópico."
+            "Razón Diagonal H_diag / H₁ (Coherencia 2D en X e Y)",
+            "Estima el desorden a partir del orden cruzado (1,1) a 45° respecto a H₁x y H₁y para validar simetría y correlación bidimensional.",
+            "Fórmulas cerradas: σ_diag,x = (a_x / 2π) √(ln(H₁x/H_diag)) y σ_diag,y = (a_y / 2π) √(ln(H₁y/H_diag))."
         ))
         lay_cards_grid.addWidget(self.lbl_card_diag, 0, 1)
 
-        # Card 3: H1 / H0 (Inestable)
+        # Card 3: H0 / H1 (Inestable)
         self.lbl_card_h1h0 = QLabel(
-            "<b>σ (H₁ / H₀): - nm</b> <span style='color: #f38ba8; font-size: 10px;'>[⚠️ INESTABLE]</span><br>"
+            "<b>σ (H₀ / H₁): - nm</b> <span style='color: #f38ba8; font-size: 10px;'>[⚠️ INESTABLE]</span><br>"
             "<span style='color: #a6adc8; font-size: 10px;'>"
-            "Razón frente a DC Central (q=0)<br>"
+            "Razón H₀/H₁x y H₀/H₁y frente a DC Central<br>"
             "Sensible a autofluorescencia, haz directo y N</span>"
         )
         self.lbl_card_h1h0.setStyleSheet(
             "background-color: #181825; border: 1px solid #f38ba8; border-radius: 6px; padding: 8px; font-family: monospace;"
         )
         self.lbl_card_h1h0.setToolTip(make_tooltip(
-            "Razón H₁ / H₀ (Inestable frente al Centro DC)",
+            "Razón H₀ / H₁ (Inestable frente al Centro DC)",
             "ADVERTENCIA METROLÓGICA: Muy inestable. Comparar el pico fundamental con el centro q=0 es vulnerable al haz directo y a la autofluorescencia.",
-            "Fórmula: σ = (a / 2π) √( -2 ln( (H₁/H₀) / (1-p) ) ). Requiere conocer p a priori y sufre por la acumulación de fondo difuso e iluminación de campo amplio en q=0."
+            "Fórmulas: σ_x = (a_x / 2π) √(ln(H₀/H₁x)) y σ_y = (a_y / 2π) √(ln(H₀/H₁y)). Sufre por la acumulación de fondo difuso en q=0."
         ))
         lay_cards_grid.addWidget(self.lbl_card_h1h0, 0, 2)
 
         # Card 4: Gráfico de Wilson
         self.lbl_card_wilson = QLabel(
-            "<b>σ (Wilson Plot): - nm</b> (R²: -)<br>"
+            "<b>Wilson Plot (X / Y): - nm</b><br>"
             "<span style='color: #a6adc8; font-size: 10px;'>"
-            "Ajuste lineal multi-orden ln(H) vs |G|²<br>"
-            "Vacancias estimadas: p_est = -%</span>"
+            "Regresiones independientes en X e Y<br>"
+            "Pendientes m_x, m_y e Interceptos c_x, c_y</span>"
         )
         self.lbl_card_wilson.setStyleSheet(
             "background-color: #181825; border: 1px solid #89b4fa; border-radius: 6px; padding: 8px; font-family: monospace;"
         )
         self.lbl_card_wilson.setToolTip(make_tooltip(
-            "Gráfico de Wilson Multiórden (ln H vs |G|²)",
-            "Ajuste lineal simultáneo sobre todos los picos de difracción. La pendiente da el desorden y la ordenada al origen estima las vacancias.",
-            "Ecuación: ln(H_G) = ln(N²(1-p)²) - (σ²/2) |G|². La pendiente m = -σ²/2 arroja σ = √( -2m ), y la ordenada b permite estimar p = 1 - √(exp(b))/N."
+            "Gráfico de Wilson Anisótropo (Ejes X e Y)",
+            "Ajuste lineal independiente por eje cristalográfico: ln(H) vs |G|². Cada dimensión posee su propia pendiente m y su ordenada c.",
+            "Pendientes: m = -σ² arroja el desorden direccional σ_x y σ_y. Interceptos: c = ln(I₀,eff) permite contrastar la atenuación de coherencia en el origen frente a H₀."
         ))
         lay_cards_grid.addWidget(self.lbl_card_wilson, 1, 0, 1, 2)
 
@@ -2407,16 +2575,16 @@ class LatticeDisorderWindow(QMainWindow):
         self.lbl_card_paracrystal = QLabel(
             "<b>Diagnóstico: -</b><br>"
             "<span style='color: #a6adc8; font-size: 10px;'>"
-            "Ratio FWHM₂ / FWHM₁ = -<br>"
+            "Ratio FWHM₂ / FWHM₁ (X e Y) = -<br>"
             "-</span>"
         )
         self.lbl_card_paracrystal.setStyleSheet(
             "background-color: #181825; border: 1px solid #f9e2af; border-radius: 6px; padding: 8px; font-family: monospace;"
         )
         self.lbl_card_paracrystal.setToolTip(make_tooltip(
-            "Diagnóstico de Tipo de Desorden (Hosemann)",
-            "Compara el ancho del segundo armónico contra el fundamental para diferenciar desorden vibracional (Tipo I) de desorden acumulativo (Tipo II).",
-            "Teoría de Hosemann: Si FWHM₂/FWHM₁ ≈ 1.0, el desorden es Tipo I (Debye-Waller puro). Si crece proporcional al orden m o m², existe desorden acumulativo de paracristal."
+            "Diagnóstico de Tipo de Desorden (Hosemann en X e Y)",
+            "Compara el ancho radial del segundo armónico contra el fundamental en ambos ejes para diferenciar desorden vibracional Tipo I de paracristal Tipo II.",
+            "Teoría de Hosemann: Si FWHM₂/FWHM₁ ≈ 1.0, el desorden es Tipo I (Debye-Waller puro). Si crece con el orden m², existe paracristal Tipo II."
         ))
         lay_cards_grid.addWidget(self.lbl_card_paracrystal, 1, 2)
 
@@ -2428,36 +2596,36 @@ class LatticeDisorderWindow(QMainWindow):
         grp_ana_plots.setStyleSheet("QGroupBox { font-weight: bold; color: #89b4fa; }")
         grp_ana_plots.setToolTip(make_tooltip(
             "Batería de 4 Gráficos Analíticos de Fourier",
-            "Inspección gráfica integral de los modelos analíticos: Wilson, decaimiento Debye-Waller, estabilidad de razones y ancho radial.",
+            "Inspección gráfica integral de los modelos analíticos: Wilson anisótropo, decaimiento Debye-Waller por eje, estabilidad de razones y ancho radial Hosemann.",
             "Panel 2x2 para evaluar bondad de ajuste lineal, atenuación armónica multiorden y criterios de coherencia reticular."
         ))
         lay_plots_grid = QGridLayout(grp_ana_plots)
         lay_plots_grid.setSpacing(8)
 
         # Plot 1: Gráfico de Wilson
-        self.plot_wilson = pg.PlotWidget(title="1. Gráfico de Wilson (ln(H) vs |G|²)")
+        self.plot_wilson = pg.PlotWidget(title="1. Gráfico de Wilson Anisótropo (ln(H) vs |G|²)")
         self.plot_wilson.showGrid(x=True, y=True, alpha=0.3)
         self.plot_wilson.setLabel('bottom', '|G|²', units='rad²/nm²')
         self.plot_wilson.setLabel('left', 'ln(H)')
         self.plot_wilson.setMinimumHeight(240)
         self.plot_wilson.setToolTip(make_tooltip(
-            "1. Gráfico de Wilson (ln(H) vs |G|²)",
-            "Ajuste lineal de la atenuación de intensidad en función del cuadrado del vector recíproco |G|². Clic derecho para exportar.",
-            "Recta de regresión ln(H_G) vs |G|² donde la pendiente m determina el desorden σ = √(-2m) y el coeficiente R² valida el modelo gaussiano."
+            "1. Gráfico de Wilson Anisótropo (ln(H) vs |G|²)",
+            "Regresiones lineales separadas para los ejes X e Y, contrastando pendientes m e interceptos c. Clic derecho para exportar.",
+            "Permite diagnosticar anisotropía posicional a partir de m_x y m_y, y evaluar coherencia frente al haz directo a partir de los interceptos."
         ))
         self._setup_plot_export_menu(self.plot_wilson, "fig07_grafico_wilson_linear_fit", "Gráfico de Wilson")
         lay_plots_grid.addWidget(self.plot_wilson, 0, 0)
 
         # Plot 2: Decaimiento Multiórden Debye-Waller
-        self.plot_dw_decay = pg.PlotWidget(title="2. Decaimiento Debye-Waller: H(q)/H₁ vs Orden")
+        self.plot_dw_decay = pg.PlotWidget(title="2. Decaimiento Debye-Waller: H(q)/H₁ (Ejes X e Y)")
         self.plot_dw_decay.showGrid(x=True, y=True, alpha=0.3)
         self.plot_dw_decay.setLabel('bottom', 'q / q₀', units='orden')
         self.plot_dw_decay.setLabel('left', 'H / H₁ (Normalizado)')
         self.plot_dw_decay.setMinimumHeight(240)
         self.plot_dw_decay.setToolTip(make_tooltip(
-            "2. Decaimiento Debye-Waller: H(q)/H₁ vs Orden",
-            "Atenuación relativa de los picos de difracción respecto al fundamental frente a la curva analítica teórica. Clic derecho para exportar.",
-            "Perfil normalizado H(q)/H₁ = exp(- (q² - q₀²) σ² / 2) contrastando mediciones experimentales de los órdenes (1,0), (1,1) y (2,0)."
+            "2. Decaimiento Debye-Waller: H(q)/H₁ (Ejes X e Y)",
+            "Atenuación armónica teórica y experimental desglosada por dirección cristalina. Clic derecho para exportar.",
+            "Contrasta curvas de atenuación para el eje X, eje Y y diagonal (1,1) con leyendas descriptivas."
         ))
         self._setup_plot_export_menu(self.plot_dw_decay, "fig08_decaimiento_debye_waller_multi_orden", "Decaimiento Debye-Waller Multi-Orden")
         lay_plots_grid.addWidget(self.plot_dw_decay, 0, 1)
@@ -2470,22 +2638,22 @@ class LatticeDisorderWindow(QMainWindow):
         self.plot_ratio_stability.setMinimumHeight(240)
         self.plot_ratio_stability.setToolTip(make_tooltip(
             "3. Comparativa de Estabilidad de Métodos Analíticos de σ",
-            "Gráfico comparativo que contrasta los valores de desorden inferidos por H₂/H₁, H_diag/H₁, Wilson Plot y H₁/H₀. Clic derecho para exportar.",
+            "Gráfico comparativo que contrasta los valores de desorden inferidos por H₂/H₁, Diag, Wilson y H₀/H₁ para ambos ejes X e Y.",
             "Visualiza la concordancia o divergencia metrológica entre estimaciones de desorden para identificar efectos de fondo espurio o anisotropía."
         ))
         self._setup_plot_export_menu(self.plot_ratio_stability, "fig09_comparativa_estabilidad_ratios", "Comparativa de Estabilidad de Ratios")
         lay_plots_grid.addWidget(self.plot_ratio_stability, 1, 0)
 
         # Plot 4: Diagnóstico de Ancho Radial (Tipo I vs Tipo II)
-        self.plot_fwhm_paracrystal = pg.PlotWidget(title="4. Diagnóstico de Desorden: FWHM vs Orden (Hosemann)")
+        self.plot_fwhm_paracrystal = pg.PlotWidget(title="4. Diagnóstico Paracristalino: FWHM vs Orden (Ejes X e Y)")
         self.plot_fwhm_paracrystal.showGrid(x=True, y=True, alpha=0.3)
         self.plot_fwhm_paracrystal.setLabel('bottom', 'Orden Cristalográfico m')
         self.plot_fwhm_paracrystal.setLabel('left', 'FWHM Radial', units='nm^-1')
         self.plot_fwhm_paracrystal.setMinimumHeight(240)
         self.plot_fwhm_paracrystal.setToolTip(make_tooltip(
-            "4. Diagnóstico de Desorden: FWHM vs Orden (Hosemann)",
-            "Evolución del ancho a media altura (FWHM) de los picos en función del orden cristalográfico m. Clic derecho para exportar.",
-            "Ensanchamiento radial de Bragg: FWHM constante confirma desorden Tipo I (acotado); ensanchamiento cuadrático revela paracristal Tipo II."
+            "4. Diagnóstico Paracristalino: FWHM vs Orden (Ejes X e Y)",
+            "Evolución del ancho a media altura (FWHM) para los ejes X e Y frente a modelos Tipo I (constante) y Tipo II (cuadrático Hosemann).",
+            "Permite verificar si el ensanchamiento radial es isotrópico o si alguna dirección acumula desorden de espaciado."
         ))
         self._setup_plot_export_menu(self.plot_fwhm_paracrystal, "fig10_diagnostico_paracristal_fwhm_hosemann", "Diagnóstico Paracristal Hosemann")
         lay_plots_grid.addWidget(self.plot_fwhm_paracrystal, 1, 1)
@@ -3207,16 +3375,30 @@ class LatticeDisorderWindow(QMainWindow):
             line.setVisible(checked)
 
     def _on_colormap_changed(self, cmap_name: str):
+        cm = get_pyqtgraph_colormap(cmap_name)
         if self.img_item is not None:
             try:
-                cm = get_pyqtgraph_colormap(cmap_name)
                 self.img_item.setColorMap(cm)
             except Exception as e:
-                print(f"Error actualizando colormap: {e}")
+                print(f"Error actualizando colormap TIFF: {e}")
+        if self.img_item_filtered is not None:
+            try:
+                self.img_item_filtered.setColorMap(cm)
+            except Exception as e:
+                print(f"Error actualizando colormap Filtro Fondo: {e}")
+        if self.img_item_rl is not None:
+            try:
+                self.img_item_rl.setColorMap(cm)
+            except Exception as e:
+                print(f"Error actualizando colormap RL: {e}")
 
     def _on_layer_visibility_changed(self):
         if self.img_item is not None:
             self.img_item.setVisible(self.chk_layer_img.isChecked())
+        if self.img_item_filtered is not None:
+            self.img_item_filtered.setVisible(self.chk_layer_filtered.isChecked())
+        if self.img_item_rl is not None:
+            self.img_item_rl.setVisible(self.chk_layer_rl.isChecked())
         if self.scatter_det is not None:
             self.scatter_det.setVisible(self.chk_layer_det.isChecked())
         if self.scatter_clusters is not None:
@@ -3270,14 +3452,20 @@ class LatticeDisorderWindow(QMainWindow):
         self._redraw_selection_overlay()
 
     def _on_real_space_clicked(self, event):
+        pos = event.scenePos()
+        mouse_point = self.plot_real_space.plotItem.vb.mapSceneToView(pos)
+        cx, cy = float(mouse_point.x()), float(mouse_point.y())
+
+        # Modo Semillas Visuales Manuales: colocar centro en clic
+        if hasattr(self, 'btn_pick_visual_seeds') and self.btn_pick_visual_seeds.isChecked():
+            self.manual_visual_seeds_nm.append((cx, cy))
+            self._redraw_visual_seeds()
+            return
+
         if not self.btn_mode_click.isChecked():
             return
         if self.locs_df is None or self.locs_df.empty:
             return
-
-        pos = event.scenePos()
-        mouse_point = self.plot_real_space.plotItem.vb.mapSceneToView(pos)
-        cx, cy = mouse_point.x(), mouse_point.y()
 
         x_nm = self.locs_df['x_nm'].values
         y_nm = self.locs_df['y_nm'].values
@@ -3450,6 +3638,7 @@ class LatticeDisorderWindow(QMainWindow):
         self.curation_history.append(self.locs_df.copy())
 
         n_gauss = self.spin_cluster_n_gaussians.value() if hasattr(self, 'spin_cluster_n_gaussians') else None
+        init_seeds = self.manual_visual_seeds_nm if len(self.manual_visual_seeds_nm) >= 2 else None
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
@@ -3463,7 +3652,8 @@ class LatticeDisorderWindow(QMainWindow):
             image_2d=self.image_2d,
             signature_dict=self.monomer_signature,
             tolerance_pct=tol,
-            n_gaussians=n_gauss
+            n_gaussians=n_gauss,
+            initial_seeds=init_seeds
         )
 
         n_rem = stats.get('particles_removed', 0)
@@ -3472,6 +3662,7 @@ class LatticeDisorderWindow(QMainWindow):
         self.selected_cluster_id = None
         self.locs_df = df_resolved
         self.selected_particle_indices.clear()
+        self._on_clear_visual_seeds()
         self._update_selected_status()
         self._update_real_space_analysis()
         self._on_recalculate_reciprocal()
@@ -3809,6 +4000,7 @@ class LatticeDisorderWindow(QMainWindow):
 
         scale_nm = self.spin_scale.value()
         a_nom = self.spin_a_nominal.value()
+        init_seeds = self.manual_visual_seeds_nm if len(self.manual_visual_seeds_nm) >= 2 else None
 
         df_resolved, stats = resolve_single_spot_multi_gaussian(
             df=self.locs_df,
@@ -3817,12 +4009,14 @@ class LatticeDisorderWindow(QMainWindow):
             image_2d=self.image_2d,
             signature_dict=self.monomer_signature,
             scale_nm=scale_nm,
-            a_nominal=a_nom
+            a_nominal=a_nom,
+            initial_seeds=init_seeds
         )
 
         if stats.get('status') == 'ok':
             self.locs_df = df_resolved
             self.selected_particle_indices.clear()
+            self._on_clear_visual_seeds()
             self._clear_suspicious_contour()
             self.current_inspected_spot_idx = None
             self.current_spot_info = None
@@ -3919,6 +4113,10 @@ class LatticeDisorderWindow(QMainWindow):
             self.table_clusters.setItem(i, 5, item_ra)
             self.table_clusters.setItem(i, 6, item_status)
 
+    def _populate_cluster_table(self, results=None):
+        """Alias para _update_cluster_table para compatibilidad robusta."""
+        self._update_cluster_table()
+
     def _on_cluster_table_clicked(self, row: int, col: int):
         if self.cluster_results is None or 'clusters' not in self.cluster_results:
             return
@@ -3963,12 +4161,173 @@ class LatticeDisorderWindow(QMainWindow):
         self.plot_real_space.setXRange(com_x - span, com_x + span, padding=0.1)
         self.plot_real_space.setYRange(com_y - span, com_y + span, padding=0.1)
 
+    def _on_create_manual_cluster(self):
+        if self.locs_df is None or self.locs_df.empty:
+            QMessageBox.warning(self, "Atención", "No hay partículas detectadas disponibles.")
+            return
+
+        if len(self.selected_particle_indices) < 2:
+            QMessageBox.warning(
+                self, "Selección Insuficiente",
+                "Por favor, seleccione al menos 2 partículas en el visor o tabla para agruparlas en un cúmulo manual."
+            )
+            return
+
+        scale_nm = self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0
+        a_nom = self.spin_a_nominal.value() if hasattr(self, 'spin_a_nominal') else 500.0
+        tol = self.spin_cluster_tolerance.value() if hasattr(self, 'spin_cluster_tolerance') else 20.0
+
+        if self.cluster_results is None:
+            self.cluster_results = {
+                'clusters': [],
+                'n_clusters': 0,
+                'pair_lines': [],
+                'cluster_particle_indices': set()
+            }
+
+        clusters = self.cluster_results.setdefault('clusters', [])
+        next_id = max([c.get('id', c.get('cluster_id', 0)) for c in clusters], default=0) + 1
+
+        new_c = create_manual_cluster(
+            locs_df=self.locs_df,
+            particle_indices=list(self.selected_particle_indices),
+            image_2d=self.image_2d,
+            scale_nm=scale_nm,
+            a_nominal=a_nom,
+            signature_dict=self.monomer_signature,
+            tolerance_pct=tol,
+            cluster_id=next_id
+        )
+
+        clusters.append(new_c)
+        self.cluster_results['n_clusters'] = len(clusters)
+
+        cl_indices_set = self.cluster_results.setdefault('cluster_particle_indices', set())
+        for idx in self.selected_particle_indices:
+            cl_indices_set.add(idx)
+
+        # Añadir líneas de pares si procede
+        pts = new_c.get('points', None)
+        if pts is not None and len(pts) > 1:
+            for i in range(len(pts) - 1):
+                self.cluster_results.setdefault('pair_lines', []).append((pts[i, 0], pts[i, 1], pts[i+1, 0], pts[i+1, 1]))
+
+        # Renderizar contorno del cúmulo manual
+        poly = new_c.get('contour_polygon_nm', [])
+        if len(poly) > 2:
+            poly_arr = np.array(poly)
+            poly_closed = np.vstack([poly_arr, poly_arr[0]])
+            c_item = pg.PlotDataItem(
+                poly_closed[:, 0], poly_closed[:, 1],
+                pen=pg.mkPen('#a6e3a1', width=1.5, style=Qt.PenStyle.DashLine)
+            )
+            c_item.setZValue(15)
+            c_item.setVisible(self.chk_layer_contours.isChecked())
+            self.plot_real_space.addItem(c_item)
+            self.cluster_contour_items.append(c_item)
+
+        self._update_cluster_table()
+        self.selected_cluster_id = next_id
+
+        # Seleccionar la fila en table_clusters
+        for r in range(self.table_clusters.rowCount()):
+            item = self.table_clusters.item(r, 0)
+            if item and item.text() == str(next_id):
+                self.table_clusters.selectRow(r)
+                self._on_cluster_table_clicked(r, 0)
+                break
+
+        self.statusBar().showMessage(f"Cúmulo manual #{next_id} creado ({len(self.selected_particle_indices)} partículas).", 4000)
+
+    def _on_toggle_pick_visual_seeds(self, checked: bool):
+        if checked:
+            if hasattr(self, 'btn_cluster_add_particles') and self.btn_cluster_add_particles.isChecked():
+                self.btn_cluster_add_particles.setChecked(False)
+            self.statusBar().showMessage("Modo Semillas Visuales: Haga clic en el gráfico para colocar centros iniciales de partículas.", 5000)
+        else:
+            self.statusBar().showMessage("Modo Semillas Visuales desactivado.", 3000)
+
+    def _on_clear_visual_seeds(self):
+        self.manual_visual_seeds_nm.clear()
+        self._redraw_visual_seeds()
+
+    def _on_use_detected_as_seeds(self):
+        if self.locs_df is None or self.locs_df.empty:
+            return
+        points = []
+        if self.selected_particle_indices:
+            sub = self.locs_df.loc[list(self.selected_particle_indices)]
+            for _, row in sub.iterrows():
+                points.append((float(row['x_nm']), float(row['y_nm'])))
+        elif self.selected_cluster_id is not None and self.cluster_results:
+            for c in self.cluster_results.get('clusters', []):
+                if c.get('id') == self.selected_cluster_id or c.get('cluster_id') == self.selected_cluster_id:
+                    pts = c.get('points', None)
+                    if pts is not None:
+                        for pt in pts:
+                            points.append((float(pt[0]), float(pt[1])))
+                    break
+        if points:
+            self.manual_visual_seeds_nm = points
+            self._redraw_visual_seeds()
+            self.statusBar().showMessage(f"{len(points)} posiciones detectadas copiadas como semillas iniciales.", 4000)
+        else:
+            QMessageBox.information(self, "Sin Selección", "Seleccione partículas o un cúmulo para usar sus centros como semillas.")
+
+    def _redraw_visual_seeds(self):
+        if self.scatter_visual_seeds is not None and self.scatter_visual_seeds in self.plot_real_space.items():
+            self.plot_real_space.removeItem(self.scatter_visual_seeds)
+            self.scatter_visual_seeds = None
+        for txt in self.text_visual_seeds_items:
+            if txt in self.plot_real_space.items():
+                self.plot_real_space.removeItem(txt)
+        self.text_visual_seeds_items.clear()
+
+        n_seeds = len(self.manual_visual_seeds_nm)
+        if hasattr(self, 'lbl_visual_seeds_status'):
+            self.lbl_visual_seeds_status.setText(f"Semillas: {n_seeds}")
+
+        if n_seeds > 0:
+            xs = [p[0] for p in self.manual_visual_seeds_nm]
+            ys = [p[1] for p in self.manual_visual_seeds_nm]
+            self.scatter_visual_seeds = pg.ScatterPlotItem(
+                x=xs, y=ys,
+                size=14,
+                symbol='+',
+                pen=pg.mkPen('#a6e3a1', width=2.5),
+                brush=pg.mkBrush(166, 227, 161, 200)
+            )
+            self.scatter_visual_seeds.setZValue(45)
+            self.plot_real_space.addItem(self.scatter_visual_seeds)
+
+            for i, (sx, sy) in enumerate(self.manual_visual_seeds_nm):
+                txt = pg.TextItem(text=f"S{i+1}", color='#a6e3a1', anchor=(0.5, 1.3))
+                txt.setPos(sx, sy)
+                txt.setZValue(46)
+                self.plot_real_space.addItem(txt)
+                self.text_visual_seeds_items.append(txt)
+
+            if hasattr(self, 'spin_cluster_n_gaussians'):
+                self.spin_cluster_n_gaussians.blockSignals(True)
+                self.spin_cluster_n_gaussians.setValue(min(max(n_seeds, 2), 8))
+                self.spin_cluster_n_gaussians.blockSignals(False)
+
+            if hasattr(self, 'spin_suspicious_n'):
+                self.spin_suspicious_n.blockSignals(True)
+                self.spin_suspicious_n.setValue(min(max(n_seeds, 2), 8))
+                self.spin_suspicious_n.blockSignals(False)
+
     def _on_scatter_det_clicked(self, item, points):
         if len(points) == 0:
             return
         pt = points[0]
         pos = pt.pos()
         if self.locs_df is None or len(self.locs_df) == 0:
+            return
+
+        if hasattr(self, 'btn_pick_visual_seeds') and self.btn_pick_visual_seeds.isChecked():
+            self.manual_visual_seeds_nm.append((float(pos.x()), float(pos.y())))
+            self._redraw_visual_seeds()
             return
         x = self.locs_df['x_nm'].values
         y = self.locs_df['y_nm'].values
@@ -3995,7 +4354,7 @@ class LatticeDisorderWindow(QMainWindow):
                             self._update_selected_status()
                             self._redraw_selection_overlay()
                             self._on_cluster_contour_thresh_changed()
-                            self._populate_cluster_table(self.cluster_results)
+                            self._update_cluster_table()
                             return
 
             if idx_min in self.selected_particle_indices:
@@ -4010,6 +4369,89 @@ class LatticeDisorderWindow(QMainWindow):
             self._on_recalculate_reciprocal()
         self.tabs.setCurrentIndex(1)
 
+    def _on_bg_filter_spin_changed(self, val: float):
+        if hasattr(self, 'slider_bg_filter'):
+            self.slider_bg_filter.blockSignals(True)
+            self.slider_bg_filter.setValue(int(round(val)))
+            self.slider_bg_filter.blockSignals(False)
+        self._update_filtered_image()
+
+    def _on_bg_filter_slider_changed(self, val: int):
+        if hasattr(self, 'spin_bg_filter_pct'):
+            self.spin_bg_filter_pct.blockSignals(True)
+            self.spin_bg_filter_pct.setValue(float(val))
+            self.spin_bg_filter_pct.blockSignals(False)
+        self._update_filtered_image()
+
+    def _on_bg_filter_preview_toggled(self, checked: bool):
+        if hasattr(self, 'chk_layer_filtered'):
+            self.chk_layer_filtered.blockSignals(True)
+            self.chk_layer_filtered.setChecked(checked)
+            self.chk_layer_filtered.blockSignals(False)
+        self._update_filtered_image()
+
+    def _update_filtered_image(self):
+        if self.image_2d is None:
+            return
+        scale_nm = self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0
+        filt_pct = self.spin_bg_filter_pct.value() if hasattr(self, 'spin_bg_filter_pct') else 20.0
+        i_max = float(np.max(self.image_2d))
+        thresh_val = (filt_pct / 100.0) * i_max
+        self.image_filtered = np.clip(self.image_2d - thresh_val, 0, None)
+
+        if self.img_item_filtered is None:
+            self.img_item_filtered = pg.ImageItem(self.image_filtered.T)
+            self.img_item_filtered.setRect(pg.QtCore.QRectF(
+                0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+            ))
+            self.img_item_filtered.setZValue(1)
+            cmap_name = self.combo_colormap.currentText()
+            self.img_item_filtered.setColorMap(get_pyqtgraph_colormap(cmap_name))
+            self.plot_real_space.addItem(self.img_item_filtered)
+        else:
+            self.img_item_filtered.setImage(self.image_filtered.T)
+
+        is_visible = self.chk_layer_filtered.isChecked() if hasattr(self, 'chk_layer_filtered') else (
+            self.chk_filter_preview.isChecked() if hasattr(self, 'chk_filter_preview') else False
+        )
+        self.img_item_filtered.setVisible(is_visible)
+
+    def _on_run_rl_deconvolution(self):
+        if self.image_2d is None:
+            QMessageBox.warning(self, "Atención", "Primero debe cargar una imagen TIFF.")
+            return
+        iter_count = self.spin_rl_iter.value() if hasattr(self, 'spin_rl_iter') else 15
+        sigma_val = self.spin_rl_sigma.value() if hasattr(self, 'spin_rl_sigma') else 1.5
+        self.statusBar().showMessage(f"Ejecutando Deconvolución Richardson-Lucy ({iter_count} iters, σ={sigma_val} px)...")
+        QApplication.processEvents()
+        try:
+            self.image_rl = apply_richardson_lucy(
+                self.image_2d,
+                psf_sigma=sigma_val,
+                num_iter=iter_count
+            )
+            scale_nm = self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0
+            if self.img_item_rl is None:
+                self.img_item_rl = pg.ImageItem(self.image_rl.T)
+                self.img_item_rl.setRect(pg.QtCore.QRectF(
+                    0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+                ))
+                self.img_item_rl.setZValue(2)
+                cmap_name = self.combo_colormap.currentText()
+                self.img_item_rl.setColorMap(get_pyqtgraph_colormap(cmap_name))
+                self.plot_real_space.addItem(self.img_item_rl)
+            else:
+                self.img_item_rl.setImage(self.image_rl.T)
+
+            if hasattr(self, 'chk_layer_rl'):
+                self.chk_layer_rl.blockSignals(True)
+                self.chk_layer_rl.setChecked(True)
+                self.chk_layer_rl.blockSignals(False)
+            self.img_item_rl.setVisible(True)
+            self.statusBar().showMessage("✅ Deconvolución Richardson-Lucy completada y superpuesta.", 5000)
+        except Exception as e:
+            QMessageBox.critical(self, "Error en Deconvolución RL", str(e))
+
     def _render_detected_particles_only(self):
         scale_nm = self.spin_scale.value()
 
@@ -4021,12 +4463,39 @@ class LatticeDisorderWindow(QMainWindow):
             self.img_item.setRect(pg.QtCore.QRectF(
                 0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
             ))
+            self.img_item.setZValue(0)
             cmap_name = self.combo_colormap.currentText()
             self.img_item.setColorMap(get_pyqtgraph_colormap(cmap_name))
             self.img_item.setVisible(self.chk_layer_img.isChecked())
             self.plot_real_space.addItem(self.img_item)
         else:
             self.img_item = None
+
+        if self.image_filtered is not None and self.image_2d is not None:
+            self.img_item_filtered = pg.ImageItem(self.image_filtered.T)
+            self.img_item_filtered.setRect(pg.QtCore.QRectF(
+                0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+            ))
+            self.img_item_filtered.setZValue(1)
+            cmap_name = self.combo_colormap.currentText()
+            self.img_item_filtered.setColorMap(get_pyqtgraph_colormap(cmap_name))
+            self.img_item_filtered.setVisible(self.chk_layer_filtered.isChecked() if hasattr(self, 'chk_layer_filtered') else False)
+            self.plot_real_space.addItem(self.img_item_filtered)
+        else:
+            self.img_item_filtered = None
+
+        if self.image_rl is not None and self.image_2d is not None:
+            self.img_item_rl = pg.ImageItem(self.image_rl.T)
+            self.img_item_rl.setRect(pg.QtCore.QRectF(
+                0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+            ))
+            self.img_item_rl.setZValue(2)
+            cmap_name = self.combo_colormap.currentText()
+            self.img_item_rl.setColorMap(get_pyqtgraph_colormap(cmap_name))
+            self.img_item_rl.setVisible(self.chk_layer_rl.isChecked() if hasattr(self, 'chk_layer_rl') else False)
+            self.plot_real_space.addItem(self.img_item_rl)
+        else:
+            self.img_item_rl = None
 
         if self.locs_df is not None and len(self.locs_df) > 0:
             x_nm = self.locs_df['x_nm'].values
@@ -4041,6 +4510,7 @@ class LatticeDisorderWindow(QMainWindow):
                 brush=pg.mkBrush(137, 220, 235, 120),
                 symbol='o'
             )
+            self.scatter_det.setZValue(25)
             self.scatter_det.sigClicked.connect(self._on_scatter_det_clicked)
             self.scatter_det.setVisible(self.chk_layer_det.isChecked())
             self.plot_real_space.addItem(self.scatter_det)
@@ -4125,6 +4595,7 @@ class LatticeDisorderWindow(QMainWindow):
                     [lx1, lx2], [ly1, ly2],
                     pen=pg.mkPen('#fab387', width=2, style=Qt.PenStyle.DashLine)
                 )
+                line_item.setZValue(15)
                 line_item.setVisible(self.chk_layer_clusters.isChecked())
                 self.plot_real_space.addItem(line_item)
                 self.cluster_lines_items.append(line_item)
@@ -4140,6 +4611,7 @@ class LatticeDisorderWindow(QMainWindow):
                         poly_closed[:, 0], poly_closed[:, 1],
                         pen=pg.mkPen('#f9e2af', width=1.5, style=Qt.PenStyle.DashLine)
                     )
+                    c_item.setZValue(15)
                     c_item.setVisible(self.chk_layer_contours.isChecked())
                     self.plot_real_space.addItem(c_item)
                     self.cluster_contour_items.append(c_item)
@@ -4158,6 +4630,7 @@ class LatticeDisorderWindow(QMainWindow):
                     brush=pg.mkBrush(250, 179, 135, 140),
                     symbol='t'
                 )
+                self.scatter_clusters.setZValue(30)
                 self.scatter_clusters.setVisible(self.chk_layer_clusters.isChecked())
                 self.plot_real_space.addItem(self.scatter_clusters)
 
@@ -4259,6 +4732,7 @@ class LatticeDisorderWindow(QMainWindow):
                 brush=pg.mkBrush(243, 139, 168, 80),
                 symbol='x'
             )
+            self.scatter_vac.setZValue(20)
             self.scatter_vac.setVisible(self.chk_layer_vac.isChecked())
             self.plot_real_space.addItem(self.scatter_vac)
 
@@ -4277,6 +4751,7 @@ class LatticeDisorderWindow(QMainWindow):
                 brush=pg.mkBrush(166, 173, 200, 60),
                 symbol='+'
             )
+            self.scatter_grid.setZValue(10)
             self.scatter_grid.setVisible(self.chk_layer_grid.isChecked())
             self.plot_real_space.addItem(self.scatter_grid)
 
@@ -4702,6 +5177,15 @@ class LatticeDisorderWindow(QMainWindow):
             else:
                 self.image_2d = self.raw_image_2d.copy()
 
+            self.image_filtered = None
+            self.image_rl = None
+            if self.img_item_filtered is not None and self.img_item_filtered in self.plot_real_space.items():
+                self.plot_real_space.removeItem(self.img_item_filtered)
+                self.img_item_filtered = None
+            if self.img_item_rl is not None and self.img_item_rl in self.plot_real_space.items():
+                self.plot_real_space.removeItem(self.img_item_rl)
+                self.img_item_rl = None
+
             self.lbl_file_info.setText(
                 f"Imagen: {os.path.basename(file_path)}\n"
                 f"Dimensiones: {self.image_2d.shape[1]} x {self.image_2d.shape[0]} px\n"
@@ -4816,11 +5300,16 @@ class LatticeDisorderWindow(QMainWindow):
                 noise_sz = self.spin_noise_size.value()
 
                 if self.chk_rl.isChecked():
-                    img_to_process = apply_richardson_lucy(
+                    self.image_rl = apply_richardson_lucy(
                         img_to_process,
                         psf_sigma=self.spin_rl_sigma.value(),
                         num_iter=self.spin_rl_iter.value()
                     )
+                    img_to_process = self.image_rl
+                    if hasattr(self, 'chk_layer_rl'):
+                        self.chk_layer_rl.blockSignals(True)
+                        self.chk_layer_rl.setChecked(True)
+                        self.chk_layer_rl.blockSignals(False)
 
                 locs = localize_trackpy(
                     img_to_process,
@@ -4909,6 +5398,14 @@ class LatticeDisorderWindow(QMainWindow):
             peak_selection_mode=peak_mode,
             peak_tuning=getattr(self, 'peak_tuning_dict', None)
         )
+
+        if hasattr(self, 'chk_anchor_wilson_h0') and self.chk_anchor_wilson_h0.isChecked():
+            self.reciprocal_results['analytical_relations'] = compute_analytical_bragg_relations(
+                self.reciprocal_results,
+                a_nominal=a_nom,
+                n_total_particles=len(x_nm),
+                anchor_wilson_to_h0=True
+            )
 
         res = self.reciprocal_results
 
@@ -5081,6 +5578,21 @@ class LatticeDisorderWindow(QMainWindow):
         self._update_analytical_panels_and_plots(res)
         self._update_metrics_table()
 
+    def _on_anchor_wilson_toggled(self, checked: bool):
+        """Alterna el anclaje del intercepto de Wilson a ln(H0) y actualiza al vuelo los paneles."""
+        if self.reciprocal_results is not None:
+            a_nom = self.spin_a_nominal.value() if hasattr(self, 'spin_a_nominal') else 450.0
+            x_nm = getattr(self, 'current_x_nm', None)
+            n_tot = len(x_nm) if x_nm is not None else None
+            self.reciprocal_results['analytical_relations'] = compute_analytical_bragg_relations(
+                self.reciprocal_results,
+                a_nominal=a_nom,
+                n_total_particles=n_tot,
+                anchor_wilson_to_h0=checked
+            )
+            self._update_analytical_panels_and_plots(self.reciprocal_results)
+            self._update_metrics_table()
+
     def _update_analytical_panels_and_plots(self, res: Dict[str, Any]):
         """
         Actualiza las tarjetas de resultados analíticos preliminares y la batería
@@ -5097,52 +5609,85 @@ class LatticeDisorderWindow(QMainWindow):
         s_h2h1_x = ana.get('sigma_h2h1_x', 0.0)
         s_h2h1_y = ana.get('sigma_h2h1_y', 0.0)
         r_21 = ana.get('ratio_21_mean', 0.0)
+        r_21_x = ana.get('ratio_21_x', 0.0)
+        r_21_y = ana.get('ratio_21_y', 0.0)
+        h1_x = ana.get('H1_x', 0.0)
+        h1_y = ana.get('H1_y', 0.0)
+        h2_x = ana.get('H2_x', 0.0)
+        h2_y = ana.get('H2_y', 0.0)
         self.lbl_card_h2h1.setText(
             f"<b>σ (H₂ / H₁): {s_h2h1:.2f} nm</b><br>"
             f"<span style='color: #a6adc8; font-size: 10px;'>"
             f"Estándar de Oro (Cancela p y N)<br>"
-            f"H₂/H₁ = {r_21:.3f} | σ_x = {s_h2h1_x:.1f} nm, σ_y = {s_h2h1_y:.1f} nm<br>"
+            f"<b>X:</b> H₂x/H₁x = {r_21_x:.3f} (H₁x={h1_x:.2e}, H₂x={h2_x:.2e}) ⇒ <b>σ_x = {s_h2h1_x:.2f} nm</b><br>"
+            f"<b>Y:</b> H₂y/H₁y = {r_21_y:.3f} (H₁y={h1_y:.2e}, H₂y={h2_y:.2e}) ⇒ <b>σ_y = {s_h2h1_y:.2f} nm</b><br>"
             f"Fórmula: σ = (a / 2π√3) √(ln(H₁/H₂))</span>"
         )
 
         # Card 2: H_diag / H1 (Coherencia 2D)
         s_diag = ana.get('sigma_diag', 0.0)
+        s_diag_x = ana.get('sigma_diag_x', 0.0)
+        s_diag_y = ana.get('sigma_diag_y', 0.0)
         r_diag = ana.get('ratio_diag', 0.0)
+        r_diag_x = ana.get('ratio_diag_x', 0.0)
+        r_diag_y = ana.get('ratio_diag_y', 0.0)
+        h_diag = ana.get('H_diag', 0.0)
         self.lbl_card_diag.setText(
             f"<b>σ (H_diag / H₁): {s_diag:.2f} nm</b><br>"
             f"<span style='color: #a6adc8; font-size: 10px;'>"
-            f"Coherencia 2D (Orden cruzado (1,1))<br>"
-            f"H_diag/H₁ = {r_diag:.3f}<br>"
+            f"Coherencia 2D (H_diag = {h_diag:.2e})<br>"
+            f"<b>X:</b> H_diag/H₁x = {r_diag_x:.3f} ⇒ <b>σ_diag,x = {s_diag_x:.2f} nm</b><br>"
+            f"<b>Y:</b> H_diag/H₁y = {r_diag_y:.3f} ⇒ <b>σ_diag,y = {s_diag_y:.2f} nm</b><br>"
             f"Fórmula: σ = (a / 2π) √(ln(H₁/H_diag))</span>"
         )
 
-        # Card 3: H1 / H0 (Inestable)
+        # Card 3: H0 / H1 y H1 / H0 (Inestable)
         s_10 = ana.get('sigma_h1h0', 0.0)
-        r_10 = ana.get('ratio_10', 0.0)
+        s_10_x = ana.get('sigma_h1h0_x', 0.0)
+        s_10_y = ana.get('sigma_h1h0_y', 0.0)
+        r_0_1x = ana.get('ratio_0_1x', 0.0)
+        r_0_1y = ana.get('ratio_0_1y', 0.0)
+        r_10_x = ana.get('ratio_10_x', 0.0)
+        r_10_y = ana.get('ratio_10_y', 0.0)
         h0 = ana.get('H0', 0.0)
         self.lbl_card_h1h0.setText(
-            f"<b>σ (H₁ / H₀): {s_10:.2f} nm</b> <span style='color: #f38ba8; font-weight: bold; font-size: 10px;'>[⚠️ INESTABLE]</span><br>"
+            f"<b>σ (H₀ / H₁): {s_10:.2f} nm</b> <span style='color: #f38ba8; font-weight: bold; font-size: 10px;'>[⚠️ INESTABLE]</span><br>"
             f"<span style='color: #a6adc8; font-size: 10px;'>"
             f"Razón frente a DC Central (H₀ = {h0:.2e})<br>"
-            f"H₁/H₀ = {r_10:.4f}<br>"
+            f"<b>X:</b> H₀/H₁x = {r_0_1x:.2f} (H₁x/H₀ = {r_10_x:.4f}) ⇒ <b>σ_x = {s_10_x:.2f} nm</b><br>"
+            f"<b>Y:</b> H₀/H₁y = {r_0_1y:.2f} (H₁y/H₀ = {r_10_y:.4f}) ⇒ <b>σ_y = {s_10_y:.2f} nm</b><br>"
             f"Sensible a autofluorescencia, haz directo y N</span>"
         )
 
         # Card 4: Gráfico de Wilson
+        is_anchored = ana.get('anchor_wilson_to_h0', False)
+        mode_tag = " [c=ln(H₀)]" if is_anchored else ""
         s_w = ana.get('sigma_wilson', 0.0)
+        s_wx = ana.get('sigma_wilson_x', s_w)
+        s_wy = ana.get('sigma_wilson_y', s_w)
         r2_w = ana.get('r_squared_wilson', 0.0)
-        p_est = ana.get('p_wilson_est', 0.0) * 100.0
         slope_w = ana.get('slope_wilson', 0.0)
+        m_x = ana.get('slope_wilson_x', slope_w)
+        m_y = ana.get('slope_wilson_y', slope_w)
+        c_x = ana.get('intercept_wilson_x', ana.get('intercept_wilson', 0.0))
+        c_y = ana.get('intercept_wilson_y', ana.get('intercept_wilson', 0.0))
+        w_concl = ana.get('wilson_data', {}).get('conclusions', {})
+        aniso_str = w_concl.get('anisotropy_text', '')
         self.lbl_card_wilson.setText(
-            f"<b>σ (Wilson Plot): {s_w:.2f} nm</b> (R²: {r2_w:.3f})<br>"
+            f"<b>Wilson Plot{mode_tag}: σ_x = {s_wx:.2f} nm | σ_y = {s_wy:.2f} nm</b> (Global R²: {r2_w:.3f})<br>"
             f"<span style='color: #a6adc8; font-size: 10px;'>"
-            f"Ajuste lineal multi-orden ln(H) vs |G|² (m = {slope_w:.2e})<br>"
-            f"Vacancias estimadas: p_est = {p_est:.1f}%</span>"
+            f"<b>Eje X:</b> m_x = {m_x:.2e} | c_x = {c_x:.2f} (I₀,x = {np.exp(c_x):.2e})<br>"
+            f"<b>Eje Y:</b> m_y = {m_y:.2e} | c_y = {c_y:.2f} (I₀,y = {np.exp(c_y):.2e})<br>"
+            f"<b>Conclusiones:</b> {aniso_str}</span>"
         )
 
         # Card 5: Diagnóstico Paracristalino
         para = ana.get('paracrystal_diagnosis', {})
         r_fwhm = para.get('ratio_fwhm', 1.0)
+        r_fx = para.get('ratio_fwhm_x', r_fwhm)
+        r_fy = para.get('ratio_fwhm_y', r_fwhm)
+        type_x = para.get('disorder_type_x', 'Tipo I')
+        type_y = para.get('disorder_type_y', 'Tipo I')
         d_type = para.get('disorder_type', 'Pendiente')
         d_desc = para.get('description', '')
         is_type_1 = para.get('is_type_1', True)
@@ -5150,82 +5695,222 @@ class LatticeDisorderWindow(QMainWindow):
         self.lbl_card_paracrystal.setText(
             f"<b>Diagnóstico: <span style='color: {color_type};'>{d_type}</span></b><br>"
             f"<span style='color: #a6adc8; font-size: 10px;'>"
-            f"Ratio FWHM₂ / FWHM₁ = {r_fwhm:.2f}<br>"
+            f"FWHM₂x/FWHM₁x = {r_fx:.2f} ({type_x}) | FWHM₂y/FWHM₁y = {r_fy:.2f} ({type_y})<br>"
             f"{d_desc}</span>"
         )
 
-        # ── 2. Gráfico 1: Gráfico de Wilson (ln(H) vs |G|²) ──────────────────
+        # ── 2. Gráfico 1: Gráfico de Wilson (ln(H) vs |G|² Anisótropo X / Y) ──
         if hasattr(self, 'plot_wilson'):
             self.plot_wilson.clear()
+            if self.plot_wilson.plotItem.legend is None:
+                self.plot_wilson.addLegend(offset=(10, 10))
+            else:
+                self.plot_wilson.plotItem.legend.clear()
+
             w_data = ana.get('wilson_data', {})
-            g_sq = w_data.get('g_sq')
-            ln_h = w_data.get('ln_h')
-            fit_g_sq = w_data.get('fit_g_sq')
-            fit_ln_h = w_data.get('fit_ln_h')
-            names = w_data.get('names', [])
+            w_x = w_data.get('x', {})
+            w_y = w_data.get('y', {})
+            w_diag = w_data.get('diag', {})
 
-            if fit_g_sq is not None and fit_ln_h is not None and len(fit_g_sq) > 0:
+            # 1. Dimensión X: Recta de ajuste y picos
+            fit_gx = w_x.get('fit_g_sq')
+            fit_hx = w_x.get('fit_ln_h')
+            gx = w_x.get('g_sq')
+            hx = w_x.get('ln_h')
+            if fit_gx is not None and fit_hx is not None and len(fit_gx) > 0:
                 self.plot_wilson.plot(
-                    fit_g_sq, fit_ln_h,
+                    fit_gx, fit_hx,
                     pen=pg.mkPen('#89b4fa', width=2, style=Qt.PenStyle.DashLine),
-                    name=f'Ajuste (R²={r2_w:.3f})'
+                    name=f'Ajuste X{mode_tag}: m={m_x:.2e}, c={c_x:.2f} (σ_x={s_wx:.2f} nm)'
                 )
-
-            if g_sq is not None and ln_h is not None and len(g_sq) > 0:
-                scatter_w = pg.ScatterPlotItem(
-                    x=g_sq, y=ln_h, size=11,
+            if gx is not None and hx is not None and len(gx) > 0:
+                scatter_wx = pg.ScatterPlotItem(
+                    x=gx, y=hx, size=11,
                     pen=pg.mkPen('#1e1e2e', width=1.5),
-                    brush=pg.mkBrush('#a6e3a1'),
-                    symbol='o'
+                    brush=pg.mkBrush('#89b4fa'),
+                    symbol='o',
+                    name='Picos X: (1,0) y (2,0)'
                 )
-                self.plot_wilson.addItem(scatter_w)
-
-                for g, h, nm in zip(g_sq, ln_h, names):
-                    ti = pg.TextItem(text=f" {nm}", color='#bac2de', anchor=(0, 0.5))
+                self.plot_wilson.addItem(scatter_wx)
+                names_x = w_x.get('names', ['(1,0) X', '(2,0) X'])
+                for g, h, nm in zip(gx, hx, names_x):
+                    ti = pg.TextItem(text=f" {nm}", color='#89b4fa', anchor=(0, 0.5))
                     ti.setPos(g, h)
                     self.plot_wilson.addItem(ti)
-            self.plot_wilson.enableAutoRange()
 
-        # ── 3. Gráfico 2: Decaimiento Multiórden Debye-Waller ────────────────
-        if hasattr(self, 'plot_dw_decay'):
-            self.plot_dw_decay.clear()
-            dw_data = ana.get('debye_waller_curve', {})
-            q_norm = dw_data.get('q_norm')
-            h_theory = dw_data.get('H_theory')
-            pts_q = dw_data.get('points_q')
-            pts_h = dw_data.get('points_H')
-            labels = dw_data.get('labels', [])
-
-            if q_norm is not None and h_theory is not None:
-                self.plot_dw_decay.plot(
-                    q_norm, h_theory,
-                    pen=pg.mkPen('#a6e3a1', width=2),
-                    name='Teoría DW e^{-ΔG²σ²}'
+            # 2. Dimensión Y: Recta de ajuste y picos
+            fit_gy = w_y.get('fit_g_sq')
+            fit_hy = w_y.get('fit_ln_h')
+            gy = w_y.get('g_sq')
+            hy = w_y.get('ln_h')
+            if fit_gy is not None and fit_hy is not None and len(fit_gy) > 0:
+                self.plot_wilson.plot(
+                    fit_gy, fit_hy,
+                    pen=pg.mkPen('#fab387', width=2, style=Qt.PenStyle.DashLine),
+                    name=f'Ajuste Y{mode_tag}: m={m_y:.2e}, c={c_y:.2f} (σ_y={s_wy:.2f} nm)'
                 )
-
-            if pts_q is not None and pts_h is not None:
-                scatter_dw = pg.ScatterPlotItem(
-                    x=pts_q, y=pts_h, size=12,
+            if gy is not None and hy is not None and len(gy) > 0:
+                scatter_wy = pg.ScatterPlotItem(
+                    x=gy, y=hy, size=11,
                     pen=pg.mkPen('#1e1e2e', width=1.5),
                     brush=pg.mkBrush('#fab387'),
-                    symbol='d'
+                    symbol='s',
+                    name='Picos Y: (0,1) y (0,2)'
                 )
-                self.plot_dw_decay.addItem(scatter_dw)
+                self.plot_wilson.addItem(scatter_wy)
+                names_y = w_y.get('names', ['(0,1) Y', '(0,2) Y'])
+                for g, h, nm in zip(gy, hy, names_y):
+                    ti = pg.TextItem(text=f" {nm}", color='#fab387', anchor=(0, 0.5))
+                    ti.setPos(g, h)
+                    self.plot_wilson.addItem(ti)
 
-                for q, h, lbl in zip(pts_q, pts_h, labels):
-                    ti = pg.TextItem(text=f" {lbl} ({h:.2f})", color='#cdd6f4', anchor=(0, 0.5))
+            # 3. Punto Diagonal (1, 1) como testigo de coherencia 2D
+            g_diag = w_diag.get('g_sq')
+            h_diag = w_diag.get('ln_h')
+            if g_diag is not None and h_diag is not None:
+                scatter_wdiag = pg.ScatterPlotItem(
+                    x=[g_diag], y=[h_diag], size=12,
+                    pen=pg.mkPen('#1e1e2e', width=1.5),
+                    brush=pg.mkBrush('#a6e3a1'),
+                    symbol='d',
+                    name='Pico Diag (1,1)'
+                )
+                self.plot_wilson.addItem(scatter_wdiag)
+                ti_d = pg.TextItem(text=" (1,1) Diag", color='#a6e3a1', anchor=(0, 0.5))
+                ti_d.setPos(g_diag, h_diag)
+                self.plot_wilson.addItem(ti_d)
+
+            # 4. Conclusiones Físicas deducidas del Wilson Plot
+            concl_dict = w_data.get('conclusions', {})
+            concl_lines = []
+            if 'anisotropy_text' in concl_dict:
+                concl_lines.append(f"• {concl_dict['anisotropy_text']}")
+            if 'intercept_text' in concl_dict:
+                concl_lines.append(f"• {concl_dict['intercept_text']}")
+            if 'background_text' in concl_dict:
+                concl_lines.append(f"• {concl_dict['background_text']}")
+            if 'vacancies_text' in concl_dict:
+                concl_lines.append(f"• {concl_dict['vacancies_text']}")
+            if concl_lines and gx is not None and len(gx) > 0:
+                concl_box_text = "\n".join(concl_lines)
+                ti_concl = pg.TextItem(
+                    text=f"Conclusiones de Regresión e Interceptos:\n{concl_box_text}",
+                    color='#cdd6f4',
+                    border=pg.mkPen('#45475a', width=1),
+                    fill=pg.mkBrush('#181825ee'),
+                    anchor=(0, 0)
+                )
+                min_g = 0.0
+                max_h = max(float(np.max(hx)), float(np.max(hy))) if hy is not None and len(hy) > 0 else float(np.max(hx))
+                ti_concl.setPos(min_g, max_h)
+                self.plot_wilson.addItem(ti_concl)
+
+            self.plot_wilson.enableAutoRange()
+
+        # ── 3. Gráfico 2: Decaimiento Multiórden Debye-Waller (Ejes X e Y) ────
+        if hasattr(self, 'plot_dw_decay'):
+            self.plot_dw_decay.clear()
+            if self.plot_dw_decay.plotItem.legend is None:
+                self.plot_dw_decay.addLegend(offset=(10, 10))
+            else:
+                self.plot_dw_decay.plotItem.legend.clear()
+
+            dw_data = ana.get('debye_waller_curve', {})
+            dw_x = dw_data.get('x', {})
+            dw_y = dw_data.get('y', {})
+            dw_diag = dw_data.get('diag', {})
+
+            # Eje X: Curva teórica y puntos experimentales
+            qx = dw_x.get('q_norm')
+            hx_th = dw_x.get('H_theory')
+            pts_qx = dw_x.get('points_q')
+            pts_hx = dw_x.get('points_H')
+            if qx is not None and hx_th is not None:
+                self.plot_dw_decay.plot(
+                    qx, hx_th,
+                    pen=pg.mkPen('#89b4fa', width=2),
+                    name=f'Teoría DW X (σ_x={s_h2h1_x:.2f} nm)'
+                )
+            if pts_qx is not None and pts_hx is not None:
+                scatter_dw_x = pg.ScatterPlotItem(
+                    x=pts_qx, y=pts_hx, size=11,
+                    pen=pg.mkPen('#1e1e2e', width=1.5),
+                    brush=pg.mkBrush('#89b4fa'),
+                    symbol='o',
+                    name='Exp. X: (1,0) y (2,0)'
+                )
+                self.plot_dw_decay.addItem(scatter_dw_x)
+                for q, h, lbl in zip(pts_qx, pts_hx, dw_x.get('labels', ['(1,0) X', '(2,0) X'])):
+                    ti = pg.TextItem(text=f" {lbl} ({h:.2f})", color='#89b4fa', anchor=(0, 0.5))
                     ti.setPos(q, h)
                     self.plot_dw_decay.addItem(ti)
+
+            # Eje Y: Curva teórica y puntos experimentales
+            qy = dw_y.get('q_norm')
+            hy_th = dw_y.get('H_theory')
+            pts_qy = dw_y.get('points_q')
+            pts_hy = dw_y.get('points_H')
+            if qy is not None and hy_th is not None:
+                self.plot_dw_decay.plot(
+                    qy, hy_th,
+                    pen=pg.mkPen('#fab387', width=2, style=Qt.PenStyle.DashLine),
+                    name=f'Teoría DW Y (σ_y={s_h2h1_y:.2f} nm)'
+                )
+            if pts_qy is not None and pts_hy is not None:
+                scatter_dw_y = pg.ScatterPlotItem(
+                    x=pts_qy, y=pts_hy, size=11,
+                    pen=pg.mkPen('#1e1e2e', width=1.5),
+                    brush=pg.mkBrush('#fab387'),
+                    symbol='s',
+                    name='Exp. Y: (0,1) y (0,2)'
+                )
+                self.plot_dw_decay.addItem(scatter_dw_y)
+                for q, h, lbl in zip(pts_qy, pts_hy, dw_y.get('labels', ['(0,1) Y', '(0,2) Y'])):
+                    ti = pg.TextItem(text=f" {lbl} ({h:.2f})", color='#fab387', anchor=(0, 0.5))
+                    ti.setPos(q, h)
+                    self.plot_dw_decay.addItem(ti)
+
+            # Punto Diagonal (1, 1) normalizado
+            pts_qdiag = dw_diag.get('points_q')
+            pts_hdiag = dw_diag.get('points_H')
+            if pts_qdiag is not None and pts_hdiag is not None:
+                scatter_dw_diag = pg.ScatterPlotItem(
+                    x=pts_qdiag, y=pts_hdiag, size=12,
+                    pen=pg.mkPen('#1e1e2e', width=1.5),
+                    brush=pg.mkBrush('#a6e3a1'),
+                    symbol='d',
+                    name='Diagonal (1,1) / H₁x,y'
+                )
+                self.plot_dw_decay.addItem(scatter_dw_diag)
+                for q, h, lbl in zip(pts_qdiag, pts_hdiag, dw_diag.get('labels', ['Diag / H₁x', 'Diag / H₁y'])):
+                    ti = pg.TextItem(text=f" {lbl} ({h:.2f})", color='#a6e3a1', anchor=(0, 0.5))
+                    ti.setPos(q, h)
+                    self.plot_dw_decay.addItem(ti)
+
             self.plot_dw_decay.enableAutoRange()
 
-        # ── 4. Gráfico 3: Comparativa de Estabilidad de Ratios ────────────────
+        # ── 4. Gráfico 3: Comparativa de Estabilidad de Ratios (X e Y) ────────
         if hasattr(self, 'plot_ratio_stability'):
             self.plot_ratio_stability.clear()
-            stab = ana.get('stability_comparison', {})
-            methods = stab.get('methods', ['H2/H1 (Oro)', 'Diag (1,1)', 'Wilson', 'H1/H0 (Inest.)'])
-            raw_sigmas = stab.get('sigmas', [s_h2h1, s_diag, s_w, s_10])
+            methods = [
+                'H₂/H₁ X', 'H₂/H₁ Y',
+                'Diag/H₁ X', 'Diag/H₁ Y',
+                'Wilson X', 'Wilson Y',
+                'H₀/H₁ X', 'H₀/H₁ Y'
+            ]
+            raw_sigmas = [
+                s_h2h1_x, s_h2h1_y,
+                s_diag_x, s_diag_y,
+                s_wx, s_wy,
+                s_10_x, s_10_y
+            ]
             sigmas = [0.0 if np.isnan(s) else max(0.0, float(s)) for s in raw_sigmas]
-            colors = stab.get('colors', ['#a6e3a1', '#cba6f7', '#89b4fa', '#f38ba8'])
+            colors = [
+                '#89b4fa', '#fab387',
+                '#74c7ec', '#f9e2af',
+                '#b4befe', '#eba0ac',
+                '#f38ba8', '#f38ba8'
+            ]
 
             x_coords = np.arange(len(methods), dtype=float)
             brushes = [pg.mkBrush(c) for c in colors]
@@ -5263,50 +5948,93 @@ class LatticeDisorderWindow(QMainWindow):
                 self.plot_ratio_stability.addItem(line_kd)
             self.plot_ratio_stability.enableAutoRange()
 
-        # ── 5. Gráfico 4: Diagnóstico de Ancho Radial (Hosemann) ──────────────
+        # ── 5. Gráfico 4: Diagnóstico de Ancho Radial (Hosemann en X e Y) ─────
         if hasattr(self, 'plot_fwhm_paracrystal'):
             self.plot_fwhm_paracrystal.clear()
-            f1 = para.get('fwhm_order1', 0.0)
-            f2 = para.get('fwhm_order2', 0.0)
+            if self.plot_fwhm_paracrystal.plotItem.legend is None:
+                self.plot_fwhm_paracrystal.addLegend(offset=(10, 10))
+            else:
+                self.plot_fwhm_paracrystal.plotItem.legend.clear()
 
-            if f1 > 0:
-                m_orders = np.array([1.0, 2.0])
-                fwhm_vals = np.array([f1, f2 if f2 > 0 else f1])
-                scatter_fwhm = pg.ScatterPlotItem(
-                    x=m_orders, y=fwhm_vals, size=12,
+            f1x = para.get('fwhm1_x', 0.0)
+            f2x = para.get('fwhm2_x', 0.0)
+            f1y = para.get('fwhm1_y', 0.0)
+            f2y = para.get('fwhm2_y', 0.0)
+
+            m_dense = np.linspace(0.8, 2.2, 50)
+            ax4 = self.plot_fwhm_paracrystal.getAxis('bottom')
+            ax4.setTicks([[(1, 'm = 1 (10 / 01)'), (2, 'm = 2 (20 / 02)')]])
+
+            # 1. Dimensión X
+            if f1x > 0:
+                m_x_pts = np.array([1.0, 2.0])
+                fwhm_x_pts = np.array([f1x, f2x if f2x > 0 else f1x])
+                sc_fx = pg.ScatterPlotItem(
+                    x=m_x_pts, y=fwhm_x_pts, size=11,
                     pen=pg.mkPen('#1e1e2e', width=1.5),
-                    brush=pg.mkBrush('#f9e2af'),
-                    symbol='t'
+                    brush=pg.mkBrush('#89b4fa'),
+                    symbol='o',
+                    name=f'FWHM Exp. X (r={r_fx:.2f})'
                 )
-                self.plot_fwhm_paracrystal.addItem(scatter_fwhm)
+                self.plot_fwhm_paracrystal.addItem(sc_fx)
 
-                # Modelos teóricos de comparación
-                m_dense = np.linspace(0.8, 2.2, 50)
-                # Modelo Tipo I: Debye-Waller Puro (Scherrer FWHM constante)
+                # Modelo Tipo I X: Debye-Waller Puro (Scherrer FWHM constante)
                 self.plot_fwhm_paracrystal.plot(
-                    m_dense, np.full_like(m_dense, f1),
-                    pen=pg.mkPen('#a6e3a1', width=1.8, style=Qt.PenStyle.DashLine),
-                    name='Tipo I: DW (FWHM cte)'
+                    m_dense, np.full_like(m_dense, f1x),
+                    pen=pg.mkPen('#89b4fa', width=1.8, style=Qt.PenStyle.DashLine),
+                    name='Tipo I X (DW cte)'
                 )
-                # Modelo Tipo II: Paracristal de Hosemann (FWHM ~ m²)
-                f_hosemann = f1 * (m_dense ** 2)
+                # Modelo Tipo II X: Paracristal de Hosemann (FWHM ~ m²)
                 self.plot_fwhm_paracrystal.plot(
-                    m_dense, f_hosemann,
-                    pen=pg.mkPen('#f38ba8', width=1.5, style=Qt.PenStyle.DotLine),
-                    name='Tipo II: Hosemann (m²)'
+                    m_dense, f1x * (m_dense ** 2),
+                    pen=pg.mkPen('#89b4fa', width=1.5, style=Qt.PenStyle.DotLine),
+                    name='Tipo II X (Hosemann m²)'
                 )
 
-                ax4 = self.plot_fwhm_paracrystal.getAxis('bottom')
-                ax4.setTicks([[(1, 'm = 1 (10)'), (2, 'm = 2 (20)')]])
+                ti_1x = pg.TextItem(text=f" FWHM₁x={f1x:.4f} nm⁻¹", color='#89b4fa', anchor=(0, 0.5))
+                ti_1x.setPos(1.0, f1x)
+                self.plot_fwhm_paracrystal.addItem(ti_1x)
 
-                ti1 = pg.TextItem(text=f" FWHM₁={f1:.4f} nm⁻¹", color='#bac2de', anchor=(0, 0.5))
-                ti1.setPos(1.0, f1)
-                self.plot_fwhm_paracrystal.addItem(ti1)
+                if f2x > 0:
+                    ti_2x = pg.TextItem(text=f" FWHM₂x={f2x:.4f} nm⁻¹", color='#89b4fa', anchor=(0, 0.5))
+                    ti_2x.setPos(2.0, f2x)
+                    self.plot_fwhm_paracrystal.addItem(ti_2x)
 
-                if f2 > 0:
-                    ti2 = pg.TextItem(text=f" FWHM₂={f2:.4f} nm⁻¹", color='#bac2de', anchor=(0, 0.5))
-                    ti2.setPos(2.0, f2)
-                    self.plot_fwhm_paracrystal.addItem(ti2)
+            # 2. Dimensión Y
+            if f1y > 0:
+                m_y_pts = np.array([1.0, 2.0])
+                fwhm_y_pts = np.array([f1y, f2y if f2y > 0 else f1y])
+                sc_fy = pg.ScatterPlotItem(
+                    x=m_y_pts, y=fwhm_y_pts, size=11,
+                    pen=pg.mkPen('#1e1e2e', width=1.5),
+                    brush=pg.mkBrush('#fab387'),
+                    symbol='s',
+                    name=f'FWHM Exp. Y (r={r_fy:.2f})'
+                )
+                self.plot_fwhm_paracrystal.addItem(sc_fy)
+
+                # Modelo Tipo I Y: Debye-Waller Puro (Scherrer FWHM constante)
+                self.plot_fwhm_paracrystal.plot(
+                    m_dense, np.full_like(m_dense, f1y),
+                    pen=pg.mkPen('#fab387', width=1.8, style=Qt.PenStyle.DashLine),
+                    name='Tipo I Y (DW cte)'
+                )
+                # Modelo Tipo II Y: Paracristal de Hosemann (FWHM ~ m²)
+                self.plot_fwhm_paracrystal.plot(
+                    m_dense, f1y * (m_dense ** 2),
+                    pen=pg.mkPen('#fab387', width=1.5, style=Qt.PenStyle.DotLine),
+                    name='Tipo II Y (Hosemann m²)'
+                )
+
+                ti_1y = pg.TextItem(text=f" FWHM₁y={f1y:.4f} nm⁻¹", color='#fab387', anchor=(0, 0.5))
+                ti_1y.setPos(1.0, f1y)
+                self.plot_fwhm_paracrystal.addItem(ti_1y)
+
+                if f2y > 0:
+                    ti_2y = pg.TextItem(text=f" FWHM₂y={f2y:.4f} nm⁻¹", color='#fab387', anchor=(0, 0.5))
+                    ti_2y.setPos(2.0, f2y)
+                    self.plot_fwhm_paracrystal.addItem(ti_2y)
+
             self.plot_fwhm_paracrystal.enableAutoRange()
 
     def _on_propagate_to_mc(self):
@@ -5726,10 +6454,14 @@ class LatticeDisorderWindow(QMainWindow):
             if 'analytical_relations' in r:
                 ana = r['analytical_relations']
                 s_h2h1 = ana.get('sigma_h2h1', 0.0)
+                s_h2h1_x = ana.get('sigma_h2h1_x', s_h2h1)
+                s_h2h1_y = ana.get('sigma_h2h1_y', s_h2h1)
                 s_w = ana.get('sigma_wilson', 0.0)
+                s_wx = ana.get('sigma_wilson_x', s_w)
+                s_wy = ana.get('sigma_wilson_y', s_w)
                 r2_w = ana.get('r_squared_wilson', 0.0)
                 self.table_metrics.item(17, 1).setText(
-                    f"σ(H2/H1)={s_h2h1:.2f} nm | σ(Wilson)={s_w:.2f} nm (R²={r2_w:.3f})"
+                    f"σ(H2/H1): X={s_h2h1_x:.1f}, Y={s_h2h1_y:.1f} nm | Wilson: X={s_wx:.1f}, Y={s_wy:.1f} nm (R²={r2_w:.3f})"
                 )
             else:
                 self.table_metrics.item(17, 1).setText("Pendiente (requiere Espacio Recíproco)")

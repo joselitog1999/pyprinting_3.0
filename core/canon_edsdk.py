@@ -306,10 +306,9 @@ FULL_TV_LIST = [0x53, 0x50, 0x4D, 0x4B, 0x48, 0x38, 0x30, 0x2B, 0x1D, 0x10, 0x18
 REV_TV_MAP   = {v: k for k, v in TV_MAP.items()}
 
 ZOOM_MAP: Dict[int, str] = {
-    1: "1x (Vista Completa)",
-    2: "2x (Zoom Digital Cero Pérdida)",
-    5: "5x (Zoom Hardware AF)",
-    10: "10x (Zoom Hardware Enfoque Fino)"
+    1: "1x (Campo Completo)",
+    5: "5x (Recorte Óptico Sensor 1:1)",
+    10: "10x (Máximo Enfoque Crítico 1:1)"
 }
 REV_ZOOM_MAP = {v: k for k, v in ZOOM_MAP.items()}
 
@@ -546,7 +545,45 @@ class CanonCamera:
             hw_zoom = 1 if zoom_val <= 1 else (5 if zoom_val <= 5 else 10)
             val = EdsUInt32(hw_zoom)
             err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
+            if err == EDS_ERR_OK:
+                # Re-posicionar el encuadre al centro guardado
+                cx = getattr(self, '_zoom_center_x', 0.5)
+                cy = getattr(self, '_zoom_center_y', 0.5)
+                time.sleep(0.04)
+                self._apply_zoom_position_from_center(cx, cy)
             return err == EDS_ERR_OK
+
+    def set_zoom_center(self, cx: float, cy: float) -> bool:
+        """Configura el centro de visualización desde coordenadas normalizadas de pantalla (0.0 a 1.0).
+        Convierte de espacio de pantalla a espacio de sensor físico (4752 x 3168),
+        calcula la esquina superior-izquierda (Upper-Left) requerida por EDSDK y la acota."""
+        self._zoom_center_x = max(0.0, min(1.0, float(cx)))
+        self._zoom_center_y = max(0.0, min(1.0, float(cy)))
+        return self._apply_zoom_position_from_center(self._zoom_center_x, self._zoom_center_y)
+
+    def _apply_zoom_position_from_center(self, cx: float, cy: float) -> bool:
+        """Calcula y envía la esquina superior-izquierda a kEdsPropID_Evf_ZoomPosition."""
+        if not self._is_session_open or edsdk is None:
+            return False
+
+        zoom = getattr(self, '_active_zoom', 1)
+        z_factor = 10.0 if zoom >= 10 else 5.0
+        win_w = int(4752 / z_factor)
+        win_h = int(3168 / z_factor)
+
+        # Transposición óptica debida a cv2.rotate(90_CW) + cv2.flip(1):
+        # Display X (0..1) -> Sensor Y (0..3168)
+        # Display Y (0..1) -> Sensor X (0..4752)
+        center_sensor_x = cy * 4752.0
+        center_sensor_y = cx * 3168.0
+
+        ul_x = int(center_sensor_x - win_w / 2.0)
+        ul_y = int(center_sensor_y - win_h / 2.0)
+
+        clamped_x = max(0, min(int(4752 - win_w), ul_x))
+        clamped_y = max(0, min(int(3168 - win_h), ul_y))
+
+        return self.set_live_view_zoom_position(clamped_x, clamped_y)
 
     def set_live_view_zoom_position(self, x: int, y: int) -> bool:
         if not self._is_session_open or edsdk is None: return False
@@ -554,7 +591,7 @@ class CanonCamera:
         # Clamping metrológico estricto para sensor Canon EOS 500D (4752 x 3168)
         # para evitar errores de hardware EDS_ERR_INVALID_PARAMETER (0x07)
         zoom = getattr(self, '_active_zoom', 1)
-        z_factor = 5.0 if zoom <= 5 else 10.0
+        z_factor = 10.0 if zoom >= 10 else 5.0
         win_w = int(4752 / z_factor)
         win_h = int(3168 / z_factor)
         clamped_x = max(0, min(int(4752 - win_w), int(x)))
@@ -562,20 +599,18 @@ class CanonCamera:
 
         with _edsdk_lock:
             pt = EdsPoint(clamped_x, clamped_y)
-            try:
-                err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_ZoomPosition, 0, ctypes.sizeof(pt), ctypes.byref(pt))
-                if err == EDS_ERR_DEVICE_BUSY:
-                    # La cámara está procesando otro frame o comando, descartar sin colapsar
+            for attempt in range(3):
+                try:
+                    err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_ZoomPosition, 0, ctypes.sizeof(pt), ctypes.byref(pt))
+                    if err == EDS_ERR_DEVICE_BUSY:
+                        # La cámara está procesando una transición de zoom, breve reintento no bloqueante
+                        time.sleep(0.03)
+                        continue
+                    return err == EDS_ERR_OK
+                except Exception as _e:
+                    self.log(f"Advertencia al ajustar posición de zoom EVF: {_e}")
                     return False
-                return err == EDS_ERR_OK
-            except Exception as _e:
-                self.log(f"Advertencia al ajustar posición de zoom EVF: {_e}")
-                return False
-
-    def set_zoom_center(self, cx: float, cy: float):
-        """Configura el centro del ROI para navegación panorámica en el sensor FOV (0.0 a 1.0)."""
-        self._zoom_center_x = max(0.0, min(1.0, cx))
-        self._zoom_center_y = max(0.0, min(1.0, cy))
+            return False
 
     def process_frame_zoom_and_orientation(self, frame_rgb: np.ndarray) -> np.ndarray:
         if frame_rgb is None: return frame_rgb

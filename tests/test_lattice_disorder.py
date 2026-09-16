@@ -51,7 +51,8 @@ from core.lattice_disorder import (
     find_optimal_grid_bounding_box,
     extract_diagonal_profile,
     fit_secondary_bragg_peak_1d,
-    measure_transversal_mosaic
+    measure_transversal_mosaic,
+    compute_analytical_bragg_relations
 )
 from core.localization_pipeline import (
     load_coordinates,
@@ -916,6 +917,97 @@ def test_analytical_bragg_relations_unstable_h1h0():
     assert len(ar['debye_waller_curve']['q_norm']) == 120
     assert 'stability_comparison' in ar
     assert len(ar['stability_comparison']['methods']) == 4
+
+
+def test_analytical_bragg_relations_anisotropic_and_wilson_dimensions():
+    """Verifica las relaciones analíticas completas para H_1x, H_1y, H_diag/H_1x,y, H_0/H_1x,y y Wilson X/Y."""
+    a_nominal = 500.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=15.0, seed=42)
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+    ar = res['analytical_relations']
+
+    # 1. Verificación de picos fundamentales y armónicos
+    assert 'H1_x' in ar and ar['H1_x'] > 0
+    assert 'H1_y' in ar and ar['H1_y'] > 0
+    assert 'H2_x' in ar and ar['H2_x'] > 0
+    assert 'H2_y' in ar and ar['H2_y'] > 0
+    assert 'H_diag' in ar and ar['H_diag'] > 0
+    assert 'H0' in ar and ar['H0'] > 0
+
+    # 2. Relaciones diagonales por eje
+    assert 'ratio_diag_x' in ar and ar['ratio_diag_x'] > 0
+    assert 'ratio_diag_y' in ar and ar['ratio_diag_y'] > 0
+    assert 'sigma_diag_x' in ar and ar['sigma_diag_x'] > 0
+    assert 'sigma_diag_y' in ar and ar['sigma_diag_y'] > 0
+
+    # 3. Relaciones con pico central H0 por eje
+    assert 'ratio_0_1x' in ar and ar['ratio_0_1x'] > 0
+    assert 'ratio_0_1y' in ar and ar['ratio_0_1y'] > 0
+    assert 'ratio_10_x' in ar and ar['ratio_10_x'] > 0
+    assert 'ratio_10_y' in ar and ar['ratio_10_y'] > 0
+    assert 'sigma_h1h0_x' in ar
+    assert 'sigma_h1h0_y' in ar
+
+    # 4. Wilson Plot anisótropo (X e Y independientes con m e interceptos)
+    assert 'sigma_wilson_x' in ar and 'sigma_wilson_y' in ar
+    assert 'slope_wilson_x' in ar and 'slope_wilson_y' in ar
+    assert 'intercept_wilson_x' in ar and 'intercept_wilson_y' in ar
+    assert abs(ar['sigma_wilson_x'] - 15.0) < 3.0
+    assert abs(ar['sigma_wilson_y'] - 15.0) < 3.0
+
+    # Estructura detallada de Wilson data
+    wd = ar['wilson_data']
+    assert 'x' in wd and 'y' in wd and 'diag' in wd and 'conclusions' in wd
+    assert len(wd['x']['g_sq']) == 2
+    assert len(wd['y']['g_sq']) == 2
+    assert wd['x']['slope'] < 0
+    assert wd['y']['slope'] < 0
+    assert 'i0_eff' in wd['x'] and wd['x']['i0_eff'] > 0
+    assert 'i0_eff' in wd['y'] and wd['y']['i0_eff'] > 0
+    assert 'anisotropy_text' in wd['conclusions']
+    assert 'intercept_text' in wd['conclusions']
+    assert 'background_text' in wd['conclusions']
+
+    # 5. Debye-Waller curves y Paracristal desglosados en X e Y
+    dwc = ar['debye_waller_curve']
+    assert 'x' in dwc and 'y' in dwc and 'diag' in dwc
+    para = ar['paracrystal_diagnosis']
+    assert 'fwhm1_x' in para and 'fwhm2_x' in para and 'ratio_fwhm_x' in para
+    assert 'fwhm1_y' in para and 'fwhm2_y' in para and 'ratio_fwhm_y' in para
+
+
+def test_analytical_bragg_relations_anchor_wilson_to_h0():
+    """Verifica el anclaje forzado del intercepto de Wilson a ln(H0) para ajuste de 1 parámetro."""
+    a_nominal = 500.0
+    x, y = _generate_synthetic_grid(n_side=30, a=a_nominal, sigma=14.0, seed=42)
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_nominal, n_bins=256)
+
+    # 1. Sin anclar (Default / Libre)
+    ar_free = compute_analytical_bragg_relations(res, a_nominal=a_nominal, anchor_wilson_to_h0=False)
+    assert ar_free['anchor_wilson_to_h0'] is False
+    assert ar_free['wilson_data']['anchor_wilson_to_h0'] is False
+
+    # 2. Con anclaje a ln(H0)
+    ar_anchored = compute_analytical_bragg_relations(res, a_nominal=a_nominal, anchor_wilson_to_h0=True)
+    assert ar_anchored['anchor_wilson_to_h0'] is True
+    assert ar_anchored['wilson_data']['anchor_wilson_to_h0'] is True
+
+    # Comprobar que los interceptos coincidan exactamente con ln(H0)
+    expected_c0 = np.log(ar_anchored['H0'])
+    assert abs(ar_anchored['intercept_wilson_x'] - expected_c0) < 1e-9
+    assert abs(ar_anchored['intercept_wilson_y'] - expected_c0) < 1e-9
+    assert abs(ar_anchored['intercept_wilson'] - expected_c0) < 1e-9
+
+    # Comprobar que las pendientes forzadas deducen sigma positivo cercano a 14.0 nm
+    assert ar_anchored['sigma_wilson_x'] > 0
+    assert ar_anchored['sigma_wilson_y'] > 0
+    assert abs(ar_anchored['sigma_wilson_x'] - 14.0) < 4.0
+    assert abs(ar_anchored['sigma_wilson_y'] - 14.0) < 4.0
+
+    # Comprobar conclusiones
+    concl = ar_anchored['wilson_data']['conclusions']
+    assert "anclados a ln(H₀)" in concl['intercept_text']
+    assert "Discrepancia" in concl['background_text'] or "concordancia" in concl['background_text']
 
 
 if __name__ == "__main__":

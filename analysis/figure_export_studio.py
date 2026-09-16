@@ -85,6 +85,11 @@ class FigureExportStudioDialog(QDialog):
             'xunits': '',
             'ylabel': 'Eje Y',
             'yunits': '',
+            'xmin': 0.0,
+            'xmax': 10.0,
+            'ymin': 0.0,
+            'ymax': 10.0,
+            'has_range': False,
         }
         if plot_widget is not None:
             try:
@@ -101,9 +106,45 @@ class FigureExportStudioDialog(QDialog):
                     meta['ylabel'] = str(l_axis.labelText)
                 if l_axis.unitText:
                     meta['yunits'] = str(l_axis.unitText)
+
+                vb = pi.getViewBox()
+                if vb:
+                    vr = vb.viewRange()
+                    meta['xmin'] = float(vr[0][0])
+                    meta['xmax'] = float(vr[0][1])
+                    meta['ymin'] = float(vr[1][0])
+                    meta['ymax'] = float(vr[1][1])
+                    meta['has_range'] = True
             except Exception:
                 pass
         return meta
+
+    def _compute_data_bounds(self) -> tuple[float, float, float, float]:
+        """Calcula los límites envolventes reales (xmin, xmax, ymin, ymax) de las capas cargadas."""
+        xs, ys = [], []
+        for l in self.layers:
+            if 'x' in l and 'y' in l:
+                x_arr = np.asarray(l['x'], dtype=float)
+                y_arr = np.asarray(l['y'], dtype=float)
+                x_valid = x_arr[np.isfinite(x_arr)]
+                y_valid = y_arr[np.isfinite(y_arr)]
+                if len(x_valid) > 0:
+                    xs.extend([float(np.min(x_valid)), float(np.max(x_valid))])
+                if len(y_valid) > 0:
+                    ys.extend([float(np.min(y_valid)), float(np.max(y_valid))])
+            elif l.get('type') == 'image' and 'extent' in l:
+                ext = l['extent']
+                xs.extend([float(ext[0]), float(ext[1])])
+                ys.extend([float(ext[2]), float(ext[3])])
+
+        if xs and ys:
+            return float(np.min(xs)), float(np.max(xs)), float(np.min(ys)), float(np.max(ys))
+        return (
+            float(self.plot_metadata.get('xmin', 0.0)),
+            float(self.plot_metadata.get('xmax', 10.0)),
+            float(self.plot_metadata.get('ymin', 0.0)),
+            float(self.plot_metadata.get('ymax', 10.0))
+        )
 
     def _extract_layers(self, plot_widget: Optional[pg.PlotWidget]) -> list:
         layers = []
@@ -218,17 +259,102 @@ class FigureExportStudioDialog(QDialog):
             # 4. ImageItem (mapa 2D de intensidades)
             elif isinstance(it, pg.ImageItem):
                 img = it.image
-                if img is not None and img.size > 0:
-                    rect = it.rect()
+                if img is not None and getattr(img, 'size', 0) > 0:
+                    try:
+                        br = it.mapRectToParent(it.boundingRect())
+                        left, right = float(br.left()), float(br.right())
+                        top, bottom = float(br.top()), float(br.bottom())
+                        x_min, x_max = min(left, right), max(left, right)
+                        y_min, y_max = min(top, bottom), max(top, bottom)
+                        extent = (x_min, x_max, y_min, y_max)
+                    except Exception:
+                        extent = (0.0, float(img.shape[0]), 0.0, float(img.shape[1]))
+
                     layers.append({
                         'id': idx,
                         'type': 'image',
                         'name': f"Mapa 2D ({img.shape[0]}x{img.shape[1]})",
                         'image': img.copy(),
-                        'extent': (rect.left(), rect.right(), rect.bottom(), rect.top()),
+                        'extent': extent,
                         'visible': it.isVisible()
                     })
                     idx += 1
+
+            # 5. BarGraphItem (gráficos de barras)
+            elif isinstance(it, pg.BarGraphItem):
+                try:
+                    opts = getattr(it, 'opts', {})
+                    x = opts.get('x')
+                    height = opts.get('height')
+                    width = opts.get('width', 0.55)
+                    brushes = opts.get('brushes') or opts.get('brush')
+
+                    bar_colors = []
+                    if isinstance(brushes, (list, np.ndarray)):
+                        for b in brushes:
+                            if isinstance(b, pg.QtGui.QBrush):
+                                bar_colors.append(b.color().name())
+                            elif isinstance(b, str):
+                                bar_colors.append(b)
+                            else:
+                                bar_colors.append('#89b4fa')
+                    elif isinstance(brushes, pg.QtGui.QBrush):
+                        bar_colors = [brushes.color().name()]
+                    elif isinstance(brushes, str):
+                        bar_colors = [brushes]
+                    else:
+                        bar_colors = ['#89b4fa']
+
+                    ticks = None
+                    try:
+                        b_axis = plot_widget.plotItem.getAxis('bottom')
+                        if hasattr(b_axis, 'ticks') and b_axis.ticks:
+                            ticks = b_axis.ticks
+                    except Exception:
+                        pass
+
+                    x_arr = np.asarray(x, dtype=float) if x is not None else np.array([])
+                    h_arr = np.asarray(height, dtype=float) if height is not None else np.array([])
+                    if len(x_arr) > 0 and len(h_arr) > 0:
+                        layers.append({
+                            'id': idx,
+                            'type': 'bar',
+                            'name': f"Barras {idx}",
+                            'x': x_arr,
+                            'y': h_arr,
+                            'height': h_arr,
+                            'width': float(width) if isinstance(width, (int, float)) else 0.55,
+                            'colors': bar_colors,
+                            'color': bar_colors[0] if bar_colors else '#89b4fa',
+                            'ticks': ticks,
+                            'visible': it.isVisible()
+                        })
+                        idx += 1
+                except Exception:
+                    pass
+
+            # 6. TextItem (anotaciones textuales)
+            elif isinstance(it, pg.TextItem):
+                try:
+                    pos = it.pos()
+                    raw_text = it.toPlainText() if hasattr(it, 'toPlainText') else str(getattr(it, 'text', ''))
+                    if raw_text:
+                        color_hex = '#cdd6f4'
+                        if hasattr(it, 'color') and isinstance(it.color, pg.QtGui.QColor):
+                            color_hex = it.color.name()
+                        layers.append({
+                            'id': idx,
+                            'type': 'text',
+                            'name': f"Texto: {raw_text[:12]}",
+                            'x': float(pos.x()),
+                            'y': float(pos.y()),
+                            'text': raw_text,
+                            'color': color_hex,
+                            'visible': it.isVisible()
+                        })
+                        idx += 1
+                except Exception:
+                    pass
 
         return layers
 
@@ -286,30 +412,49 @@ class FigureExportStudioDialog(QDialog):
         self.combo_bg.currentIndexChanged.connect(self.update_preview)
         grid_c.addWidget(self.combo_bg, 0, 1)
 
-        grid_c.addWidget(QLabel("Fuente:"), 1, 0)
+        grid_c.addWidget(QLabel("Fuente Texto:"), 1, 0)
         self.combo_font = QComboBox()
         self.combo_font.addItems(["DejaVu Sans", "Arial", "Helvetica", "Times New Roman", "Segoe UI"])
         self.combo_font.currentIndexChanged.connect(self.update_preview)
         grid_c.addWidget(self.combo_font, 1, 1)
 
-        grid_c.addWidget(QLabel("Título:"), 2, 0)
+        grid_c.addWidget(QLabel("Motor LaTeX:"), 2, 0)
+        self.combo_math_font = QComboBox()
+        self.combo_math_font.addItems([
+            "Computer Modern (TeX Clásico / CMR)",
+            "STIX (Times / Serif Editorial)",
+            "DejaVu Sans (Moderno)"
+        ])
+        self.combo_math_font.currentIndexChanged.connect(self.update_preview)
+        grid_c.addWidget(self.combo_math_font, 2, 1)
+
+        grid_c.addWidget(QLabel("Título:"), 3, 0)
         self.edit_title = QLineEdit(self.plot_metadata['title'])
+        self.edit_title.setToolTip(r"Soporta expresiones matemáticas en LaTeX entre signos $, ej: $g(r)$, $\lambda_{\mathrm{max}}$")
         self.edit_title.textChanged.connect(self.update_preview)
-        grid_c.addWidget(self.edit_title, 2, 1)
+        grid_c.addWidget(self.edit_title, 3, 1)
 
-        grid_c.addWidget(QLabel("Etiqueta X:"), 3, 0)
+        grid_c.addWidget(QLabel("Etiqueta X:"), 4, 0)
         self.edit_xlabel = QLineEdit(f"{self.plot_metadata['xlabel']} [{self.plot_metadata['xunits']}]" if self.plot_metadata['xunits'] else self.plot_metadata['xlabel'])
+        self.edit_xlabel.setToolTip(r"Soporta LaTeX, ej: $r$ [nm], $2\theta$ [°], $q$ [nm$^{-1}$]")
         self.edit_xlabel.textChanged.connect(self.update_preview)
-        grid_c.addWidget(self.edit_xlabel, 3, 1)
+        grid_c.addWidget(self.edit_xlabel, 4, 1)
 
-        grid_c.addWidget(QLabel("Etiqueta Y:"), 4, 0)
+        grid_c.addWidget(QLabel("Etiqueta Y:"), 5, 0)
         self.edit_ylabel = QLineEdit(f"{self.plot_metadata['ylabel']} [{self.plot_metadata['yunits']}]" if self.plot_metadata['yunits'] else self.plot_metadata['ylabel'])
+        self.edit_ylabel.setToolTip(r"Soporta LaTeX, ej: $I / I_0$ [a.u.], $\sigma_{\mathrm{DW}}$ [nm]")
         self.edit_ylabel.textChanged.connect(self.update_preview)
-        grid_c.addWidget(self.edit_ylabel, 4, 1)
+        grid_c.addWidget(self.edit_ylabel, 5, 1)
 
         lay_canvas.addLayout(grid_c)
 
         h_opts = QHBoxLayout()
+        self.chk_latex = QCheckBox("Interpretar LaTeX ($...$)")
+        self.chk_latex.setChecked(True)
+        self.chk_latex.setToolTip("Interpreta fórmulas matemáticas escritas entre signos de dólar")
+        self.chk_latex.toggled.connect(self.update_preview)
+        h_opts.addWidget(self.chk_latex)
+
         self.chk_grid = QCheckBox("Malla (Grid)")
         self.chk_grid.setChecked(True)
         self.chk_grid.toggled.connect(self.update_preview)
@@ -328,8 +473,62 @@ class FigureExportStudioDialog(QDialog):
 
         left_layout.addWidget(grp_canvas)
 
-        # Grupo 3: Exportación Científica Multiformato
-        grp_export = QGroupBox("3. Exportación Multiformato & Datos")
+        # Grupo 3: Delimitación de Ejes (xlim / ylim)
+        grp_limits = QGroupBox("3. Delimitación de Ejes (xlim / ylim)")
+        lay_limits = QVBoxLayout(grp_limits)
+
+        grid_lim = QGridLayout()
+        self.chk_xlim = QCheckBox("Fijar Rango X:")
+        self.chk_xlim.toggled.connect(self.update_preview)
+        grid_lim.addWidget(self.chk_xlim, 0, 0)
+
+        h_lim_x = QHBoxLayout()
+        self.spin_xmin = QDoubleSpinBox()
+        self.spin_xmin.setRange(-1e9, 1e9)
+        self.spin_xmin.setDecimals(3)
+        self.spin_xmin.setValue(self.plot_metadata.get('xmin', 0.0))
+        self.spin_xmin.valueChanged.connect(self.update_preview)
+        h_lim_x.addWidget(self.spin_xmin)
+        h_lim_x.addWidget(QLabel("a"))
+        self.spin_xmax = QDoubleSpinBox()
+        self.spin_xmax.setRange(-1e9, 1e9)
+        self.spin_xmax.setDecimals(3)
+        self.spin_xmax.setValue(self.plot_metadata.get('xmax', 10.0))
+        self.spin_xmax.valueChanged.connect(self.update_preview)
+        h_lim_x.addWidget(self.spin_xmax)
+        grid_lim.addLayout(h_lim_x, 0, 1)
+
+        self.chk_ylim = QCheckBox("Fijar Rango Y:")
+        self.chk_ylim.toggled.connect(self.update_preview)
+        grid_lim.addWidget(self.chk_ylim, 1, 0)
+
+        h_lim_y = QHBoxLayout()
+        self.spin_ymin = QDoubleSpinBox()
+        self.spin_ymin.setRange(-1e9, 1e9)
+        self.spin_ymin.setDecimals(3)
+        self.spin_ymin.setValue(self.plot_metadata.get('ymin', 0.0))
+        self.spin_ymin.valueChanged.connect(self.update_preview)
+        h_lim_y.addWidget(self.spin_ymin)
+        h_lim_y.addWidget(QLabel("a"))
+        self.spin_ymax = QDoubleSpinBox()
+        self.spin_ymax.setRange(-1e9, 1e9)
+        self.spin_ymax.setDecimals(3)
+        self.spin_ymax.setValue(self.plot_metadata.get('ymax', 10.0))
+        self.spin_ymax.valueChanged.connect(self.update_preview)
+        h_lim_y.addWidget(self.spin_ymax)
+        grid_lim.addLayout(h_lim_y, 1, 1)
+
+        lay_limits.addLayout(grid_lim)
+
+        btn_auto_lim = QPushButton("🔄 Auto-Ajustar a Límites de Datos")
+        btn_auto_lim.setToolTip("Rellena xmin, xmax, ymin, ymax con los límites reales de las curvas")
+        btn_auto_lim.clicked.connect(self._auto_fit_limits_to_data)
+        lay_limits.addWidget(btn_auto_lim)
+
+        left_layout.addWidget(grp_limits)
+
+        # Grupo 4: Exportación Científica Multiformato & Dimensiones
+        grp_export = QGroupBox("4. Exportación Multiformato & Dimensiones")
         lay_exp = QVBoxLayout(grp_export)
 
         grid_exp = QGridLayout()
@@ -349,21 +548,51 @@ class FigureExportStudioDialog(QDialog):
         self.combo_dpi.addItems(["600 DPI (Estándar de Revista/Tesis)", "1200 DPI (Ultra Alta Resolución)", "300 DPI (Estándar Web/Pantalla)", "150 DPI (Borrador Rápido)"])
         grid_exp.addWidget(self.combo_dpi, 1, 1)
 
-        grid_exp.addWidget(QLabel("Ancho x Alto (pulg):"), 2, 0)
+        grid_exp.addWidget(QLabel("Unidad Tamaño:"), 2, 0)
+        self.combo_size_units = QComboBox()
+        self.combo_size_units.addItems(["Pulgadas (in)", "Centímetros (cm)"])
+        self.combo_size_units.currentIndexChanged.connect(self._on_size_unit_changed)
+        grid_exp.addWidget(self.combo_size_units, 2, 1)
+
+        grid_exp.addWidget(QLabel("Ancho x Alto:"), 3, 0)
         h_dim = QHBoxLayout()
-        self.spin_width_in = QDoubleSpinBox()
-        self.spin_width_in.setRange(2.0, 30.0)
-        self.spin_width_in.setValue(7.0)
-        self.spin_width_in.setSingleStep(0.5)
-        h_dim.addWidget(self.spin_width_in)
+        self.spin_width = QDoubleSpinBox()
+        self.spin_width.setRange(1.0, 150.0)
+        self.spin_width.setValue(7.0)
+        self.spin_width.setSingleStep(0.5)
+        self.spin_width.setDecimals(2)
+        self.spin_width.valueChanged.connect(self.update_preview)
+        h_dim.addWidget(self.spin_width)
 
         h_dim.addWidget(QLabel("x"))
-        self.spin_height_in = QDoubleSpinBox()
-        self.spin_height_in.setRange(2.0, 30.0)
-        self.spin_height_in.setValue(5.0)
-        self.spin_height_in.setSingleStep(0.5)
-        h_dim.addWidget(self.spin_height_in)
-        grid_exp.addLayout(h_dim, 2, 1)
+        self.spin_height = QDoubleSpinBox()
+        self.spin_height.setRange(1.0, 150.0)
+        self.spin_height.setValue(5.0)
+        self.spin_height.setSingleStep(0.5)
+        self.spin_height.setDecimals(2)
+        self.spin_height.valueChanged.connect(self.update_preview)
+        h_dim.addWidget(self.spin_height)
+
+        self.lbl_unit_tag = QLabel("in")
+        h_dim.addWidget(self.lbl_unit_tag)
+        grid_exp.addLayout(h_dim, 3, 1)
+
+        # Alias para compatibilidad con código existente
+        self.spin_width_in = self.spin_width
+        self.spin_height_in = self.spin_height
+
+        grid_exp.addWidget(QLabel("Ajuste Predefinido:"), 4, 0)
+        self.combo_presets = QComboBox()
+        self.combo_presets.addItems([
+            "Personalizado",
+            "1 Columna Revista (3.35 in / 8.5 cm)",
+            "1.5 Columnas (4.72 in / 12.0 cm)",
+            "2 Columnas / Ancho Completo (7.00 in / 17.8 cm)",
+            "Diapositiva 16:9 (10.0 in / 25.4 cm)",
+            "Cuadrada 1:1 (5.00 in / 12.7 cm)"
+        ])
+        self.combo_presets.currentIndexChanged.connect(self._on_preset_changed)
+        grid_exp.addWidget(self.combo_presets, 4, 1)
 
         lay_exp.addLayout(grid_exp)
 
@@ -484,9 +713,92 @@ class FigureExportStudioDialog(QDialog):
                     btn.setStyleSheet(f"background-color: {hex_c}; border: 1px solid #cdd6f4; border-radius: 4px; min-width: 24px;")
                 self.update_preview()
 
+    def _on_size_unit_changed(self, idx: int):
+        # idx 0: in, idx 1: cm
+        self.spin_width.blockSignals(True)
+        self.spin_height.blockSignals(True)
+        if idx == 1:  # Pasar a cm
+            w_cm = self.spin_width.value() * 2.54
+            h_cm = self.spin_height.value() * 2.54
+            self.spin_width.setRange(2.5, 300.0)
+            self.spin_height.setRange(2.5, 300.0)
+            self.spin_width.setValue(w_cm)
+            self.spin_height.setValue(h_cm)
+            self.lbl_unit_tag.setText("cm")
+        else:  # Pasar a in
+            w_in = self.spin_width.value() / 2.54
+            h_in = self.spin_height.value() / 2.54
+            self.spin_width.setRange(1.0, 120.0)
+            self.spin_height.setRange(1.0, 120.0)
+            self.spin_width.setValue(w_in)
+            self.spin_height.setValue(h_in)
+            self.lbl_unit_tag.setText("in")
+        self.spin_width.blockSignals(False)
+        self.spin_height.blockSignals(False)
+        self.update_preview()
+
+    def _get_size_in_inches(self) -> tuple[float, float]:
+        unit = getattr(self, 'combo_size_units', None)
+        u_idx = unit.currentIndex() if unit is not None else 0
+        w = self.spin_width.value() if hasattr(self, 'spin_width') else 7.0
+        h = self.spin_height.value() if hasattr(self, 'spin_height') else 5.0
+        if u_idx == 1:  # cm -> in
+            return w / 2.54, h / 2.54
+        return w, h
+
+    def _on_preset_changed(self, idx: int):
+        if idx == 0:
+            return  # Personalizado
+        is_cm = (self.combo_size_units.currentIndex() == 1)
+        presets_in = {
+            1: (3.35, 2.60),  # 1 Columna (8.5 cm)
+            2: (4.72, 3.50),  # 1.5 Columnas (12.0 cm)
+            3: (7.00, 4.80),  # 2 Columnas (17.8 cm)
+            4: (10.0, 5.62),  # Diapositiva 16:9
+            5: (5.00, 5.00),  # Cuadrada 1:1
+        }
+        if idx in presets_in:
+            win_in, hin_in = presets_in[idx]
+            self.spin_width.blockSignals(True)
+            self.spin_height.blockSignals(True)
+            if is_cm:
+                self.spin_width.setValue(win_in * 2.54)
+                self.spin_height.setValue(hin_in * 2.54)
+            else:
+                self.spin_width.setValue(win_in)
+                self.spin_height.setValue(hin_in)
+            self.spin_width.blockSignals(False)
+            self.spin_height.blockSignals(False)
+            self.update_preview()
+
+    def _auto_fit_limits_to_data(self):
+        xmin, xmax, ymin, ymax = self._compute_data_bounds()
+        self.spin_xmin.blockSignals(True)
+        self.spin_xmax.blockSignals(True)
+        self.spin_ymin.blockSignals(True)
+        self.spin_ymax.blockSignals(True)
+        self.spin_xmin.setValue(xmin)
+        self.spin_xmax.setValue(xmax)
+        self.spin_ymin.setValue(ymin)
+        self.spin_ymax.setValue(ymax)
+        self.spin_xmin.blockSignals(False)
+        self.spin_xmax.blockSignals(False)
+        self.spin_ymin.blockSignals(False)
+        self.spin_ymax.blockSignals(False)
+        self.chk_xlim.setChecked(True)
+        self.chk_ylim.setChecked(True)
+        self.update_preview()
+
     def update_preview(self):
         """Redibuja la figura en el FigureCanvasQTAgg según la configuración actual."""
         self.fig.clear()
+
+        # Ajustar relación de aspecto de la vista previa según dimensiones configuradas
+        w_in, h_in = self._get_size_in_inches()
+        ratio = w_in / max(0.1, h_in)
+        pv_w = 7.0
+        pv_h = max(2.5, min(8.0, pv_w / ratio))
+        self.fig.set_size_inches(pv_w, pv_h)
 
         # Configuración de Fondo
         bg_mode = self.combo_bg.currentIndex()
@@ -522,6 +834,16 @@ class FigureExportStudioDialog(QDialog):
         font_family = self.combo_font.currentText()
         plt.rcParams['font.family'] = font_family
 
+        # Motor de Matemáticas LaTeX (mathtext)
+        if hasattr(self, 'combo_math_font'):
+            m_idx = self.combo_math_font.currentIndex()
+            if m_idx == 0:
+                matplotlib.rcParams['mathtext.fontset'] = 'cm'
+            elif m_idx == 1:
+                matplotlib.rcParams['mathtext.fontset'] = 'stix'
+            else:
+                matplotlib.rcParams['mathtext.fontset'] = 'dejavusans'
+
         ax.spines['bottom'].set_color(fg_color)
         ax.spines['top'].set_color(fg_color)
         ax.spines['left'].set_color(fg_color)
@@ -533,17 +855,38 @@ class FigureExportStudioDialog(QDialog):
         else:
             ax.grid(False)
 
-        title_txt = self.edit_title.text().strip()
+        use_latex = getattr(self, 'chk_latex', None) is None or self.chk_latex.isChecked()
+
+        def _fmt_label(t: str) -> str:
+            if not t: return ""
+            if not use_latex:
+                return t.replace('$', '')
+            return t
+
+        title_txt = _fmt_label(self.edit_title.text().strip())
         if title_txt:
             ax.set_title(title_txt, color=fg_color, fontsize=11, fontweight='bold', pad=10)
 
-        xlab = self.edit_xlabel.text().strip()
+        xlab = _fmt_label(self.edit_xlabel.text().strip())
         if xlab:
             ax.set_xlabel(xlab, color=fg_color, fontsize=10)
 
-        ylab = self.edit_ylabel.text().strip()
+        ylab = _fmt_label(self.edit_ylabel.text().strip())
         if ylab:
             ax.set_ylabel(ylab, color=fg_color, fontsize=10)
+
+        # Delimitación de Ejes xlim / ylim
+        if hasattr(self, 'chk_xlim') and self.chk_xlim.isChecked():
+            x0 = self.spin_xmin.value()
+            x1 = self.spin_xmax.value()
+            if x0 != x1:
+                ax.set_xlim(min(x0, x1), max(x0, x1))
+
+        if hasattr(self, 'chk_ylim') and self.chk_ylim.isChecked():
+            y0 = self.spin_ymin.value()
+            y1 = self.spin_ymax.value()
+            if y0 != y1:
+                ax.set_ylim(min(y0, y1), max(y0, y1))
 
         # Dibujar cada capa
         has_legend_items = False
@@ -552,7 +895,7 @@ class FigureExportStudioDialog(QDialog):
                 continue
 
             ltype = layer.get('type')
-            label = layer.get('name')
+            label = _fmt_label(layer.get('name', ''))
 
             if ltype == 'curve':
                 x = layer['x']
@@ -591,6 +934,30 @@ class FigureExportStudioDialog(QDialog):
                 ext = layer.get('extent')
                 ax.imshow(img.T, extent=ext, origin='lower', cmap='cividis', aspect='equal')
 
+            elif ltype == 'bar':
+                x = layer.get('x')
+                h = layer.get('height')
+                w = layer.get('width', 0.55)
+                colors = layer.get('colors', ['#89b4fa'])
+                if x is not None and h is not None and len(x) > 0:
+                    c_list = colors if len(colors) == len(x) else [layer.get('color', '#89b4fa')] * len(x)
+                    ax.bar(x, h, width=w, color=c_list, edgecolor=fg_color, linewidth=0.8, alpha=0.9, label=label)
+                    ticks = layer.get('ticks')
+                    if ticks and len(ticks) > 0 and len(ticks[0]) > 0:
+                        major_ticks = ticks[0]
+                        tick_positions = [t[0] for t in major_ticks]
+                        tick_labels = [t[1] for t in major_ticks]
+                        ax.set_xticks(tick_positions)
+                        ax.set_xticklabels(tick_labels, rotation=30, ha='right', fontsize=8, color=fg_color)
+                    has_legend_items = True
+
+            elif ltype == 'text':
+                tx = layer.get('x', 0.0)
+                ty = layer.get('y', 0.0)
+                ttxt = _fmt_label(layer.get('text', ''))
+                tc = layer.get('color', fg_color)
+                ax.text(tx, ty, ttxt, color=tc, fontsize=8, ha='center', va='bottom')
+
         if self.chk_legend.isChecked() and has_legend_items:
             loc = self.combo_legend_loc.currentText()
             leg = ax.legend(loc=loc, fontsize=8, framealpha=0.85)
@@ -600,8 +967,19 @@ class FigureExportStudioDialog(QDialog):
                 for text in leg.get_texts():
                     text.set_color(fg_color)
 
-        self.fig.tight_layout()
-        self.canvas.draw()
+        try:
+            self.fig.tight_layout()
+            self.canvas.draw()
+        except Exception:
+            # Fallback seguro en caso de sintaxis incompleta mientras el usuario escribe fórmulas LaTeX
+            try:
+                if title_txt: ax.set_title(title_txt.replace('$', ''), color=fg_color, fontsize=11, fontweight='bold', pad=10)
+                if xlab: ax.set_xlabel(xlab.replace('$', ''), color=fg_color, fontsize=10)
+                if ylab: ax.set_ylabel(ylab.replace('$', ''), color=fg_color, fontsize=10)
+                self.fig.tight_layout()
+                self.canvas.draw()
+            except Exception:
+                pass
 
     def _on_export_figure(self):
         """Exporta la figura con la máxima fidelidad y opciones científicas."""
@@ -643,16 +1021,14 @@ class FigureExportStudioDialog(QDialog):
         else:
             dpi = 150
 
-        # Dimensiones
-        w_in = self.spin_width_in.value()
-        h_in = self.spin_height_in.value()
+        # Dimensiones en pulgadas reales
+        w_in, h_in = self._get_size_in_inches()
 
         bg_mode = self.combo_bg.currentIndex()
         is_transparent = (bg_mode == 2)
 
+        orig_size = self.fig.get_size_inches()
         try:
-            # Configurar tamaño temporal
-            orig_size = self.fig.get_size_inches()
             self.fig.set_size_inches(w_in, h_in)
 
             if def_ext == "svg":
@@ -682,17 +1058,17 @@ class FigureExportStudioDialog(QDialog):
                     transparent=is_transparent
                 )
 
-            self.fig.set_size_inches(orig_size)
-            self.canvas.draw()
-
             QMessageBox.information(
                 self,
                 "Exportación Exitosa",
                 f"Figura guardada exitosamente en:\n{file_path}\n"
-                f"Resolución: {dpi} DPI | Dimensiones: {w_in} x {h_in} in"
+                f"Dimensiones: {w_in:.2f} x {h_in:.2f} in ({w_in*2.54:.1f} x {h_in*2.54:.1f} cm) | {dpi} DPI"
             )
         except Exception as e:
-            QMessageBox.critical(self, "Error al Exportar", f"No se pudo guardar la figura:\n{str(e)}")
+            QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar la figura:\n{str(e)}")
+        finally:
+            self.fig.set_size_inches(orig_size)
+            self.canvas.draw()
 
     def _on_export_data(self):
         """Exporta las curvas numéricas visibles en un archivo tabular estructurado."""
@@ -707,7 +1083,10 @@ class FigureExportStudioDialog(QDialog):
 
         visible_curves = [
             layer for layer in self.layers
-            if layer.get('visible', True) and layer.get('type') in ('curve', 'scatter') and 'x' in layer and 'y' in layer
+            if layer.get('visible', True) and (
+                (layer.get('type') in ('curve', 'scatter') and 'x' in layer and 'y' in layer) or
+                (layer.get('type') == 'bar' and 'x' in layer and ('y' in layer or 'height' in layer))
+            )
         ]
 
         if not visible_curves:
@@ -726,9 +1105,11 @@ class FigureExportStudioDialog(QDialog):
                 f.write(f"# Número de Curvas: {len(visible_curves)}\n#\n")
 
                 for i, c in enumerate(visible_curves):
-                    f.write(f"# ── Curva #{i+1}: {c['name']} (Total Puntos: {len(c['x'])}) ──\n")
+                    x_vals = c['x']
+                    y_vals = c['y'] if 'y' in c else c['height']
+                    f.write(f"# ── Curva #{i+1}: {c['name']} (Tipo: {c.get('type')}, Total Puntos: {len(x_vals)}) ──\n")
                     f.write(f"# X{sep}Y\n")
-                    for x_val, y_val in zip(c['x'], c['y']):
+                    for x_val, y_val in zip(x_vals, y_vals):
                         f.write(f"{x_val:.6e}{sep}{y_val:.6e}\n")
                     f.write("\n")
 

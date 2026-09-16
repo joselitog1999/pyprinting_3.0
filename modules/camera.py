@@ -247,6 +247,10 @@ class CanonWorker(QObject):
         self._b_gain     = 1.0
         self._noise_floor = 0
         self._denoise     = False
+        self._last_full_unzoomed: Optional[np.ndarray] = None
+        self._active_zoom = 1
+        self._zoom_cx     = 0.5
+        self._zoom_cy     = 0.5
 
     def _emit_log(self, msg: str):
         self.logSignal.emit(msg)
@@ -370,11 +374,15 @@ class CanonWorker(QObject):
                 frame_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if frame_bgr is not None:
                     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    # Emitir el frame completo 1x contiguo para la miniatura PiP
-                    unzoomed_frame = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
-                    unzoomed_frame = cv2.flip(unzoomed_frame, 1)
-                    unzoomed_frame = np.ascontiguousarray(unzoomed_frame)
-                    self.fullFrameSignal.emit(unzoomed_frame)
+                    # El mapa panorámico completo 1x solo se actualiza cuando la cámara está en 1x (o si aún no existe).
+                    # En 5x y 10x el stream viene recortado por hardware, por lo que conservamos el mapa 1x en el PiP.
+                    active_zoom = getattr(self._cam, '_active_zoom', self._active_zoom) if self._cam else self._active_zoom
+                    if active_zoom <= 1 or self._last_full_unzoomed is None:
+                        unzoomed_frame = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
+                        unzoomed_frame = cv2.flip(unzoomed_frame, 1)
+                        unzoomed_frame = np.ascontiguousarray(unzoomed_frame)
+                        self._last_full_unzoomed = unzoomed_frame
+                        self.fullFrameSignal.emit(unzoomed_frame)
 
                     # Procesar rotación 90° + espejo + zoom + supresión de ruido + ajustes en vivo
                     processed = self._cam.process_frame_live_adjustments(
@@ -405,7 +413,23 @@ class CanonWorker(QObject):
         unzoomed_frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         unzoomed_frame = cv2.flip(unzoomed_frame, 1)
         unzoomed_frame = np.ascontiguousarray(unzoomed_frame)
-        self.fullFrameSignal.emit(unzoomed_frame)
+
+        active_zoom = self._active_zoom
+        if active_zoom <= 1 or self._last_full_unzoomed is None:
+            self._last_full_unzoomed = unzoomed_frame
+            self.fullFrameSignal.emit(unzoomed_frame)
+
+        # Simular recorte en mock para zoom 5x y 10x
+        if active_zoom > 1:
+            disp_h, disp_w = unzoomed_frame.shape[:2]
+            crop_w = int(disp_w / active_zoom)
+            crop_h = int(disp_h / active_zoom)
+            x0 = max(0, min(disp_w - crop_w, int(self._zoom_cx * disp_w - crop_w / 2)))
+            y0 = max(0, min(disp_h - crop_h, int(self._zoom_cy * disp_h - crop_h / 2)))
+            cropped = unzoomed_frame[y0:y0+crop_h, x0:x0+crop_w]
+            mock_processed = cv2.resize(cropped, (disp_w, disp_h), interpolation=cv2.INTER_NEAREST)
+        else:
+            mock_processed = unzoomed_frame.copy()
 
         if self._cam:
             processed = self._cam.process_frame_live_adjustments(
@@ -414,7 +438,7 @@ class CanonWorker(QObject):
                 r_gain=self._r_gain, g_gain=self._g_gain, b_gain=self._b_gain,
                 noise_floor=self._noise_floor, denoise=self._denoise)
         else:
-            processed = unzoomed_frame.copy()
+            processed = mock_processed
             if self._denoise:
                 processed = cv2.medianBlur(processed, 3)
             if self._noise_floor > 0:
@@ -441,15 +465,14 @@ class CanonWorker(QObject):
 
     @pyqtSlot(float, float)
     def set_zoom_center(self, cx: float, cy: float):
+        self._zoom_cx = cx
+        self._zoom_cy = cy
         if self._cam:
             self._cam.set_zoom_center(cx, cy)
-            if self._cam._is_session_open and getattr(self._cam, '_active_zoom', 1) in (5, 10):
-                hw_x = int(cx * 4752)
-                hw_y = int(cy * 3168)
-                self._cam.set_live_view_zoom_position(hw_x, hw_y)
 
     @pyqtSlot(int)
     def set_zoom(self, zoom_val: int):
+        self._active_zoom = zoom_val
         if self._cam:
             self._cam.set_live_view_zoom(zoom_val)
             self._emit_log(f"Zoom Live View configurado a: {ZOOM_MAP.get(zoom_val, zoom_val)}")
@@ -1150,7 +1173,6 @@ class ExternalPiPWidget(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
             self._is_dragging = False
             self._update_preview_pos(event.position())
-            self.set_locked(True)
             self.positionClickedSignal.emit(self._cx, self._cy)
 
     def _update_preview_pos(self, pos):
@@ -1180,22 +1202,27 @@ class ExternalPiPWidget(QWidget):
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(0, 0, W - 1, H - 1)
 
-        if self._zoom_level > 1.0:
-            scale = float(self._zoom_level)
-            bw = W / scale
-            bh = H / scale
-            bx = max(0.0, min(W - bw, self._cx * W - bw / 2.0))
-            by = max(0.0, min(H - bh, self._cy * H - bh / 2.0))
+        scale = float(self._zoom_level) if self._zoom_level > 1.0 else 5.0
+        bw = W / scale
+        bh = H / scale
+        bx = max(0.0, min(W - bw, self._cx * W - bw / 2.0))
+        by = max(0.0, min(H - bh, self._cy * H - bh / 2.0))
 
+        if self._zoom_level > 1.0:
             p.setPen(QPen(QColor(255, 68, 68, 255), 2))
             p.setBrush(QColor(255, 68, 68, 50))
             p.drawRect(QRectF(bx, by, bw, bh))
+        else:
+            # En 1x, mostrar recuadro guía punteado indicando el objetivo de enfoque
+            p.setPen(QPen(QColor(255, 255, 255, 180), 1.5, Qt.PenStyle.DashLine))
+            p.setBrush(QColor(255, 255, 255, 20))
+            p.drawRect(QRectF(bx, by, bw, bh))
 
-            mcx = bx + bw / 2.0
-            mcy = by + bh / 2.0
-            p.setPen(QPen(QColor(255, 220, 0, 240), 1))
-            p.drawLine(QPointF(mcx - 5, mcy), QPointF(mcx + 5, mcy))
-            p.drawLine(QPointF(mcx, mcy - 5), QPointF(mcx, mcy + 5))
+        mcx = bx + bw / 2.0
+        mcy = by + bh / 2.0
+        p.setPen(QPen(QColor(255, 220, 0, 240), 1))
+        p.drawLine(QPointF(mcx - 5, mcy), QPointF(mcx + 5, mcy))
+        p.drawLine(QPointF(mcx, mcy - 5), QPointF(mcx, mcy + 5))
 
         if self._locked:
             p.fillRect(self.rect(), QColor(0, 0, 0, 150))
@@ -1808,20 +1835,32 @@ class CameraWindow(QMainWindow):
             self._sync_canon_zoom_hardware()
 
     def _pan_canon(self, dx: int, dy: int):
-        step = 0.05
+        val = self._canon_zoom_levels[self._canon_zoom_idx]
+        step = 0.03 if val == 10 else 0.05
         self._canon_cx = max(0.0, min(1.0, self._canon_cx + dx * step))
         self._canon_cy = max(0.0, min(1.0, self._canon_cy + dy * step))
-        self._sync_canon_zoom_hardware()
+        if hasattr(self, '_ext_pip'):
+            self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
+        if self._is_camera_active:
+            self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
 
     def _recenter_canon(self):
         self._canon_cx = 0.5
         self._canon_cy = 0.5
-        self._sync_canon_zoom_hardware()
+        val = self._canon_zoom_levels[self._canon_zoom_idx]
+        if hasattr(self, '_ext_pip'):
+            self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
+        if self._is_camera_active:
+            self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
 
     def _on_ext_pip_click(self, cx: float, cy: float):
         self._canon_cx = cx
         self._canon_cy = cy
-        self._sync_canon_zoom_hardware()
+        val = self._canon_zoom_levels[self._canon_zoom_idx]
+        if hasattr(self, '_ext_pip'):
+            self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
+        if self._is_camera_active:
+            self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
 
     def _set_zoom_controls_enabled(self, enabled: bool):
         btns = (getattr(self, '_btn_up', None), getattr(self, '_btn_down', None),

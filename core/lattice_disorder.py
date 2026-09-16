@@ -1022,7 +1022,8 @@ def analyze_reciprocal_space_2d(
 def compute_analytical_bragg_relations(
     res_dict: Dict[str, Any],
     a_nominal: float = 450.0,
-    n_total_particles: Optional[int] = None
+    n_total_particles: Optional[int] = None,
+    anchor_wilson_to_h0: bool = False
 ) -> Dict[str, Any]:
     """
     Deduce las relaciones analíticas directas entre los picos de Bragg de Fourier
@@ -1040,6 +1041,7 @@ def compute_analytical_bragg_relations(
        (Marcado explícitamente como inestable debido a iluminación parásita de fondo).
     4. Gráfico de Wilson (Wilson Plot):
        Regresión lineal ln(H) vs |G|^2 sobre los órdenes de Bragg observados.
+       Si anchor_wilson_to_h0 es True, se ancla c_x = c_y = ln(H_0) en el origen.
        Pendiente m = -sigma^2  ==>  sigma_wilson = sqrt(-m).
        Ordenada c = ln((1-p)^2 * H0) ==> estimación analítica de vacancias p_est.
     5. Diagnóstico de Tipo de Desorden (Scherrer Tipo I vs Hosemann Paracristal Tipo II):
@@ -1068,6 +1070,9 @@ def compute_analytical_bragg_relations(
         f0_ref = 1.0 / max(1e-9, a_mean)
         mask_dc = R < 0.20 * f0_ref
         H0 = float(np.max(S[mask_dc])) if np.any(mask_dc) else float(S[len(fy) // 2, len(fx) // 2])
+    else:
+        H0 = float(res_dict.get('H0', 0.0))
+
     # Medición de amplitudes de spots 2D en S(fx, fy) para consistencia global
     G1_x = 2.0 * np.pi / max(1e-9, a_x)
     G1_y = 2.0 * np.pi / max(1e-9, a_y)
@@ -1112,17 +1117,33 @@ def compute_analytical_bragg_relations(
     sigma_h2h1_y = float(factor_h2h1_y * np.sqrt(max(0.0, np.log(max(1e-12, 1.0 / max(1e-12, ratio_21_y)))))) if ratio_21_y < 1.0 else 0.0
     sigma_h2h1 = float(factor_h2h1_mean * np.sqrt(max(0.0, np.log(max(1e-12, 1.0 / max(1e-12, ratio_21_mean)))))) if ratio_21_mean < 1.0 else 0.0
 
-    # 2. Inversión analítica H_diag / H1 (Coherencia 2D a partir del spot 2D)
+    # 2. Inversión analítica H_diag / H1 (Coherencia 2D y Desglose por Eje X e Y)
+    ratio_diag_x = float(s_11 / max(1e-9, s_10 if s_10 > 0 else H1_x))
+    ratio_diag_y = float(s_11 / max(1e-9, s_01 if s_01 > 0 else H1_y))
     ratio_diag_2d = float(s_11 / max(1e-9, s_1_mean))
-    factor_diag = a_mean / (2.0 * np.pi)
-    sigma_diag = float(factor_diag * np.sqrt(max(0.0, np.log(max(1e-12, 1.0 / max(1e-12, ratio_diag_2d)))))) if ratio_diag_2d < 1.0 else 0.0
 
-    # 3. Inversión frente al Pico Central DC H1 / H0 (Inestable)
+    factor_diag_x = a_x / (2.0 * np.pi)
+    factor_diag_y = a_y / (2.0 * np.pi)
+    factor_diag_mean = a_mean / (2.0 * np.pi)
+
+    sigma_diag_x = float(factor_diag_x * np.sqrt(max(0.0, np.log(max(1e-12, 1.0 / max(1e-12, ratio_diag_x)))))) if ratio_diag_x < 1.0 else 0.0
+    sigma_diag_y = float(factor_diag_y * np.sqrt(max(0.0, np.log(max(1e-12, 1.0 / max(1e-12, ratio_diag_y)))))) if ratio_diag_y < 1.0 else 0.0
+    sigma_diag = float(factor_diag_mean * np.sqrt(max(0.0, np.log(max(1e-12, 1.0 / max(1e-12, ratio_diag_2d)))))) if ratio_diag_2d < 1.0 else 0.0
+
+    # 3. Inversión frente al Pico Central DC H0 / H1 y H1 / H0 (Inestable)
+    ratio_0_1x = float(H0 / max(1e-9, s_10 if s_10 > 0 else H1_x))
+    ratio_0_1y = float(H0 / max(1e-9, s_01 if s_01 > 0 else H1_y))
+    ratio_0_1mean = float(H0 / max(1e-9, H1_mean))
+
+    ratio_10_x = float((s_10 if s_10 > 0 else H1_x) / max(1e-9, H0))
+    ratio_10_y = float((s_01 if s_01 > 0 else H1_y) / max(1e-9, H0))
     ratio_10 = float(H1_mean / max(1e-9, H0))
-    factor_10 = a_mean / (2.0 * np.pi)
-    sigma_h1h0 = float(factor_10 * np.sqrt(max(0.0, np.log(max(1e-12, 1.0 / max(1e-12, ratio_10)))))) if ratio_10 < 1.0 else 0.0
 
-    # 4. Gráfico de Wilson (Wilson Plot)
+    sigma_h1h0_x = float(factor_diag_x * np.sqrt(max(0.0, np.log(max(1e-12, ratio_0_1x))))) if ratio_0_1x > 1.0 else 0.0
+    sigma_h1h0_y = float(factor_diag_y * np.sqrt(max(0.0, np.log(max(1e-12, ratio_0_1y))))) if ratio_0_1y > 1.0 else 0.0
+    sigma_h1h0 = float(factor_diag_mean * np.sqrt(max(0.0, np.log(max(1e-12, ratio_0_1mean))))) if ratio_0_1mean > 1.0 else 0.0
+
+    # 4. Gráfico de Wilson (Wilson Plot) - Global y Desglosado Anisótropo X / Y
     wilson_points = [
         {"name": "(1, 0) X", "G_sq": float(G1_x ** 2), "H": max(1e-6, s_10)},
         {"name": "(0, 1) Y", "G_sq": float(G1_y ** 2), "H": max(1e-6, s_01)},
@@ -1134,7 +1155,28 @@ def compute_analytical_bragg_relations(
     g_sq_arr = np.array([p["G_sq"] for p in wilson_points], dtype=np.float64)
     ln_h_arr = np.array([np.log(p["H"]) for p in wilson_points], dtype=np.float64)
 
-    if len(g_sq_arr) >= 3 and np.ptp(g_sq_arr) > 1e-12:
+    # Comprobar si el usuario solicita anclar el intercepto al pico central ln(H0)
+    c_h0 = float(np.log(max(1e-6, H0 if H0 > 0 else s_00)))
+    can_anchor = anchor_wilson_to_h0 and (H0 > 0 or s_00 > 0)
+
+    # 4a. Ajuste Global / Multiorigen (Retrocompatibilidad)
+    if can_anchor:
+        sum_u_y = float(np.sum(g_sq_arr * (ln_h_arr - c_h0)))
+        sum_u_sq = float(np.sum(g_sq_arr ** 2))
+        slope_w = float(sum_u_y / max(1e-12, sum_u_sq))
+        intercept_w = c_h0
+
+        fit_vals = slope_w * g_sq_arr + intercept_w
+        ss_tot = float(np.sum((ln_h_arr - np.mean(ln_h_arr)) ** 2))
+        ss_res = float(np.sum((ln_h_arr - fit_vals) ** 2))
+        r_squared_w = float(max(0.0, 1.0 - (ss_res / max(1e-12, ss_tot)))) if ss_tot > 1e-12 else 1.0
+        sigma_wilson = float(np.sqrt(max(0.0, -slope_w)))
+
+        n_ref = float(n_total_particles) if n_total_particles is not None else max(1.0, s_00)
+        exp_c = np.exp(intercept_w)
+        ratio_occ_sq = min(1.0, max(0.0, exp_c / max(1e-9, n_ref)))
+        p_wilson_est = float(1.0 - np.sqrt(ratio_occ_sq))
+    elif len(g_sq_arr) >= 3 and np.ptp(g_sq_arr) > 1e-12:
         poly = np.polyfit(g_sq_arr, ln_h_arr, 1)
         slope_w = float(poly[0])
         intercept_w = float(poly[1])
@@ -1160,7 +1202,121 @@ def compute_analytical_bragg_relations(
     g_sq_dense = np.linspace(0.0, float(np.max(g_sq_arr) * 1.15), 100)
     ln_h_dense = slope_w * g_sq_dense + intercept_w
 
-    # 5. Diagnóstico Paracristalino
+    # 4b. Regresión Lineal Separada para Dimensión X
+    g_sq_x = np.array([float(G1_x ** 2), float(G2_x ** 2)], dtype=np.float64)
+    ln_h_x = np.array([float(np.log(max(1e-6, s_10))), float(np.log(max(1e-6, s_20)))], dtype=np.float64)
+    delta_g_sq_x = g_sq_x[1] - g_sq_x[0]
+
+    if can_anchor:
+        u1_x, u2_x = g_sq_x[0], g_sq_x[1]
+        y1_x, y2_x = ln_h_x[0], ln_h_x[1]
+        sum_u_y_x = u1_x * (y1_x - c_h0) + u2_x * (y2_x - c_h0)
+        sum_u_sq_x = u1_x ** 2 + u2_x ** 2
+        slope_w_x = float(sum_u_y_x / max(1e-12, sum_u_sq_x))
+        intercept_w_x = c_h0
+        sigma_wilson_x = float(np.sqrt(max(0.0, -slope_w_x)))
+        fit_x = slope_w_x * g_sq_x + c_h0
+        ss_tot_x = float(np.sum((ln_h_x - np.mean(ln_h_x)) ** 2))
+        ss_res_x = float(np.sum((ln_h_x - fit_x) ** 2))
+        r_squared_w_x = float(max(0.0, 1.0 - (ss_res_x / max(1e-12, ss_tot_x)))) if ss_tot_x > 1e-12 else 1.0
+        exp_c_x = float(np.exp(c_h0))
+        n_ref = float(n_total_particles) if n_total_particles is not None else max(1.0, s_00)
+        p_wilson_est_x = float(1.0 - np.sqrt(min(1.0, max(0.0, exp_c_x / max(1e-9, n_ref)))))
+    elif abs(delta_g_sq_x) > 1e-12:
+        slope_w_x = float((ln_h_x[1] - ln_h_x[0]) / delta_g_sq_x)
+        intercept_w_x = float(ln_h_x[0] - slope_w_x * g_sq_x[0])
+        sigma_wilson_x = float(np.sqrt(max(0.0, -slope_w_x)))
+        r_squared_w_x = 1.0
+        exp_c_x = float(np.exp(intercept_w_x))
+        n_ref = float(n_total_particles) if n_total_particles is not None else max(1.0, s_00)
+        p_wilson_est_x = float(1.0 - np.sqrt(min(1.0, max(0.0, exp_c_x / max(1e-9, n_ref)))))
+    else:
+        slope_w_x = slope_w
+        intercept_w_x = intercept_w
+        sigma_wilson_x = sigma_h2h1_x
+        r_squared_w_x = 0.0
+        exp_c_x = float(np.exp(intercept_w))
+        p_wilson_est_x = p_wilson_est
+
+    g_sq_dense_x = np.linspace(0.0, float(max(G2_x ** 2, G_diag ** 2) * 1.15), 100)
+    fit_ln_h_x = slope_w_x * g_sq_dense_x + intercept_w_x
+
+    # 4c. Regresión Lineal Separada para Dimensión Y
+    g_sq_y = np.array([float(G1_y ** 2), float(G2_y ** 2)], dtype=np.float64)
+    ln_h_y = np.array([float(np.log(max(1e-6, s_01))), float(np.log(max(1e-6, s_02)))], dtype=np.float64)
+    delta_g_sq_y = g_sq_y[1] - g_sq_y[0]
+
+    if can_anchor:
+        u1_y, u2_y = g_sq_y[0], g_sq_y[1]
+        y1_y, y2_y = ln_h_y[0], ln_h_y[1]
+        sum_u_y_y = u1_y * (y1_y - c_h0) + u2_y * (y2_y - c_h0)
+        sum_u_sq_y = u1_y ** 2 + u2_y ** 2
+        slope_w_y = float(sum_u_y_y / max(1e-12, sum_u_sq_y))
+        intercept_w_y = c_h0
+        sigma_wilson_y = float(np.sqrt(max(0.0, -slope_w_y)))
+        fit_y = slope_w_y * g_sq_y + c_h0
+        ss_tot_y = float(np.sum((ln_h_y - np.mean(ln_h_y)) ** 2))
+        ss_res_y = float(np.sum((ln_h_y - fit_y) ** 2))
+        r_squared_w_y = float(max(0.0, 1.0 - (ss_res_y / max(1e-12, ss_tot_y)))) if ss_tot_y > 1e-12 else 1.0
+        exp_c_y = float(np.exp(c_h0))
+        n_ref = float(n_total_particles) if n_total_particles is not None else max(1.0, s_00)
+        p_wilson_est_y = float(1.0 - np.sqrt(min(1.0, max(0.0, exp_c_y / max(1e-9, n_ref)))))
+    elif abs(delta_g_sq_y) > 1e-12:
+        slope_w_y = float((ln_h_y[1] - ln_h_y[0]) / delta_g_sq_y)
+        intercept_w_y = float(ln_h_y[0] - slope_w_y * g_sq_y[0])
+        sigma_wilson_y = float(np.sqrt(max(0.0, -slope_w_y)))
+        r_squared_w_y = 1.0
+        exp_c_y = float(np.exp(intercept_w_y))
+        n_ref = float(n_total_particles) if n_total_particles is not None else max(1.0, s_00)
+        p_wilson_est_y = float(1.0 - np.sqrt(min(1.0, max(0.0, exp_c_y / max(1e-9, n_ref)))))
+    else:
+        slope_w_y = slope_w
+        intercept_w_y = intercept_w
+        sigma_wilson_y = sigma_h2h1_y
+        r_squared_w_y = 0.0
+        exp_c_y = float(np.exp(intercept_w))
+        p_wilson_est_y = p_wilson_est
+
+    g_sq_dense_y = np.linspace(0.0, float(max(G2_y ** 2, G_diag ** 2) * 1.15), 100)
+    fit_ln_h_y = slope_w_y * g_sq_dense_y + intercept_w_y
+
+    # 4d. Deducción y Conclusiones Físicas de Pendientes e Interceptos
+    delta_sigma = abs(sigma_wilson_x - sigma_wilson_y)
+    aniso_ratio = float(sigma_wilson_x / max(1e-6, sigma_wilson_y))
+    if delta_sigma <= 0.5 or (0.95 <= aniso_ratio <= 1.05):
+        aniso_text = f"Isotropía posicional confirmada (σ_x ≈ σ_y, Δσ = {delta_sigma:.2f} nm). Fluctuaciones térmicas homogéneas en 2D."
+    elif sigma_wilson_x > sigma_wilson_y:
+        aniso_text = f"Anisotropía en X dominante (σ_x/σ_y = {aniso_ratio:.2f}, Δσ = {delta_sigma:.2f} nm). Jitter o deriva en barrido rápido X."
+    else:
+        aniso_text = f"Anisotropía en Y dominante (σ_y/σ_x = {1.0/aniso_ratio:.2f}, Δσ = {delta_sigma:.2f} nm). Deriva de platina o relajación ortogonal en Y."
+
+    if can_anchor:
+        intercept_text = f"Interceptos anclados a ln(H₀) = {c_h0:.2f} (I₀ = {H0:.2e}). Ajuste forzado en el origen (1 parámetro)."
+        diff_x = abs(sigma_wilson_x - sigma_h2h1_x)
+        diff_y = abs(sigma_wilson_y - sigma_h2h1_y)
+        max_diff = max(diff_x, diff_y)
+        if max_diff > 2.0:
+            bg_text = f"Discrepancia frente a H₂/H₁ (Δσ_max = {max_diff:.2f} nm). Posible elevación de H₀ por fondo difuso o DC leakage."
+        else:
+            bg_text = f"Excelente concordancia entre H₀ y atenuación de Bragg (Δσ_max = {max_diff:.2f} nm). Fondo difuso limpio en q=0."
+    else:
+        delta_intercept = abs(intercept_w_x - intercept_w_y)
+        if delta_intercept <= 0.20:
+            intercept_text = f"Interceptos simétricos (c_x={intercept_w_x:.2f}, c_y={intercept_w_y:.2f}). Amplitud coherente en origen balanceada."
+        else:
+            intercept_text = f"Asimetría fotométrica en origen (|c_x - c_y| = {delta_intercept:.2f}). Astigmatismo óptico en PSF o contraste anisotrópico."
+
+        i0_mean_eff = (exp_c_x + exp_c_y) / 2.0
+        f_coherente = float(i0_mean_eff / max(1e-9, H0))
+        if f_coherente < 0.90:
+            bg_text = f"Atenuación Debye-Waller estática: e^c / H₀ = {f_coherente:.1%}. El {(1.0 - f_coherente)*100.0:.1f}% de H₀ corresponde a fondo difuso/autofluorescencia incoherente en q=0."
+        else:
+            bg_text = f"Coherencia central excelente (e^c / H₀ = {f_coherente:.1%}). Fondo difuso residual en q=0 es despreciable."
+
+    vac_text = f"Vacancias estimadas: p_x = {p_wilson_est_x*100.0:.1f}%, p_y = {p_wilson_est_y*100.0:.1f}%."
+    summary_concl = f"{aniso_text} | {intercept_text} | {bg_text}"
+
+    # 5. Diagnóstico Paracristalino (Hosemann) - Global y Desglosado X / Y
     fwhm1_x = float(res_dict.get('fwhm_x', 0.0))
     fwhm1_y = float(res_dict.get('fwhm_y', 0.0))
     fwhm1_mean = (fwhm1_x + fwhm1_y) / 2.0
@@ -1169,7 +1325,14 @@ def compute_analytical_bragg_relations(
     fwhm2_y = float(res_dict.get('fit_y_2nd', {}).get('fwhm', 0.0))
     fwhm2_mean = (fwhm2_x + fwhm2_y) / 2.0
 
+    paracrystal_ratio_x = float(fwhm2_x / max(1e-9, fwhm1_x)) if fwhm1_x > 0 else 1.0
+    paracrystal_ratio_y = float(fwhm2_y / max(1e-9, fwhm1_y)) if fwhm1_y > 0 else 1.0
     paracrystal_ratio = float(fwhm2_mean / max(1e-9, fwhm1_mean))
+
+    is_type_1_x = paracrystal_ratio_x < 1.40
+    is_type_1_y = paracrystal_ratio_y < 1.40
+    type_x = "Tipo I (DW Puro)" if is_type_1_x else "Tipo II (Hosemann)"
+    type_y = "Tipo I (DW Puro)" if is_type_1_y else "Tipo II (Hosemann)"
 
     if paracrystal_ratio < 1.40:
         disorder_type = "Tipo I (Debye-Waller Puro)"
@@ -1180,9 +1343,11 @@ def compute_analytical_bragg_relations(
         disorder_desc = "Desorden de espaciado acumulativo. El ancho crece con el orden armónico (Δq₂ > Δq₁)."
         is_type_1 = False
 
-    # 6. Curva de Decaimiento Debye-Waller
+    # 6. Curvas de Decaimiento Debye-Waller - Global y Desglosadas X / Y
     q_norm_curve = np.linspace(0.5, 2.5, 120)
     dw_decay_theory = np.exp(- (q_norm_curve ** 2 - 1.0) * (G1_mean ** 2) * (sigma_h2h1 ** 2))
+    dw_decay_x = np.exp(- (q_norm_curve ** 2 - 1.0) * (G1_x ** 2) * (sigma_h2h1_x ** 2))
+    dw_decay_y = np.exp(- (q_norm_curve ** 2 - 1.0) * (G1_y ** 2) * (sigma_h2h1_y ** 2))
 
     points_q_ratio = np.array([1.0, float(np.sqrt(2.0)), 2.0])
     points_H_norm = np.array([
@@ -1192,6 +1357,15 @@ def compute_analytical_bragg_relations(
     ])
 
     return {
+        'H1_x': H1_x,
+        'H1_y': H1_y,
+        'H1_mean': H1_mean,
+        'H2_x': H2_x,
+        'H2_y': H2_y,
+        'H2_mean': H2_mean,
+        'H_diag': H_diag,
+        'H0': H0,
+
         'sigma_h2h1': sigma_h2h1,
         'sigma_h2h1_x': sigma_h2h1_x,
         'sigma_h2h1_y': sigma_h2h1_y,
@@ -1200,11 +1374,21 @@ def compute_analytical_bragg_relations(
         'ratio_21_y': ratio_21_y,
 
         'sigma_diag': sigma_diag,
+        'sigma_diag_x': sigma_diag_x,
+        'sigma_diag_y': sigma_diag_y,
         'ratio_diag': ratio_diag_2d,
+        'ratio_diag_x': ratio_diag_x,
+        'ratio_diag_y': ratio_diag_y,
 
         'sigma_h1h0': sigma_h1h0,
+        'sigma_h1h0_x': sigma_h1h0_x,
+        'sigma_h1h0_y': sigma_h1h0_y,
         'ratio_10': ratio_10,
-        'H0': H0,
+        'ratio_10_x': ratio_10_x,
+        'ratio_10_y': ratio_10_y,
+        'ratio_0_1x': ratio_0_1x,
+        'ratio_0_1y': ratio_0_1y,
+        'ratio_0_1mean': ratio_0_1mean,
         'is_h1h0_unstable': True,
 
         'sigma_wilson': sigma_wilson,
@@ -1212,14 +1396,67 @@ def compute_analytical_bragg_relations(
         'slope_wilson': slope_w,
         'intercept_wilson': intercept_w,
         'p_wilson_est': p_wilson_est,
+        'anchor_wilson_to_h0': can_anchor,
+
+        'sigma_wilson_x': sigma_wilson_x,
+        'slope_wilson_x': slope_w_x,
+        'intercept_wilson_x': intercept_w_x,
+        'r_squared_wilson_x': r_squared_w_x,
+        'p_wilson_est_x': p_wilson_est_x,
+
+        'sigma_wilson_y': sigma_wilson_y,
+        'slope_wilson_y': slope_w_y,
+        'intercept_wilson_y': intercept_w_y,
+        'r_squared_wilson_y': r_squared_w_y,
+        'p_wilson_est_y': p_wilson_est_y,
 
         'wilson_data': {
+            'anchor_wilson_to_h0': can_anchor,
             'g_sq': g_sq_arr,
             'ln_h': ln_h_arr,
             'names': [p["name"] for p in wilson_points],
             'fit_g_sq': g_sq_dense,
             'fit_ln_h': ln_h_dense,
-            'points_raw': wilson_points
+            'points_raw': wilson_points,
+            'x': {
+                'g_sq': g_sq_x,
+                'ln_h': ln_h_x,
+                'names': ['(1, 0) X', '(2, 0) 2X'],
+                'fit_g_sq': g_sq_dense_x,
+                'fit_ln_h': fit_ln_h_x,
+                'slope': slope_w_x,
+                'intercept': intercept_w_x,
+                'sigma': sigma_wilson_x,
+                'r_squared': r_squared_w_x,
+                'p_est': p_wilson_est_x,
+                'i0_eff': exp_c_x
+            },
+            'y': {
+                'g_sq': g_sq_y,
+                'ln_h': ln_h_y,
+                'names': ['(0, 1) Y', '(0, 2) 2Y'],
+                'fit_g_sq': g_sq_dense_y,
+                'fit_ln_h': fit_ln_h_y,
+                'slope': slope_w_y,
+                'intercept': intercept_w_y,
+                'sigma': sigma_wilson_y,
+                'r_squared': r_squared_w_y,
+                'p_est': p_wilson_est_y,
+                'i0_eff': exp_c_y
+            },
+            'diag': {
+                'g_sq': float(G_diag ** 2),
+                'ln_h': float(np.log(max(1e-6, s_11))),
+                'name': '(1, 1) Diag'
+            },
+            'conclusions': {
+                'anisotropy_ratio': aniso_ratio,
+                'anisotropy_text': aniso_text,
+                'intercept_text': intercept_text,
+                'background_text': bg_text,
+                'vacancies_text': vac_text,
+                'summary': summary_concl
+            }
         },
 
         'paracrystal_diagnosis': {
@@ -1228,6 +1465,16 @@ def compute_analytical_bragg_relations(
             'is_type_1': is_type_1,
             'fwhm_order1': fwhm1_mean,
             'fwhm_order2': fwhm2_mean,
+            'fwhm1_x': fwhm1_x,
+            'fwhm2_x': fwhm2_x,
+            'ratio_fwhm_x': paracrystal_ratio_x,
+            'is_type_1_x': is_type_1_x,
+            'disorder_type_x': type_x,
+            'fwhm1_y': fwhm1_y,
+            'fwhm2_y': fwhm2_y,
+            'ratio_fwhm_y': paracrystal_ratio_y,
+            'is_type_1_y': is_type_1_y,
+            'disorder_type_y': type_y,
             'description': disorder_desc
         },
 
@@ -1236,7 +1483,26 @@ def compute_analytical_bragg_relations(
             'H_theory': dw_decay_theory,
             'points_q': points_q_ratio,
             'points_H': points_H_norm,
-            'labels': ['Orden 1', 'Diagonal (1,1)', 'Orden 2']
+            'labels': ['Orden 1', 'Diagonal (1,1)', 'Orden 2'],
+            'x': {
+                'q_norm': q_norm_curve,
+                'H_theory': dw_decay_x,
+                'points_q': np.array([1.0, 2.0]),
+                'points_H': np.array([1.0, float(H2_x / max(1e-9, H1_x))]),
+                'labels': ['(1,0) X', '(2,0) X']
+            },
+            'y': {
+                'q_norm': q_norm_curve,
+                'H_theory': dw_decay_y,
+                'points_q': np.array([1.0, 2.0]),
+                'points_H': np.array([1.0, float(H2_y / max(1e-9, H1_y))]),
+                'labels': ['(0,1) Y', '(0,2) Y']
+            },
+            'diag': {
+                'points_q': np.array([float(np.sqrt(2.0)), float(np.sqrt(2.0))]),
+                'points_H': np.array([float(s_11 / max(1e-9, H1_x)), float(s_11 / max(1e-9, H1_y))]),
+                'labels': ['Diag / H₁x', 'Diag / H₁y']
+            }
         },
 
         'stability_comparison': {
@@ -1836,59 +2102,129 @@ def fit_multi_gaussian_roi(
     sigma_psf_px: float,
     scale_nm: float = 50.0,
     origin_px: Tuple[float, float] = (0.0, 0.0),
-    initial_seeds: Optional[List[Tuple[float, float]]] = None
+    initial_seeds: Optional[List[Tuple[float, float]]] = None,
+    mask: Optional[np.ndarray] = None,
+    bg_filter_pct: float = 20.0,
+    constrain_centers: bool = True,
+    signature_dict: Optional[Dict[str, Any]] = None,
+    tolerance_pct: float = 30.0
 ) -> List[Dict[str, Any]]:
     """
     Ajusta una mezcla de n-Gaussianas 2D sobre una región de interés (parche local)
     con el ancho óptico fijado al valor calibrado sigma = sigma_psf_px.
 
-    Parámetros:
-    -----------
-    patch : np.ndarray
-        Matriz 2D de intensidades del parche recortado.
-    n_particles : int
-        Número de partículas / emisores a desacoplar (n >= 1).
-    sigma_psf_px : float
-        Ancho óptico calibrado de la PSF en píxeles (constante fija).
-    scale_nm : float
-        Escala de conversión nm/píxel.
-    origin_px : (x_min, y_min)
-        Coordenada de origen del parche en la imagen global en píxeles.
-    initial_seeds : list of (x_local, y_local), opcional
-        Semillas iniciales de las posiciones locales en el parche.
+    Soporta:
+    - Enmascaramiento estricto a cero fuera de la zona gráficamente marcada (mask).
+    - Restricción geométrica de centros (x_k, y_k) al interior del contorno.
+    - Cotas de amplitud/volumen físico con tolerancia estricta del 30% asumiendo
+      nanopartículas idénticas (A0, V0).
     """
     patch = np.asarray(patch, dtype=float)
     H, W = patch.shape[:2]
     yy, xx = np.indices((H, W))
     coords = np.column_stack([xx.ravel(), yy.ravel()])
-    data_1d = patch.ravel()
+
+    # Validación y aplicación de máscara de contorno
+    has_mask = False
+    mask_bool = None
+    if mask is not None:
+        mask_arr = np.asarray(mask)
+        if mask_arr.shape == (H, W):
+            mask_bool = mask_arr.astype(bool)
+            if np.any(mask_bool):
+                has_mask = True
 
     border_px = np.concatenate([patch[0, :], patch[-1, :], patch[:, 0], patch[:, -1]])
     bg_init = float(np.percentile(border_px, 50))
-    signal = np.clip(patch - bg_init, 0, None)
-    tot_signal = float(np.sum(signal))
-    i_max = float(np.max(patch))
+    i_max_raw = float(np.max(patch))
 
-    # Modelo n-Gaussiano vectorizado con sigma fija
-    def multi_gaussian(xy, *params):
-        bg = params[0]
-        val = np.full(len(xy), bg, dtype=float)
-        sig2_2 = 2.0 * (sigma_psf_px ** 2)
-        for k in range(n_particles):
-            xk = params[1 + 3 * k]
-            yk = params[2 + 3 * k]
-            Ik = params[3 + 3 * k]
-            dx = xy[:, 0] - xk
-            dy = xy[:, 1] - yk
-            val += Ik * np.exp(-(dx * dx + dy * dy) / sig2_2)
-        return val
+    if has_mask:
+        patch_masked = patch.copy()
+        patch_masked[~mask_bool] = 0.0
+        i_max = float(np.max(patch_masked))
+        bg_cut = max(bg_init, (bg_filter_pct / 100.0) * i_max) if bg_filter_pct > 0 else bg_init
+        signal = np.where(mask_bool, np.clip(patch - bg_cut, 0, None), 0.0)
+        tot_signal = float(np.sum(signal))
+        data_1d = signal.ravel()
+        mask_flat = mask_bool.ravel()
 
-    p0 = [bg_init]
+        def multi_gaussian(xy, *params):
+            bg = params[0]
+            val = np.where(mask_flat, bg, 0.0)
+            sig2_2 = 2.0 * (sigma_psf_px ** 2)
+            for k in range(n_particles):
+                xk = params[1 + 3 * k]
+                yk = params[2 + 3 * k]
+                Ik = params[3 + 3 * k]
+                dx = xy[:, 0] - xk
+                dy = xy[:, 1] - yk
+                val += np.where(mask_flat, Ik * np.exp(-(dx * dx + dy * dy) / sig2_2), 0.0)
+            return val
+    else:
+        signal = np.clip(patch - bg_init, 0, None)
+        tot_signal = float(np.sum(signal))
+        i_max = i_max_raw
+        data_1d = patch.ravel()
+
+        def multi_gaussian(xy, *params):
+            bg = params[0]
+            val = np.full(len(xy), bg, dtype=float)
+            sig2_2 = 2.0 * (sigma_psf_px ** 2)
+            for k in range(n_particles):
+                xk = params[1 + 3 * k]
+                yk = params[2 + 3 * k]
+                Ik = params[3 + 3 * k]
+                dx = xy[:, 0] - xk
+                dy = xy[:, 1] - yk
+                val += Ik * np.exp(-(dx * dx + dy * dy) / sig2_2)
+            return val
+
+    # Estimación de amplitud nominal monomérica A0 (partículas idénticas con tolerancia 30%)
+    if has_mask:
+        vol_total = float(np.sum(np.maximum(0.0, patch - bg_init) * mask_bool))
+    else:
+        vol_total = float(np.sum(np.maximum(0.0, patch - bg_init)))
+
+    A_patch = (vol_total / max(n_particles, 1)) / (2.0 * np.pi * (sigma_psf_px ** 2))
+    if A_patch <= 0:
+        A_patch = max(float(i_max_raw) / max(n_particles, 1), 1e-3)
+
+    A0_sig = None
+    if signature_dict is not None:
+        if 'A0_amp' in signature_dict and float(signature_dict['A0_amp']) > 0:
+            A0_sig = float(signature_dict['A0_amp'])
+        elif 'V0' in signature_dict and float(signature_dict['V0']) > 0:
+            A0_sig = float(signature_dict['V0']) / (2.0 * np.pi * (sigma_psf_px ** 2))
+        elif 'A0' in signature_dict and float(signature_dict['A0']) > 0 and 'sigma_psf_px' not in signature_dict:
+            A0_sig = float(signature_dict['A0'])
+
+    # Si la firma calibrada es compatible físicamente con el pico del parche
+    # (n_particles * A0_sig debe ser capaz de alcanzar al menos el 80% del pico observado,
+    #  y A0_sig no debe superar 2.5 veces A_patch):
+    if A0_sig is not None and (A0_sig * n_particles >= 0.80 * i_max_raw) and (A0_sig <= 2.50 * A_patch):
+        A0_nom = A0_sig
+    else:
+        A0_nom = A_patch
+
+    tol_f = max(0.05, float(tolerance_pct) / 100.0)
+    I_min = max(0.0, (1.0 - tol_f) * A0_nom)
+    I_max = (1.0 + tol_f) * A0_nom
+    I_est = float(np.clip(A0_nom, I_min, I_max))
+
+    # Restricción espacial de centros
+    if constrain_centers and has_mask:
+        y_idx, x_idx = np.where(mask_bool)
+        min_xc = max(0.0, float(np.min(x_idx)) - 0.5)
+        max_xc = min(float(W), float(np.max(x_idx)) + 0.5)
+        min_yc = max(0.0, float(np.min(y_idx)) - 0.5)
+        max_yc = min(float(H), float(np.max(y_idx)) + 0.5)
+    else:
+        min_xc, max_xc = 0.0, float(W)
+        min_yc, max_yc = 0.0, float(H)
+
+    p0 = [0.0 if has_mask else bg_init]
     lb = [0.0]
-    ub = [i_max * 1.5]
-
-    I_est = (tot_signal / max(n_particles, 1)) / (2.0 * np.pi * (sigma_psf_px ** 2))
-    I_est = max(I_est, i_max * 0.3)
+    ub = [i_max * 0.5 if has_mask else i_max * 1.5]
 
     if initial_seeds is not None and len(initial_seeds) == n_particles:
         seeds = initial_seeds
@@ -1900,7 +2236,6 @@ def fit_multi_gaussian_roi(
             cx, cy = W / 2.0, H / 2.0
         seeds = [(cx, cy)]
     elif n_particles == 2:
-        # Identificar eje principal de alargamiento del spot
         if tot_signal > 0:
             cx = float(np.sum(xx * signal) / tot_signal)
             cy = float(np.sum(yy * signal) / tot_signal)
@@ -1938,9 +2273,11 @@ def fit_multi_gaussian_roi(
         seeds = [(cx + off * v_main[0], cy + off * v_main[1]) for off in offsets]
 
     for (sx, sy) in seeds:
-        p0.extend([float(np.clip(sx, 0.5, W - 0.5)), float(np.clip(sy, 0.5, H - 0.5)), I_est])
-        lb.extend([0.0, 0.0, 0.0])
-        ub.extend([float(W), float(H), float(i_max * 3.0)])
+        sx_c = float(np.clip(sx, min_xc + 0.1, max_xc - 0.1))
+        sy_c = float(np.clip(sy, min_yc + 0.1, max_yc - 0.1))
+        p0.extend([sx_c, sy_c, I_est])
+        lb.extend([min_xc, min_yc, I_min])
+        ub.extend([max_xc, max_yc, I_max])
 
     try:
         popt, _ = curve_fit(
@@ -1950,7 +2287,7 @@ def fit_multi_gaussian_roi(
             p0=p0,
             bounds=(lb, ub),
             method='trf',
-            max_nfev=300
+            max_nfev=350
         )
     except Exception:
         popt = p0
@@ -2077,12 +2414,15 @@ def analyze_photometric_contours(
         mask_binary = (patch > thresh_val).astype(np.uint8)
         a_omega = float(np.sum(mask_binary))
 
+        mask_cnt = mask_binary.copy()
         contour_poly_nm = []
         if cv2 is not None:
             try:
                 contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 if contours:
                     largest_cnt = max(contours, key=cv2.contourArea)
+                    mask_cnt = np.zeros_like(mask_binary)
+                    cv2.drawContours(mask_cnt, [largest_cnt], -1, 1, -1)
                     cnt_pts = largest_cnt.squeeze()
                     if cnt_pts.ndim == 2:
                         for pt in cnt_pts:
@@ -2119,6 +2459,7 @@ def analyze_photometric_contours(
         c['contour_polygon_nm'] = contour_poly_nm
         c['patch_origin_px'] = (x_min, y_min)
         c['patch'] = patch
+        c['mask'] = (mask_cnt > 0)
         c['sigma_psf_px'] = sigma_psf_px
 
     n_under = sum(1 for c in clusters if c.get('status') == 'UNDER_RESOLVED')
@@ -2131,6 +2472,128 @@ def analyze_photometric_contours(
     clusters_info['signature'] = signature_dict
 
     return clusters_info
+
+
+def create_manual_cluster(
+    locs_df: Any,
+    particle_indices: List[int],
+    image_2d: Optional[np.ndarray],
+    scale_nm: float = 50.0,
+    a_nominal: float = 500.0,
+    signature_dict: Optional[Dict[str, Any]] = None,
+    tolerance_pct: float = 30.0,
+    cluster_id: int = 1
+) -> Dict[str, Any]:
+    """
+    Crea un cúmulo manual a partir de una lista de índices de partículas seleccionadas por el usuario.
+    Calcula el centro de masa, el parche envolvente, el contorno fotométrico y la estequiometría.
+    """
+    sub_df = locs_df.loc[particle_indices]
+    xs_nm = sub_df['x_nm'].values if 'x_nm' in sub_df else (sub_df['x'].values * scale_nm)
+    ys_nm = sub_df['y_nm'].values if 'y_nm' in sub_df else (sub_df['y'].values * scale_nm)
+
+    com_x = float(np.mean(xs_nm))
+    com_y = float(np.mean(ys_nm))
+    n_det = len(particle_indices)
+    pts = np.column_stack([xs_nm, ys_nm])
+
+    sigma_psf_px = 139.0 / scale_nm
+    V0 = 1000.0
+    A0 = 100.0
+    if signature_dict is not None:
+        sigma_psf_px = float(signature_dict.get('sigma_psf_px', sigma_psf_px))
+        V0 = float(signature_dict.get('V0', V0))
+        A0 = float(signature_dict.get('A0', A0))
+
+    patch = None
+    mask = None
+    contour_poly_nm = []
+    x_min, y_min = 0, 0
+    v_omega = V0 * n_det
+    a_omega = A0 * n_det
+
+    if image_2d is not None and image_2d.size > 0:
+        H, W = image_2d.shape[:2]
+        cx_px = com_x / scale_nm
+        cy_px = com_y / scale_nm
+        d_max_nm = float(np.max(np.hypot(xs_nm - com_x, ys_nm - com_y))) if len(xs_nm) > 1 else 0.0
+        half = int(np.ceil(d_max_nm / scale_nm + 2.5 * sigma_psf_px))
+        half = max(half, 8)
+
+        x_min = max(0, int(round(cx_px)) - half)
+        x_max = min(W, int(round(cx_px)) + half + 1)
+        y_min = max(0, int(round(cy_px)) - half)
+        y_max = min(H, int(round(cy_px)) + half + 1)
+
+        patch = image_2d[y_min:y_max, x_min:x_max]
+        if patch.size > 0:
+            border_px = np.concatenate([patch[0, :], patch[-1, :], patch[:, 0], patch[:, -1]])
+            bg = float(np.percentile(border_px, 50))
+            sig = np.clip(patch - bg, 0, None)
+            v_omega = float(np.sum(sig))
+            thresh_val = bg + 0.25 * float(np.max(sig)) if np.max(sig) > 0 else bg
+            mask_binary = (patch > thresh_val).astype(np.uint8)
+            a_omega = float(np.sum(mask_binary))
+            mask_cnt = mask_binary.copy()
+
+            try:
+                import cv2
+                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if contours:
+                    largest_cnt = max(contours, key=cv2.contourArea)
+                    mask_cnt = np.zeros_like(mask_binary)
+                    cv2.drawContours(mask_cnt, [largest_cnt], -1, 1, -1)
+                    cnt_pts = largest_cnt.squeeze()
+                    if cnt_pts.ndim == 2:
+                        for pt in cnt_pts:
+                            px_glob = x_min + pt[0]
+                            py_glob = y_min + pt[1]
+                            contour_poly_nm.append((float(px_glob * scale_nm), float(py_glob * scale_nm)))
+            except Exception:
+                pass
+            mask = (mask_cnt > 0)
+
+    ratio_v = v_omega / max(V0, 1e-3)
+    ratio_a = a_omega / max(A0, 1e-3)
+    n_est_raw = max(2, int(round(ratio_v)))
+
+    tol_f = max(0.05, float(tolerance_pct) / 100.0)
+    lower_bound = n_det * (1.0 - tol_f) * V0
+    upper_bound = n_det * (1.0 + tol_f) * V0
+
+    if lower_bound <= v_omega <= upper_bound:
+        n_est = n_det
+        status = 'OK'
+    elif v_omega > upper_bound:
+        n_est = max(n_det + 1, n_est_raw)
+        status = 'UNDER_RESOLVED'
+    else:
+        n_est = max(2, min(n_det, n_est_raw))
+        status = 'OVER_DETECTED'
+
+    return {
+        'id': cluster_id,
+        'cluster_id': cluster_id,
+        'type': 'Cúmulo Manual',
+        'is_manual': True,
+        'indices': sorted([int(i) for i in particle_indices]),
+        'particle_indices': sorted([int(i) for i in particle_indices]),
+        'n_det': len(particle_indices),
+        'points': pts,
+        'com_x': com_x,
+        'com_y': com_y,
+        'v_omega': v_omega,
+        'a_omega': a_omega,
+        'ratio_v': ratio_v,
+        'ratio_a': ratio_a,
+        'n_est': n_est,
+        'status': status,
+        'contour_polygon_nm': contour_poly_nm,
+        'patch_origin_px': (x_min, y_min),
+        'patch': patch,
+        'mask': mask,
+        'sigma_psf_px': sigma_psf_px
+    }
 
 
 def inspect_single_spot_photometry(
@@ -2281,7 +2744,8 @@ def inspect_single_spot_photometry(
         'contour_polygon_nm': contour_poly_nm,
         'patch': patch,
         'patch_origin_px': (x_min, y_min),
-        'sigma_psf_px': sigma_psf_px
+        'sigma_psf_px': sigma_psf_px,
+        'mask': (mask_cnt > 0) if 'mask_cnt' in locals() else (mask_binary > 0)
     }
 
 
@@ -2299,8 +2763,12 @@ def resolve_clusters(
     image_2d: Optional[np.ndarray] = None,
     signature_dict: Optional[Dict[str, Any]] = None,
     scale_nm: float = 50.0,
-    tolerance_pct: float = 20.0,
-    n_gaussians: Optional[int] = None
+    tolerance_pct: float = 30.0,
+    n_gaussians: Optional[int] = None,
+    use_contour_mask: bool = True,
+    bg_filter_pct: float = 20.0,
+    constrain_centers: bool = True,
+    initial_seeds: Optional[List[Tuple[float, float]]] = None
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], List[int]]:
     """
     Aplica una regla de resolución y desacoplamiento sobre los aglomerados detectados.
@@ -2332,10 +2800,10 @@ def resolve_clusters(
     new_points_to_add: List[Tuple[float, float, float]] = []
 
     # Si se especificó un target_cluster_id, filtrar exclusivamente ese cúmulo
-    target_clusters = [c for c in clusters if c.get('id') == target_cluster_id] if target_cluster_id is not None else clusters
+    target_clusters = [c for c in clusters if (c.get('id') == target_cluster_id or c.get('cluster_id') == target_cluster_id)] if target_cluster_id is not None else clusters
 
     for c in target_clusters:
-        members = c['indices']
+        members = c.get('indices', c.get('particle_indices', []))
 
         if action == 'keep_nearest':
             if len(members) <= 1:
@@ -2363,21 +2831,17 @@ def resolve_clusters(
             new_points_to_add.append((c['com_x'], c['com_y'], w_photons))
 
         elif action == 'multi_gaussian':
-            # Estimar número de partículas a desacoplar
-            if n_gaussians is not None and (target_cluster_id is None or c.get('id') == target_cluster_id):
-                n_target = int(n_gaussians)
-            else:
-                n_target = int(c.get('n_est', len(members)))
-                if n_target <= 1 and 'Sobrepuesta' in c.get('type', ''):
-                    n_target = 2  # Desacoplar al menos en 2 emisores si es sobrepuesta
-            n_target = min(max(n_target, 1), 8)
-            if n_target <= 1:
-                continue
+            # Estimar número de partículas a desacoplar: por física de cúmulo debe ser sí o sí N >= 2
+            n_target = max(2, int(c.get('n_est', len(members))))
+            if n_gaussians is not None and (target_cluster_id is None or c.get('id') == target_cluster_id or c.get('cluster_id') == target_cluster_id):
+                n_target = max(2, int(n_gaussians))
+            n_target = min(max(n_target, 2), 8)
 
             # Obtener parche y ancho sigma_psf
             patch = c.get('patch', None)
             origin_px = c.get('patch_origin_px', (0, 0))
             sigma_psf_px = c.get('sigma_psf_px', None)
+            mask = c.get('mask', None) if use_contour_mask else None
 
             if sigma_psf_px is None:
                 if signature_dict is not None and 'sigma_psf_px' in signature_dict:
@@ -2397,13 +2861,28 @@ def resolve_clusters(
                 patch = image_2d[y_min:y_max, x_min:x_max]
                 origin_px = (x_min, y_min)
 
+            local_seeds = None
+            if initial_seeds is not None and len(initial_seeds) >= 2 and (target_cluster_id is None or c.get('id') == target_cluster_id or c.get('cluster_id') == target_cluster_id):
+                n_target = len(initial_seeds)
+                local_seeds = []
+                for sx_nm, sy_nm in initial_seeds:
+                    lx = (sx_nm / scale_nm) - origin_px[0]
+                    ly = (sy_nm / scale_nm) - origin_px[1]
+                    local_seeds.append((lx, ly))
+
             if patch is not None and patch.size > 0:
                 fitted = fit_multi_gaussian_roi(
                     patch=patch,
                     n_particles=n_target,
                     sigma_psf_px=sigma_psf_px,
                     scale_nm=scale_nm,
-                    origin_px=origin_px
+                    origin_px=origin_px,
+                    initial_seeds=local_seeds,
+                    mask=mask,
+                    bg_filter_pct=bg_filter_pct,
+                    constrain_centers=constrain_centers,
+                    signature_dict=signature_dict,
+                    tolerance_pct=tolerance_pct
                 )
                 for m in members:
                     discarded_indices.add(m)
@@ -2452,8 +2931,12 @@ def resolve_clusters_dataframe(
     target_cluster_id: Optional[int] = None,
     image_2d: Optional[np.ndarray] = None,
     signature_dict: Optional[Dict[str, Any]] = None,
-    tolerance_pct: float = 20.0,
-    n_gaussians: Optional[int] = None
+    tolerance_pct: float = 30.0,
+    n_gaussians: Optional[int] = None,
+    use_contour_mask: bool = True,
+    bg_filter_pct: float = 20.0,
+    constrain_centers: bool = True,
+    initial_seeds: Optional[List[Tuple[float, float]]] = None
 ) -> Tuple[Any, Dict[str, Any]]:
     """
     Aplica resolve_clusters sobre un DataFrame con coordenadas de localización.
@@ -2478,7 +2961,11 @@ def resolve_clusters_dataframe(
         signature_dict=signature_dict,
         scale_nm=scale_nm,
         tolerance_pct=tolerance_pct,
-        n_gaussians=n_gaussians
+        n_gaussians=n_gaussians,
+        use_contour_mask=use_contour_mask,
+        bg_filter_pct=bg_filter_pct,
+        constrain_centers=constrain_centers,
+        initial_seeds=initial_seeds
     )
 
     n_orig_kept = len(df) - len(discarded_indices)
@@ -2521,15 +3008,20 @@ def resolve_clusters_dataframe(
 def resolve_single_spot_multi_gaussian(
     df: Any,
     spot_index: int,
-    n_particles: int,
-    image_2d: Optional[np.ndarray],
+    n_particles: int = 2,
+    image_2d: Optional[np.ndarray] = None,
     signature_dict: Optional[Dict[str, Any]] = None,
     scale_nm: float = 50.0,
-    a_nominal: float = 500.0
+    a_nominal: float = 500.0,
+    use_contour_mask: bool = True,
+    bg_filter_pct: float = 20.0,
+    constrain_centers: bool = True,
+    tolerance_pct: float = 30.0,
+    initial_seeds: Optional[List[Tuple[float, float]]] = None
 ) -> Tuple[Any, Dict[str, Any]]:
     """
     Desacopla un punto sospechoso específico (spot_index en df) ajustando n_particles Gaussianas
-    con ancho óptico restringido a sigma_psf calibrado.
+    con ancho óptico restringido a sigma_psf calibrado y máscara de contorno cerrada (resto a 0).
     Reemplaza la partícula spot_index por las n_particles resueltas y devuelve el nuevo DataFrame.
     """
     if df is None or len(df) == 0:
@@ -2557,8 +3049,18 @@ def resolve_single_spot_multi_gaussian(
     patch = spot_info.get('patch')
     origin_px = spot_info.get('patch_origin_px', (0, 0))
     sigma_psf_px = spot_info.get('sigma_psf_px', 139.0 / scale_nm)
+    mask = spot_info.get('mask') if use_contour_mask else None
 
-    n_fit = min(max(int(n_particles), 1), 6)
+    # Por regla física, si se desacopla un spot sospechoso debe ser al menos en n >= 2 partículas
+    n_fit = min(max(int(n_particles), 2), 8)
+    local_seeds = None
+    if initial_seeds is not None and len(initial_seeds) >= 2:
+        n_fit = min(max(len(initial_seeds), 2), 8)
+        local_seeds = []
+        for sx_nm, sy_nm in initial_seeds:
+            lx = (sx_nm / scale_nm) - origin_px[0]
+            ly = (sy_nm / scale_nm) - origin_px[1]
+            local_seeds.append((lx, ly))
 
     if patch is not None and patch.size > 0:
         fitted = fit_multi_gaussian_roi(
@@ -2566,7 +3068,13 @@ def resolve_single_spot_multi_gaussian(
             n_particles=n_fit,
             sigma_psf_px=sigma_psf_px,
             scale_nm=scale_nm,
-            origin_px=origin_px
+            origin_px=origin_px,
+            initial_seeds=local_seeds,
+            mask=mask,
+            bg_filter_pct=bg_filter_pct,
+            constrain_centers=constrain_centers,
+            signature_dict=signature_dict,
+            tolerance_pct=tolerance_pct
         )
     else:
         # Fallback sin imagen: separar levemente alrededor del punto

@@ -717,3 +717,92 @@ Para preservar la integridad navegacional en Obsidian y la exportación estátic
 | **`FLIPPER_AO_UP / DOWN`** | `"Dev1/ao0" / "ao1"` | String | Canales analógicos para pulsos de conmutación de $+5.0\ \text{V}$ del flipper de potencia. |
 | **`PD_CHANNELS`** | `{532: 0, 592: 1, 637: 2, 808: 3, BS: 6}` | Canales `ai` | Mapeo físico exacto de fotodiodos de emisión y monitor Beam Splitter. |
 | **`TRIGGER_CHANNELS`** | `{"X": 4, "Y": 5, "Z": 3}` | Canales `ai` | Lectura de telemetría capacitiva de posición de la platina PI E-517. |
+
+---
+
+## 🔬 11. Estado del Proyecto, Novedades Arquitectónicas y Guía de Continuidad para Modelos de IA
+
+> [!NOTE]
+> **Ficha de Transición de Sesión y Onboarding para Agentes**:
+> Esta sección resume el estado exacto del repositorio, las capacidades recientemente integradas en el motor metrológico y las directivas necesarias para retomar el desarrollo sin pérdida de contexto ni degradación arquitectónica.
+
+### 11.1. Estatus de Calidad, Cobertura y Verificación Automatizada
+El repositorio se encuentra en estado consolidado de producción con **cero errores de regresión**:
+- **Suite Unitaria de Desorden Reticular (`tests/test_lattice_disorder.py`)**: **30/30 pruebas superadas (100% éxito)**. Valida la invariancia de la transformada de Fourier continua 2D (NUFFT), KDTree con cota de Wigner-Seitz ($a/2$), consistencia reticular ($M + n_{\text{vac}} \le N^2$), función de distribución radial $g(r)$, simulación Monte Carlo de Debye-Waller multi-orden, y relaciones analíticas directas de Bragg.
+- **Suite de Pruebas Headless de Integración (`scratch/test_panel5_and_rl_overlay.py` y `scratch/test_reciprocal_tab_gui.py`)**: **100% superadas**. Verifican la reactividad visual en PyQt6 de todas las capas, botones, selectores de semillas y alternancia de modelos de regresión.
+- **Batería de Diagnósticos Globales (`tests/run_all_diagnostics.py`)**: **65/65 pruebas aprobadas**.
+- **Integridad de la Base de Conocimiento**: **1,102 enlaces wiki de Obsidian verificados con 0 enlaces rotos** vía `scratch/validate_links.py`.
+- **Topología AST y Grafo Semántico (`graphify-out/`)**: Grafo de conocimiento actualizado mediante `graphify update .`.
+
+---
+
+### 11.2. Novedades Recientes en el Analizador de Desorden (`MOD-08` / `lattice_disorder_gui.py` & `core/lattice_disorder.py`)
+
+#### A. Pestaña 1 (Espacio Real — Curación Fotométrica y Panel 5 / Fases 2 y 3)
+1. **Superposición de Deconvolución Richardson-Lucy (RL)**:
+   - Capa gráfica independiente `self.img_item_rl` ($z=2$) superpuesta sobre el TIFF original ($z=0$) y alineada exactamente en el plano de muestra físico.
+   - Gobernada por la casilla conmutable `[x] ✨ RL Deconv` (`chk_overlay_rl` / `chk_layer_rl`) en la barra superior de capas.
+   - Permite al operador comparar visualmente los centros atómicos resueltos frente a los picos de difracción re-enfocados sin perder los datos brutos.
+2. **Creación de Cúmulos Manuales (`create_manual_cluster`)**:
+   - Botón `[➕ Crear Cúmulo de Selección]` (`btn_create_manual_cluster`) en el Panel 5.
+   - Permite seleccionar 2 o más partículas en el visor o tabla que no hayan sido agrupadas por la tolerancia automática de grafos y condensarlas en un cúmulo formal con contorno fotométrico cerrado, volumen integrado $V_\Omega$, área proyectada $A_\Omega$ y estequiometría estimada $N \ge 2$.
+3. **Modo Interactivo de Semillas Visuales Manuales**:
+   - Botón conmutable `[📍 Marcar Semillas Visuales]` (`btn_pick_visual_seeds`): activa el modo interactivo donde clics en el visor colocan coordenadas iniciales marcadas con cruces verdes `#a6e3a1` y etiquetas `S1, S2, ...`.
+   - Botones auxiliares `[📋 Usar Detectadas como Semillas]` (`btn_use_detected_as_seeds`) y `[🧹 Limpiar Semillas]` (`btn_clear_visual_seeds`).
+   - Sincroniza dinámicamente el selector de componentes gaussianas `spin_cluster_n_gaussians` e inyecta los centros iniciales $(x_{0k}, y_{0k})$ en la optimización no lineal de `fit_multi_gaussian_roi`.
+4. **Enmascaramiento Gráfico Estricto (`patch[~mask] = 0.0`)**:
+   - Tanto para cúmulos como para puntos sospechosos inspeccionados individualmente, todos los píxeles del parche local exteriores al contorno cerrado se mandan rígidamente a cero.
+   - La optimización de Levenberg-Marquardt evalúa residuos únicamente sobre los píxeles interiores a la máscara, evitando que colas de partículas vecinas o gradientes del fondo parásito distorsionen los centros ajustados.
+   - Confinamiento geométrico de las posiciones resueltas $(x_k, y_k)$ al interior de la caja delimitadora del contorno.
+5. **Cotas Físicas de Partículas Idénticas (Tolerancia 30% y $N \ge 2$)**:
+   - Se asume la hipótesis física de que todas las nanopartículas impresas provienen del mismo lote coloidal y presentan volumen nominal $V_0$, amplitud $A_0$ y ancho difraccional $\sigma_{\text{psf}}$ idénticos.
+   - Parámetros individuales acotados rígidamente al rango:
+     $$A_k \in [0.70 \cdot A_0, \; 1.30 \cdot A_0]$$
+     $$\sigma_k \in [0.70 \cdot \sigma_{\text{psf}}, \; 1.30 \cdot \sigma_{\text{psf}}] \quad (\text{o fijado a } \sigma_{\text{psf}})$$
+   - Cualquier aglomerado consta por definición de dos o más partículas:
+     $$N_{\text{particles}} = \max\left(2, \; \operatorname{round}\left(\frac{V_\Omega}{V_0}\right)\right)$$
+6. **Auditoría y Cascada Completa de Botones**:
+   - Toda acción de resolución (en lote o individual) ejecuta de forma sincronizada la actualización de `locs_df`, el recálculo de KDTree con vacancias y consistencia física, y la actualización del espectro recíproco de Fourier en la Pestaña 2.
+
+#### B. Pestaña 2 (Espacio Recíproco — Bragg Analítico y Wilson Plot)
+1. **Desacoplamiento Anisótropo Direccional en $X$ e $Y$**:
+   - En el Gráfico de Wilson y en las relaciones de Bragg, se calculan pendientes independientes $m_x, m_y$, deduciendo $\sigma_{w, x} = \sqrt{-m_x}$ y $\sigma_{w, y} = \sqrt{-m_y}$ con visualización diferenciada (azul `#89b4fa` para $X$, naranja `#fab387` para $Y$).
+2. **Opción de Anclaje de Intercepto a $\ln(H_0)$**:
+   - Casilla interactiva `[x] Anclar Wilson a ln(H₀)` (`chk_anchor_wilson_h0`).
+   - Modo Libre (OLS de 2 parámetros, inmune a sobreelevación de $H_0$) vs. Modo Anclado (regresión forzada a pasar por $\ln(H_0)$ de 1 parámetro).
+   - Diagnóstico automático de inflación de fondo alertando si el pico central $(0,0)$ está contaminado por fluorescencia de fondo de la resina.
+3. **Estudio de Exportación Científica (`analysis/figure_export_studio.py`)**:
+   - Compatibilidad completa con `pg.BarGraphItem` y `pg.TextItem` para exportar a 600 DPI (PNG/SVG) los gráficos de estabilidad de ratios y diagnóstico paracristalino de Hosemann.
+
+---
+
+### 11.3. Protocolo Operativo para Continuar el Proyecto (Próximas Sesiones / Otros Modelos)
+
+Si continúas el desarrollo de PyPrinting 3.0 en una nueva sesión o con otro modelo de lenguaje (Claude 3.7 Sonnet, Gemini 2.5 Pro, GPT-4.5, etc.), sigue estrictamente este protocolo:
+
+1. **Entorno de Ejecución**:
+   - Entorno Conda: `printing3` con Python 3.10-3.13.
+   - Ejecutable de Python: `C:\Users\josel\anaconda3\envs\printing3\python.exe`.
+   - Directorio raíz del proyecto: `c:\Users\josel\Documents\Obsidian_Vault\printing3`.
+2. **Verificación de Salud Inmediata**:
+   ```powershell
+   # 1. Verificar suite unitaria de desorden de red (30 tests)
+   C:\Users\josel\anaconda3\envs\printing3\python.exe tests/test_lattice_disorder.py
+
+   # 2. Verificar suite de validación de enlaces wiki Obsidian (>1100 links)
+   C:\Users\josel\anaconda3\envs\printing3\python.exe scratch/validate_links.py
+
+   # 3. Lanzar la aplicación principal o el módulo de desorden
+   C:\Users\josel\anaconda3\envs\printing3\python.exe main.py
+   # o bien:
+   C:\Users\josel\anaconda3\envs\printing3\python.exe analysis/lattice_disorder_gui.py
+   ```
+3. **Guardrails de Desarrollo (Leyes Inviolables)**:
+   - **Pilar 1 (Preservación Absoluta)**: JAMÁS podar ni amputar código o documentación existente. Las adiciones deben ser siempre acumulativas y enriquecedoras.
+   - **Documentación Cruzada**: Cualquier función científica nueva agregada a `core/lattice_disorder.py` debe reflejarse en `reportes/cientificos/CAT-XXX`, documentarse operativamente en `docs/modulos/MOD-08_Analizador_Desorden_Redes_2D.md`, y referenciarse en el `README.md`.
+   - **Mantenimiento del Grafo AST**: Al modificar o agregar archivos Python, ejecutar:
+     ```powershell
+     graphify update .
+     ```
+   - **Flujo Git**: Confirmar que `python scratch/validate_links.py` arroja 0 enlaces rotos antes de realizar commits.
+
