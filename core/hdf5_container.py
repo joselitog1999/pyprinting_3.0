@@ -348,3 +348,96 @@ class BatchHDF5Container:
 
         print(f"[HDF5 Container] Desempaquetado completo en: {output_folder}")
         return output_folder
+
+
+# ── Escaneo Lineal Espectral (Transmisión/Extinción 1D+2D) ────────────────────
+def write_linescan_spectroscopy_hdf5(
+    filepath: str,
+    metadata: dict,
+    x_positions_um: np.ndarray,
+    wavelengths_nm: np.ndarray,
+    reference: dict,
+    raw_data: dict,
+    processed: dict,
+) -> str:
+    """
+    Serializa un escaneo lineal espectral (LineScanSpectroscopy, PySpectrum 3.0) en un
+    contenedor HDF5 comprimido, siguiendo el mismo patrón de compresión que
+    `BatchHDF5Container` (shuffle + gzip nivel 4) pero con un esquema jerárquico propio
+    (metadata/coordinates/wavelengths/reference/raw_data/processed), distinto del esquema
+    de impresión/nanofabricación de esa clase.
+
+    :param metadata: atributos escalares (timestamp, t_exp_1d_s, t_exp_2d_s, grating,
+        center_lambda_nm, laser_power, roi_ymin, roi_ymax, acquisition_mode,
+        extinction_formula, acquisition_readout_margin_s, y opcionalmente
+        glue_start_wl_nm/glue_end_wl_nm/glue_overlap_pct si acquisition_mode == "step_and_glue").
+    :param reference: dict con signal_1d, background_1d, signal_2d, background_2d,
+        sigma_dark_1d, sigma_dark_2d (todos np.ndarray).
+    :param raw_data: dict con sample_1d [N,Nl], sample_2d [N,Ny,Nl], y opcionalmente
+        native_length_mismatch [N] (bool, sólo relevante en modo step_and_glue).
+    :param processed: dict con transmission_1d, transmission_1d_physical, extinction_1d,
+        transmission_2d, transmission_2d_physical, extinction_2d (todos np.ndarray).
+    :return: la ruta del archivo escrito.
+    """
+    if not H5PY_AVAILABLE:
+        print("[HDF5 Warning] h5py no está disponible. No se generará el contenedor binario de LineScan.")
+        return filepath
+
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+    comp = dict(compression="gzip", compression_opts=4, shuffle=True)
+
+    def _ds(grp, name, arr, dtype=np.float32):
+        arr = np.asarray(arr, dtype=dtype)
+        if arr.size == 0:
+            return
+        if name in grp:
+            del grp[name]
+        grp.create_dataset(name, data=arr, **comp)
+
+    with h5py.File(filepath, "w") as f:
+        meta_grp = f.create_group("metadata")
+        for k, v in metadata.items():
+            if v is None:
+                continue
+            if isinstance(v, (int, float, str, bool)):
+                meta_grp.attrs[k] = v
+            else:
+                meta_grp.attrs[k] = str(v)
+
+        coord_grp = f.create_group("coordinates")
+        _ds(coord_grp, "x_positions_um", x_positions_um, dtype=np.float64)
+
+        wl_grp = f.create_group("wavelengths")
+        _ds(wl_grp, "lambda_nm", wavelengths_nm, dtype=np.float64)
+
+        ref_grp = f.create_group("reference")
+        for key in ("signal_1d", "background_1d", "signal_2d", "background_2d",
+                    "sigma_dark_1d", "sigma_dark_2d"):
+            if key in reference:
+                _ds(ref_grp, key, reference[key])
+
+        raw_grp = f.create_group("raw_data")
+        for key in ("sample_1d", "sample_2d"):
+            if key in raw_data:
+                _ds(raw_grp, key, raw_data[key])
+        if "native_length_mismatch" in raw_data:
+            _ds(raw_grp, "native_length_mismatch", raw_data["native_length_mismatch"], dtype=bool)
+
+        proc_grp = f.create_group("processed")
+        for key in ("transmission_1d", "transmission_1d_physical", "extinction_1d",
+                    "transmission_2d", "transmission_2d_physical", "extinction_2d"):
+            if key in processed:
+                _ds(proc_grp, key, processed[key], dtype=np.float64)
+        if "extinction_1d" in proc_grp:
+            proc_grp["extinction_1d"].attrs["formula"] = metadata.get("extinction_formula", "-log10(T)")
+        if "extinction_2d" in proc_grp:
+            proc_grp["extinction_2d"].attrs["formula"] = metadata.get("extinction_formula", "-log10(T)")
+        for key in ("transmission_1d_physical", "transmission_2d_physical"):
+            if key in proc_grp:
+                proc_grp[key].attrs["clipping_applied"] = True
+                proc_grp[key].attrs["rationale"] = "positividad fisica, no correccion metrologica"
+
+        f.flush()
+
+    print(f"[HDF5 Container] Escaneo lineal espectral guardado en: {filepath}")
+    return filepath

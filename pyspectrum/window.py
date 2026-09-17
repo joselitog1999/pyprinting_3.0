@@ -29,6 +29,7 @@ from pyspectrum.modules.calibration_dock import CalibrationFrontend, Calibration
 from pyspectrum.modules.routines.luminescence import LuminescenceWidget, LuminescenceBackend
 from pyspectrum.modules.routines.growth_kinetics import GrowthKineticsWidget, GrowthKineticsBackend
 from pyspectrum.modules.routines.dimers import DimersWidget, DimersBackend
+from pyspectrum.modules.routines.linescan_spectroscopy import create_linescan_routine
 from modules.hardware_dashboard import HardwareDashboardWindow
 
 
@@ -144,6 +145,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         act_dimers = QtGui.QAction("Caracterización de Dímeros Plasmónicos", self)
         act_dimers.triggered.connect(self._open_dimers)
         routines_menu.addAction(act_dimers)
+
+        act_linescan = QtGui.QAction("Escaneo Lineal Espectral (Transmisión/Extinción)", self)
+        act_linescan.triggered.connect(self._open_linescan)
+        routines_menu.addAction(act_linescan)
 
     def _setup_toolbar(self):
         """Barra de seguridad de hardware e instrumentación con botón E-STOP y estado de sesión."""
@@ -424,6 +429,12 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.dimers_backend = DimersBackend(self.camera, self.spectrometer)
         self.dimers_backend.make_connection(self.dimers_widget)
 
+        # Escaneo Lineal Espectral: única rutina con Worker en QThread real (DEC-006),
+        # a diferencia de las demás (Backend(QObject) + QTimer en el hilo GUI).
+        self.linescan_widget, self.linescan_worker, self.linescan_thread = create_linescan_routine(
+            self.camera, self.spectrometer, parent=self
+        )
+
         self.nano_dialog = QtWidgets.QDialog(self)
         self.nano_dialog.setWindowTitle("Control de Platina PI Piezoeléctrica")
         nano_vlo = QtWidgets.QVBoxLayout(self.nano_dialog)
@@ -504,6 +515,9 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
     def _open_dimers(self):
         self.dimers_widget.show()
 
+    def _open_linescan(self):
+        self.linescan_widget.show()
+
     def closeEvent(self, event):
         reply = QtWidgets.QMessageBox.question(
             self, 'Cerrar PySpectrum 3.0',
@@ -517,6 +531,9 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             self.confocal_backend.stop_scan()
             self.lumin_backend.stop_luminescence()
             self.growth_backend.stop_growth()
+            self.linescan_worker.cancel_scan()
+            self.linescan_thread.quit()
+            self.linescan_thread.wait(3000)
             from core.nidaq import close_all_shutters
             close_all_shutters()
             event.accept()
