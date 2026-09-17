@@ -15,10 +15,12 @@
   - `[[SYS-102_Senales_Slots_PyQt6_y_Temporizacion_DAQmx]]`
   - `[[SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx]]`
   - `[[SYS-203_Control_Comunicaciones_Laseres_RS232_SCPI]]`
+  - `[[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas]]`
 - **Fundamentos Científicos Asociados:**
   - `[[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D]]`
   - `[[CAT-107_Cinetica_Captura_Fotodiodo_Time_Volt_Filtro_Nhold]]`
-- **Módulos de Código Fuente:** `core/shutters.py`, `core/nidaq.py`, `app.py`
+- **Decisiones Arquitectónicas:** `DEC-010` (`docs/decisions/DECISION_LOG.md`)
+- **Módulos de Código Fuente:** `core/shutters.py`, `core/nidaq.py`, `app.py`, `modules/confocal.py`, `modules/focus.py`, `contrapropagante.py`
 
 ---
 
@@ -114,6 +116,66 @@ flowchart TD
      $$\text{deadline} = \max(\text{deadline}, t_{\text{actual}} + \text{extension\_s})$$
    - Esto evita reescribir la tarjeta NI-DAQmx, manteniendo cero consumo de bus I/O.
 
+### 3.3 Sincronización Centralizada de Política Global (Patrón Centinela)
+
+> [!WARNING]
+> **Trampa de Sobreescritura por Argumentos por Defecto Corregida (`DEC-010`)**
+> Hasta esta corrección, `open_shutter(name, timeout_s=30.0)` y `heartbeat_shutter(timeout_s=30.0)` hardcodeaban `30.0` como valor de parámetro por defecto en `core/nidaq.py`. Cualquier rutina experimental que abriera un obturador **sin pasar `timeout_s` explícitamente** — el patrón de llamada usado por prácticamente todos los módulos (`modules/confocal.py`, `modules/focus.py`, `contrapropagante.py`, etc.) — recibía silenciosamente `30.0` en cuanto arrancaba, **sin importar qué política hubiera seleccionado el usuario en el dock** (incluyendo `Sin límite (Modo Alineación)`). El menú del dock solo gobernaba sus propios 4 botones de obturador (`shutter0()`–`shutter3()`), que sí pasaban `timeout_s=self.current_timeout` explícitamente.
+
+Para eliminar esta trampa de raíz, `core/nidaq.py` introduce una **política global de módulo**, única fuente de verdad para todo el proceso:
+
+```python
+_default_timeout_s: float | None = 30.0
+_SENTINEL = object()
+
+def set_default_shutter_timeout(timeout_s: float | None) -> None:
+    """None o <= 0 activa Modo Alineación continua de inmediato."""
+    global _default_timeout_s, _watchdog_deadline
+    with _watchdog_lock:
+        if timeout_s is None or timeout_s <= 0:
+            _default_timeout_s = None
+            _watchdog_deadline = None
+        else:
+            _default_timeout_s = float(timeout_s)
+
+def get_default_shutter_timeout() -> float | None:
+    with _watchdog_lock:
+        return _default_timeout_s
+```
+
+`open_shutter()` y `heartbeat_shutter()` reemplazan su valor por defecto hardcodeado por un **objeto centinela** (`_SENTINEL = object()`), distinguible tanto de un `float` explícito como de un `None` explícito (que sigue significando "sin límite" cuando se pasa deliberadamente):
+
+```python
+def heartbeat_shutter(timeout_s: float | None = _SENTINEL) -> None:
+    with _watchdog_lock:
+        effective = _default_timeout_s if timeout_s is _SENTINEL else timeout_s
+        if effective is None or effective <= 0:
+            _watchdog_deadline = None
+        else:
+            _watchdog_deadline = time.time() + max(0.1, float(effective))
+```
+
+Con este diseño: una llamada sin argumento (`open_shutter(self.laser)`) **hereda dinámicamente** la política global vigente en el instante de la llamada; una llamada con argumento explícito (`open_shutter(self.laser, timeout_s=0.2)`, usado en pruebas automatizadas) sigue teniendo prioridad absoluta y nunca se ve afectada por la política global.
+
+### 3.4 Acoplamiento Bidireccional con la Interfaz de Usuario
+
+`core/shutters.py::Backend.set_autoclose_timeout()` — el slot conectado a la señal `autoclose_timeout_signal` del dock — ahora propaga el cambio a la política global además de a su propio atributo de instancia:
+
+```python
+@pyqtSlot(object)
+def set_autoclose_timeout(self, timeout_val: float | None):
+    self.current_timeout = timeout_val
+    set_default_shutter_timeout(timeout_val)          # ← impacta a TODO el proceso
+    try:
+        any_open = any(s == SHUTTER_POLARITY[sh] for s, sh in zip(_shutter_signal, SHUTTERS))
+        if any_open:
+            heartbeat_shutter(timeout_val)             # re-arma inmediatamente si ya hay algo abierto
+    except Exception:
+        pass
+```
+
+El resultado es que **cualquier cambio en el selector del dock surte efecto de inmediato sobre cualquier módulo del software** — Confocal, Impresión, Espectroscopía, Traza — sin que ese módulo necesite conocer la existencia del dock ni recibir ninguna señal Qt propia. La única fuente de verdad es el estado en memoria de `core/nidaq.py`, consultado de forma perezosa (*lazy*) en el instante exacto de cada apertura de obturador.
+
 ---
 
 ## 4. 🎛️ Control de Obturadores y Modos de Seguridad
@@ -172,6 +234,33 @@ Se implementó un esquema de latido síncrono al bucle de visualización:
   ```
   lo que desarma el temporizador y asegura que el láser no quede emitiendo al salir del modo traza.
 
+### 5.3 Auditoría de Cobertura de Latido Activo (`DEC-010`)
+
+La falla documentada en 5.1 (cierre a los 30 s durante alineación con traza) resultó ser un caso particular de un problema más amplio: **cualquier** bucle de adquisición que abra un obturador una sola vez al inicio y nunca vuelva a renovar el latido queda expuesto al mismo corte intempestivo si su duración total supera el timeout vigente — de particular gravedad en escaneos confocales de área grande, corrección de inclinación de 4 esquinas y reintentos de autofoco, que pueden superar ampliamente los 30 s.
+
+Se realizó un relevamiento exhaustivo de todos los bucles de adquisición del código base que controlan obturadores:
+
+| Módulo / Método | Cadencia de Renovación de `heartbeat_shutter()` | Estado Previo a la Auditoría |
+| :--- | :--- | :--- |
+| `modules/trace.py` (`_trace_update`, 30 FPS) | Cada 30 cuadros ($\approx 1.0\ \text{s}$) | ✅ Ya correcto (patrón de referencia, Sección 5.2) |
+| `pyspectrum/modules/routines/linescan_spectroscopy.py` (`_move_and_settle`, `_settle_wavelength`, `_sleep_with_heartbeat`) | Cada tick de polling (~10-100 ms) | ✅ Ya correcto (`DEC-006`/`DEC-009`) |
+| `pyspectrum/modules/step_and_glue.py` (`_settle_wavelength`) | Cada tick de polling del asentamiento del grating | ✅ Corregido en `DEC-009` (reemplazó `time.sleep(0.05)` fijo) |
+| `pyspectrum/modules/routines/growth_kinetics.py` / `luminescence.py` (paso de `QTimer`) | Una vez por paso de adquisición | ✅ Ya correcto |
+| `modules/confocal.py` (`_scan_ramp_xy/_xz/_yx/_yz`) | Una vez por fila de la rampa | 🔴 Sin `heartbeat_shutter` importado — corregido |
+| `modules/confocal.py` (`_scan_step_xy`) | Una vez por píxel | 🔴 Sin cobertura — corregido |
+| `modules/confocal.py` (`_measure_4_corners_tilt`) | Una vez por esquina medida | 🔴 Sin cobertura — corregido |
+| `modules/focus.py` (`focus_autocorr_lin_x2`) | Una vez por iteración del bucle `for _ in range(2)` | 🔴 El obturador permanecía abierto durante 2 iteraciones sin renovación — corregido |
+| `modules/focus.py` (`_focus_autocorr_lin`, primitiva compartida) | Una vez por reintento del bucle `while flag` | 🔴 Sin cobertura (afecta también a `confocal.py::_measure_4_corners_tilt`) — corregido |
+| `contrapropagante.py` (`_scan_ramp_xy`) | Una vez por fila de la rampa | 🔴 Sin `heartbeat_shutter` importado — corregido |
+| `modules/measurements.py` (`_grid_trace`/`grid_trace_detect`) | N/A — delega en `trace.py` | ✅ Verificado: no requiere cobertura propia (el bucle real vive en `trace.py`, ya cubierto) |
+| `pyspectrum/modules/hyperspectral_confocal.py` | N/A | ✅ Verificado: no controla obturadores en absoluto |
+| `modules/camera.py` (botón manual `btn_shutter`) | N/A — no es un bucle | ✅ Verificado: se beneficia automáticamente de la política global (Sección 3.3), no requiere latido propio |
+
+> [!NOTE]
+> Todas las renovaciones periódicas nuevas usan `heartbeat_shutter(30.0)` con el valor explícito, replicando deliberadamente el patrón ya validado en `modules/trace.py` y `pyspectrum/modules/routines/linescan_spectroscopy.py` — esto es intencional y **no** contradice la política global de la Sección 3.3: el latido periódico de una rutina en ejecución es una renovación de seguridad acotada y de intervalo corto controlada por la propia rutina, mientras que la política global de la Sección 3.3 solo gobierna el valor con el que se **arma** el temporizador la primera vez que se abre el obturador (`open_shutter()` sin argumento).
+
+Consúltese `docs/decisions/DECISION_LOG.md` (`DEC-010`) para el detalle completo de esta auditoría, incluyendo la corrección de infraestructura de pruebas (fixture `app` de pytest faltante y una ambigüedad de `sys.path` entre dos instalaciones de PyQt6 en el entorno de desarrollo) que enmascaraba parcialmente sus resultados de verificación.
+
 ---
 
 ## 6. 🔌 Desacoplamiento de la Modulación Analógica del Láser 532 nm
@@ -201,6 +290,8 @@ Se ejecutaron pruebas automatizadas exhaustivas para verificar ausencia de colis
 2. **Renovación Activa en Bucle de Traza**: Emisión de latidos periódicos mantiene el shutter abierto más allá del timeout inicial.  `PASS`
 3. **Sincronización de UI ante Cierre Forzado**: Checkbox de la GUI se desmarca automáticamente tras el corte de hardware.  `PASS`
 4. **Selector Frontend y Botón de Pánico**: Comprobación funcional de todos los presets temporales y del pulsador `🚨 Cerrar Todos`.  `PASS`
+5. **Rutina Experimental Respeta la Política Global "Sin Límite"** (`DEC-010`): el dock se fija en Modo Alineación y una llamada `open_shutter(laser)` sin `timeout_s` explícito — la firma real usada por toda rutina experimental — hereda correctamente la política, sin rearmar el watchdog a 30 s.  `PASS`
+6. **Rutina Experimental Respeta la Política Global de 30 s** (`DEC-010`): camino inverso — con la política global restaurada a 30 s, `open_shutter(laser)` sin argumento arma correctamente el watchdog.  `PASS`
 
 ### 7.3 Test de Reactividad y Desacoplamiento del Flipper (`tests/test_powerbutton_actuation.py`)
 1. **Actuación Manual vía `clicked`**: Verificación de emisión analógica $5\ \text{V} \times 100\ \text{ms}$ ante clic de usuario.  `PASS`

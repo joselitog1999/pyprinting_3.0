@@ -393,6 +393,9 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
   - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⏱️ Auto-cierre en: Xs`), el modo seguro armado (`⏱️ Auto-cierre activo (Xs)`) o el modo alineación continua (`⚠️ MODO ALINEACIÓN (Sin auto-cierre)`).
   - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores digitales.
   - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos de obturador, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
+
+> [!IMPORTANT]
+> **El selector de auto-cierre gobierna a TODO el software, no solo a este dock.** Antes, elegir `30s`, `60s`, `300s`, `600s` o `Sin límite (Modo Alineación)` solo afectaba a los 4 obturadores manuales de este panel — cualquier rutina automatizada (Confocal, Impresión, Espectroscopía) que abriera un láser internamente ignoraba la elección y volvía a aplicar 30 s por defecto. Esto ya no ocurre: la política elegida aquí se propaga de inmediato a **todos** los módulos del software en tiempo real, sin necesidad de reiniciar ninguna rutina en curso ni de reabrir ningún dock. Si necesita alinear manualmente durante minutos sin interrupciones, seleccionar `Sin límite (Modo Alineación)` aquí es suficiente — ya no es necesario preocuparse por que una rutina en segundo plano rearme el corte a 30 s.
 * **Modulación Analógica de Potencia**: El control de voltaje analógico DAC ($0.0 - 5.0\ \text{V}$, canal `ao2`) para el láser verde se encuentra desacoplado de este panel y se opera desde su ventana especializada **`Laser532Window`** (disponible desde el Lanzador Principal y menú **`Tools → Láser 532`**).
 
 ---
@@ -417,9 +420,12 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
     - **`Re Pág (PgUp) / Av Pág (PgDn)`**: Desplaza el eje axial Z en $\pm \Delta z$.
     - El valor de $\Delta$ respeta el casillero `Step X-Y` o `Step Z`.
 * **Telemetría y Estado Físico en Tiempo Real**:
-  - `🟢 PI Física (SN: 0119048050)`: La controladora física responde activamente mediante health-check periódico `qIDN()`.
+  - `🟢 PI Física (SN: 0119048050)`: La controladora física responde activamente mediante health-check periódico basado en el estado de conexión en memoria del lado del host, sin saturar el bus USB con consultas de identidad (`*IDN?`) repetidas durante movimiento activo.
   - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente si el hardware está apagado o desconectado, imprimiendo en consola `[PI VIRTUAL] MOV ...` para no confundir desplazamientos numéricos de GUI con movimiento mecánico real.
   - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas.
+
+> [!NOTE]
+> **Resiliencia ante rechazos de comando (`SYS-205`)**: un intento de mover la platina a una coordenada fraccionalmente fuera de $[0, 100]\ \mu\text{m}$ (por ejemplo, por una corrección de deriva acumulada) ya **no** provoca una desconexión — el driver clampea automáticamente el valor al límite físico válido más cercano y continúa operando con normalidad. Del mismo modo, una colisión transitoria de lectura durante un movimiento activo se reintenta automáticamente y nunca conmuta el indicador a `🟡 Modo Virtual` por sí sola. Solo una pérdida de comunicación física genuina (cable USB, alimentación de la controladora) activa ese indicador, y solo después de que el propio software intente una reconexión automática transparente sin éxito.
 * **Perfil de Conexión de Inicio (`pyprinting`)**:
   - Al abrir `PyPrinting 3.0` (`app.py`), el sistema aísla el bus USB activando únicamente la **Platina PI** y la **Tarjeta NI-DAQmx**. Los periféricos pesados (cámara réflex Canon y espectrómetros Andor) se mantienen desconectados por defecto y en espera de activación bajo demanda, garantizando un arranque ultrarrápido y previniendo colisiones de puertos USB.
 
@@ -535,6 +541,44 @@ Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquet
 > [!NOTE]
 > Para consultar el informe técnico completo sobre compresión *lossless* `shuffle+gzip` y benchmarks de velocidad, consulte:  
 > [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5|CAT-401: Estándar de Serialización Jerárquica en Contenedor HDF5 (.h5)]].
+
+#### 3.7.5 Seguridad y Resiliencia ante Fallas de Comunicación con la Platina PI
+
+> 🔩 **Referencia Técnica**: Consultar [[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas|SYS-205: Resiliencia del Driver de Platina PI E-517 y Tolerancia a Fallas]] para el detalle arquitectónico completo.
+
+**Alerta Previa de Rango de Platina (Pre-flight Warning)**
+
+Al presionar **`Play ►`** para iniciar una grilla nueva, el software calcula la caja envolvente total del experimento (posición de referencia `startX`/`startY` más la extensión completa de la grilla, con un margen de seguridad de $3\ \mu\text{m}$ para deriva térmica) **antes** de mover la platina o abrir ningún láser. Si esa caja excede el rango físico $[0, 100]\ \mu\text{m}$ en cualquier eje, aparece un cuadro de diálogo de advertencia:
+
+> ⚠️ *"La grilla configurada excede el rango físico de la platina ([x_min, x_max] µm en X, [y_min, y_max] µm en Y). Ajuste la posición inicial (startX, startY) o reduzca el tamaño de la grilla antes de iniciar."*
+
+La grilla **no arranca** — ningún láser se abre ni la platina se mueve. Para resolverlo:
+1. Presionar **`Go to reference`** y volver a capturar `Set reference` en una posición más centrada de la platina, o
+2. Reducir el número de partículas por columna/columnas (`NPs/col`, `Cols`) o el espaciamiento (`Dist NP µm`, `Dist Col µm`) en **`Create Grid`**.
+
+> [!NOTE]
+> Este chequeo se suma al clampeo automático que ya protege el hardware físico (Sección 3.6): la diferencia es que el clampeo evita dañar la platina, mientras que esta alerta evita imprimir una grilla geométricamente distorsionada sin que el operador lo note hasta procesar los datos.
+
+**Protocolo de Recuperación en Mediciones Nocturnas**
+
+Si durante un experimento no supervisado (impresión de grilla larga, seguimiento de deriva de varias horas) la platina física pierde comunicación real con el software — por ejemplo, un corte de alimentación o un cable USB que se suelta — aparece un diálogo modal:
+
+> ⚠️ *"Comunicación con la platina interrumpida en la partícula N. Se cerraron los obturadores por seguridad. Verifique el equipo y presione 'Reconectar y Reanudar' para continuar el experimento."*
+
+Qué hace el sistema automáticamente, sin intervención del operador, en el instante en que detecta la falla:
+1. **Cierra todos los obturadores** de inmediato, protegiendo la muestra de irradiación desatendida.
+2. **Pausa el experimento** conservando exactamente dónde estaba: el índice de la partícula pendiente, todas las partículas ya impresas exitosamente y los registros de deriva permanecen intactos — nada se reinicia ni se pierde.
+
+Qué debe hacer el operador al ver este diálogo:
+1. Verificar físicamente el cable USB y la alimentación eléctrica de la controladora PI E-517.
+2. Presionar el botón **`🔌 Reconectar y Reanudar`** del propio diálogo.
+3. Si la reconexión es exitosa, el experimento **continúa automáticamente desde la partícula exacta donde se detuvo** — no es necesario, ni recomendable, volver a crear o cargar la grilla, ni presionar `Play ►` de nuevo.
+4. Si la reconexión falla (el mensaje se repite), revisar la conexión física nuevamente antes de reintentar.
+
+> [!WARNING]
+> No cierre la ventana de Mediciones ni presione `Reset all 🔄` mientras este diálogo esté visible — eso sí descartaría el progreso del lote. El botón `🔌 Reconectar y Reanudar` es la única acción necesaria para retomar el experimento sin pérdidas.
+
+---
 
 #### 3.8 Tablero de Conexiones & Seguridad de Hardware (`HardwareDashboardWindow`, `HardwareDashboardWidget` & `HardwareManager`)
 El **Tablero de Conexiones y Seguridad de Hardware** constituye el centro neurálgico de telemetría y aislamiento del sistema. Se encuentra configurado como una **ventana independiente flotante** (`HardwareDashboardWindow`) accesible desde:

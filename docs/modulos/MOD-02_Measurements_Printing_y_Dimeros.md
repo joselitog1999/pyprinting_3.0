@@ -4,9 +4,10 @@
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
 **Manual de Usuario Canónico** | **Código:** `MOD-02` | **Nivel de Usuario:** Operador / Experto  
 **Archivos Fuente Asociados:**
-- [`modules/measurements.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/measurements.py) (Motor central de impresión automatizada, dímeros y criterios de parada)
+- [`modules/measurements.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/measurements.py) (Motor central de impresión automatizada, dímeros, criterios de parada, pre-flight de rango y pausa/reanudación ante fallas de hardware)
 - [`modules/confocal.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/confocal.py) (Microescaneos de control pre/post impresión y corrección de deriva P0)
 - [`modules/focus.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/focus.py) (Autofoco axial de doble etapa)
+- [`config.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/config.py) (`_PIController`: resiliencia de conexión de la platina PI, ver `[[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas]]`)
 
 ---
 
@@ -16,6 +17,9 @@
   * `[[SYS-101_Arquitectura_Hilos_Concurrencia_QThread]]`
   * `[[SYS-102_Senales_Slots_PyQt6_y_Temporizacion_DAQmx]]`
   * `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO]]`
+  * `[[SYS-201_Seguridad_Optica_Watchdog_y_Obturadores]]`
+  * `[[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas]]`
+  * `[[SYS-403_Registro_Bugs_Causa_Raiz_Rutina_Printing]]`
 * **Fundamentos Científicos Asociados:**
   * `[[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D]]`
   * `[[CAT-103_Control_Lazo_Cerrado_Fototermico_y_Sintesis_Dimeros]]`
@@ -28,6 +32,7 @@
   * `[[MOD-01_Microscopio_Derecho_App]]`
   * `[[MOD-07_Disenador_Redes_2D_Grid_Generator]]`
   * `[[MOD-14_Protocolos_Laboratorio_SOP]]`
+* **Decisiones Arquitectónicas:** `DEC-010`, `DEC-011` (`docs/decisions/DECISION_LOG.md`)
 
 ---
 
@@ -157,6 +162,9 @@ should_stop = (self.hold_counter >= self.n_hold_steps)
 
 ## 6. 🔬 Protocolo de Doble Autofoco con Desplazamiento Seguro
 
+> [!IMPORTANT]
+> **Validación Pre-Flight de Rango (`SYS-205`, `DEC-011`)**: antes de que `Play ►` dispare la primera etapa del protocolo, `_preflight_grid_range_check()` calcula la caja envolvente completa de la grilla (`startX`/`startY` ± extensión de la grilla ± margen de deriva térmica de $3\ \mu\text{m}$) y verifica que quede dentro de $[0, 100]\ \mu\text{m}$ en ambos ejes. Si la excede, el protocolo **ni siquiera comienza** — no se mueve la platina ni se abre ningún láser — y se muestra un diálogo de advertencia indicando el rango calculado. Ver `[[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas]]` Sección 4 para la fórmula completa.
+
 Cuando `Drift check` está activo y se alcanza el intervalo de autofoco:
 
 ```mermaid
@@ -185,6 +193,17 @@ sequenceDiagram
     Backend->>Flipper: down_flipper() [Alta Potencia]
     Backend->>DAQ: Abrir Obturador y Adquirir Traza Fototérmica
 ```
+
+### 6.1 Manejo de Excepciones de Hardware y Reanudación (`SYS-205`, `DEC-011`)
+
+Cada transición de nodo (independientemente de en cuál de las 4 etapas se encuentre) pasa por `_grid_move()`, que verifica `pi.connected` **antes** de emitir cualquier comando de movimiento. En operación normal esto es transparente: el driver de la platina ya absorbe internamente los rechazos de comando por firmware (`GCSError`, p. ej. límites de coordenadas) y las colisiones transitorias de bus sin afectar la conexión (ver `[[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas]]` Secciones 3.3-3.6).
+
+Solo ante una **pérdida de comunicación física real** (cable USB, alimentación de la controladora), `_grid_move()` intercepta la condición y:
+1. Cierra todos los obturadores de inmediato (`close_all_shutters()`).
+2. Pausa el experimento (`is_paused = True`) **sin** tocar `i_global`, `node_results` ni los historiales de deriva.
+3. Muestra un diálogo modal con el botón **`🔌 Reconectar y Reanudar`**, que invoca `resume_after_reconnect()`: reconecta la platina y retoma `_grid_move()` exactamente en el nodo pendiente.
+
+> 📘 Ver `[[MOD-02_Measurements_Printing_y_Dimeros]]` §11 para la fila de modo de falla correspondiente, y `docs/MANUAL_USUARIO.md` §3.7.5 para el protocolo operativo paso a paso que debe seguir el operador.
 
 ---
 
@@ -303,6 +322,8 @@ En la carpeta `YYYYMMDD-HHMMSS_Printing_<CustomName>/`:
 | **Timeout por Agotamiento Difusivo** ($t > T_{\text{max}} = 20.0\ \text{s}$). | La traza temporal registra únicamente ruido basal sin escalón hasta alcanzar $T_{\text{max}}$; la GUI aborta el nodo y avanza al siguiente marcándolo como fallo. | Comprobar que el obturador láser abra físicamente (comprobar LED del shutter y destello verde en cámara), aumentar ligeramente la potencia ($+0.5\ \text{mW}$) o ejecutar el **Healing Pass** al concluir la red. |
 | **Deriva Térmica Desbordada en Lote Largo** ($\vec{v}_{\text{drift}} > 15\ \text{nm/s}$). | La partícula ancla $P_0$ se desplaza fuera de la ventana de microescaneo ($2 \times 2\ \mu\text{m}$); los nodos finales de la grilla aparecen desalineados en el mapa confocal general. | Habilitar `Adaptive AF?` fijando la tolerancia `Drift Tol` en $\le 20.0\ \text{nm}$, activar `Confocal Tilt` Z en 4 esquinas y esperar la estabilización térmica del recinto de medición. |
 | **Repulsión Óptica en Ensamblado de Dímeros** (Polarización perpendicular $\mathbf{E} \perp \hat{\mathbf{r}}_{AB}$). | La segunda partícula no logra ingresar al gap sub-20 nm y se deposita desplazada lateralmente ($> 100\ \text{nm}$) respecto a la posición objetivo. | Rotar la placa de media onda ($\lambda/2$) del haz de 532 nm para orientar el campo eléctrico colinealmente con el eje del dímero ($\mathbf{E} \parallel \hat{\mathbf{r}}_{AB}$), induciendo fuerza óptica atractiva. |
+| **Grilla Fuera de Rango Físico** (`startX`/`startY` + extensión de la grilla excede $[0, 100]\ \mu\text{m}$). | Al presionar `Play ►`, aparece de inmediato un diálogo de advertencia con el rango calculado ($x_{\min}, x_{\max}, y_{\min}, y_{\max}$); la grilla no arranca, ningún láser se abre. | Ajustar `startX`/`startY` (re-capturar `Set reference` en una posición más centrada) o reducir el tamaño/espaciamiento de la grilla en `Create Grid`. Ver `[[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas]]` §4. |
+| **Pérdida de Comunicación Física con la Platina PI** (cable USB, alimentación de la controladora, durante un lote largo no supervisado). | Diálogo modal *"⚠️ Comunicación con la platina interrumpida en la partícula N"*; los obturadores se cierran automáticamente; la barra de progreso y el índice de nodo quedan congelados en el valor donde se pausó. | Verificar cable USB/alimentación de la controladora E-517 y presionar `🔌 Reconectar y Reanudar` en el diálogo — el experimento continúa exactamente desde la partícula N sin perder progreso. **No** presionar `Reset all 🔄` ni cerrar la ventana mientras el diálogo esté visible. Ver `[[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas]]` §5. |
 
 ---
 
