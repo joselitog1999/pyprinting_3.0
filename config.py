@@ -159,6 +159,17 @@ DEFAULT_TRACKPY_MINMASS         = 100.0   # masa mínima para detección trackpy
 #  MOCK PI  — misma interfaz que _PIController, sin hardware real
 # ══════════════════════════════════════════════════════════════════════════════
 
+try:
+    from pipython import GCSError
+except ImportError:
+    class GCSError(Exception):
+        """Stand-in cuando pipython no está instalado (entorno mock/test): permite que
+        `except GCSError:` siga siendo válido sintácticamente en _PIController sin que
+        pipython sea una dependencia dura. En este caso self._dev siempre es None, así que
+        las ramas que lo capturan nunca se ejecutan de todas formas."""
+        pass
+
+
 class _MockPI:
     """
     Simula la platina PI E-517.
@@ -216,6 +227,16 @@ class _MockPI:
             if isinstance(axes, int):
                 axes    = [axes]
                 targets = [targets]
+            axes = list(axes)
+            targets = list(targets)
+            clamped_any = False
+            for i, tg in enumerate(targets):
+                clamped = max(0.0, min(PI_STAGE_RANGE_UM, float(tg)))
+                if clamped != float(tg):
+                    clamped_any = True
+                targets[i] = clamped
+            if clamped_any:
+                print(f"[PI Driver Clamped] MOV solicitado fuera de rango, acotado a [0, {PI_STAGE_RANGE_UM}] µm: {dict(zip(axes, targets))}")
             for ax, tg in zip(axes, targets):
                 if ax in self._pos:
                     self._pos[ax] = round(float(tg), 4)
@@ -281,13 +302,19 @@ class _PIController:
             self._dev = None
 
     def is_physically_connected(self) -> bool:
-        """Comprueba si la platina física está verdaderamente en línea y respondiendo."""
+        """Comprueba si la platina física está verdaderamente en línea. NO envía *IDN? por
+        el bus USB en cada llamada (root cause de saturación del buffer serie mientras la
+        platina se desplaza, ver DEC-011): usa GCSDevice.IsConnected(), una consulta de
+        estado del lado del host sin tráfico hacia el controlador, cuando está disponible."""
         with self._lock:
             if not self._connected or self._isolated or self._dev is None:
                 return False
             try:
-                idn = self._dev.qIDN().strip()
-                return bool(idn) and ("Virtual" not in idn) and ("MOCK" not in idn)
+                if hasattr(self._dev, "IsConnected"):
+                    return bool(self._dev.IsConnected())
+                # Fallback si esta versión de pipython no expone IsConnected(): confiar en
+                # el estado en memoria en vez de sondear con qIDN().
+                return self._connected
             except Exception:
                 self._connected = False
                 return False
@@ -394,29 +421,60 @@ class _PIController:
         with self._lock:
             self._isolated = isolated
 
+    def _retry_read(self, fn, max_retries: int = 2, delay_s: float = 0.02):
+        """Reintenta una lectura (qPOS/qONT) hasta max_retries veces ante fallos transitorios
+        de bus ocupado (p.ej. colisión con otra lectura durante un movimiento activo), sin
+        tocar self._connected. Relanza la última excepción si todos los reintentos fallan —
+        el llamador decide entonces cómo degradar (nunca desconectando, ver qPOS/qONT)."""
+        import time
+        last_exc = None
+        for attempt in range(max_retries + 1):
+            try:
+                return fn()
+            except Exception as e:
+                last_exc = e
+                if attempt < max_retries:
+                    time.sleep(delay_s)
+        raise last_exc
+
+    def try_auto_reconnect(self) -> bool:
+        """Intenta reabrir la conexión física UNA vez de forma transparente antes de que el
+        llamador (típicamente MOV() ante un fallo de comunicación real) decida declarar la
+        platina desconectada. No bloquea indefinidamente: connect() ya tiene sus propios
+        timeouts internos (enumeración USB, asentamiento de home)."""
+        print("[PI] Intentando reconexión automática transparente...")
+        try:
+            return self.connect(PI_SERIAL)
+        except Exception as e:
+            print(f"[PI] Reconexión automática fallida: {e}")
+            return False
+
     def qPOS(self, axes=None):
         with self._lock:
             if self._connected and not self._isolated and self._dev is not None:
                 try:
-                    real = self._dev.qPOS(axes)
+                    real = self._retry_read(lambda: self._dev.qPOS(axes))
                     for k in (1, 2, 3):
                         if str(k) in real:
                             self._pos[k] = float(real[str(k)])
                         elif k in real:
                             self._pos[k] = float(real[k])
                     return real
+                except GCSError as e:
+                    print(f"[PI] qPOS rechazado por firmware (GCSError {e}) — la conexión física se mantiene.")
                 except Exception as e:
-                    print(f"[PI] Error en lectura real qPOS ({e}) — Platina desconectada, usando posición virtual.")
-                    self._connected = False
+                    print(f"[PI] qPOS: fallo de lectura tras reintentos ({e}) — usando última posición conocida; la conexión física se mantiene (no es evidencia de desconexión real).")
             return {"1": self._pos[1], "2": self._pos[2], "3": self._pos[3]}
 
     def qONT(self, axes=None):
         with self._lock:
             if self._connected and not self._isolated and self._dev is not None:
                 try:
-                    return self._dev.qONT(axes)
-                except Exception:
-                    self._connected = False
+                    return self._retry_read(lambda: self._dev.qONT(axes))
+                except GCSError as e:
+                    print(f"[PI] qONT rechazado por firmware (GCSError {e}) — la conexión física se mantiene.")
+                except Exception as e:
+                    print(f"[PI] qONT: fallo de lectura tras reintentos ({e}) — asumiendo on-target; la conexión física se mantiene (no es evidencia de desconexión real).")
             if isinstance(axes, int):
                 return {axes: True}
             axes = axes or PI_AXES
@@ -431,16 +489,44 @@ class _PIController:
                 axes_list = list(axes)
                 targets_list = list(targets)
 
+            # Clampeo preventivo obligatorio (CLAUDE.md §4): ninguna coordenada sale de este
+            # driver fuera de [0, PI_STAGE_RANGE_UM], sin importar si el llamador ya clampeó
+            # o no. Esto erradica GCSError -1004 (Position out of limits) en la fuente, que
+            # antes se interpretaba erróneamente como una desconexión física del USB.
+            clamped_any = False
+            for i, tg in enumerate(targets_list):
+                clamped = max(0.0, min(PI_STAGE_RANGE_UM, float(tg)))
+                if clamped != float(tg):
+                    clamped_any = True
+                targets_list[i] = clamped
+            if clamped_any:
+                print(f"[PI Driver Clamped] MOV solicitado fuera de rango, acotado a [0, {PI_STAGE_RANGE_UM}] µm: {dict(zip(axes_list, targets_list))}")
+
             for ax, tg in zip(axes_list, targets_list):
                 if ax in self._pos:
                     self._pos[ax] = round(float(tg), 4)
 
             if self._connected and not self._isolated and self._dev is not None:
                 try:
-                    return self._dev.MOV(axes, targets)
+                    return self._dev.MOV(axes_list, targets_list)
+                except GCSError as e:
+                    # Rechazo de firmware (parámetro, sintaxis, límite de software residual):
+                    # la conexión física sigue viva, el comando simplemente no se ejecutó.
+                    print(f"[PI] MOV rechazado por firmware (GCSError {e}) — la conexión física se mantiene, comando ignorado.")
                 except Exception as e:
-                    print(f"[PI] Error en comando real MOV ({e}) — Platina desconectada, guardado en posición virtual.")
-                    self._connected = False
+                    # Único camino que puede declarar desconexión real: un fallo que NO es
+                    # un GCSError (típicamente IOError/timeout de bajo nivel del bus USB).
+                    # Antes de rendirse, intenta una reconexión transparente.
+                    print(f"[PI] Error de comunicación de bajo nivel en MOV ({e}). Intentando reconexión automática...")
+                    if self.try_auto_reconnect():
+                        try:
+                            return self._dev.MOV(axes_list, targets_list)
+                        except Exception as e2:
+                            print(f"[PI] MOV sigue fallando tras reconexión automática ({e2}) — Platina desconectada, guardado en posición virtual.")
+                            self._connected = False
+                    else:
+                        print("[PI] Reconexión automática fallida — Platina desconectada, guardado en posición virtual.")
+                        self._connected = False
             else:
                 print(f"[PI VIRTUAL] MOV {dict(zip(axes_list, targets_list))} (Platina física desconectada)")
 

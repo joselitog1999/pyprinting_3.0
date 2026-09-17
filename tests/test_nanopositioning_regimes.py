@@ -13,10 +13,25 @@ import sys
 import unittest
 from pathlib import Path
 
+# A diferencia del resto de los archivos de tests/, este no tenía el boilerplate estándar
+# de registro de la raíz del proyecto en sys.path -- solo funcionaba bajo pytest porque
+# tests/conftest.py lo hace por él. Ejecutado como script directo (p.ej.
+# `python tests/test_nanopositioning_regimes.py`), fallaba con
+# "ModuleNotFoundError: No module named 'config'". Ver DECISION_LOG DEC-011.
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 # Configurar entorno headless
 import os
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["PYPRINTING_SAFE"] = "1"
+
+# `config` debe importarse ANTES que PyQt6 (ver tests/conftest.py y
+# tests/test_shutter_alignment_and_heartbeat.py para el detalle completo): este entorno
+# puede tener dos instalaciones de PyQt6 para la misma versión de Python, y config.py
+# antepone la funcional a sys.path solo al importarse.
+import config  # noqa: F401
 
 from PyQt6.QtWidgets import QApplication, QLineEdit
 from PyQt6.QtCore import Qt, QEvent

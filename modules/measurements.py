@@ -48,8 +48,8 @@ from config import (pi, SAFE_MODE, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE,
                     DEFAULT_PRINTING_STEPS_AFTER, DEFAULT_PRINTING_AUTOFOCUS_EVERY,
                     DEFAULT_PRINTING_SHIFT_X, DEFAULT_PRINTING_SHIFT_Y,
                     DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY,
-                    DEFAULT_COORDINATE_REGIME, REGIME_LEGACY)
-from nidaq  import (open_shutter, close_shutter,
+                    DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, PI_STAGE_RANGE_UM)
+from nidaq  import (open_shutter, close_shutter, close_all_shutters,
                     up_flipper, down_flipper)
 
 
@@ -1415,6 +1415,31 @@ class Frontend(QFrame):
         print("[Measurements] 🔄 Frontend reseteado a valores iniciales.")
 
     @pyqtSlot(str)
+    def _show_grid_range_error(self, msg: str):
+        print(f"[Measurements] ⛔ {msg}")
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return
+        QMessageBox.warning(self, "Grilla Fuera de Rango", msg)
+
+    @pyqtSlot(str)
+    def _show_stage_disconnected_dialog(self, msg: str):
+        """Diálogo modal de recuperación (Task 3, estabilidad crítica): un botón dedicado
+        'Reconectar y Reanudar' llama a Backend.resume_after_reconnect(), que retoma la
+        secuencia exactamente en el nodo pendiente sin perder partículas ya impresas."""
+        print(f"[Measurements] ⚠️ {msg}")
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("⚠️ Platina Desconectada — Experimento Pausado")
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setText(msg)
+        btn_resume = msg_box.addButton("🔌 Reconectar y Reanudar", QMessageBox.ButtonRole.AcceptRole)
+        msg_box.addButton("Cerrar", QMessageBox.ButtonRole.RejectRole)
+        msg_box.exec()
+        if msg_box.clickedButton() is btn_resume and getattr(self, "_backend_ref", None) is not None:
+            self._backend_ref.resume_after_reconnect()
+
+    @pyqtSlot(str)
     def _show_pattern_finished_dialog(self, folder_path: str):
         if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
             return
@@ -1471,6 +1496,7 @@ class Frontend(QFrame):
         if getattr(self, "_connections_made", False):
             return
         self._connections_made = True
+        self._backend_ref = backend
         backend.referenceSignal.connect(self.reference_label)
         backend.particulasSignal.connect(self.particulas_edit)
         backend.gridplotSignal.connect(self.grid_plot)
@@ -1494,6 +1520,10 @@ class Frontend(QFrame):
             backend.timeVoltTrackingFinishedSignal.connect(self._show_time_volt_tracking_dialog)
         if hasattr(backend, "resetFrontendSignal"):
             backend.resetFrontendSignal.connect(self.on_reset_frontend)
+        if hasattr(backend, "gridRangeErrorSignal"):
+            backend.gridRangeErrorSignal.connect(self._show_grid_range_error)
+        if hasattr(backend, "stageDisconnectedSignal"):
+            backend.stageDisconnectedSignal.connect(self._show_stage_disconnected_dialog)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1515,6 +1545,8 @@ class Backend(QObject):
     driftTrackingFinishedSignal = pyqtSignal(dict)
     timeVoltTrackingFinishedSignal = pyqtSignal(dict)
     resetFrontendSignal   = pyqtSignal()
+    gridRangeErrorSignal  = pyqtSignal(str)
+    stageDisconnectedSignal = pyqtSignal(str)
 
     grid_move_finishSignal = pyqtSignal()
     grid_autofocusSignal   = pyqtSignal(str)
@@ -1944,6 +1976,33 @@ class Backend(QObject):
             self.indexSignal.emit(self.i_global)
             self._grid_move()
 
+    def _preflight_grid_range_check(self) -> bool:
+        """Calcula la caja envolvente total de la grilla (startX/startY + grid_x/grid_y,
+        con un margen de seguridad para deriva termica) y verifica que quede dentro del
+        rango fisico [0, PI_STAGE_RANGE_UM] en ambos ejes. Devuelve False y emite
+        gridRangeErrorSignal si la grilla excede el rango -- el llamador debe abortar
+        antes de mover la platina o abrir obturadores."""
+        if not hasattr(self, 'grid_x') or not hasattr(self, 'grid_y') or len(self.grid_x) == 0:
+            return True
+
+        drift_margin = 3.0  # margen de seguridad para deriva termica durante el experimento
+        x_min = self.startX + float(np.min(self.grid_x)) - drift_margin
+        x_max = self.startX + float(np.max(self.grid_x)) + drift_margin
+        y_min = self.startY + float(np.min(self.grid_y)) - drift_margin
+        y_max = self.startY + float(np.max(self.grid_y)) + drift_margin
+
+        if x_min < 0.0 or x_max > PI_STAGE_RANGE_UM or y_min < 0.0 or y_max > PI_STAGE_RANGE_UM:
+            msg = (
+                f"La grilla configurada excede el rango fisico de la platina "
+                f"([{x_min:.3f}, {x_max:.3f}] um en X, [{y_min:.3f}, {y_max:.3f}] um en Y; "
+                f"rango valido: [0.0, {PI_STAGE_RANGE_UM:.1f}] um). "
+                f"Ajuste la posicion inicial (startX, startY) o reduzca el tamano de la "
+                f"grilla antes de iniciar."
+            )
+            self.gridRangeErrorSignal.emit(msg)
+            return False
+        return True
+
     def _grid_start(self):
         self.mode_printing        = self.mode_arg
         self.is_paused            = False
@@ -1957,6 +2016,20 @@ class Backend(QObject):
         self.grid_start_time      = time.time()
         self.startX               = self.xref
         self.startY               = self.yref
+
+        # Pre-flight range check: aborta ANTES de mover la platina o abrir laseres si la
+        # grilla configurada (startX/startY + su caja envolvente) excede el rango fisico
+        # de la platina PI E-517. Sin esto, un pi.MOV() fuera de rango en un nodo de borde
+        # quedaria clampeado silenciosamente por el driver (ver _PIController.MOV), lo que
+        # evita el error -1004 y la desconexion, pero imprimiria esa particula en una
+        # posicion distinta a la calculada -- una grilla cientificamente distorsionada sin
+        # que el operador se entere. Este chequeo detiene el experimento con tiempo para
+        # que el operador corrija startX/startY o el tamano de grilla, en vez de descubrir
+        # la distorsion al procesar los datos.
+        if not self._preflight_grid_range_check():
+            self.mode_printing = "none"
+            return
+
         self.printing_error_x = []; self.printing_error_y = []
         self.drift_history_xy = []
         self.drift_history_z  = []
@@ -2011,7 +2084,55 @@ class Backend(QObject):
 
     stepsParametersSignal = pyqtSignal(list)
 
+    def _check_physical_connection_or_pause(self) -> bool:
+        """Chequeo de resiliencia ante pérdida real de comunicación con la platina en medio
+        de un experimento no supervisado. config.py::_PIController ya NO desconecta ante un
+        simple GCSError de firmware (comando rechazado) — solo `pi.connected` pasa a False
+        tras un fallo de comunicación de bajo nivel genuino que sobrevivió a un intento de
+        reconexión automática (ver _PIController.MOV/try_auto_reconnect). Si eso ocurre,
+        protege la muestra y pausa sin perder progreso, en vez de seguir emitiendo comandos
+        MOV al vacío en Modo Virtual mientras la platina física está congelada. Devuelve
+        False si se pausó — el llamador debe abortar su transición de etapa actual."""
+        if pi.connected:
+            return True
+        close_all_shutters()
+        self.is_paused = True
+        self.mode_printing = "none"
+        msg = (
+            f"Comunicación con la platina interrumpida en la partícula {self.i_global}. "
+            f"Se cerraron los obturadores por seguridad. Verifique el equipo y presione "
+            f"'Reconectar y Reanudar' para continuar el experimento."
+        )
+        print(f"[Measurements] ⛔ {msg}")
+        self.stageDisconnectedSignal.emit(msg)
+        return False
+
+    @pyqtSlot()
+    def resume_after_reconnect(self):
+        """Slot del botón 'Reconectar y Reanudar' del diálogo de recuperación: reabre la
+        conexión física y retoma la secuencia exactamente en el nodo pendiente (i_global,
+        partículas ya impresas y logs de deriva quedaron intactos durante la pausa)."""
+        print("[Measurements] 🔌 Intentando reconexión con la platina...")
+        try:
+            reconnected = pi.connect() if hasattr(pi, "connect") else pi.connected
+        except Exception as e:
+            reconnected = False
+            print(f"[Measurements] Error al reconectar: {e}")
+        if not reconnected and not pi.connected:
+            self.stageDisconnectedSignal.emit(
+                "La reconexión con la platina falló. Verifique el cable USB/alimentación y "
+                "vuelva a presionar 'Reconectar y Reanudar'."
+            )
+            return
+        print(f"[Measurements] ✅ Platina reconectada. Reanudando en partícula {self.i_global}...")
+        self.is_paused = False
+        self.mode_printing = self.mode_arg
+        self.indexSignal.emit(self.i_global)
+        self._grid_move()
+
     def _grid_move(self):
+        if not self._check_physical_connection_or_pause():
+            return
         if hasattr(self, 'grid_x') and len(self.grid_x) > 0:
             self.i_global = max(0, min(self.i_global, len(self.grid_x) - 1))
         axes    = [1, 2]
@@ -2351,6 +2472,12 @@ class Backend(QObject):
             self.autofocus_stage = "insitu_autofocus"
             target_insitu_x = self.grid_x[self.i_global] + self.startX + getattr(self, 'shiftx', 0.0)
             target_insitu_y = self.grid_y[self.i_global] + self.startY + getattr(self, 'shifty', 0.0)
+            # Clampeo explícito de defensa en profundidad (además del clamp interno de
+            # _PIController.MOV()): una coordenada de impresión fuera de rango aquí sería un
+            # síntoma de grilla mal configurada que el pre-flight check ya debería haber
+            # atrapado, pero nunca debe llegar sin acotar a pi.MOV().
+            target_insitu_x = max(0.0, min(PI_STAGE_RANGE_UM, target_insitu_x))
+            target_insitu_y = max(0.0, min(PI_STAGE_RANGE_UM, target_insitu_y))
             pi.MOV([1, 2], [target_insitu_x, target_insitu_y])
             time.sleep(0.1)
             up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia para el autofoco in-situ
