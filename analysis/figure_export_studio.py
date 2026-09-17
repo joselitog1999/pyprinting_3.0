@@ -230,7 +230,7 @@ class FigureExportStudioDialog(QDialog):
                     'y': np.asarray(y, dtype=float),
                     'color': color_hex,
                     'size': 6.0,
-                    'symbol': 'o',
+                    'symbol': it.opts.get('symbol', 'o') or 'o',
                     'visible': it.isVisible()
                 })
                 idx += 1
@@ -276,6 +276,7 @@ class FigureExportStudioDialog(QDialog):
                         'name': f"Mapa 2D ({img.shape[0]}x{img.shape[1]})",
                         'image': img.copy(),
                         'extent': extent,
+                        'cmap': 'cividis',
                         'visible': it.isVisible()
                     })
                     idx += 1
@@ -382,13 +383,15 @@ class FigureExportStudioDialog(QDialog):
         grp_layers = QGroupBox("1. Gestor de Capas y Curvas")
         lay_layers = QVBoxLayout(grp_layers)
 
-        self.table_layers = QTableWidget(0, 5)
-        self.table_layers.setHorizontalHeaderLabels(["Ver", "Nombre", "Tipo", "Color", "Grosor"])
+        self.table_layers = QTableWidget(0, 7)
+        self.table_layers.setHorizontalHeaderLabels(["Ver", "Nombre", "Tipo", "Color", "Grosor", "Marcador", "Colormap"])
         self.table_layers.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table_layers.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table_layers.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table_layers.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table_layers.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_layers.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_layers.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self.table_layers.setFixedHeight(180)
         self.table_layers.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         lay_layers.addWidget(self.table_layers)
@@ -667,6 +670,33 @@ class FigureExportStudioDialog(QDialog):
             spin_w.valueChanged.connect(lambda val, idx=r: self._on_layer_width(idx, val))
             self.table_layers.setCellWidget(r, 4, spin_w)
 
+            # Marcador (solo curvas y dispersiones)
+            ltype = layer.get('type')
+            if ltype in ('curve', 'scatter'):
+                combo_marker = QComboBox()
+                marker_options = [
+                    ("Círculo", 'o'), ("Cuadrado", 's'), ("Triángulo", 't'),
+                    ("Diamante", 'd'), ("Ninguno", None)
+                ]
+                combo_marker.addItems([lbl for lbl, _ in marker_options])
+                current_sym = layer.get('symbol')
+                sym_idx = next((i for i, (_, sv) in enumerate(marker_options) if sv == current_sym), 0)
+                combo_marker.setCurrentIndex(sym_idx)
+                combo_marker.currentIndexChanged.connect(
+                    lambda i, idx=r, opts=marker_options: self._on_layer_marker(idx, opts[i][1])
+                )
+                self.table_layers.setCellWidget(r, 5, combo_marker)
+
+            # Mapa de color (solo capas de imagen)
+            if ltype == 'image':
+                combo_cmap = QComboBox()
+                cmap_options = ['viridis', 'inferno', 'coolwarm', 'cividis']
+                combo_cmap.addItems(cmap_options)
+                current_cmap = layer.get('cmap', 'cividis')
+                combo_cmap.setCurrentIndex(cmap_options.index(current_cmap) if current_cmap in cmap_options else 0)
+                combo_cmap.currentTextChanged.connect(lambda text, idx=r: self._on_layer_cmap(idx, text))
+                self.table_layers.setCellWidget(r, 6, combo_cmap)
+
         self.table_layers.itemChanged.connect(self._on_table_item_changed)
 
     def _on_table_item_changed(self, item):
@@ -699,6 +729,16 @@ class FigureExportStudioDialog(QDialog):
                 self.layers[idx]['linewidth'] = val
             if 'size' in self.layers[idx]:
                 self.layers[idx]['size'] = val
+            self.update_preview()
+
+    def _on_layer_marker(self, idx: int, symbol):
+        if 0 <= idx < len(self.layers):
+            self.layers[idx]['symbol'] = symbol
+            self.update_preview()
+
+    def _on_layer_cmap(self, idx: int, cmap_name: str):
+        if 0 <= idx < len(self.layers):
+            self.layers[idx]['cmap'] = cmap_name
             self.update_preview()
 
     def _choose_layer_color(self, idx: int):
@@ -888,6 +928,13 @@ class FigureExportStudioDialog(QDialog):
             if y0 != y1:
                 ax.set_ylim(min(y0, y1), max(y0, y1))
 
+        # Mapeo de símbolos pyqtgraph -> marcadores matplotlib (capas 'curve'/'scatter')
+        PG_TO_MPL_MARKER = {
+            'o': 'o', 's': 's', 't': '^', 't1': '^', 't2': 'v', 't3': '>',
+            'd': 'D', 'star': '*', 'x': 'x', '+': '+', 'p': 'p', 'h': 'h',
+            None: None, '': None
+        }
+
         # Dibujar cada capa
         has_legend_items = False
         for layer in self.layers:
@@ -905,7 +952,7 @@ class FigureExportStudioDialog(QDialog):
                 ls = layer.get('linestyle', 'solid')
                 sym = layer.get('symbol')
 
-                marker = 'o' if sym == 'o' else (None if not sym else 's')
+                marker = PG_TO_MPL_MARKER.get(sym, 's' if sym else None)
                 ax.plot(x, y, label=label, color=c, linewidth=lw, linestyle=ls, marker=marker, markersize=4)
                 has_legend_items = True
 
@@ -914,7 +961,9 @@ class FigureExportStudioDialog(QDialog):
                 y = layer['y']
                 c = layer.get('color', '#f9e2af')
                 sz = layer.get('size', 6.0)
-                ax.scatter(x, y, label=label, color=c, s=(sz ** 2), alpha=0.85, edgecolors='none')
+                sym = layer.get('symbol', 'o')
+                marker = PG_TO_MPL_MARKER.get(sym, 'o')
+                ax.scatter(x, y, label=label, color=c, s=(sz ** 2), alpha=0.85, edgecolors='none', marker=marker or 'o')
                 has_legend_items = True
 
             elif ltype == 'infoline':
@@ -932,7 +981,8 @@ class FigureExportStudioDialog(QDialog):
             elif ltype == 'image':
                 img = layer['image']
                 ext = layer.get('extent')
-                ax.imshow(img.T, extent=ext, origin='lower', cmap='cividis', aspect='equal')
+                cmap = layer.get('cmap', 'cividis')
+                ax.imshow(img.T, extent=ext, origin='lower', cmap=cmap, aspect='equal')
 
             elif ltype == 'bar':
                 x = layer.get('x')

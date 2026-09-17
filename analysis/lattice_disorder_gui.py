@@ -489,6 +489,10 @@ class LatticeDisorderWindow(QMainWindow):
         self.cluster_results: Optional[Dict[str, Any]] = None
         self.selected_particle_indices: Set[int] = set()
         self.selected_cluster_id: Optional[int] = None
+        # Aislamiento de eventos: True cuando locs_df cambió pero Bloque 6
+        # (grilla/vacancias) y Fourier todavía no se recalcularon a demanda.
+        self._results_stale: bool = False
+        self.unmarked_indices: Set[int] = set()
         self.monomer_signature: Optional[Dict[str, Any]] = None
         self.selection_mode: str = 'nav'  # 'nav', 'click', 'box'
         self.curation_history: List[pd.DataFrame] = []
@@ -507,7 +511,10 @@ class LatticeDisorderWindow(QMainWindow):
         self.img_item_rl: Optional[pg.ImageItem] = None
         self.image_filtered: Optional[np.ndarray] = None
         self.img_item_filtered: Optional[pg.ImageItem] = None
+        self.image_laplacian: Optional[np.ndarray] = None
+        self.img_item_laplacian: Optional[pg.ImageItem] = None
         self.scatter_det: Optional[pg.ScatterPlotItem] = None
+        self.scatter_unmarked: Optional[pg.ScatterPlotItem] = None
         self.scatter_clusters: Optional[pg.ScatterPlotItem] = None
         self.scatter_vac: Optional[pg.ScatterPlotItem] = None
         self.scatter_grid: Optional[pg.ScatterPlotItem] = None
@@ -1316,6 +1323,53 @@ class LatticeDisorderWindow(QMainWindow):
         h_tol.addWidget(self.spin_cluster_tolerance)
         lay_cur.addLayout(h_tol)
 
+        h_method = QHBoxLayout()
+        h_method.addWidget(QLabel("Método Cúmulos:"))
+        self.combo_cluster_method = QComboBox()
+        self.combo_cluster_method.addItems([
+            "📏 Distancia + Fotometría (Clásico)",
+            "⚡ LoG — Agrupamiento Morfológico (requiere desacople posterior)"
+        ])
+        self.combo_cluster_method.setToolTip(make_tooltip(
+            "Método de Detección de Aglomerados",
+            "Permite elegir entre la agrupación clásica por distancias reticulares y fotometría o la segmentación continua por Laplaciano de Gaussiana (LoG).",
+            "El método Laplaciano agrupa localizaciones dentro de cuencas conexas -∇²I > 0 (resolución ~2σ_PSF); NO separa emisores sub-difraccionales por sí solo — use los botones 'Desacoplar' (Fit Multi-Gauss) sobre cada cúmulo resultante para la separación final."
+        ))
+        h_method.addWidget(self.combo_cluster_method)
+        lay_cur.addLayout(h_method)
+
+        # Parámetros contextuales para el método Laplaciano (LoG)
+        self.widget_laplacian_params = QWidget()
+        lay_lap = QHBoxLayout(self.widget_laplacian_params)
+        lay_lap.setContentsMargins(0, 0, 0, 0)
+        lay_lap.addWidget(QLabel("LoG σ (px):"))
+        self.spin_laplacian_sigma = QDoubleSpinBox()
+        self.spin_laplacian_sigma.setRange(0.5, 10.0)
+        self.spin_laplacian_sigma.setValue(2.5)
+        self.spin_laplacian_sigma.setSingleStep(0.2)
+        self.spin_laplacian_sigma.setToolTip(make_tooltip(
+            "Ancho de Suavizado Laplaciano (LoG σ)",
+            "Escala de difracción espacial para el núcleo LoG. Se recomienda mantenerla cerca del radio de la PSF.",
+            "Desviación estándar sigma para el operador -∇²(G_sigma * I)."
+        ))
+        lay_lap.addWidget(self.spin_laplacian_sigma)
+
+        lay_lap.addWidget(QLabel("Umbral LoG (%):"))
+        self.spin_laplacian_thresh = QDoubleSpinBox()
+        self.spin_laplacian_thresh.setRange(0.0, 50.0)
+        self.spin_laplacian_thresh.setValue(0.0)
+        self.spin_laplacian_thresh.setSingleStep(2.0)
+        self.spin_laplacian_thresh.setSuffix("%")
+        self.spin_laplacian_thresh.setToolTip(make_tooltip(
+            "Umbral de Corte del Laplaciano",
+            "0% representa el cruce por cero estricto (-∇²I > 0). Valores superiores aíslan únicamente los núcleos de emisión más intensos.",
+            "Porcentaje del pico máximo positivo del Laplaciano aplicado como cota inferior de binarización."
+        ))
+        lay_lap.addWidget(self.spin_laplacian_thresh)
+        lay_cur.addWidget(self.widget_laplacian_params)
+        self.widget_laplacian_params.setVisible(False)
+        self.combo_cluster_method.currentIndexChanged.connect(lambda idx: self.widget_laplacian_params.setVisible(idx == 1))
+
         self.btn_detect_clusters = QPushButton("🔍 Detectar Aglomerados y Cadenas")
         self.btn_detect_clusters.setObjectName("primaryBtn")
         self.btn_detect_clusters.setToolTip(make_tooltip(
@@ -1579,6 +1633,16 @@ class LatticeDisorderWindow(QMainWindow):
         h_cur_aux.addWidget(self.btn_revert_curation)
         lay_cur.addLayout(h_cur_aux)
 
+        self.btn_unmark_resolved = QPushButton("✅ Desenmarcar Partículas Resueltas")
+        self.btn_unmark_resolved.setToolTip(make_tooltip(
+            "Desenmarcar Cuadrados Rojos",
+            "Confirma la revisión visual de las partículas emergidas del último desacople multi-gaussiano y las devuelve a la simbología normal (círculo azul).",
+            "Vacía self.unmarked_indices y oculta la capa 🟥 Desacopladas; no modifica locs_df."
+        ))
+        self.btn_unmark_resolved.setEnabled(False)
+        self.btn_unmark_resolved.clicked.connect(self._on_unmark_resolved_particles)
+        lay_cur.addWidget(self.btn_unmark_resolved)
+
         left_layout.addWidget(grp_curation)
 
         # Grupo 6: Fase 4: Grilla Final, Vacancias & Consistencia
@@ -1639,6 +1703,15 @@ class LatticeDisorderWindow(QMainWindow):
             "Regla de conservación de sitios reticulares: M + n_vac <= N² * (1 + margen/100)."
         ))
         lay_met.addWidget(self.lbl_consistency)
+
+        self.lbl_stale_badge = QLabel("⚠ Resultados desactualizados — presione 'Ajustar Grilla' / 'Recalcular Fourier'")
+        self.lbl_stale_badge.setStyleSheet(
+            "font-family: monospace; font-size: 10px; color: #1e1e2e; font-weight: bold; "
+            "background: #f9e2af; border-radius: 3px; padding: 4px;"
+        )
+        self.lbl_stale_badge.setWordWrap(True)
+        self.lbl_stale_badge.setVisible(False)
+        lay_met.addWidget(self.lbl_stale_badge)
 
         btn_go_tab2 = QPushButton("Ir a Espacio Recíproco ➔")
         btn_go_tab2.setObjectName("primaryBtn")
@@ -1743,6 +1816,17 @@ class LatticeDisorderWindow(QMainWindow):
         lay_row1.addWidget(self.chk_layer_rl)
         self.chk_overlay_rl = self.chk_layer_rl
 
+        self.chk_layer_laplacian = QCheckBox("🌀 Manchones LoG")
+        self.chk_layer_laplacian.setChecked(False)
+        self.chk_layer_laplacian.setStyleSheet("color: #cba6f7; font-weight: bold;")
+        self.chk_layer_laplacian.setToolTip(make_tooltip(
+            "Capa: Manchones del Laplaciano (LoG)",
+            "Superpone la imagen operada por el Laplaciano de Gaussiana (-∇²I) resaltando las cuencas de emisión y bordes.",
+            "Permite inspeccionar directamente la separación morfológica continua de los manchones."
+        ))
+        self.chk_layer_laplacian.toggled.connect(self._on_layer_visibility_changed)
+        lay_row1.addWidget(self.chk_layer_laplacian)
+
         self.chk_layer_det = QCheckBox("🔵 Partículas (o)")
         self.chk_layer_det.setChecked(True)
         self.chk_layer_det.setStyleSheet("color: #89dceb; font-weight: bold;")
@@ -1764,6 +1848,17 @@ class LatticeDisorderWindow(QMainWindow):
         ))
         self.chk_layer_clusters.toggled.connect(self._on_layer_visibility_changed)
         lay_row1.addWidget(self.chk_layer_clusters)
+
+        self.chk_layer_unmarked = QCheckBox("🟥 Desacopladas")
+        self.chk_layer_unmarked.setChecked(True)
+        self.chk_layer_unmarked.setStyleSheet("color: #f38ba8; font-weight: bold;")
+        self.chk_layer_unmarked.setToolTip(make_tooltip(
+            "Capa: Partículas Desacopladas Pendientes de Revisión (🟥)",
+            "Resalta en rojo (cuadrados) las partículas recién emergidas de un ajuste multi-gaussiano hasta que el usuario las 'Desenmarque'.",
+            "Persisten como alerta visual de curación pendiente; se limpian con el botón 'Desenmarcar' o tras una nueva detección/curación."
+        ))
+        self.chk_layer_unmarked.toggled.connect(self._on_layer_visibility_changed)
+        lay_row1.addWidget(self.chk_layer_unmarked)
 
         self.chk_layer_contours = QCheckBox("🔲 Contornos")
         self.chk_layer_contours.setChecked(True)
@@ -3391,6 +3486,11 @@ class LatticeDisorderWindow(QMainWindow):
                 self.img_item_rl.setColorMap(cm)
             except Exception as e:
                 print(f"Error actualizando colormap RL: {e}")
+        if self.img_item_laplacian is not None:
+            try:
+                self.img_item_laplacian.setColorMap(cm)
+            except Exception as e:
+                print(f"Error actualizando colormap LoG: {e}")
 
     def _on_layer_visibility_changed(self):
         if self.img_item is not None:
@@ -3399,8 +3499,12 @@ class LatticeDisorderWindow(QMainWindow):
             self.img_item_filtered.setVisible(self.chk_layer_filtered.isChecked())
         if self.img_item_rl is not None:
             self.img_item_rl.setVisible(self.chk_layer_rl.isChecked())
+        if self.img_item_laplacian is not None and hasattr(self, 'chk_layer_laplacian'):
+            self.img_item_laplacian.setVisible(self.chk_layer_laplacian.isChecked())
         if self.scatter_det is not None:
             self.scatter_det.setVisible(self.chk_layer_det.isChecked())
+        if self.scatter_unmarked is not None and hasattr(self, 'chk_layer_unmarked'):
+            self.scatter_unmarked.setVisible(self.chk_layer_unmarked.isChecked())
         if self.scatter_clusters is not None:
             self.scatter_clusters.setVisible(self.chk_layer_clusters.isChecked())
         for line_item in self.cluster_lines_items:
@@ -3547,7 +3651,7 @@ class LatticeDisorderWindow(QMainWindow):
             self,
             "Confirmar Eliminación de Partículas",
             f"¿Desea eliminar las {n_deleted} partícula(s) seleccionada(s)?\n\n"
-            "Se actualizará el espacio real, la cuadrícula reticular y los cúmulos.\n"
+            "Los resultados de cúmulos, grilla y Fourier quedarán marcados como desactualizados.\n"
             "(Puede revertir la acción posteriormente con '↺ Deshacer').",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
@@ -3565,9 +3669,9 @@ class LatticeDisorderWindow(QMainWindow):
 
         self.locs_df = self.locs_df[keep_mask].reset_index(drop=True)
         self.selected_particle_indices.clear()
+        self.unmarked_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
@@ -3583,9 +3687,9 @@ class LatticeDisorderWindow(QMainWindow):
 
         self.locs_df = self.curation_history.pop()
         self.selected_particle_indices.clear()
+        self.unmarked_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
         QMessageBox.information(self, "Deshacer", f"Se restauró el estado anterior con {len(self.locs_df)} partículas.")
 
     def _on_revert_curation(self):
@@ -3612,10 +3716,17 @@ class LatticeDisorderWindow(QMainWindow):
 
         self.curation_history.clear()
         self.selected_particle_indices.clear()
+        self.unmarked_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
         QMessageBox.information(self, "Restauración Completa", f"Se restauraron todas las {len(self.locs_df)} partículas originales.")
+
+    def _on_unmark_resolved_particles(self):
+        """Botón 'Desenmarcar': confirma la revisión de los cuadrados rojos y
+        restaura la simbología normal, sin tocar locs_df."""
+        self.unmarked_indices.clear()
+        self._render_detected_particles_only()
+        self.statusBar().showMessage("Partículas desacopladas desenmarcadas.", 3000)
 
     def _on_resolve_selected_cluster_gaussian(self):
         if self.locs_df is None or self.locs_df.empty:
@@ -3661,11 +3772,14 @@ class LatticeDisorderWindow(QMainWindow):
         target_id_done = self.selected_cluster_id
         self.selected_cluster_id = None
         self.locs_df = df_resolved
+        # Marcar como "cuadrados rojos" (pendientes de revisión) las nuevas
+        # partículas del ajuste multi-gaussiano: resolve_clusters_dataframe()
+        # siempre las agrega al final del DataFrame reindexado.
+        self.unmarked_indices = set(range(len(self.locs_df) - n_add, len(self.locs_df))) if n_add > 0 else set()
         self.selected_particle_indices.clear()
         self._on_clear_visual_seeds()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
@@ -3710,10 +3824,10 @@ class LatticeDisorderWindow(QMainWindow):
         target_id_done = self.selected_cluster_id
         self.selected_cluster_id = None
         self.locs_df = df_resolved
+        self.unmarked_indices.clear()
         self.selected_particle_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
@@ -3756,10 +3870,10 @@ class LatticeDisorderWindow(QMainWindow):
         target_id_done = self.selected_cluster_id
         self.selected_cluster_id = None
         self.locs_df = df_resolved
+        self.unmarked_indices.clear()
         self.selected_particle_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
@@ -3799,12 +3913,13 @@ class LatticeDisorderWindow(QMainWindow):
             tolerance_pct=tol
         )
 
+        n_add_batch = stats.get('particles_added', 0)
         self.selected_cluster_id = None
         self.locs_df = df_resolved
+        self.unmarked_indices = set(range(len(self.locs_df) - n_add_batch, len(self.locs_df))) if n_add_batch > 0 else set()
         self.selected_particle_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
@@ -3845,10 +3960,10 @@ class LatticeDisorderWindow(QMainWindow):
         n_removed = stats.get('particles_removed', 0)
         self.selected_cluster_id = None
         self.locs_df = df_resolved
+        self.unmarked_indices.clear()
         self.selected_particle_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
@@ -3887,10 +4002,10 @@ class LatticeDisorderWindow(QMainWindow):
 
         self.selected_cluster_id = None
         self.locs_df = df_resolved
+        self.unmarked_indices.clear()
         self.selected_particle_indices.clear()
         self._update_selected_status()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
@@ -4015,6 +4130,8 @@ class LatticeDisorderWindow(QMainWindow):
 
         if stats.get('status') == 'ok':
             self.locs_df = df_resolved
+            n_fitted = stats.get('n_fitted', 0)
+            self.unmarked_indices = set(range(len(self.locs_df) - n_fitted, len(self.locs_df))) if n_fitted > 0 else set()
             self.selected_particle_indices.clear()
             self._on_clear_visual_seeds()
             self._clear_suspicious_contour()
@@ -4023,7 +4140,6 @@ class LatticeDisorderWindow(QMainWindow):
 
             self._update_selected_status()
             self._update_real_space_analysis()
-            self._on_recalculate_reciprocal()
 
             fitted = stats.get('fitted_emitters', [])
             if fitted:
@@ -4037,7 +4153,7 @@ class LatticeDisorderWindow(QMainWindow):
                 self,
                 "Spot Desacoplado",
                 f"El spot #{spot_idx} fue desacoplado exitosamente en {stats['n_fitted']} partículas.\n"
-                f"La grilla cristalográfica, cúmulos y vacancias se han actualizado."
+                f"Presione '🔍 Detectar Aglomerados' y '📐 Ajustar Grilla' para refrescar cúmulos y vacancias."
             )
         else:
             QMessageBox.warning(self, "Error al Desacoplar", stats.get('msg', 'Error desconocido'))
@@ -4452,6 +4568,40 @@ class LatticeDisorderWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error en Deconvolución RL", str(e))
 
+    def _on_generate_laplacian_layer(self):
+        if self.image_2d is None:
+            QMessageBox.warning(self, "Atención", "Primero debe cargar una imagen TIFF.")
+            return
+        sigma_val = self.spin_rl_sigma.value() if hasattr(self, 'spin_rl_sigma') else 1.5
+        self.statusBar().showMessage(f"Generando capa Laplaciano de Gaussiana (LoG, σ={sigma_val} px)...")
+        QApplication.processEvents()
+        try:
+            from scipy.ndimage import gaussian_laplace
+            img_base = self.image_rl if (self.image_rl is not None and hasattr(self, 'chk_layer_rl') and self.chk_layer_rl.isChecked()) else self.image_2d
+            log_img = -gaussian_laplace(img_base.astype(np.float64), sigma=sigma_val)
+            self.image_laplacian = np.clip(log_img, 0, None)
+            scale_nm = self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0
+            if self.img_item_laplacian is None:
+                self.img_item_laplacian = pg.ImageItem(self.image_laplacian.T)
+                self.img_item_laplacian.setRect(pg.QtCore.QRectF(
+                    0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+                ))
+                self.img_item_laplacian.setZValue(3)
+                cmap_name = self.combo_colormap.currentText()
+                self.img_item_laplacian.setColorMap(get_pyqtgraph_colormap(cmap_name))
+                self.plot_real_space.addItem(self.img_item_laplacian)
+            else:
+                self.img_item_laplacian.setImage(self.image_laplacian.T)
+
+            if hasattr(self, 'chk_layer_laplacian'):
+                self.chk_layer_laplacian.blockSignals(True)
+                self.chk_layer_laplacian.setChecked(True)
+                self.chk_layer_laplacian.blockSignals(False)
+            self.img_item_laplacian.setVisible(True)
+            self.statusBar().showMessage("✅ Capa de Manchones LoG generada y superpuesta.", 5000)
+        except Exception as e:
+            QMessageBox.critical(self, "Error en Generación de Capa LoG", str(e))
+
     def _render_detected_particles_only(self):
         scale_nm = self.spin_scale.value()
 
@@ -4497,6 +4647,19 @@ class LatticeDisorderWindow(QMainWindow):
         else:
             self.img_item_rl = None
 
+        if self.image_laplacian is not None and self.image_2d is not None:
+            self.img_item_laplacian = pg.ImageItem(self.image_laplacian.T)
+            self.img_item_laplacian.setRect(pg.QtCore.QRectF(
+                0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+            ))
+            self.img_item_laplacian.setZValue(3)
+            cmap_name = self.combo_colormap.currentText()
+            self.img_item_laplacian.setColorMap(get_pyqtgraph_colormap(cmap_name))
+            self.img_item_laplacian.setVisible(self.chk_layer_laplacian.isChecked() if hasattr(self, 'chk_layer_laplacian') else False)
+            self.plot_real_space.addItem(self.img_item_laplacian)
+        else:
+            self.img_item_laplacian = None
+
         if self.locs_df is not None and len(self.locs_df) > 0:
             x_nm = self.locs_df['x_nm'].values
             y_nm = self.locs_df['y_nm'].values
@@ -4514,6 +4677,28 @@ class LatticeDisorderWindow(QMainWindow):
             self.scatter_det.sigClicked.connect(self._on_scatter_det_clicked)
             self.scatter_det.setVisible(self.chk_layer_det.isChecked())
             self.plot_real_space.addItem(self.scatter_det)
+
+            # Cuadrados rojos: partículas emergentes de un desacople multi-gaussiano
+            # (Bloque 5) aún no revisadas por el usuario. Persisten hasta 'Desenmarcar'.
+            valid_unmarked = sorted(i for i in self.unmarked_indices if 0 <= i < len(self.locs_df))
+            if valid_unmarked:
+                self.scatter_unmarked = pg.ScatterPlotItem(
+                    x=x_nm[valid_unmarked],
+                    y=y_nm[valid_unmarked],
+                    size=11,
+                    pen=pg.mkPen('#f38ba8', width=2),
+                    brush=pg.mkBrush(243, 139, 168, 140),
+                    symbol='s'
+                )
+                self.scatter_unmarked.setZValue(26)
+                self.scatter_unmarked.setVisible(
+                    self.chk_layer_unmarked.isChecked() if hasattr(self, 'chk_layer_unmarked') else True
+                )
+                self.plot_real_space.addItem(self.scatter_unmarked)
+            else:
+                self.scatter_unmarked = None
+            if hasattr(self, 'btn_unmark_resolved'):
+                self.btn_unmark_resolved.setEnabled(len(valid_unmarked) > 0)
 
             self.lbl_real_metrics.setText(
                 f"Partículas Detectadas: {len(self.locs_df)}\n"
@@ -4557,7 +4742,11 @@ class LatticeDisorderWindow(QMainWindow):
         photons_arr = self.locs_df['photons'].values if 'photons' in self.locs_df.columns else (
             self.locs_df['mass'].values if 'mass' in self.locs_df.columns else None
         )
-        tol_val = self.spin_cluster_tolerance.value() if hasattr(self, 'spin_cluster_tolerance') else 20.0
+        tol_val = self.spin_cluster_tolerance.value() if hasattr(self, 'spin_cluster_tolerance') else 30.0
+        cnt_thresh = self.spin_cluster_contour_thresh.value() if hasattr(self, 'spin_cluster_contour_thresh') else 20.0
+        method = 'laplacian' if (hasattr(self, 'combo_cluster_method') and self.combo_cluster_method.currentIndex() == 1) else 'distance'
+        log_sigma = self.spin_laplacian_sigma.value() if hasattr(self, 'spin_laplacian_sigma') else None
+        log_thresh = self.spin_laplacian_thresh.value() if hasattr(self, 'spin_laplacian_thresh') else 0.0
 
         self.cluster_results = detect_clusters_and_chains(
             x_nm, y_nm,
@@ -4568,7 +4757,11 @@ class LatticeDisorderWindow(QMainWindow):
             locs_df=self.locs_df,
             scale_nm=scale_nm,
             signature_dict=self.monomer_signature,
-            tolerance_pct=tol_val
+            tolerance_pct=tol_val,
+            method=method,
+            laplacian_sigma_px=log_sigma,
+            laplacian_threshold_pct=log_thresh,
+            contour_threshold_pct=cnt_thresh
         )
         if self.monomer_signature is None and self.cluster_results and 'signature' in self.cluster_results and self.cluster_results['signature']:
             self.monomer_signature = self.cluster_results['signature']
@@ -4644,6 +4837,7 @@ class LatticeDisorderWindow(QMainWindow):
             QMessageBox.warning(self, "Atención", "Primero debe detectar o cargar partículas.")
             return
 
+        self._clear_results_stale()
         a_nom = self.spin_a_nominal.value()
         n_side = self.spin_n_side.value()
         x_nm = self.locs_df['x_nm'].values
@@ -5146,14 +5340,15 @@ class LatticeDisorderWindow(QMainWindow):
             return
 
         self.locs_df = df_filtered.reset_index(drop=True)
+        self.unmarked_indices.clear()
         self._update_real_space_analysis()
-        self._on_recalculate_reciprocal()
 
         QMessageBox.information(
             self,
             "Recorte Aplicado",
             f"Se mantuvieron {len(self.locs_df)} de {len(self.locs_df_raw)} partículas.\n"
-            f"Métricas actualizadas automáticamente en Espacio Real y Recíproco."
+            f"Resultados de Bloque 5/6 y Fourier marcados como desactualizados: "
+            f"presione '🔍 Detectar Aglomerados', '📐 Ajustar Grilla' y 'Recalcular Fourier' para refrescarlos."
         )
 
     def _on_load_image(self):
@@ -5200,6 +5395,19 @@ class LatticeDisorderWindow(QMainWindow):
                 self.spin_roi_ymin.setValue(0.0)
                 self.spin_roi_ymax.setValue(float(h_px))
 
+            # Aislamiento metrológico: una imagen nueva invalida cualquier posición,
+            # cúmulo, grilla o resultado recíproco calculado sobre la imagen anterior.
+            # Sin este reset, _update_real_space_analysis() recalcularía mezclando
+            # locs_df de la sesión previa con la imagen recién cargada.
+            self.locs_df = None
+            self.locs_df_raw = None
+            self.cluster_results = None
+            self.kdtree_results = None
+            self.rdf_results = None
+            self.reciprocal_results = None
+            if hasattr(self, 'unmarked_indices'):
+                self.unmarked_indices.clear()
+
             self._update_real_space_analysis()
 
             QMessageBox.information(
@@ -5242,6 +5450,7 @@ class LatticeDisorderWindow(QMainWindow):
             self.cluster_results = None
             self.rdf_results = None
             self.reciprocal_results = None
+            self.unmarked_indices.clear()
             self._render_detected_particles_only()
 
             QMessageBox.information(
@@ -5355,6 +5564,7 @@ class LatticeDisorderWindow(QMainWindow):
             self.cluster_results = None
             self.rdf_results = None
             self.reciprocal_results = None
+            self.unmarked_indices.clear()
             self._render_detected_particles_only()
 
             QMessageBox.information(
@@ -5367,16 +5577,41 @@ class LatticeDisorderWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error en Detección", f"Detalle: {str(e)}")
 
+    def _mark_results_stale(self):
+        """Señaliza que Bloque 5 (cúmulos), Bloque 6 (grilla/vacancias) y Fourier
+        ya no reflejan el locs_df actual. No recalcula nada: exige que el usuario
+        presione el botón correspondiente para preservar el aislamiento de eventos
+        y la trazabilidad metrológica de cada paso (CLAUDE.md §1, §7)."""
+        self._results_stale = True
+        if hasattr(self, 'lbl_stale_badge'):
+            self.lbl_stale_badge.setVisible(True)
+
+    def _clear_results_stale(self):
+        self._results_stale = False
+        if hasattr(self, 'lbl_stale_badge'):
+            self.lbl_stale_badge.setVisible(False)
+
     def _update_real_space_analysis(self):
+        """Refresco liviano tras cualquier mutación de locs_df (curación, ROI,
+        invertir imagen, desacople de cúmulos). Re-renderiza las partículas y
+        descarta resultados derivados obsoletos (cúmulos, grilla, recíproco)
+        SIN recalcularlos: Bloque 5, Bloque 6 y Fourier sólo se disparan con su
+        propio botón, nunca como efecto colateral de otro bloque."""
         self._render_detected_particles_only()
+        self.cluster_results = None
+        self.kdtree_results = None
+        self.rdf_results = None
+        self.reciprocal_results = None
         if self.locs_df is not None and len(self.locs_df) > 0:
-            self._on_detect_clusters()
-            self._on_recalc_grid()
+            self._mark_results_stale()
+        else:
+            self._clear_results_stale()
 
     def _on_recalculate_reciprocal(self):
         if self.locs_df is None or len(self.locs_df) == 0:
             return
 
+        self._clear_results_stale()
         x_nm = self.locs_df['x_nm'].values
         y_nm = self.locs_df['y_nm'].values
         a_nom = self.spin_a_nominal.value()
@@ -6847,6 +7082,9 @@ class LatticeDisorderWindow(QMainWindow):
             pass
 
         target_cluster['contour_polygon_nm'] = contour_poly_nm
+        target_cluster['patch'] = patch
+        target_cluster['patch_origin_px'] = (x_min, y_min)
+        target_cluster['mask'] = (mask_binary > 0)
 
         if self.highlight_contour_item is not None:
             self.plot_real_space.removeItem(self.highlight_contour_item)
