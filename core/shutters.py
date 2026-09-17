@@ -28,7 +28,7 @@ try:
                             heartbeat_shutter, get_watchdog_remaining_time,
                             register_watchdog_callback, unregister_watchdog_callback,
                             register_flipper_callback, unregister_flipper_callback,
-                            is_flipper_high_power,
+                            is_flipper_high_power, set_default_shutter_timeout,
                             _shutter_signal)
 except ImportError:
     from nidaq   import (open_shutter, close_shutter, close_all_shutters, up_flipper, down_flipper,
@@ -36,7 +36,7 @@ except ImportError:
                          heartbeat_shutter, get_watchdog_remaining_time,
                          register_watchdog_callback, unregister_watchdog_callback,
                          register_flipper_callback, unregister_flipper_callback,
-                         is_flipper_high_power,
+                         is_flipper_high_power, set_default_shutter_timeout,
                          _shutter_signal)
 
 
@@ -400,6 +400,11 @@ class Backend(QObject):
     @pyqtSlot(object)
     def set_autoclose_timeout(self, timeout_val: float | None):
         self.current_timeout = timeout_val
+        # Propagar a la política GLOBAL (core/nidaq.py) para que toda rutina experimental que
+        # abra un shutter sin pasar timeout_s explícito (la inmensa mayoría) respete de
+        # inmediato esta elección, no solo los shutter0-3 de este propio dock (bug corregido:
+        # antes open_shutter()/heartbeat_shutter() hardcodeaban 30.0 y la ignoraban).
+        set_default_shutter_timeout(timeout_val)
         # Si hay obturadores abiertos en hardware, actualizar el watchdog inmediatamente
         try:
             any_open = any(s == SHUTTER_POLARITY[sh] for s, sh in zip(_shutter_signal, SHUTTERS))

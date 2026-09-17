@@ -43,8 +43,8 @@ from config import (pi, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE, SAFE_MODE,
                     DEFAULT_CONFOCAL_RANGE_X, DEFAULT_CONFOCAL_RANGE_Y,
                     DEFAULT_CONFOCAL_PIXELS_X, DEFAULT_CONFOCAL_PIXELS_Y,
                     DEFAULT_CONFOCAL_FILTER_PERCENT, PI_SERVO_TIME)
-from nidaq import (open_shutter, close_shutter, channels_photodiodos,
-                   channels_triggers, PD_CHANS_LIST, RATE_MULTICHANNEL)
+from nidaq import (open_shutter, close_shutter, close_all_shutters, heartbeat_shutter,
+                   channels_photodiodos, channels_triggers, PD_CHANS_LIST, RATE_MULTICHANNEL)
 from psf import (center_of_mass, center_of_gauss2D, center_of_donut2D)
 from nanopositioning import Frontend as NanoFrontend, Backend as NanoBackend
 from shutters import Frontend as ShuttersFrontend, Backend as ShuttersBackend
@@ -620,6 +620,7 @@ class ConfocalDualBackend(QObject):
                 self.scanfinishedSignal.emit(self.image_top, self.image_bot, self.cm_top, self.cm_bot)
             return
 
+        heartbeat_shutter(30.0)
         dy = self.range_y / self.Ny
         target_y = getattr(self, "y_min", self.y_pos - self.range_y / 2) + dy / 2 + self.i * dy
         pi.MOV(2, target_y)

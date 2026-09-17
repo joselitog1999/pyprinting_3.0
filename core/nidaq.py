@@ -95,6 +95,34 @@ _watchdog_lock                    = threading.Lock()
 _watchdog_callbacks: list[Callable[[], None]] = []
 _flipper_callbacks: list[Callable[[bool], None]] = []
 
+# Política global de auto-cierre (SYS-201): fuente única de verdad para el timeout que
+# open_shutter()/heartbeat_shutter() usan cuando se llaman SIN un timeout_s explícito.
+# Antes, ambas funciones hardcodeaban 30.0 como default de parámetro, así que cualquier
+# rutina experimental que abriera un shutter sin pasar timeout_s reseteaba silenciosamente
+# la política "Sin límite (Modo Alineación)" elegida por el usuario en el dock de Shutters
+# (core/shutters.py::Backend.set_autoclose_timeout) en cuanto arrancaba. Ver DECISION_LOG.
+_default_timeout_s: float | None  = 30.0
+_SENTINEL = object()
+
+
+def set_default_shutter_timeout(timeout_s: float | None) -> None:
+    """Establece la política global de auto-cierre. Toda llamada posterior a open_shutter()/
+    heartbeat_shutter() sin timeout_s explícito usará este valor. None o <= 0 activa el Modo
+    Alineación continua (sin límite) de inmediato, incluso si un shutter ya está abierto."""
+    global _default_timeout_s, _watchdog_deadline
+    with _watchdog_lock:
+        if timeout_s is None or timeout_s <= 0:
+            _default_timeout_s = None
+            _watchdog_deadline = None
+        else:
+            _default_timeout_s = float(timeout_s)
+
+
+def get_default_shutter_timeout() -> float | None:
+    """Devuelve la política global de auto-cierre actual (None = sin límite)."""
+    with _watchdog_lock:
+        return _default_timeout_s
+
 
 def _watchdog_loop():
     global _watchdog_deadline
@@ -125,15 +153,19 @@ _watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True, name="Sh
 _watchdog_thread.start()
 
 
-def heartbeat_shutter(timeout_s: float | None = 30.0) -> None:
+def heartbeat_shutter(timeout_s: float | None = _SENTINEL) -> None:
     """Renueva el temporizador de vida del obturador para proteger la muestra.
-    Si timeout_s es None o <= 0, desactiva la fecha límite (Modo Alineación continua)."""
+    Si no se pasa timeout_s explícitamente, usa la política global vigente
+    (get_default_shutter_timeout(), fijada por el usuario en el dock de Shutters). Un
+    timeout_s explícito (numérico o None) siempre tiene prioridad sobre la política global.
+    None o <= 0 desactiva la fecha límite (Modo Alineación continua)."""
     global _watchdog_deadline
     with _watchdog_lock:
-        if timeout_s is None or timeout_s <= 0:
+        effective = _default_timeout_s if timeout_s is _SENTINEL else timeout_s
+        if effective is None or effective <= 0:
             _watchdog_deadline = None
         else:
-            _watchdog_deadline = time.time() + max(0.1, float(timeout_s))
+            _watchdog_deadline = time.time() + max(0.1, float(effective))
 
 
 def get_watchdog_remaining_time() -> float | None:
@@ -289,7 +321,11 @@ def _get_flipper532_task():
 #  API PÚBLICA  — misma en ambos modos
 # ══════════════════════════════════════════════════════════════════════════════
 
-def open_shutter(name: str, timeout_s: float | None = 30.0) -> None:
+def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> None:
+    """Abre un shutter y arma/renueva el watchdog. Si no se pasa timeout_s explícitamente,
+    usa la política global vigente (get_default_shutter_timeout()) en vez de un valor
+    hardcodeado, para que la elección del usuario en el dock de Shutters ("Auto-cierre" /
+    "Sin límite") se respete también cuando una rutina experimental abre el shutter."""
     if name not in SHUTTERS:
         raise ValueError(f"Shutter desconocido: {name}")
     with _nidaq_lock:

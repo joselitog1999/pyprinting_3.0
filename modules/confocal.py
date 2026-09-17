@@ -40,7 +40,7 @@ from config  import (pi, SHUTTERS, DEFAULT_DATA_PATH,
                      DEFAULT_CONFOCAL_FILTER_PERCENT,
                      DEFAULT_DRIFT_TOTAL_MINUTES, DEFAULT_DRIFT_REFRESH_SECONDS,
                      DEFAULT_COORDINATE_REGIME, REGIME_LEGACY)
-from nidaq   import (open_shutter, close_shutter, channels_photodiodos,
+from nidaq   import (open_shutter, close_shutter, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, PD_CHANNELS, PD_CHANS_LIST,
                      RATE_MULTICHANNEL)
 from psf    import (center_of_mass, center_of_gauss2D, center_of_donut2D,
@@ -518,6 +518,7 @@ class Backend(QObject):
         open_shutter(self.laser)
         try:
             for name, cx, cy in corners:
+                heartbeat_shutter(30.0)  # Lock Focus por esquina puede demorar; renueva el watchdog
                 cx_c = max(0.0, min(100.0, cx))
                 cy_c = max(0.0, min(100.0, cy))
                 pi.MOV([1, 2], [cx_c, cy_c])
@@ -764,6 +765,7 @@ class Backend(QObject):
     def _scan_step_xy(self):
         if self.j < self.Ny:
             if self.i < self.Nx:
+                heartbeat_shutter(30.0)
                 target_x = self.matrix_scan_step[0][self.i]
                 target_y = self.matrix_scan_step[1][self.j]
                 if getattr(self, "tilt_correction_enabled", False):
@@ -921,6 +923,7 @@ class Backend(QObject):
     def _scan_ramp_xy(self):
         dy = self.range_y / self.Ny
         if self.i < self.Ny:
+            heartbeat_shutter(30.0)
             target_y = getattr(self, "y_min", self.y_pos - self.range_y/2) + dy/2 + self.i*dy
             if getattr(self, "tilt_correction_enabled", False):
                 target_z = self._evaluate_tilt_z(self.x_pos, target_y)
@@ -946,6 +949,7 @@ class Backend(QObject):
     def _scan_ramp_xz(self):
         dz = self.range_y / self.Ny
         if self.i < self.Ny:
+            heartbeat_shutter(30.0)
             target_z = getattr(self, "z_min", self.z_pos - self.range_y/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
             gone, back = self._ramp_x_line()
@@ -964,6 +968,7 @@ class Backend(QObject):
     def _scan_ramp_yx(self):
         dx = self.range_x / self.Nx
         if self.i < self.Nx:
+            heartbeat_shutter(30.0)
             target_x = getattr(self, "x_min", self.x_pos - self.range_x/2) + dx/2 + self.i*dx
             pi.MOV(1, target_x)
             gone, back = self._ramp_y_line()
@@ -984,6 +989,7 @@ class Backend(QObject):
     def _scan_ramp_yz(self):
         dz = self.range_x / self.Nx
         if self.i < self.Nx:
+            heartbeat_shutter(30.0)
             target_z = getattr(self, "z_min", self.z_pos - self.range_x/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
             gone, back = self._ramp_y_line()

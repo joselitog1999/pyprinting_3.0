@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
 from PyQt6.QtGui     import QShortcut, QKeySequence
 
 from config  import pi, SHUTTERS
-from nidaq   import (open_shutter, close_shutter, channels_photodiodos,
+from nidaq   import (open_shutter, close_shutter, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, RATE_MULTICHANNEL, PD_CHANNELS,
                      PD_CHANS_LIST)
 from config  import PI_SERIAL
@@ -214,6 +214,7 @@ class Backend(QObject):
         flag = True
         while flag:
             open_shutter(self.laser)
+            heartbeat_shutter(30.0)
             gone, back, flag = self._ramp_lin()
             close_shutter(self.laser)
 
@@ -258,6 +259,7 @@ class Backend(QObject):
             flag = True
             while flag:
                 open_shutter(self.laser)
+                heartbeat_shutter(30.0)
                 gone, _, flag = self._ramp_lin()
                 close_shutter(self.laser)
 
@@ -290,6 +292,7 @@ class Backend(QObject):
 
         open_shutter(self.laser)
         for _ in range(2):
+            heartbeat_shutter(30.0)
             self._focus_autocorr_lin()
         close_shutter(self.laser)
 
@@ -312,6 +315,7 @@ class Backend(QObject):
 
         flag = True
         while flag:
+            heartbeat_shutter(30.0)
             gone, _, flag = self._ramp_lin()
 
         f_gone          = int(len(gone) / self.Nz)
