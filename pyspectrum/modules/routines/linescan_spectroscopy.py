@@ -476,6 +476,17 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
         self._reset_scan_buttons()
         QtWidgets.QMessageBox.information(self, "Escaneo Finalizado", f"Escaneo completado y guardado en:\n{h5_path}")
 
+    @pyqtSlot(str, str)
+    def on_scan_aborted(self, h5_path: str, reason: str):
+        """Distinto de on_scan_completed a propósito (hallazgo qa-ux-auditor): un escaneo
+        interrumpido por timeout mecánico NUNCA debe reportarse con el mismo diálogo de éxito
+        que uno completo, aunque el HDF5 parcial sí se haya guardado para recuperación forense."""
+        self._reset_scan_buttons()
+        msg = f"El escaneo se interrumpió antes de completarse:\n\n{reason}"
+        if h5_path:
+            msg += f"\n\nSe guardó un archivo PARCIAL (metadata['scan_aborted']=True) en:\n{h5_path}"
+        QtWidgets.QMessageBox.warning(self, "Escaneo Incompleto — Fallo Mecánico", msg)
+
     @pyqtSlot()
     def on_scan_cancelled(self):
         self._reset_scan_buttons()
@@ -518,6 +529,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
     progressSignal = pyqtSignal(int)
     etaSignal = pyqtSignal(float)
     scanCompletedSignal = pyqtSignal(str)
+    scanAbortedSignal = pyqtSignal(str, str)  # h5_path (parcial, puede ser ""), motivo
     cancelledSignal = pyqtSignal()
     errorSignal = pyqtSignal(str)
 
@@ -526,6 +538,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
         self._cancel_requested = False
+        self._scan_failed = False
         self._reference: Optional[dict] = None
         self._wavelengths: Optional[np.ndarray] = None
         self._glue_reference_grid: Optional[np.ndarray] = None
@@ -580,6 +593,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 break
             time.sleep(0.01)
         if not settled:
+            self._scan_failed = True
             self.errorSignal.emit(f"Timeout de asentamiento del piezo (ejes {axes_list}, > {timeout_s}s). Escaneo abortado.")
             return False
 
@@ -603,6 +617,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 return False
             heartbeat_shutter(30.0)
             if time.time() > t_end:
+                self._scan_failed = True
                 self.errorSignal.emit(f"Timeout de asentamiento del grating a {wl_center:.1f} nm (> {timeout_s}s).")
                 return False
             time.sleep(0.01)
@@ -812,6 +827,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             return
 
         self._cancel_requested = False
+        self._scan_failed = False
         lamp = cfg['lamp']
         self.mode = cfg['mode']
         self._t_step_history = []
@@ -943,6 +959,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 acquisition_readout_margin_s=ACQUISITION_READOUT_MARGIN_S,
                 noise_threshold_1d=float(self.noise_threshold_1d),
                 noise_multiplier=float(getattr(self, 'noise_multiplier', 3.0)),
+                scan_aborted=bool(self._scan_failed),
             )
             if self.mode == 'step_and_glue':
                 metadata.update(
@@ -966,7 +983,15 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                     transmission_2d=t_2d_all, transmission_2d_physical=t_phys_2d, extinction_2d=ext_2d_all,
                 ),
             )
-            self.scanCompletedSignal.emit(h5_path)
+            if self._scan_failed:
+                self.scanAbortedSignal.emit(
+                    h5_path,
+                    "Fallo de asentamiento mecánico (piezo o grating) durante el escaneo — ver el aviso "
+                    "de timeout anterior. Los puntos posteriores al punto de fallo quedaron como NaN. "
+                    "Se guardó un archivo PARCIAL para recuperación forense (metadata['scan_aborted']=True)."
+                )
+            else:
+                self.scanCompletedSignal.emit(h5_path)
         finally:
             if lamp_open:
                 close_shutter(lamp)
@@ -1003,6 +1028,7 @@ def create_linescan_routine(camera=None, spectrometer=None, parent=None):
     worker.progressSignal.connect(widget.update_progress)
     worker.etaSignal.connect(widget.update_eta_live)
     worker.scanCompletedSignal.connect(widget.on_scan_completed)
+    worker.scanAbortedSignal.connect(widget.on_scan_aborted)
     worker.cancelledSignal.connect(widget.on_scan_cancelled)
     worker.errorSignal.connect(widget.on_error)
 

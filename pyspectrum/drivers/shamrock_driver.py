@@ -401,6 +401,11 @@ class ShamrockDriver:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
         with self._lock:
+            # Interlock físico obligatorio (CLAUDE.md §4): las mordazas motorizadas de la
+            # ranura tienen topes mecánicos duros fuera de este rango — clampear aquí evita
+            # que el driver real llegue a mandarles un valor fuera de rango al DLL. Paridad
+            # con _MockShamrock.ShamrockSetSlit(), que ya clampeaba (línea 139).
+            width = max(10.0, min(2500.0, float(width)))
             ret = self._dll.ShamrockSetSlit(c_int(device), c_int(index), c_float(width))
             if ret == SHAMROCK_SUCCESS:
                 self._settling_until = time.time() + SLIT_SETTLING_TIME_S

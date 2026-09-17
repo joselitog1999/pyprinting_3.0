@@ -58,6 +58,15 @@ class TestPySpectrumStability(unittest.TestCase):
         self.camera = get_andor_ccd(force_mock=True)
         self.spectrometer = get_shamrock(force_mock=True)
 
+    def tearDown(self):
+        # test_window_lifecycle_and_clean_exit cierra una PySpectrumWindow real, lo que
+        # dispara legítimamente closeEvent() -> hardware_session.emergency_stop(). Como
+        # hardware_session es un singleton de proceso, sin este reset el E-STOP quedaba
+        # activo para el resto de la suite (TestPySpectrumLegacyRoutines incluida) —
+        # causa raíz de los 5 fallos "E-STOP ACTIVO" diagnosticados en la auditoría de
+        # seguridad de hardware (ver docs/decisions/DECISION_LOG.md, parche P0 asociado).
+        hardware_session.clear_emergency()
+
     def test_continuous_frame_acquisition_stress(self):
         """Stress testing: adquisición continua de 100 cuadros simulados verificando consistencia y memoria."""
         frame_shape = (1002, 1004)

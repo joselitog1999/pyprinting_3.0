@@ -17,6 +17,9 @@ from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration, glue_steps
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
 from pyspectrum.calibration.fit_raman_water import fit_signal_raman
+from core.nidaq import heartbeat_shutter
+
+GRATING_SETTLE_TIMEOUT_S = 6.0
 
 
 class Frontend(QtWidgets.QFrame):
@@ -257,6 +260,24 @@ class Backend(QtCore.QObject):
         self._abort_requested = True
         print("[Step & Glue] Solicitud de detención recibida.")
 
+    def _settle_wavelength(self, wl_center: float, timeout_s: float = GRATING_SETTLE_TIMEOUT_S) -> bool:
+        """Settle del grating SIN sleep fijo: polling real de is_moving()/wait_until_ready()
+        del driver Shamrock (patrón idéntico a
+        linescan_spectroscopy.py::LineScanSpectroscopyWorker._settle_wavelength, DEC-009),
+        con heartbeat del obturador renovado en cada tick de espera."""
+        self.spectrometer.ShamrockSetWavelength(DEVICE, wl_center)
+        t_end = time.time() + timeout_s
+        while self.spectrometer.is_moving():
+            if self._abort_requested:
+                return False
+            heartbeat_shutter(30.0)
+            if time.time() > t_end:
+                print(f"[Step & Glue] Timeout de asentamiento del grating a {wl_center:.1f} nm (> {timeout_s}s).")
+                return False
+            time.sleep(0.01)
+        heartbeat_shutter(30.0)
+        return True
+
     @pyqtSlot(str)
     def save_spectrum(self, filepath: str):
         if len(self._last_wave) == 0:
@@ -279,30 +300,36 @@ class Backend(QtCore.QObject):
 
     @pyqtSlot(float, float)
     def measure_single_spectrum(self, lambda_center: float, exp_time: float):
-        # 1. Configurar espectrógrafo y cámara
-        self.spectrometer.ShamrockSetWavelength(DEVICE, lambda_center)
-        self.camera.set_exposure_time(exp_time)
-        time.sleep(0.05)
+        from pyspectrum.modules.hardware_session import hardware_session
+        if not hardware_session.acquire_session("Step & Glue — Espectro Único"):
+            return
+        try:
+            # 1. Configurar espectrógrafo y cámara
+            if not self._settle_wavelength(lambda_center):
+                return
+            self.camera.set_exposure_time(exp_time)
 
-        # 2. Adquirir y leer (prioriza lectura 1D por hardware de bajo ruido si está activa)
-        if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
-            spec_1d = self.camera.get_1d_spectrum()
-        else:
-            frame = self.camera.get_most_recent_image()
-            spec_1d = np.mean(frame, axis=0)
+            # 2. Adquirir y leer (prioriza lectura 1D por hardware de bajo ruido si está activa)
+            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
+                spec_1d = self.camera.get_1d_spectrum()
+            else:
+                frame = self.camera.get_most_recent_image()
+                spec_1d = np.mean(frame, axis=0)
 
-        # Calibración cúbica de EEPROM o estándar
-        if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-            ret, wave_1d = self.spectrometer.get_wavelength_axis_cubic(DEVICE, len(spec_1d))
-        else:
-            ret, wave_1d = self.spectrometer.ShamrockGetCalibration(DEVICE, len(spec_1d))
+            # Calibración cúbica de EEPROM o estándar
+            if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+                ret, wave_1d = self.spectrometer.get_wavelength_axis_cubic(DEVICE, len(spec_1d))
+            else:
+                ret, wave_1d = self.spectrometer.ShamrockGetCalibration(DEVICE, len(spec_1d))
 
-        # 3. Ajuste opcional
-        wave_fit, spec_fit, lambda_max = fit_signal_polynomial(wave_1d, spec_1d, ends_notch=lambda_center - 10, final_wave=wave_1d[-1])
-        if len(wave_fit) > 0:
-            self.fitFinishedSignal.emit(wave_fit, spec_fit)
+            # 3. Ajuste opcional
+            wave_fit, spec_fit, lambda_max = fit_signal_polynomial(wave_1d, spec_1d, ends_notch=lambda_center - 10, final_wave=wave_1d[-1])
+            if len(wave_fit) > 0:
+                self.fitFinishedSignal.emit(wave_fit, spec_fit)
 
-        self.spectrumFinishedSignal.emit(wave_1d, spec_1d, np.array([]), np.array([]), lambda_max)
+            self.spectrumFinishedSignal.emit(wave_1d, spec_1d, np.array([]), np.array([]), lambda_max)
+        finally:
+            hardware_session.release_session("Step & Glue — Espectro Único")
 
     @pyqtSlot(float, float, float, float, bool)
     def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap: float, exp_time: float, normalize: bool):
@@ -332,8 +359,9 @@ class Backend(QtCore.QObject):
                 if self._abort_requested:
                     print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por el usuario.")
                     break
-                self.spectrometer.ShamrockSetWavelength(DEVICE, wl_c)
-                time.sleep(0.05)
+                if not self._settle_wavelength(wl_c):
+                    print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por fallo/timeout de asentamiento del grating.")
+                    break
                 if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
                     ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
                 else:
