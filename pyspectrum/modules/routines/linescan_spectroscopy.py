@@ -48,6 +48,12 @@ PIEZO_SETTLE_TIMEOUT_S = 5.0
 GRATING_SETTLE_TIMEOUT_S = 6.0
 PIEZO_POSITION_TOLERANCE_UM = 0.05
 
+# Cota inferior de transmission_*_physical (DEC-008, Brecha 1): igual al epsilon interno
+# que compute_extinction() usa para evitar -log10(0)=inf. clip(T, 0, None) permitía que un
+# consumidor externo que aplique -log10() directamente sobre _physical obtuviera +inf en vez
+# de un valor finito grande — este epsilon lo evita sin reintroducir sesgo relevante (GUM).
+EPSILON_TRANS = 1e-6
+
 
 def compute_glue_centers(start_wl: float, end_wl: float, overlap: float) -> List[float]:
     """Centros espectrales para Step & Glue. Réplica intencional de la misma fórmula
@@ -769,10 +775,12 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             sigma_dark_2d = np.std(bg_2d, axis=1)
             self.noise_threshold_1d = mult * sigma_dark_1d
             self.noise_threshold_2d = mult * sigma_dark_2d
+            self.noise_multiplier = mult
 
             self._reference = dict(
                 signal_1d=sig_1d, background_1d=bg_1d, signal_2d=sig_2d, background_2d=bg_2d,
                 sigma_dark_1d=np.full_like(sig_1d, sigma_dark_1d), sigma_dark_2d=sigma_dark_2d,
+                noise_threshold_2d=self.noise_threshold_2d,
             )
 
             net_ref = sig_1d - bg_1d
@@ -923,8 +931,8 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 self.errorSignal.emit("Escaneo interrumpido por PARADA DE EMERGENCIA.")
                 return
 
-            t_phys_1d = np.clip(t_1d_all, 0.0, None)
-            t_phys_2d = np.clip(t_2d_all, 0.0, None)
+            t_phys_1d = np.clip(t_1d_all, EPSILON_TRANS, None)
+            t_phys_2d = np.clip(t_2d_all, EPSILON_TRANS, None)
 
             metadata = dict(
                 timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -934,6 +942,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 extinction_formula="-log10(T)",
                 acquisition_readout_margin_s=ACQUISITION_READOUT_MARGIN_S,
                 noise_threshold_1d=float(self.noise_threshold_1d),
+                noise_multiplier=float(getattr(self, 'noise_multiplier', 3.0)),
             )
             if self.mode == 'step_and_glue':
                 metadata.update(

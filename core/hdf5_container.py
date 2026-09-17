@@ -369,10 +369,12 @@ def write_linescan_spectroscopy_hdf5(
 
     :param metadata: atributos escalares (timestamp, t_exp_1d_s, t_exp_2d_s, grating,
         center_lambda_nm, laser_power, roi_ymin, roi_ymax, acquisition_mode,
-        extinction_formula, acquisition_readout_margin_s, y opcionalmente
+        extinction_formula, acquisition_readout_margin_s, noise_multiplier (p.ej. 3.0,
+        multiplicador de sigma_dark usado para noise_threshold_1d/2d), y opcionalmente
         glue_start_wl_nm/glue_end_wl_nm/glue_overlap_pct si acquisition_mode == "step_and_glue").
     :param reference: dict con signal_1d, background_1d, signal_2d, background_2d,
-        sigma_dark_1d, sigma_dark_2d (todos np.ndarray).
+        sigma_dark_1d, sigma_dark_2d, noise_threshold_2d (todos np.ndarray; noise_threshold_2d
+        es opcional, umbral de ruido por fila = noise_multiplier * sigma_dark_2d).
     :param raw_data: dict con sample_1d [N,Nl], sample_2d [N,Ny,Nl], y opcionalmente
         native_length_mismatch [N] (bool, sólo relevante en modo step_and_glue).
     :param processed: dict con transmission_1d, transmission_1d_physical, extinction_1d,
@@ -412,7 +414,7 @@ def write_linescan_spectroscopy_hdf5(
 
         ref_grp = f.create_group("reference")
         for key in ("signal_1d", "background_1d", "signal_2d", "background_2d",
-                    "sigma_dark_1d", "sigma_dark_2d"):
+                    "sigma_dark_1d", "sigma_dark_2d", "noise_threshold_2d"):
             if key in reference:
                 _ds(ref_grp, key, reference[key])
 
@@ -435,7 +437,11 @@ def write_linescan_spectroscopy_hdf5(
         for key in ("transmission_1d_physical", "transmission_2d_physical"):
             if key in proc_grp:
                 proc_grp[key].attrs["clipping_applied"] = True
-                proc_grp[key].attrs["rationale"] = "positividad fisica, no correccion metrologica"
+                proc_grp[key].attrs["clipping_floor"] = 1e-6
+                proc_grp[key].attrs["rationale"] = (
+                    "positividad fisica acotada a epsilon=1e-6 para calculo directo de extincion (-log10(T)); "
+                    "los calculos metrologicos rigurosos deben consumir transmission_* cruda"
+                )
 
         f.flush()
 

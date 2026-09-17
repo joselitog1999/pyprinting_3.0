@@ -112,12 +112,33 @@ class TestLineScanSpectroscopy(unittest.TestCase):
 
     # ── Guardas matemáticas ──────────────────────────────────────────────────
     def test_transmission_physical_never_negative(self):
+        """DEC-008 Brecha 1: transmission_*_physical debe estar acotada al epsilon interno
+        de compute_extinction() (1e-6), no a 0.0, para que -log10() directo sobre este
+        dataset nunca produzca +inf en un consumidor externo."""
         h5_path = self._run_full_scan('single_window')
         try:
             with h5py.File(h5_path, 'r') as f:
                 t_phys = f['processed/transmission_1d_physical'][:]
                 finite = t_phys[np.isfinite(t_phys)]
-                self.assertTrue(np.all(finite >= 0.0), "transmission_1d_physical tiene valores negativos.")
+                self.assertTrue(np.all(finite >= 1e-6), "transmission_1d_physical tiene valores por debajo de epsilon=1e-6.")
+                self.assertEqual(f['processed/transmission_1d_physical'].attrs.get('clipping_floor'), 1e-6)
+                self.assertEqual(f['processed/transmission_2d_physical'].attrs.get('clipping_floor'), 1e-6)
+        finally:
+            os.remove(h5_path)
+
+    def test_noise_threshold_2d_and_multiplier_persisted(self):
+        """DEC-008 Brecha 2: el umbral de ruido 2D fila-por-fila y el multiplicador usado
+        deben persistirse explícitamente en el HDF5, no ser sólo inferibles."""
+        h5_path = self._run_full_scan('single_window')
+        try:
+            with h5py.File(h5_path, 'r') as f:
+                self.assertIn('noise_threshold_2d', f['reference'])
+                roi_height = f['reference/signal_2d'].shape[0]
+                self.assertEqual(f['reference/noise_threshold_2d'].shape, (roi_height,))
+                mult = f['metadata'].attrs.get('noise_multiplier')
+                self.assertIsNotNone(mult)
+                self.assertIsInstance(float(mult), float)
+                self.assertAlmostEqual(float(mult), 3.0, places=6)
         finally:
             os.remove(h5_path)
 
