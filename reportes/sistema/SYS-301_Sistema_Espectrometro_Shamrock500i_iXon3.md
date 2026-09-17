@@ -275,3 +275,66 @@ Para materializar estas capacidades en el software, se estructuran las siguiente
 3. **Integración en la Ventana Principal [`pyspectrum/window.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum/window.py)**:
    - Nuevo Dock modular: **`🔬 Espectroscopía Raman Estática & Termometría`** accesible desde la interfaz de PySpectrum 3.0.
    - Exportación directa 1-clic a formatos compatibles con `raman_analyzer.py` y OriginLab.
+
+---
+
+## 7. 📏 Rutina de Escaneo Lineal Espectral (`linescan_spectroscopy.py`)
+
+Complementando los modos estáticos de la Sección 6, PySpectrum 3.0 incorpora la rutina de **Escaneo Lineal Espectral** (implementada en [`pyspectrum/modules/routines/linescan_spectroscopy.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum/modules/routines/linescan_spectroscopy.py)), que mide perfiles espaciales de transmisión/extinción $T(x,\lambda)$ a lo largo de una recta de la platina PI E-517, combinando el Shamrock 500i con dos regímenes de lectura del iXon3. A diferencia de las demás rutinas de `pyspectrum` (patrón `Backend(QObject)` + `QTimer` en el hilo de la GUI), esta es la primera en ejecutar su motor de adquisición en un `QThread` real vía `moveToThread` (`DEC-006`/`DEC-007`, `docs/decisions/DECISION_LOG.md`), pues un único paso puede bloquear desde cientos de ms (Ventana Única) hasta varios minutos (Step & Glue).
+
+### 7.1 Modos de Lectura del Sensor iXon3: FVB, Single Track e Imagen
+
+El controlador `andor_ccd_driver.py` expone tres modos de lectura, seleccionados vía `set_read_mode()`:
+
+| Modo | Constante | Valor | Operación de Hardware | Uso en el Escaneo Lineal |
+|---|---|---|---|---|
+| Full Vertical Binning | `READ_MODE_FVB` | `0` | Suma en el registro paralelo las $1002$ filas activas del chip antes de la lectura serie | No utilizado como modo primario (§7.2) |
+| Single Track | `READ_MODE_SINGLE_TRACK` | `1` | Bineo de hardware confinado a `[y_center, height]` vía `set_single_track(center, height)` → `SetSingleTrack()` | Pasada 1D, ambos modos espectrales |
+| Imagen | `READ_MODE_IMAGE` | `4` | Lectura fila-a-fila sin binear de una sub-área vía `set_image(hbin, vbin, hstart, hend, vstart, vend)` → `SetImage()` | Pasada 2D diagnóstica (§7.3) |
+
+> [!NOTE]
+> El ROI vertical se fija en la UI vía `spin_roi_center` (1–1002 px) y `spin_roi_height` (2–200 px, valor por defecto $40$ px); `roi_ymin`/`roi_ymax` derivados alimentan tanto a `set_single_track()` como a `set_image()`, garantizando que ambas pasadas integren exactamente la misma banda física del sensor.
+
+### 7.2 Justificación Física: Confinamiento del Binning al ROI vs. FVB Completo
+
+El escaneo horizontal define un ROI vertical acotado (altura típica $20$–$60$ px) centrado en la traza óptica del haz sobre la rendija de entrada. Usar `READ_MODE_FVB` sumaría en el registro paralelo el ruido de corriente oscura de las $\sim 950+$ filas restantes que **no reciben luz**, degradando la SNR del espectro 1D; el modo Single Track, confinado a las filas iluminadas, elimina esa contaminación.
+
+El ruido de lectura del amplificador de salida se cobra **una sola vez** por columna, independientemente de $N$ filas binadas (el bineo ocurre en el registro paralelo, aguas arriba del único evento de conversión A/D), mientras que el ruido de disparo de corriente oscura, generado de forma independiente fila a fila, se acumula en cuadratura:
+$$\sigma_{\text{total}}(N) = \sqrt{\sigma_{\text{read}}^2 + N \cdot \sigma_{\text{dark,fila}}^2}$$
+
+En el régimen dominado por ruido de disparo oscuro ($N\sigma_{\text{dark,fila}}^2 \gg \sigma_{\text{read}}^2$, típico en exposiciones $\gtrsim 0.1$ s), $\sigma_{\text{total}}(N) \approx \sqrt{N}\,\sigma_{\text{dark,fila}}$, de modo que la ganancia de SNR al confinar el bineo de $N_{FVB}=1002$ filas a $N_{\text{ROI}}$ resulta:
+$$\frac{\text{SNR}_{\text{ROI}}}{\text{SNR}_{\text{FVB}}} \approx \sqrt{\frac{N_{FVB}}{N_{\text{ROI}}}}$$
+
+| $N_{\text{ROI}}$ (px) | $N_{FVB}/N_{\text{ROI}}$ | Ganancia de SNR |
+|---|---|---|
+| $20$ | $50.1$ | $\times 7.08$ |
+| $40$ (defecto UI) | $25.1$ | $\times 5.00$ |
+| $60$ | $16.7$ | $\times 4.09$ |
+
+Esto es consistente con el modelo determinista ya codificado en `_MockAndorCCD.get_1d_spectrum()`: el nivel medio de oscuro escala linealmente con la altura del track (`track_height * 0.12` en Single Track, frente a `self.height * 0.12` en FVB), mientras que `read_noise` ($\sigma=4$ cuentas) se sortea una única vez por columna — confirmando la parte determinista del modelo (escalamiento del nivel, independencia del ruido de lectura respecto de $N$), consistente con Mock Mode Parity.
+
+### 7.3 Modo Diagnóstico Pixel-a-Píxel 2D
+
+En su segunda pasada, la rutina reconfigura `set_read_mode(READ_MODE_IMAGE)` seguido de `set_image(1, 1, 1, 1004, roi_ymin + 1, roi_ymax)`, leyendo el mismo ROI vertical fila por fila sin binear ($h_{\text{bin}}=v_{\text{bin}}=1$), produciendo una sub-matriz $(\text{altura}_{\text{ROI}}, N_\lambda)$ por cada posición $X$.
+
+> [!IMPORTANT]
+> El desplazamiento `roi_ymin + 1` en `vstart` es intencional: la SDK de Andor indexa filas desde $1$, mientras `roi_ymin` se deriva con convención Python de base $0$ — evita un error de un píxel en el límite inferior del ROI.
+
+Uso diagnóstico: heterogeneidad espacial de la señal a lo largo de la rendija, aberración cromática (desplazamiento de $\lambda$ entre filas) y calidad de alineación confocal vertical — análogo a la distinción Ruta A/Ruta B ya documentada para el analizador SIF (`SYS-304_Arquitectura_Analizador_SIF_y_Filtros_Cascada`, promedio 1D primero vs. píxel-a-píxel primero), pero aquí ambas rutas se materializan como **datasets HDF5 separados y trazables** (`raw_data/sample_1d [N,N_\lambda]` vs. `raw_data/sample_2d [N,\text{altura}_{\text{ROI}},N_\lambda]`; `processed/{transmission,extinction}_1d` vs. `_2d`), no como una elección de cálculo post-hoc.
+
+### 7.4 Modo Dual de Rango Espectral: Ventana Única vs. Step & Glue
+
+El combo `Modo Espectral` alterna entre **Ventana Única** (grating fijo, un único array $\lambda$) y **Espectro Completo (Step & Glue)**: en cada posición $X$, un sub-barrido de centros generado por `compute_glue_centers()` (réplica determinista de `step_and_glue.py:315-320`, $\text{step}=240\,\text{nm}\times(1-\text{solapamiento})$) gestionado con `spectrometer.ShamrockSetWavelength()`.
+
+El asentamiento se confirma sondeando `is_moving()` (respaldado por `_settling_until`, el mismo mecanismo que expone `wait_until_ready()` — preexistente en el driver pero **nunca invocado fuera de él** hasta esta implementación). `_settle_wavelength()` sondea `is_moving()` en un bucle propio en vez de bloquear en `wait_until_ready()`, para intercalar `heartbeat_shutter(30.0)` en cada tick de $10$ ms — renovando el deadline de auto-cierre del obturador $30$ s hacia adelante, muy por encima del margen que el watchdog autónomo (`SYS-201`) sondea, evitando que la espera (hasta `GRATING_SETTLE_TIMEOUT_S = 6.0` s) la deje sin renovar.
+
+> [!NOTE]
+> `ShamrockSetWavelength()` asienta con `WAVELENGTH_SETTLING_TIME_S = 0.3` s nominal (tornillo de longitud de onda) — no con `GRATING_SETTLING_TIME_S = 4.0` s (rotación del revólver de redes). El sub-barrido Step & Glue nunca cambia de red física, por lo que jamás incurre en el homing del revólver dentro de una misma recta.
+
+Los espectros se funden con `glue_steps()` (`halogen_lamp.py`), que pondera el solape con una sigmoidea:
+$$I_{\text{glued}}(\lambda) = w(\lambda)\,I_{\text{head}}(\lambda) + (1-w(\lambda))\,I_{\text{tail}}(\lambda), \quad w(x) = \frac{1}{1+e^{-x}},\ x \in [-3.5,\ 3.5]$$
+descartando $15$ píxeles de borde por lado (`n_skip_points=30`) antes de interpolar a la grilla nativa del primer punto adquirido.
+
+### 7.5 Acople Determinístico con la Platina Piezoeléctrica PI E-517
+
+Cada paso $\Delta X$ se ejecuta con `pi.MOV(axes, targets)` y confirma asentamiento mediante *polling* real de `pi.qONT()` (tick de $10$ ms) — idéntico al primitivo de `core/nanopositioning.py` — nunca con espera fija, ya que el tiempo de asentamiento depende del tamaño del paso y la dinámica del lazo cerrado. A diferencia de `core/nanopositioning.py` (bucle sin cota), `_move_and_settle()` añade `PIEZO_SETTLE_TIMEOUT_S = 5.0` s de seguridad propio y, tras confirmar *on-target*, verifica la posición real vía `pi.qPOS()` contra `PIEZO_POSITION_TOLERANCE_UM = 0.05` µm, emitiendo un aviso no bloqueante si el eje difiere del objetivo más allá de ese margen.

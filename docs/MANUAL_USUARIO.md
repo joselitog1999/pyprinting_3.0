@@ -683,6 +683,24 @@ Para garantizar la integridad mecánica y óptica del espectrómetro Shamrock 50
      - Desplazamiento de longitud de onda: **$0.3\ \text{s}$** (`WAVELENGTH_SETTLING_TIME_S`).
    - Métodos `is_moving()` y `wait_until_ready()` para garantizar que ninguna adquisición comience mientras los componentes ópticos se encuentren vibrando o en transición motriz.
 
+### 4.5 Procedimiento Operativo Estandarizado (SOP del Escaneo Lineal Espectral)
+
+> [!CAUTION]
+> **Checklist previo:** obturador de la lámpara verificado en el Tablero de Conexiones; recta de barrido dentro de $0$–$100\ \mu\text{m}$; botón global **`🚨 PARADA DE EMERGENCIA (E-STOP)`** de la barra superior accesible y sin diálogos modales encima.
+
+Protocolo de 8 pasos para un barrido lineal de transmisión/extinción (`[[MOD-06_PySpectrum_Espectroscopia_Shamrock#10. Escaneo Lineal Espectral (Transmisión/Extinción)|MOD-06 §10]]`):
+
+1. **Abrir la rutina:** Menú **`🧪 Rutinas → Escaneo Lineal Espectral (Transmisión/Extinción)`**.
+2. **Definir el ROI vertical:** Presionar **`🔍 Vista Previa del Sensor`** y arrastrar la banda horizontal sobre la vista previa (o editar **`Centro (px)`**/**`Altura (px)`**) hasta encuadrar la franja espectral.
+3. **Configurar Adquisición:** Elegir **`Fuente (Lámpara)`**, **`Exp. 1D (s)`**/**`Exp. 2D (s)`** y **`Modo Espectral`** (si es "Espectro Completo (Step & Glue)", completar λ Inicial/λ Final/Solapamiento; opcionalmente abrir **`⚙️ Avanzado`** para el Multiplicador σ_dark).
+4. **Marcar la Referencia:** Posicionar la muestra y presionar **`📍 Tomar Posición Actual`** (o cargar X_ref/Y_ref/Z_ref manualmente), luego **`📥 Tomar Referencia (Fase A)`**. Si aparece el banner ámbar de señal débil, no continuar: corregir lámpara/obturador/ROI y repetir este paso hasta que desaparezca.
+5. **Fijar la recta de barrido:** Completar X inicial, X final, Y fijo, Z fijo y Paso ΔX en el grupo **`B. Recta de Barrido`**; revisar la etiqueta **`⏱ Tiempo estimado`**.
+6. **Ejecutar:** Presionar **`🚀 Iniciar Escaneo`** (habilitado solo tras una Referencia válida). Si el tiempo estimado supera 10 minutos, confirmar el diálogo de escaneo prolongado.
+7. **Supervisar:** Seguir la barra de progreso, **`Restante: ...`**, el plot 1D en vivo y el heatmap 2D acumulado. **`⏹ Cancelar Escaneo`** (cabecera local) detiene al finalizar el punto actual; **`🚨 PARADA DE EMERGENCIA (E-STOP)`** corta de inmediato ante cualquier anomalía.
+8. **Exportar y archivar:** Al finalizar, registrar la ruta `.h5` informada en el diálogo "Escaneo Finalizado". Usar **`🎨 Exportar Curva`** para abrir el Estudio de Exportación (`FigureExportStudioDialog`) sobre el plot 1D.
+
+> Tabla completa de límites de validez y modos de falla de esta rutina: `[[MOD-06_PySpectrum_Espectroscopia_Shamrock#10.1 Límites de Validez y Modos de Falla — Escaneo Lineal Espectral|MOD-06 §10.1]]`.
+
 ---
 
 ## 5. Módulo 03: Microscopio Contrapropagante (`contrapropagante.py`)

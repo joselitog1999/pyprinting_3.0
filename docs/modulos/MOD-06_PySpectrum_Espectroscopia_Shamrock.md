@@ -28,6 +28,7 @@
   * `[[MOD-11_Raman_Analyzer_Suite_Quimiometria]]`
   * `[[MOD-12_Analizador_SIF_Andor_Solis]]`
   * `[[MOD-14_Protocolos_Laboratorio_SOP]]`
+* **Decisiones Arquitectónicas (Escaneo Lineal Espectral):** `[[DECISION_LOG#DEC-006]]`, `[[DECISION_LOG#DEC-007]]`, `[[DECISION_LOG#DEC-008]]`
 
 ---
 
@@ -209,7 +210,29 @@ Enlace nativo Ctypes con la biblioteca `ShamrockCIF.dll`:
 
 ---
 
-## 10. 🔗 Referencias Cruzadas
+## 10. 📏 Escaneo Lineal Espectral (Transmisión/Extinción)
+
+Rutina de escaneo horizontal 1D con la platina PI E-517 ($X_{\text{start}} \to X_{\text{end}}$, paso $\Delta X$), implementada en `pyspectrum/modules/routines/linescan_spectroscopy.py` y accesible desde `🧪 Rutinas → Escaneo Lineal Espectral (Transmisión/Extinción)`. A diferencia de las demás rutinas de este módulo, corre su motor de adquisición en un `QThread` real (ver `[[DECISION_LOG#DEC-006]]`/`[[DECISION_LOG#DEC-007]]`), ya que un solo paso puede bloquear desde cientos de ms (modo Ventana Única) hasta varios minutos (modo Espectro Completo / Step & Glue).
+
+**Doble modalidad de lectura CCD** por posición: bineo de hardware acotado al ROI vertical de la mancha confocal (`READ_MODE_SINGLE_TRACK`, evita el FVB puro de 1002 filas que degradaría el SNR al sumar filas oscuras sin luz — detalle cuantitativo en `[[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3#7.2]]`) y modo pixel-a-pixel 2D (`READ_MODE_IMAGE`) sobre el mismo ROI, para diagnóstico de heterogeneidad espacial, aberración cromática y alineación en la rendija.
+
+**Protocolo**: referencia fija ($I_{ref}$, $I_{ref\_bg}$ con lámpara abierta/cerrada, ambos modos) seguida de un barrido de señal $I_{sig}(x)$ sin ciclar obturadores en cada punto; $T(\lambda,x)$ y $E(\lambda,x)=-\log_{10}T(\lambda,x)$ se calculan con las mismas funciones que el analizador SIF (`core/sif_processor.py`). Persistencia nativa en HDF5 comprimido (`shuffle`+`gzip`-4), esquema detallado en `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO#5. Contenedor HDF5 del Escaneo Lineal Espectral]]`.
+
+Procedimiento paso a paso completo: `[[MANUAL_USUARIO#4.5 Procedimiento Operativo Estandarizado (SOP del Escaneo Lineal Espectral)]]`.
+
+### 10.1 ⚠️ Límites de Validez y Modos de Falla — Escaneo Lineal Espectral
+
+| Condición Límite / Caso de Borde | Manifestación en la GUI | Mitigación Inmediata del Operador |
+| :--- | :--- | :--- |
+| Saturación del ADC del iXon3 durante la adquisición de Referencia (lámpara abierta). | Meseta plana en el valor máximo de cuentas en la vista previa/espectro; no dispara el banner de señal débil (que solo vigila el extremo bajo, $<3\sigma$). | Reducir **`Exp. 1D (s)`**/**`Exp. 2D (s)`** y repetir **`📥 Tomar Referencia (Fase A)`**; verificar en **`🔍 Vista Previa del Sensor`** antes de reintentar. |
+| $T(\lambda)$ indefinida en los bordes UV/NIR donde la emisión de la lámpara halógena cae a cero. | Picos espurios o ruido amplificado en los extremos del plot 1D y en las columnas límite del heatmap 2D; el motor aplica `noise_threshold` para evitar la división exacta por cero, pero el resultado carece de significado físico. | Acotar λ Inicial/λ Final al rango con emisión útil; subir el Multiplicador σ_dark en **`⚙️ Avanzado`**; recortar los bordes al exportar con **`🎨 Exportar Curva`**. |
+| Pérdida de paso piezoeléctrico o intento de posicionar fuera de $0$–$100\ \mu\text{m}$ en la platina PI E-517. | Los spinboxes clampean automáticamente al límite físico; si el asentamiento no confirma on-target dentro del timeout, el escaneo se detiene con diálogo "Error en Escaneo Lineal" (timeout de piezo). | Inspeccionar mecánicamente la platina, presionar **`📍 Tomar Posición Actual`** para releer la posición real y reajustar la recta antes de reintentar **`🚀 Iniciar Escaneo`**. |
+| Señal de referencia débil: $(I_{ref}-BG_{ref}) < 3\sigma$ en más del 50% del espectro. | Banner ámbar no modal bajo la cabecera; **`🚀 Iniciar Escaneo`** permanece deshabilitado aunque ya se haya presionado Tomar Referencia. | Confirmar que **`Fuente (Lámpara)`** corresponda al obturador real, reencuadrar el ROI en la vista previa y repetir la Referencia. |
+| Timeout de asentamiento de la red de difracción entre centros espectrales (modo "Espectro Completo — Step & Glue"). | El escaneo se detiene, la barra de progreso deja de avanzar y aparece un diálogo de error con la longitud de onda afectada. | Verificar que la torreta de redes no esté obstruida y reintentar; si persiste, reducir el rango λ o el Solapamiento para disminuir la cantidad de saltos de red por punto. |
+
+---
+
+## 11. 🔗 Referencias Cruzadas
 - [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|📘 SYS-301: Shamrock 500i, iXon3 y Óptica Confocal]]
 - [[SYS-302_Calibracion_Espectral_y_Sincronizacion_Flippers|📑 SYS-302: Calibración Espectral, Offsets Ctypes y Flippers]]
 - [[SYS-305_Arquitectura_Optomecanica_Microscopio_Derecho_y_Ruteo_Espectral|🔬 SYS-305: Arquitectura Optomecánica y Ruteo Espectral]]
