@@ -52,7 +52,10 @@ from core.lattice_disorder import (
     extract_diagonal_profile,
     fit_secondary_bragg_peak_1d,
     measure_transversal_mosaic,
-    compute_analytical_bragg_relations
+    compute_analytical_bragg_relations,
+    compute_bond_orientational_order,
+    compute_voronoi_topology,
+    compute_quiver_and_strain
 )
 from core.localization_pipeline import (
     load_coordinates,
@@ -1008,6 +1011,259 @@ def test_analytical_bragg_relations_anchor_wilson_to_h0():
     concl = ar_anchored['wilson_data']['conclusions']
     assert "anclados a ln(H₀)" in concl['intercept_text']
     assert "Discrepancia" in concl['background_text'] or "concordancia" in concl['background_text']
+
+
+def test_real_space_kdtree_rectangular_anisotropic():
+    """Verifica que en una red rectangular (a != b, N_x != N_y) el motor recupere
+    sigma_x y sigma_y por separado a partir de un desorden anisótropo inyectado."""
+    a_val, b_val = 400.0, 550.0
+    n_side_x, n_side_y = 10, 12
+    sigma_x_in, sigma_y_in = 18.0, 30.0
+
+    rng = np.random.default_rng(2024)
+    half_x = ((n_side_x - 1) * a_val) / 2.0
+    half_y = ((n_side_y - 1) * b_val) / 2.0
+    gx = np.linspace(-half_x, half_x, n_side_x)
+    gy = np.linspace(-half_y, half_y, n_side_y)
+    X, Y = np.meshgrid(gx, gy)
+    x = X.ravel() + rng.normal(0, sigma_x_in, X.size)
+    y = Y.ravel() + rng.normal(0, sigma_y_in, Y.size)
+
+    res = analyze_real_space_kdtree(x, y, a=a_val, b=b_val, n_side_x=n_side_x, n_side_y=n_side_y)
+
+    assert abs(res['sigma_x'] - sigma_x_in) < 4.0, f"sigma_x={res['sigma_x']} lejos de {sigma_x_in}"
+    assert abs(res['sigma_y'] - sigma_y_in) < 4.0, f"sigma_y={res['sigma_y']} lejos de {sigma_y_in}"
+    assert res['n_side_x'] == n_side_x
+    assert res['n_side_y'] == n_side_y
+    assert res['is_anisotropic'] is True
+    assert res['vacant_count'] == 0
+    assert res['gamma_lindemann'] > 0.0
+
+
+def test_real_space_kdtree_rectangular_backward_compat_square():
+    """Verifica que la firma legada (a, n_side) siga produciendo una red cuadrada isótropa idéntica."""
+    a_nominal = 450.0
+    x, y = _generate_synthetic_grid(n_side=15, a=a_nominal, sigma=5.0, seed=77)
+
+    res_legacy = analyze_real_space_kdtree(x, y, a=a_nominal, n_side=15)
+    res_explicit = analyze_real_space_kdtree(x, y, a=a_nominal, b=a_nominal, n_side_x=15, n_side_y=15)
+
+    assert abs(res_legacy['sigma_pos'] - res_explicit['sigma_pos']) < 1e-9
+    assert res_legacy['n_side_x'] == 15 and res_legacy['n_side_y'] == 15
+    assert res_legacy['is_anisotropic'] is False
+
+
+def test_bond_orientational_order_perfect_rectangular_lattice():
+    """Verifica que una red rectangular perfecta (sigma=0) dé <psi4> cercano a 1.0."""
+    a_val = 450.0
+    x, y = _generate_synthetic_grid(n_side=12, a=a_val, sigma=0.0, seed=11)
+
+    res = compute_bond_orientational_order(x, y, k_neighbors=4, lattice_type='rectangular')
+
+    # Nota: con kNN de grado fijo (vectorizado), las partículas de esquina se rellenan
+    # con su 4to vecino real más cercano (la diagonal), lo que baja levemente <psi4>
+    # respecto de una lista de adyacencia de Delaunay pura en el borde; 0.80 sigue
+    # distinguiendo con margen amplio el régimen ordenado del desordenado (ver test siguiente).
+    assert res['psi4_mean'] > 0.80, f"psi4_mean={res['psi4_mean']} demasiado bajo para red perfecta"
+    assert len(res['coordination']) == len(x)
+    # coordination es de grado fijo (kNN vectorizado): siempre == k_neighbors, no es un
+    # indicador de defectos topológicos reales (ver compute_voronoi_topology para eso).
+    assert np.all(res['coordination'] == 4)
+
+
+def test_bond_orientational_order_disordered_lattice_lower_psi4():
+    """Verifica que inyectar desorden posicional degrade <psi4> respecto de la red ideal."""
+    a_val = 450.0
+    x_ideal, y_ideal = _generate_synthetic_grid(n_side=12, a=a_val, sigma=0.0, seed=11)
+    x_noisy, y_noisy = _generate_synthetic_grid(n_side=12, a=a_val, sigma=0.35 * a_val, seed=11)
+
+    res_ideal = compute_bond_orientational_order(x_ideal, y_ideal)
+    res_noisy = compute_bond_orientational_order(x_noisy, y_noisy)
+
+    assert res_noisy['psi4_mean'] < res_ideal['psi4_mean']
+
+
+def test_voronoi_topology_internal_coordination_perfect_lattice():
+    """Verifica que en una red regular interna Z=4 y f_defects=0.0 (excluyendo celdas de borde)."""
+    a_nominal = 450.0
+    n_side = 14
+    x, y = _generate_synthetic_grid(n_side=n_side, a=a_nominal, sigma=0.0, seed=22)
+
+    margin = 1.5 * a_nominal
+    x_range = (float(np.min(x)) + margin, float(np.max(x)) - margin)
+    y_range = (float(np.min(y)) + margin, float(np.max(y)) - margin)
+
+    res = compute_voronoi_topology(x, y, x_range=x_range, y_range=y_range)
+
+    assert res['n_internal'] > 0
+    assert res['f_defects'] == 0.0, f"f_defects={res['f_defects']} debe ser 0 para red perfecta"
+    internal_coord = res['coordination'][res['is_internal']]
+    assert np.all(internal_coord == 4), f"Coordinaciones internas: {np.unique(internal_coord)}"
+    assert res['area_cv'] < 0.05
+
+
+def test_voronoi_topology_robust_to_small_positional_noise():
+    """Verifica que ruido posicional pequeño (~2% del período) no infle espuriamente
+    la coordinación Z por degeneración numérica de vértices de Voronoi cocirculares
+    (regresión: 4 puntos exactamente cocirculares por celda en una red cuadrada perfecta
+    se separan en vértices casi duplicados ante cualquier ruido, sin fusión de vértices)."""
+    a_val, b_val = 400.0, 550.0
+    n_side_x, n_side_y = 10, 12
+
+    rng = np.random.default_rng(1)
+    gx = np.linspace(0, (n_side_x - 1) * a_val, n_side_x)
+    gy = np.linspace(0, (n_side_y - 1) * b_val, n_side_y)
+    X, Y = np.meshgrid(gx, gy)
+    x = X.ravel() + rng.normal(0, 8.0, X.size)
+    y = Y.ravel() + rng.normal(0, 8.0, Y.size)
+
+    margin_x, margin_y = 1.0 * a_val, 1.0 * b_val
+    x_range = (float(np.min(x)) + margin_x, float(np.max(x)) - margin_x)
+    y_range = (float(np.min(y)) + margin_y, float(np.max(y)) - margin_y)
+
+    res = compute_voronoi_topology(x, y, x_range=x_range, y_range=y_range)
+
+    assert res['n_internal'] > 0
+    assert res['f_defects'] == 0.0, (
+        f"f_defects={res['f_defects']} — ruido de {8.0} nm no debe generar defectos "
+        f"espurios en una red de período {a_val}/{b_val} nm por degeneración de Voronoi"
+    )
+    internal_coord = res['coordination'][res['is_internal']]
+    assert np.all(internal_coord == 4), f"Coordinaciones internas infladas: {np.unique(internal_coord)}"
+
+
+def test_voronoi_topology_vacancy_creates_defect():
+    """Verifica que remover una partícula interna genere celdas vecinas con Z != 4 (defecto topológico)."""
+    a_nominal = 450.0
+    n_side = 14
+    x, y = _generate_synthetic_grid(n_side=n_side, a=a_nominal, sigma=0.0, seed=33)
+
+    # Remueve la partícula más cercana al centro geométrico (garantizado interna)
+    cx, cy = float(np.mean(x)), float(np.mean(y))
+    idx_center = int(np.argmin((x - cx) ** 2 + (y - cy) ** 2))
+    mask = np.ones(len(x), dtype=bool)
+    mask[idx_center] = False
+    x_vac, y_vac = x[mask], y[mask]
+
+    margin = 1.5 * a_nominal
+    x_range = (float(np.min(x_vac)) + margin, float(np.max(x_vac)) - margin)
+    y_range = (float(np.min(y_vac)) + margin, float(np.max(y_vac)) - margin)
+
+    res = compute_voronoi_topology(x_vac, y_vac, x_range=x_range, y_range=y_range)
+    assert res['n_defects'] > 0
+    assert res['f_defects'] > 0.0
+
+
+def test_quiver_and_strain_pure_shear():
+    """Verifica que un campo de deformación afín puro (shear conocido) se recupere en exx/eyy/exy."""
+    a_nominal = 450.0
+    n_side = 12
+    x_ideal, y_ideal = _generate_synthetic_grid(n_side=n_side, a=a_nominal, sigma=0.0, seed=44)
+
+    exx_true, eyy_true, exy_true = 0.02, -0.015, 0.01
+    dx = exx_true * x_ideal + exy_true * y_ideal
+    dy = exy_true * x_ideal + eyy_true * y_ideal
+    x_deformed = x_ideal + dx
+    y_deformed = y_ideal + dy
+    valid_mask = np.ones(len(x_ideal), dtype=bool)
+
+    res = compute_quiver_and_strain(x_deformed, y_deformed, x_ideal, y_ideal, valid_mask)
+
+    assert res['success']
+    assert abs(res['exx'] - exx_true) < 1e-6
+    assert abs(res['eyy'] - eyy_true) < 1e-6
+    assert abs(res['exy'] - exy_true) < 1e-6
+    assert abs(res['omega']) < 1e-6
+
+
+def test_radial_distribution_function_double_gaussian_rectangular():
+    """Verifica que con a != b (> 15 nm de diferencia) la RDF resuelva los dos primeros
+    picos de vecinos en a y b mediante doble gaussiana."""
+    a_val, b_val = 400.0, 550.0
+    n_side_x, n_side_y = 12, 12
+
+    rng = np.random.default_rng(99)
+    half_x = ((n_side_x - 1) * a_val) / 2.0
+    half_y = ((n_side_y - 1) * b_val) / 2.0
+    gx = np.linspace(-half_x, half_x, n_side_x)
+    gy = np.linspace(-half_y, half_y, n_side_y)
+    X, Y = np.meshgrid(gx, gy)
+    x = X.ravel() + rng.normal(0, 8.0, X.size)
+    y = Y.ravel() + rng.normal(0, 8.0, Y.size)
+
+    res = compute_radial_distribution_function(x, y, a_nominal=a_val, b_nominal=b_val)
+
+    assert res['is_double_peak'] is True
+    assert res['secondary_peak'] is not None
+    peaks = sorted([res['first_peak_r'], res['secondary_peak']['first_peak_r']])
+    assert abs(peaks[0] - a_val) < 20.0, f"Pico menor {peaks[0]} lejos de a={a_val}"
+    assert abs(peaks[1] - b_val) < 20.0, f"Pico mayor {peaks[1]} lejos de b={b_val}"
+
+
+def test_radial_distribution_function_density_area_depends_on_b_nominal():
+    """Regresión: la normalización de densidad rho = N/area debe usar b_nominal para
+    el padding del eje Y (no a_nominal duplicado en ambos ejes), o g(r) queda ciego a
+    b_nominal por completo para cualquier dato de entrada."""
+    a_val = 450.0
+    rng = np.random.default_rng(3)
+    nx, ny = 10, 10
+    gx = np.linspace(0, (nx - 1) * a_val, nx)
+    gy = np.linspace(0, (ny - 1) * a_val, ny)
+    X, Y = np.meshgrid(gx, gy)
+    x = X.ravel() + rng.normal(0, 10.0, X.size)
+    y = Y.ravel() + rng.normal(0, 10.0, Y.size)
+
+    res_b200 = compute_radial_distribution_function(x, y, a_nominal=a_val, b_nominal=200.0)
+    res_b800 = compute_radial_distribution_function(x, y, a_nominal=a_val, b_nominal=800.0)
+
+    assert not np.allclose(res_b200['gr'], res_b800['gr'], atol=1e-6), (
+        "g(r) no debe ser invariante ante b_nominal: la densidad de normalización "
+        "rho = N/area debe depender del padding del eje Y con b_nominal"
+    )
+
+
+def test_radial_distribution_function_double_gaussian_resolvability_check():
+    """Regresión: cuando los dos picos de vecinos (a, b) están demasiado cerca para
+    resolverse de forma independiente (separación de centros < ~1.5x la suma de anchos),
+    la función debe degradar a ajuste simple gaussiano en vez de reportar is_double_peak=True
+    con un ajuste no-identificable (el optimizador intercambia amplitud/ancho entre picos)."""
+    a_val, b_val = 450.0, 465.1  # diferencia > 15 nm (activa modo doble) pero muy cercanos
+    n_side = 12
+    rng = np.random.default_rng(21)
+    gx = np.linspace(0, (n_side - 1) * a_val, n_side)
+    gy = np.linspace(0, (n_side - 1) * b_val, n_side)
+    X, Y = np.meshgrid(gx, gy)
+    x = X.ravel() + rng.normal(0, 10.0, X.size)
+    y = Y.ravel() + rng.normal(0, 10.0, Y.size)
+
+    res = compute_radial_distribution_function(x, y, a_nominal=a_val, b_nominal=b_val)
+
+    assert res['is_double_peak'] is False, (
+        "Picos a 15.1 nm de separación con anchos ~14 nm no son resolubles; "
+        "no debe reportarse is_double_peak=True"
+    )
+    assert res['peak_resolution_warning'] is True
+
+
+def test_run_monte_carlo_calibration_independent_grid_dimensions():
+    """Verifica que n_side_x/n_side_y independientes generen N_sites = n_side_x * n_side_y."""
+    mc_res = run_monte_carlo_calibration(
+        n_side=8,
+        a=450.0,
+        a_y=520.0,
+        n_side_x=6,
+        n_side_y=9,
+        sigma_min=0.0,
+        sigma_max=30.0,
+        n_sigma_steps=4,
+        iterations_per_step=5,
+        seed=7
+    )
+
+    assert mc_res['n_side_x'] == 6
+    assert mc_res['n_side_y'] == 9
+    assert mc_res['N_sites'] == 54
+    assert mc_res['is_anisotropic'] is True
 
 
 if __name__ == "__main__":

@@ -4,11 +4,12 @@ analysis/lattice_disorder_gui.py
 Interfaz Gráfica Profesional en PyQt6 (Tema Catppuccin Mocha) para el
 Análisis de Desorden Posicional y Parámetros de Red en PyPrinting 3.0.
 
-Estructura en 4 Pestañas Secuenciales (Modelo SIF Analyzer):
-- Pestaña 1: 📍 1. Espacio Real & SMLM (Carga, Localización Picasso/Trackpy, KDTree y g(r))
-- Pestaña 2: 📊 2. Espacio Recíproco & Fourier (NUFFT 2D, Ajuste de Bragg 2D/1D, a_mean)
-- Pestaña 3: 🔄 3. Monte Carlo & Debye-Waller (Simulación Asíncrona, Curvas, sigma_real)
-- Pestaña 4: 📤 4. Ficha Metrológica & Exportación (Tablas, CSVs, Galería SVG/PNG 600 DPI)
+Estructura en 5 Pestañas Secuenciales (Modelo SIF Analyzer):
+- Pestaña 1: 🔬 1. Detección, SMLM & Curación (Carga, Localización Picasso/Trackpy, ROI, aglomerados)
+- Pestaña 2: 📐 2. Espacio Real & Topología (KDTree rectangular, g(r), Voronoi/Delaunay, psi4/psi6, quiver/strain)
+- Pestaña 3: 📊 3. Espacio Recíproco & Fourier (NUFFT 2D, Ajuste de Bragg 2D/1D, a_mean)
+- Pestaña 4: 🔄 4. Monte Carlo & Debye-Waller (Simulación Asíncrona, Curvas, sigma_real)
+- Pestaña 5: 📤 5. Ficha Metrológica & Exportación (Tablas, CSVs, Galería SVG/PNG 600 DPI)
 """
 
 import os
@@ -43,6 +44,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QColor, QFont
 
 import pyqtgraph as pg
+from scipy.spatial import Delaunay
 
 # Configuración global de PyQtGraph
 pg.setConfigOption('background', '#181825')
@@ -79,7 +81,10 @@ from core.lattice_disorder import (
     resolve_single_spot_multi_gaussian,
     find_optimal_grid_bounding_box,
     compute_analytical_bragg_relations,
-    calibrate_from_psf_image
+    calibrate_from_psf_image,
+    compute_bond_orientational_order,
+    compute_voronoi_topology,
+    compute_quiver_and_strain
 )
 from analysis.figure_export_studio import FigureExportStudioDialog
 
@@ -408,7 +413,9 @@ class MonteCarloWorker(QThread):
         a_y: Optional[float] = None,
         n_bragg_pts: int = 81,
         band_width_nm: float = 0.0,
-        n_transversal_pts: int = 5
+        n_transversal_pts: int = 5,
+        n_side_x: Optional[int] = None,
+        n_side_y: Optional[int] = None
     ):
         super().__init__()
         self.n_side = n_side
@@ -422,6 +429,8 @@ class MonteCarloWorker(QThread):
         self.n_bragg_pts = n_bragg_pts
         self.band_width_nm = band_width_nm
         self.n_transversal_pts = n_transversal_pts
+        self.n_side_x = n_side_x
+        self.n_side_y = n_side_y
         self._is_cancelled = False
 
     def run(self):
@@ -443,7 +452,9 @@ class MonteCarloWorker(QThread):
                 progress_callback=callback,
                 n_bragg_pts=self.n_bragg_pts,
                 band_width_nm=self.band_width_nm,
-                n_transversal_pts=self.n_transversal_pts
+                n_transversal_pts=self.n_transversal_pts,
+                n_side_x=self.n_side_x,
+                n_side_y=self.n_side_y
             )
             if not self._is_cancelled:
                 self.finished_signal.emit(results)
@@ -481,6 +492,15 @@ class LatticeDisorderWindow(QMainWindow):
         self.kdtree_results: Optional[Dict[str, Any]] = None
         self.rdf_results: Optional[Dict[str, Any]] = None
         self.mc_results: Optional[Dict[str, Any]] = None
+        self.crystallography_results: Optional[Dict[str, Any]] = None
+
+        # Pestaña 2: Cristalografía en Espacio Real & Topología
+        self.plot_real_topology: Optional[pg.PlotWidget] = None
+        self.scatter_topology_base: Optional[pg.ScatterPlotItem] = None
+        self.voronoi_items: List[pg.PlotDataItem] = []
+        self.delaunay_item: Optional[pg.PlotDataItem] = None
+        self.quiver_item: Optional[pg.PlotDataItem] = None
+        self.quiver_heads_item: Optional[pg.ScatterPlotItem] = None
 
         # Control de sincronización interna de ROI
         self._updating_roi_internally: bool = False
@@ -555,11 +575,13 @@ class LatticeDisorderWindow(QMainWindow):
         self.tab2 = QWidget()
         self.tab3 = QWidget()
         self.tab4 = QWidget()
+        self.tab5 = QWidget()
 
-        self.tabs.addTab(self.tab1, "📍 1. Espacio Real & SMLM")
-        self.tabs.addTab(self.tab2, "📊 2. Espacio Recíproco & Fourier")
-        self.tabs.addTab(self.tab3, "🔄 3. Monte Carlo & Debye-Waller")
-        self.tabs.addTab(self.tab4, "📤 4. Ficha Metrológica & Exportación")
+        self.tabs.addTab(self.tab1, "🔬 1. Detección, SMLM & Curación")
+        self.tabs.addTab(self.tab2, "📐 2. Espacio Real & Topología")
+        self.tabs.addTab(self.tab3, "📊 3. Espacio Recíproco & Fourier")
+        self.tabs.addTab(self.tab4, "🔄 4. Monte Carlo & Debye-Waller")
+        self.tabs.addTab(self.tab5, "📤 5. Ficha Metrológica & Exportación")
 
         main_layout.addWidget(self.tabs)
 
@@ -568,6 +590,7 @@ class LatticeDisorderWindow(QMainWindow):
         self._build_tab2()
         self._build_tab3()
         self._build_tab4()
+        self._build_tab5()
 
     # ==========================================================================
     # GESTIÓN Y EXPORTACIÓN UNIVERSAL DE GRÁFICOS (PNG 600 DPI / SVG)
@@ -895,11 +918,11 @@ class LatticeDisorderWindow(QMainWindow):
         left_layout.addWidget(grp_roi)
 
         # Grupo 3: Parámetros Espaciales de Red
-        grp_grid = QGroupBox("3. Parámetros Espaciales de Red")
+        grp_grid = QGroupBox("3. Calibración de Escala y Ajuste de Detección")
         grp_grid.setToolTip(make_tooltip(
-            "Parámetros Espaciales de Red",
-            "Configura la escala de aumento del microscopio, el período de separación y el tamaño de la red.",
-            "Parámetros fundamentales de diseño físico requeridos para la metrología dimensional en nanómetros."
+            "Calibración de Escala y Ajuste de Detección",
+            "Configura la escala de aumento del microscopio y las restricciones del ajuste multi-gaussiano de detección.",
+            "Los parámetros de red cristalográfica (a, b, Nx, Ny) se configuran en la Pestaña 2: Espacio Real & Topología."
         ))
         lay_grid = QVBoxLayout(grp_grid)
 
@@ -917,33 +940,6 @@ class LatticeDisorderWindow(QMainWindow):
         self.spin_scale.valueChanged.connect(self._on_scale_changed)
         h1.addWidget(self.spin_scale)
         lay_grid.addLayout(h1)
-
-        h2 = QHBoxLayout()
-        h2.addWidget(QLabel("Dimensiones Nominales (N x N):"))
-        self.spin_n_side = QSpinBox()
-        self.spin_n_side.setRange(2, 200)
-        self.spin_n_side.setValue(30)
-        self.spin_n_side.setToolTip(make_tooltip(
-            "Dimensiones Nominales de Red (N x N)",
-            "Cantidad de nanopartículas que componen la red por fila y por columna (ej. 30 para 30x30 = 900 partículas).",
-            "Dimensión cristalográfica entera N del cristal 2D. Define el total de sitios teóricos N^2 para la tasa de vacancias."
-        ))
-        h2.addWidget(self.spin_n_side)
-        lay_grid.addLayout(h2)
-
-        h3 = QHBoxLayout()
-        h3.addWidget(QLabel("Período Nominal a (nm):"))
-        self.spin_a_nominal = QDoubleSpinBox()
-        self.spin_a_nominal.setRange(50.0, 5000.0)
-        self.spin_a_nominal.setValue(500.0)
-        self.spin_a_nominal.setSingleStep(5.0)
-        self.spin_a_nominal.setToolTip(make_tooltip(
-            "Período Nominal de Red a (nm)",
-            "Distancia teórica o programada entre los centros de dos nanopartículas vecinas en nanómetros.",
-            "Parámetro de red de referencia a [nm]. Fija el vector recíproco de Bragg |G1| = 2pi/a y la frecuencia espacial f0 = 1/a."
-        ))
-        h3.addWidget(self.spin_a_nominal)
-        lay_grid.addLayout(h3)
 
         # Sub-panel de Parámetros Especiales de Red (Ajuste Óptico)
         grp_special = QGroupBox("⚙️ Parámetros Especiales de Red (Ajuste Óptico)")
@@ -1646,84 +1642,6 @@ class LatticeDisorderWindow(QMainWindow):
         left_layout.addWidget(grp_curation)
 
         # Grupo 6: Fase 4: Grilla Final, Vacancias & Consistencia
-        grp_metrics = QGroupBox("6. Fase 4: Grilla Final, Vacancias & Consistencia")
-        grp_metrics.setToolTip(make_tooltip(
-            "Fase 4: Grilla Final, Vacancias y Consistencia",
-            "Cálculo metrológico de la cuadrícula óptima, localización de vacancias y verificación de congruencia física.",
-            "Optimización global de la caja delimitadora de la red, asignación biyectiva húngara y regla M + n_vac <= N²."
-        ))
-        lay_met = QVBoxLayout(grp_metrics)
-
-        h_marg = QHBoxLayout()
-        h_marg.addWidget(QLabel("Margen Consistencia (%):"))
-        self.spin_consistency_margin = QDoubleSpinBox()
-        self.spin_consistency_margin.setRange(0.0, 50.0)
-        self.spin_consistency_margin.setValue(10.0)
-        self.spin_consistency_margin.setSingleStep(1.0)
-        self.spin_consistency_margin.setToolTip(make_tooltip(
-            "Margen Físico de Consistencia Reticular (%)",
-            "Tolerancia admitida (típicamente 5-15%) para validar que el conteo total de sitios coincida con la red teórica.",
-            "Criterio de coherencia metrológica: |M + n_vac - N²| / N² <= margen/100."
-        ))
-        h_marg.addWidget(self.spin_consistency_margin)
-        lay_met.addLayout(h_marg)
-
-        self.btn_recalc_grid = QPushButton("📐 Ajustar Grilla y Calcular Vacancias")
-        self.btn_recalc_grid.setObjectName("accentBtn")
-        self.btn_recalc_grid.setToolTip(make_tooltip(
-            "Ajustar Grilla Óptima y Localizar Vacancias",
-            "Encuentra la posición global óptima de la red y ubica con precisión nanométrica los sitios desocupados.",
-            "Ajusta la grilla ortogonal periódica 2D minimizando residuos euclidianos y asigna nodos desocupados mediante KDTree."
-        ))
-        self.btn_recalc_grid.clicked.connect(self._on_recalc_grid)
-        lay_met.addWidget(self.btn_recalc_grid)
-
-        self.lbl_real_metrics = QLabel(
-            "Partículas: -\n"
-            "Vacancias Prácticas: -% (- vac)\n"
-            "Vacancias Teóricas: -% (- vac)\n"
-            "Desorden σ_x: - nm\n"
-            "Desorden σ_y: - nm\n"
-            "Desorden Medio σ_pos: - nm\n"
-            "Ancho g(r) σ_rdf: - nm"
-        )
-        self.lbl_real_metrics.setStyleSheet("font-family: monospace; font-size: 11px; color: #a6e3a1;")
-        self.lbl_real_metrics.setToolTip(make_tooltip(
-            "Métricas de Red en Espacio Real",
-            "Desorden posicional medio σ_pos (nm), fracción de vacancias y ancho del primer pico de g(r).",
-            "Varianza cartesianamente desacoplada sigma_pos = sqrt((sigma_x² + sigma_y²)/2) y ancho de pico en la RDF."
-        ))
-        lay_met.addWidget(self.lbl_real_metrics)
-
-        self.lbl_consistency = QLabel("Consistencia: -")
-        self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #89b4fa; font-weight: bold;")
-        self.lbl_consistency.setToolTip(make_tooltip(
-            "Dictamen de Consistencia Reticular",
-            "Verifica si la suma de partículas detectadas y vacancias concuerda con el número total de sitios N x N.",
-            "Regla de conservación de sitios reticulares: M + n_vac <= N² * (1 + margen/100)."
-        ))
-        lay_met.addWidget(self.lbl_consistency)
-
-        self.lbl_stale_badge = QLabel("⚠ Resultados desactualizados — presione 'Ajustar Grilla' / 'Recalcular Fourier'")
-        self.lbl_stale_badge.setStyleSheet(
-            "font-family: monospace; font-size: 10px; color: #1e1e2e; font-weight: bold; "
-            "background: #f9e2af; border-radius: 3px; padding: 4px;"
-        )
-        self.lbl_stale_badge.setWordWrap(True)
-        self.lbl_stale_badge.setVisible(False)
-        lay_met.addWidget(self.lbl_stale_badge)
-
-        btn_go_tab2 = QPushButton("Ir a Espacio Recíproco ➔")
-        btn_go_tab2.setObjectName("primaryBtn")
-        btn_go_tab2.setToolTip(make_tooltip(
-            "Navegar al Espacio Recíproco (Fourier)",
-            "Avanza a la pestaña 2 para calcular la difracción 2D y evaluar los picos armónicos de Bragg.",
-            "Conmuta la interfaz y alimenta el motor espectral continuo NUFFT 2D con las coordenadas curadas."
-        ))
-        btn_go_tab2.clicked.connect(self._on_go_to_reciprocal)
-        lay_met.addWidget(btn_go_tab2)
-
-        left_layout.addWidget(grp_metrics)
         left_layout.addStretch()
 
         # --- Panel Derecho: Gráficos ---
@@ -1894,27 +1812,6 @@ class LatticeDisorderWindow(QMainWindow):
         self.chk_layer_selected.toggled.connect(self._on_layer_visibility_changed)
         lay_row2.addWidget(self.chk_layer_selected)
 
-        self.chk_layer_vac = QCheckBox("❌ Vacancias (x)")
-        self.chk_layer_vac.setChecked(True)
-        self.chk_layer_vac.setStyleSheet("color: #f38ba8; font-weight: bold;")
-        self.chk_layer_vac.setToolTip(make_tooltip(
-            "Capa: Vacancias Reticulares (❌)",
-            "Marca con cruces rojas las posiciones teóricas de la red donde falta una partícula impresa.",
-            "Nodos de la red sin correspondencia unívoca dentro del radio de tolerancia d < a/2."
-        ))
-        self.chk_layer_vac.toggled.connect(self._on_layer_visibility_changed)
-        lay_row2.addWidget(self.chk_layer_vac)
-
-        self.chk_layer_grid = QCheckBox("📐 Malla (+)")
-        self.chk_layer_grid.setChecked(False)
-        self.chk_layer_grid.setStyleSheet("color: #a6adc8;")
-        self.chk_layer_grid.setToolTip(make_tooltip(
-            "Capa: Malla Reticular Teórica (+)",
-            "Superpone la cuadrícula regular periódica óptima de período (a_x, a_y) para comparar la alineación.",
-            "Red cristalina periódica ideal 2D optimizada globalmente sobre la muestra."
-        ))
-        self.chk_layer_grid.toggled.connect(self._on_layer_visibility_changed)
-        lay_row2.addWidget(self.chk_layer_grid)
 
         self.chk_layer_roi = QCheckBox("✂️ Reglas ROI")
         self.chk_layer_roi.setChecked(True)
@@ -2021,7 +1918,7 @@ class LatticeDisorderWindow(QMainWindow):
         ))
         self._setup_plot_export_menu(self.plot_real_space, "fig01_espacio_real_smlm", "Espacio Real & SMLM")
         self.plot_real_space.scene().sigMouseClicked.connect(self._on_real_space_clicked)
-        right_layout.addWidget(self.plot_real_space, stretch=3)
+        right_layout.addWidget(self.plot_real_space, stretch=1)
 
         # Caja ROI de selección de área de partículas
         self.selection_box_roi = pg.RectROI([5000, 5000], [2000, 2000], pen=pg.mkPen('#cba6f7', width=2, style=Qt.PenStyle.DashLine))
@@ -2041,9 +1938,347 @@ class LatticeDisorderWindow(QMainWindow):
             self.plot_real_space.addItem(line)
             line.setVisible(True)
 
-        # Plot 2: Función de Distribución Radial g(r)
+        splitter.addWidget(scroll_area)
+        splitter.addWidget(right_widget)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+
+    def _on_motor_changed(self, idx: int):
+        self.stack_motor.setCurrentIndex(idx)
+
+    # ==========================================================================
+    # PESTAÑA 2: ESPACIO REAL & TOPOLOGÍA
+    # ==========================================================================
+    def _build_tab2(self):
+        layout = QHBoxLayout(self.tab2)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(splitter)
+
+        # --- Panel Izquierdo: Controles de Red y Métricas ---
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setSpacing(10)
+        scroll_area.setWidget(left_widget)
+
+        # Grupo 1: Parámetros Cristalográficos
+        grp_xtal = QGroupBox("1. Parámetros Cristalográficos")
+        grp_xtal.setToolTip(make_tooltip(
+            "Parámetros Cristalográficos de Red",
+            "Períodos nominales y dimensiones de la red impresa, soportando redes rectangulares/anisótropas (a != b, Nx != Ny).",
+            "Parámetros fundamentales a, b [nm] y Nx, Ny para el mapeo KDTree bounded y la calibración Monte Carlo."
+        ))
+        lay_xtal = QVBoxLayout(grp_xtal)
+
+        h_a = QHBoxLayout()
+        h_a.addWidget(QLabel("Período Nominal a — Eje X (nm):"))
+        self.spin_a_nominal = QDoubleSpinBox()
+        self.spin_a_nominal.setRange(50.0, 5000.0)
+        self.spin_a_nominal.setValue(500.0)
+        self.spin_a_nominal.setSingleStep(5.0)
+        self.spin_a_nominal.setToolTip(make_tooltip(
+            "Período Nominal de Red a — Eje X (nm)",
+            "Distancia teórica o programada entre los centros de dos nanopartículas vecinas a lo largo de X.",
+            "Parámetro de red de referencia a [nm]. Fija el vector recíproco de Bragg |G1x| = 2pi/a y f0x = 1/a."
+        ))
+        self.spin_a_nominal.valueChanged.connect(self._on_a_nominal_changed)
+        h_a.addWidget(self.spin_a_nominal)
+        lay_xtal.addLayout(h_a)
+
+        h_b = QHBoxLayout()
+        h_b.addWidget(QLabel("Período Nominal b — Eje Y (nm):"))
+        self.spin_b_nominal = QDoubleSpinBox()
+        self.spin_b_nominal.setRange(50.0, 5000.0)
+        self.spin_b_nominal.setValue(500.0)
+        self.spin_b_nominal.setSingleStep(5.0)
+        self.spin_b_nominal.setEnabled(False)
+        self.spin_b_nominal.setToolTip(make_tooltip(
+            "Período Nominal de Red b — Eje Y (nm)",
+            "Distancia teórica o programada entre los centros de dos nanopartículas vecinas a lo largo de Y (redes rectangulares).",
+            "Parámetro de red de referencia b [nm]. Fija |G1y| = 2pi/b y f0y = 1/b. Habilitado sólo si la red es anisótropa."
+        ))
+        self.spin_b_nominal.valueChanged.connect(lambda _v: self._mark_results_stale())
+        h_b.addWidget(self.spin_b_nominal)
+        lay_xtal.addLayout(h_b)
+
+        self.chk_link_ab = QCheckBox("Isótropo (b = a)")
+        self.chk_link_ab.setChecked(True)
+        self.chk_link_ab.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+        self.chk_link_ab.setToolTip(make_tooltip(
+            "Enlazar Períodos a = b (Red Isótropa)",
+            "Desmarque para introducir un período distinto en Y y analizar redes rectangulares anisótropas.",
+            "Cuando está activo, b se sincroniza automáticamente al valor de a en cada cambio."
+        ))
+        self.chk_link_ab.toggled.connect(self._on_link_ab_toggled)
+        lay_xtal.addWidget(self.chk_link_ab)
+
+        sep_xtal = QFrame()
+        sep_xtal.setFrameShape(QFrame.Shape.HLine)
+        sep_xtal.setStyleSheet("color: #45475a;")
+        lay_xtal.addWidget(sep_xtal)
+
+        h_nx = QHBoxLayout()
+        h_nx.addWidget(QLabel("Dimensión Nominal Nx (columnas):"))
+        self.spin_n_side = QSpinBox()
+        self.spin_n_side.setRange(2, 200)
+        self.spin_n_side.setValue(30)
+        self.spin_n_side.setToolTip(make_tooltip(
+            "Dimensión Nominal de Red Nx (columnas)",
+            "Cantidad de nanopartículas que componen la red por columna a lo largo de X.",
+            "Dimensión cristalográfica entera Nx del cristal 2D. Define, junto a Ny, el total de sitios teóricos Nx*Ny."
+        ))
+        self.spin_n_side.valueChanged.connect(self._on_nx_changed)
+        h_nx.addWidget(self.spin_n_side)
+        lay_xtal.addLayout(h_nx)
+
+        h_ny = QHBoxLayout()
+        h_ny.addWidget(QLabel("Dimensión Nominal Ny (filas):"))
+        self.spin_ny = QSpinBox()
+        self.spin_ny.setRange(2, 200)
+        self.spin_ny.setValue(30)
+        self.spin_ny.setEnabled(False)
+        self.spin_ny.setToolTip(make_tooltip(
+            "Dimensión Nominal de Red Ny (filas)",
+            "Cantidad de nanopartículas que componen la red por fila a lo largo de Y (redes rectangulares Nx != Ny).",
+            "Dimensión cristalográfica entera Ny del cristal 2D. Habilitada sólo si la red no es cuadrada."
+        ))
+        self.spin_ny.valueChanged.connect(lambda _v: self._mark_results_stale())
+        h_ny.addWidget(self.spin_ny)
+        lay_xtal.addLayout(h_ny)
+
+        self.chk_link_nxny = QCheckBox("Cuadrado (Ny = Nx)")
+        self.chk_link_nxny.setChecked(True)
+        self.chk_link_nxny.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+        self.chk_link_nxny.setToolTip(make_tooltip(
+            "Enlazar Dimensiones Ny = Nx (Red Cuadrada)",
+            "Desmarque para introducir un número de filas distinto al de columnas.",
+            "Cuando está activo, Ny se sincroniza automáticamente al valor de Nx en cada cambio."
+        ))
+        self.chk_link_nxny.toggled.connect(self._on_link_nxny_toggled)
+        lay_xtal.addWidget(self.chk_link_nxny)
+
+        left_layout.addWidget(grp_xtal)
+
+        # Grupo 2: Visualización Topológica
+        grp_vis = QGroupBox("2. Visualización Topológica")
+        grp_vis.setToolTip(make_tooltip(
+            "Selector de Visualización Topológica",
+            "Elige qué capa conmutable se dibuja sobre el lienzo de espacio real: Voronoi, Delaunay, campo Quiver o mapa ψ4.",
+            "Todas las capas se recalculan a partir de los mismos resultados de analyze_real_space_kdtree y compute_*_topology."
+        ))
+        lay_vis = QVBoxLayout(grp_vis)
+
+        self.combo_topology_view = QComboBox()
+        self.combo_topology_view.addItems([
+            "Celdas Voronoi (Coordinación Z)",
+            "Triangulación Delaunay",
+            "Campo Quiver (Desplazamientos)",
+            "Mapa Orientacional ψ4"
+        ])
+        self.combo_topology_view.setToolTip(make_tooltip(
+            "Modo de Visualización Topológica",
+            "Elige la capa conmutable a dibujar: celdas Voronoi (color = coordinación Z), aristas de Delaunay, "
+            "campo de desplazamientos (quiver) o mapa de color ψ4 local.",
+            "Conmuta entre compute_voronoi_topology, triangulación de Delaunay, compute_quiver_and_strain "
+            "y compute_bond_orientational_order sobre las mismas coordenadas curadas."
+        ))
+        self.combo_topology_view.currentIndexChanged.connect(self._update_topology_plot)
+        lay_vis.addWidget(self.combo_topology_view)
+
+        h_qscale = QHBoxLayout()
+        h_qscale.addWidget(QLabel("Escala Flechas Quiver (x):"))
+        self.spin_quiver_scale = QDoubleSpinBox()
+        self.spin_quiver_scale.setRange(1.0, 50.0)
+        self.spin_quiver_scale.setValue(10.0)
+        self.spin_quiver_scale.setSingleStep(1.0)
+        self.spin_quiver_scale.setToolTip(make_tooltip(
+            "Factor de Escala del Campo Quiver",
+            "Amplifica visualmente los vectores de desplazamiento (Δx, Δy), que son órdenes de magnitud menores que el período de red.",
+            "Multiplicador puramente visual; no afecta los valores numéricos exx, eyy, exy, omega. Nota: estos son un ajuste afín "
+            "GLOBAL único para todo el campo (deriva de la platina, calibración de a vs b, distorsión de lente) — no resuelven "
+            "heterogeneidad de deformación LOCAL (p.ej. concentrada en una dislocación), que se promedia a cero en este ajuste."
+        ))
+        self.spin_quiver_scale.valueChanged.connect(self._update_topology_plot)
+        h_qscale.addWidget(self.spin_quiver_scale)
+        lay_vis.addLayout(h_qscale)
+
+        h_layers_topo = QHBoxLayout()
+        self.chk_layer_vac = QCheckBox("❌ Vacancias (x)")
+        self.chk_layer_vac.setChecked(True)
+        self.chk_layer_vac.setStyleSheet("color: #f38ba8; font-weight: bold;")
+        self.chk_layer_vac.setToolTip(make_tooltip(
+            "Capa: Vacancias Reticulares (❌)",
+            "Marca con cruces rojas las posiciones teóricas de la red donde falta una partícula impresa.",
+            "Nodos de la red sin correspondencia unívoca dentro de la elipse de tolerancia normalizada."
+        ))
+        self.chk_layer_vac.toggled.connect(self._on_layer_visibility_changed)
+        h_layers_topo.addWidget(self.chk_layer_vac)
+
+        self.chk_layer_grid = QCheckBox("📐 Malla (+)")
+        self.chk_layer_grid.setChecked(True)
+        self.chk_layer_grid.setStyleSheet("color: #a6adc8;")
+        self.chk_layer_grid.setToolTip(make_tooltip(
+            "Capa: Malla Reticular Teórica (+)",
+            "Superpone la cuadrícula regular periódica óptima de período (a, b) para comparar la alineación.",
+            "Red cristalina periódica ideal 2D optimizada globalmente sobre la muestra."
+        ))
+        self.chk_layer_grid.toggled.connect(self._on_layer_visibility_changed)
+        h_layers_topo.addWidget(self.chk_layer_grid)
+        lay_vis.addLayout(h_layers_topo)
+
+        left_layout.addWidget(grp_vis)
+
+        h_marg = QHBoxLayout()
+        h_marg.addWidget(QLabel("Margen Consistencia (%):"))
+        self.spin_consistency_margin = QDoubleSpinBox()
+        self.spin_consistency_margin.setRange(0.0, 50.0)
+        self.spin_consistency_margin.setValue(10.0)
+        self.spin_consistency_margin.setSingleStep(1.0)
+        self.spin_consistency_margin.setToolTip(make_tooltip(
+            "Margen Físico de Consistencia Reticular (%)",
+            "Tolerancia admitida (típicamente 5-15%) para validar que el conteo total de sitios coincida con la red teórica.",
+            "Criterio de coherencia metrológica: |M + n_vac - N| / N <= margen/100, con N = Nx * Ny."
+        ))
+        self.spin_consistency_margin.valueChanged.connect(lambda _v: self._mark_results_stale())
+        h_marg.addWidget(self.spin_consistency_margin)
+        left_layout.addLayout(h_marg)
+
+        self.btn_recalc_grid = QPushButton("▶ Analizar Espacio Real & Topología")
+        self.btn_recalc_grid.setObjectName("primaryBtn")
+        self.btn_recalc_grid.setToolTip(make_tooltip(
+            "Analizar Espacio Real y Topología Cristalina",
+            "Ajusta la grilla óptima, localiza vacancias, calcula g(r), orden orientacional (ψ4/ψ6), Voronoi y campo de deformación.",
+            "Ejecuta analyze_real_space_kdtree, compute_radial_distribution_function, compute_bond_orientational_order, "
+            "compute_voronoi_topology y compute_quiver_and_strain sobre las coordenadas curadas."
+        ))
+        self.btn_recalc_grid.clicked.connect(self._on_recalc_grid)
+        left_layout.addWidget(self.btn_recalc_grid)
+
+        # Grupo 3: Métricas Metrológicas en Espacio Real
+        grp_met = QGroupBox("3. Métricas Metrológicas en Espacio Real")
+        grp_met.setToolTip(make_tooltip(
+            "Métricas Metrológicas en Espacio Real",
+            "Desorden posicional, vacancias, orden orientacional/traslacional, parámetro de Lindemann y defectos topológicos.",
+            "Consolidado numérico de analyze_real_space_kdtree, compute_bond_orientational_order y compute_voronoi_topology."
+        ))
+        lay_met = QVBoxLayout(grp_met)
+
+        self.lbl_real_metrics = QLabel(
+            "Partículas: -\n"
+            "Vacancias Prácticas: -% (- vac)\n"
+            "Vacancias Teóricas: -% (- vac)\n"
+            "Desorden σ_x: - nm\n"
+            "Desorden σ_y: - nm\n"
+            "Desorden Medio σ_pos: - nm\n"
+            "Ancho g(r) σ_rdf: - nm"
+        )
+        self.lbl_real_metrics.setStyleSheet("font-family: monospace; font-size: 11px; color: #a6e3a1;")
+        self.lbl_real_metrics.setToolTip(make_tooltip(
+            "Métricas de Red en Espacio Real",
+            "Desorden posicional medio σ_pos (nm), fracción de vacancias y ancho del primer pico de g(r).",
+            "Varianza cartesianamente desacoplada sigma_pos = sqrt((sigma_x² + sigma_y²)/2) y ancho de pico en la RDF."
+        ))
+        lay_met.addWidget(self.lbl_real_metrics)
+
+        self.lbl_topology_metrics = QLabel(
+            "Orden Orientacional: ⟨ψ4⟩ = -  |  ⟨ψ6⟩ = -\n"
+            "Orden Traslacional Ψ_T,x: -  |  Ψ_T,y: -\n"
+            "Lindemann γ_L: -  (γ_L,x: -  |  γ_L,y: -)\n"
+            "Defectos Topológicos (Z≠4): -\n"
+            "Dispersión de Área Voronoi σ_A/⟨A⟩: -"
+        )
+        self.lbl_topology_metrics.setStyleSheet("font-family: monospace; font-size: 11px; color: #89dceb;")
+        self.lbl_topology_metrics.setToolTip(make_tooltip(
+            "Métricas Topológicas y de Orden de Red",
+            "Orden orientacional ψ4/ψ6, orden traslacional Ψ_T, parámetro de Lindemann γ_L (global y por eje) y fracción de defectos Voronoi (Z≠4).",
+            "γ_L (mezclado) = σ_pos / min(a,b), válido bajo desorden isotrópico; γ_L,x = σ_x/a y γ_L,y = σ_y/b son el criterio "
+            "correcto por eje ante desorden anisótropo. Defectos: celdas Voronoi internas con coordinación distinta de 4."
+        ))
+        lay_met.addWidget(self.lbl_topology_metrics)
+
+        self.lbl_consistency = QLabel("Consistencia: -")
+        self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #89b4fa; font-weight: bold;")
+        self.lbl_consistency.setToolTip(make_tooltip(
+            "Dictamen de Consistencia Reticular",
+            "Verifica si la suma de partículas detectadas y vacancias concuerda con el número total de sitios Nx x Ny.",
+            "Regla de conservación de sitios reticulares: M + n_vac <= N * (1 + margen/100)."
+        ))
+        lay_met.addWidget(self.lbl_consistency)
+
+        self.lbl_stale_badge = QLabel("⚠ Resultados desactualizados — presione 'Analizar Espacio Real' / 'Recalcular Fourier'")
+        self.lbl_stale_badge.setStyleSheet(
+            "font-family: monospace; font-size: 10px; color: #1e1e2e; font-weight: bold; "
+            "background: #f9e2af; border-radius: 3px; padding: 4px;"
+        )
+        self.lbl_stale_badge.setWordWrap(True)
+        self.lbl_stale_badge.setVisible(False)
+        lay_met.addWidget(self.lbl_stale_badge)
+
+        left_layout.addWidget(grp_met)
+
+        btn_go_tab3 = QPushButton("Ir a Espacio Recíproco ➔")
+        btn_go_tab3.setObjectName("accentBtn")
+        btn_go_tab3.setToolTip(make_tooltip(
+            "Navegar al Espacio Recíproco (Fourier)",
+            "Avanza a la pestaña 3 para calcular la difracción 2D y evaluar los picos armónicos de Bragg.",
+            "Conmuta la interfaz y alimenta el motor espectral continuo NUFFT 2D con las coordenadas curadas."
+        ))
+        btn_go_tab3.clicked.connect(self._on_go_to_reciprocal)
+        left_layout.addWidget(btn_go_tab3)
+
+        left_layout.addStretch()
+
+        # --- Panel Derecho: Matriz de Visualización de 3 Visores ---
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(8, 8, 8, 8)
+        right_layout.setSpacing(8)
+
+        top_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # Visor 1: Espacio Real & Topología (grilla ideal, vacancias, Voronoi/Delaunay/Quiver/ψ4)
+        vis1_widget = QWidget()
+        vis1_layout = QVBoxLayout(vis1_widget)
+        vis1_layout.setContentsMargins(0, 0, 0, 0)
+
+        h_v1_hdr = QHBoxLayout()
+        lbl_v1 = QLabel("Visor 1: Espacio Real & Topología:")
+        lbl_v1.setStyleSheet("font-weight: bold; color: #cba6f7;")
+        h_v1_hdr.addWidget(lbl_v1)
+        h_v1_hdr.addStretch()
+        btn_exp_topo = QPushButton("💾 Exportar...")
+        btn_exp_topo.setToolTip(make_tooltip(
+            "Exportar Espacio Real & Topología",
+            "Guarde este gráfico en alta resolución PNG (600 DPI) o vector SVG para publicaciones.",
+            "Exportación directa del ViewBox a 2400 px con la capa topológica conmutable activa visible."
+        ))
+        btn_exp_topo.clicked.connect(lambda: self._export_single_plot(self.plot_real_topology, "fig03_espacio_real_topologia"))
+        h_v1_hdr.addWidget(btn_exp_topo)
+        vis1_layout.addLayout(h_v1_hdr)
+
+        self.plot_real_topology = pg.PlotWidget()
+        self.plot_real_topology.setAspectLocked(True)
+        self.plot_real_topology.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_real_topology.setLabel('bottom', 'Posición X', units='nm')
+        self.plot_real_topology.setLabel('left', 'Posición Y', units='nm')
+        self.plot_real_topology.setToolTip(make_tooltip(
+            "Visor de Espacio Real & Topología Cristalina",
+            "Posiciones detectadas, grilla ideal, vacancias y la capa topológica conmutable elegida arriba (Voronoi/Delaunay/Quiver/ψ4).",
+            "Lienzo métrico 2D con relación de aspecto ortonormal (1:1) y coordenadas calibradas en nanómetros [nm]."
+        ))
+        self._setup_plot_export_menu(self.plot_real_topology, "fig03_espacio_real_topologia", "Espacio Real & Topología")
+        vis1_layout.addWidget(self.plot_real_topology)
+        top_splitter.addWidget(vis1_widget)
+
+        # Visor 2: Función de Distribución Radial g(r) (mudada desde la Pestaña 1)
+        vis2_widget = QWidget()
+        vis2_layout = QVBoxLayout(vis2_widget)
+        vis2_layout.setContentsMargins(0, 0, 0, 0)
+
         h_p2_hdr = QHBoxLayout()
-        lbl_p2 = QLabel("Función de Distribución Radial g(r):")
+        lbl_p2 = QLabel("Visor 2: Función de Distribución Radial g(r):")
         lbl_p2.setStyleSheet("font-weight: bold; color: #cba6f7;")
         h_p2_hdr.addWidget(lbl_p2)
 
@@ -2076,18 +2311,17 @@ class LatticeDisorderWindow(QMainWindow):
         ))
         self.btn_reset_rdf_rules.clicked.connect(self._on_reset_rdf_rules)
         h_p2_hdr.addWidget(self.btn_reset_rdf_rules)
-
         h_p2_hdr.addStretch()
 
         btn_exp_rdf = QPushButton("💾 Exportar...")
         btn_exp_rdf.setToolTip(make_tooltip(
             "Exportar Gráfico g(r)",
             "Guarde este gráfico de correlación de pares en alta resolución PNG (600 DPI) o vector SVG.",
-            "Exporta el perfil g(r) y el ajuste gaussiano del primer pico de coordinación."
+            "Exporta el perfil g(r) y el ajuste gaussiano (simple o doble) del primer pico de coordinación."
         ))
         btn_exp_rdf.clicked.connect(lambda: self._export_single_plot(self.plot_rdf, "fig02_distribucion_radial_gr"))
         h_p2_hdr.addWidget(btn_exp_rdf)
-        right_layout.addLayout(h_p2_hdr)
+        vis2_layout.addLayout(h_p2_hdr)
 
         self.plot_rdf = pg.PlotWidget()
         self.plot_rdf.showGrid(x=True, y=True, alpha=0.3)
@@ -2096,11 +2330,10 @@ class LatticeDisorderWindow(QMainWindow):
         self.plot_rdf.setToolTip(make_tooltip(
             "Función de Distribución Radial g(r)",
             "Probabilidad de encontrar partículas a una distancia r respecto a cualquier otra. Clic derecho para exportar o auto-rango.",
-            "Función de correlación par g(r) = (dN/dr)/(2π r ρ dr) con exclusión estérica y ajuste gaussiano del primer pico en r ~ a."
+            "Función de correlación par g(r) con exclusión estérica y ajuste gaussiano (simple o doble si a != b) del primer pico."
         ))
         self._setup_plot_export_menu(self.plot_rdf, "fig02_distribucion_radial_gr", "Distribución Radial g(r)")
 
-        # Inicializar las 3 líneas móviles de g(r)
         self.line_rdf_rmin = pg.InfiniteLine(
             pos=300.0, angle=90, movable=True,
             pen=pg.mkPen('#fab387', width=1.8, style=Qt.PenStyle.DashLine),
@@ -2119,21 +2352,240 @@ class LatticeDisorderWindow(QMainWindow):
         for line in [self.line_rdf_rmin, self.line_rdf_rmax, self.line_rdf_bg]:
             line.sigPositionChangeFinished.connect(self._on_rdf_rules_changed)
 
-        right_layout.addWidget(self.plot_rdf, stretch=2)
+        vis2_layout.addWidget(self.plot_rdf)
+        top_splitter.addWidget(vis2_widget)
+        top_splitter.setStretchFactor(0, 1)
+        top_splitter.setStretchFactor(1, 1)
+
+        right_layout.addWidget(top_splitter, stretch=3)
+
+        # Visor 3: Histogramas de Diagnóstico (residuos Δx/Δy, coordinación Voronoi P(Z), distribución ψ4)
+        lbl_v3 = QLabel("Visor 3: Histogramas de Diagnóstico:")
+        lbl_v3.setStyleSheet("font-weight: bold; color: #cba6f7;")
+        right_layout.addWidget(lbl_v3)
+
+        self.plot_topology_hist = pg.GraphicsLayoutWidget()
+        self.plot_topology_hist.setBackground('#181825')
+        self.plot_topology_hist.setToolTip(make_tooltip(
+            "Histogramas de Diagnóstico de Red",
+            "Residuos cartesianos Δx/Δy con sus gaussianas teóricas, coordinación Voronoi P(Z) y distribución de ψ4 local.",
+            "Diagnóstico visual complementario a las métricas numéricas de la tarjeta metrológica."
+        ))
+        right_layout.addWidget(self.plot_topology_hist, stretch=1)
 
         splitter.addWidget(scroll_area)
         splitter.addWidget(right_widget)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
 
-    def _on_motor_changed(self, idx: int):
-        self.stack_motor.setCurrentIndex(idx)
+    def _on_a_nominal_changed(self, val: float):
+        if hasattr(self, 'chk_link_ab') and self.chk_link_ab.isChecked() and hasattr(self, 'spin_b_nominal'):
+            self.spin_b_nominal.blockSignals(True)
+            self.spin_b_nominal.setValue(val)
+            self.spin_b_nominal.blockSignals(False)
+        self._mark_results_stale()
+
+    def _on_link_ab_toggled(self, checked: bool):
+        self.spin_b_nominal.setEnabled(not checked)
+        if checked:
+            self.spin_b_nominal.blockSignals(True)
+            self.spin_b_nominal.setValue(self.spin_a_nominal.value())
+            self.spin_b_nominal.blockSignals(False)
+        self._mark_results_stale()
+
+    def _on_nx_changed(self, val: int):
+        if hasattr(self, 'chk_link_nxny') and self.chk_link_nxny.isChecked() and hasattr(self, 'spin_ny'):
+            self.spin_ny.blockSignals(True)
+            self.spin_ny.setValue(val)
+            self.spin_ny.blockSignals(False)
+        self._mark_results_stale()
+
+    def _on_link_nxny_toggled(self, checked: bool):
+        self.spin_ny.setEnabled(not checked)
+        if checked:
+            self.spin_ny.blockSignals(True)
+            self.spin_ny.setValue(self.spin_n_side.value())
+            self.spin_ny.blockSignals(False)
+        self._mark_results_stale()
+
+    def _update_topology_plot(self):
+        """Redibuja la capa topológica conmutable (Voronoi / Delaunay / Quiver / ψ4) del Visor 1."""
+        if self.plot_real_topology is None or self.crystallography_results is None or self.kdtree_results is None:
+            return
+
+        # Limpiar capas conmutables previas (conserva grilla/vacancias, gestionadas por _on_recalc_grid)
+        for item in self.voronoi_items:
+            if item in self.plot_real_topology.items():
+                self.plot_real_topology.removeItem(item)
+        self.voronoi_items = []
+        for attr in ['delaunay_item', 'quiver_item', 'quiver_heads_item']:
+            item = getattr(self, attr, None)
+            if item is not None and item in self.plot_real_topology.items():
+                self.plot_real_topology.removeItem(item)
+            setattr(self, attr, None)
+        if self.scatter_topology_base is not None and self.scatter_topology_base in self.plot_real_topology.items():
+            self.plot_real_topology.removeItem(self.scatter_topology_base)
+            self.scatter_topology_base = None
+
+        matched = self.kdtree_results.get('matched_data_points')
+        if matched is None or len(matched) == 0:
+            return
+
+        mode = self.combo_topology_view.currentIndex()
+        cryst = self.crystallography_results
+
+        if mode == 3:  # Mapa Orientacional ψ4
+            bo_res = cryst.get('bond_order')
+            if bo_res is not None and len(bo_res['psi4_local']) == len(matched):
+                cmap = get_pyqtgraph_colormap('viridis')
+                colors = cmap.mapToQColor(np.clip(bo_res['psi4_local'], 0.0, 1.0))
+                self.scatter_topology_base = pg.ScatterPlotItem(
+                    x=matched[:, 0], y=matched[:, 1], size=9,
+                    brush=[pg.mkBrush(c) for c in colors], pen=pg.mkPen(None)
+                )
+            else:
+                self.scatter_topology_base = pg.ScatterPlotItem(
+                    x=matched[:, 0], y=matched[:, 1], size=6,
+                    brush=pg.mkBrush(137, 180, 250, 160), pen=pg.mkPen(None)
+                )
+        else:
+            self.scatter_topology_base = pg.ScatterPlotItem(
+                x=matched[:, 0], y=matched[:, 1], size=6,
+                brush=pg.mkBrush(137, 180, 250, 140), pen=pg.mkPen(None)
+            )
+        self.scatter_topology_base.setZValue(5)
+        self.plot_real_topology.addItem(self.scatter_topology_base)
+
+        if mode == 0:
+            voronoi_res = cryst.get('voronoi')
+            if voronoi_res is not None and voronoi_res.get('vor') is not None:
+                self._draw_voronoi_cells(voronoi_res)
+        elif mode == 1:
+            self._draw_delaunay_edges(matched)
+        elif mode == 2:
+            quiver_res = cryst.get('quiver')
+            if quiver_res is not None:
+                self._draw_quiver_field(quiver_res)
+
+    def _draw_voronoi_cells(self, voronoi_res: Dict[str, Any]):
+        """Dibuja las celdas Voronoi internas coloreadas por su número de coordinación Z."""
+        vor = voronoi_res['vor']
+        is_internal = voronoi_res['is_internal']
+        coordination = voronoi_res['coordination']
+        color_map = {3: '#cba6f7', 4: '#89b4fa', 5: '#fab387'}
+        default_color = '#a6adc8'
+
+        segments_by_color: Dict[str, Dict[str, list]] = {}
+        for i, region_index in enumerate(vor.point_region):
+            if not is_internal[i]:
+                continue
+            region = vor.regions[region_index]
+            verts = vor.vertices[region]
+            color = color_map.get(int(coordination[i]), default_color)
+            seg = segments_by_color.setdefault(color, {'x': [], 'y': []})
+            seg['x'].extend(list(verts[:, 0]) + [verts[0, 0], np.nan])
+            seg['y'].extend(list(verts[:, 1]) + [verts[0, 1], np.nan])
+
+        for color, seg in segments_by_color.items():
+            item = pg.PlotDataItem(seg['x'], seg['y'], pen=pg.mkPen(color, width=1.5), connect='finite')
+            item.setZValue(6)
+            self.plot_real_topology.addItem(item)
+            self.voronoi_items.append(item)
+
+    def _draw_delaunay_edges(self, matched: np.ndarray):
+        """Dibuja las aristas de la triangulación de Delaunay sobre las posiciones detectadas
+        (vectorizado: los triángulos tienen grado fijo 3, por lo que se arma un arreglo
+        (M,4,2) de una sola vez en vez de un bucle Python por triángulo)."""
+        if len(matched) < 4:
+            return
+        tri = Delaunay(matched)
+        simplices = tri.simplices  # (M, 3)
+        loop_idx = np.concatenate([simplices, simplices[:, :1]], axis=1)  # (M, 4): cierra cada triángulo
+        pts = matched[loop_idx]  # (M, 4, 2)
+        pts_nan = np.concatenate([pts, np.full((pts.shape[0], 1, 2), np.nan)], axis=1)  # (M, 5, 2)
+        flat = pts_nan.reshape(-1, 2)
+        self.delaunay_item = pg.PlotDataItem(flat[:, 0], flat[:, 1], pen=pg.mkPen('#f9e2af', width=1.0), connect='finite')
+        self.delaunay_item.setZValue(6)
+        self.plot_real_topology.addItem(self.delaunay_item)
+
+    def _draw_quiver_field(self, quiver_res: Dict[str, Any]):
+        """Dibuja el campo de desplazamientos (Δx, Δy) amplificado por el factor de escala visual
+        (vectorizado: arreglo (N,3) de una sola vez, sin bucle Python por partícula — se re-ejecuta
+        en cada tick del spinbox de escala). Color distinto al de la capa de vacancias (#f38ba8)
+        para no confundir ambas capas cuando están visibles simultáneamente; un punto en la cabeza
+        de cada vector desambigua la dirección del desplazamiento aunque se oculte la capa de malla."""
+        xi = quiver_res.get('x_ideal', np.array([]))
+        yi = quiver_res.get('y_ideal', np.array([]))
+        dx = quiver_res.get('dx', np.array([]))
+        dy = quiver_res.get('dy', np.array([]))
+        n = len(xi)
+        if n == 0:
+            return
+        scale = self.spin_quiver_scale.value()
+        head_x = xi + dx * scale
+        head_y = yi + dy * scale
+
+        xs = np.empty((n, 3), dtype=np.float64)
+        ys = np.empty((n, 3), dtype=np.float64)
+        xs[:, 0] = xi
+        xs[:, 1] = head_x
+        xs[:, 2] = np.nan
+        ys[:, 0] = yi
+        ys[:, 1] = head_y
+        ys[:, 2] = np.nan
+
+        self.quiver_item = pg.PlotDataItem(
+            xs.ravel(), ys.ravel(), pen=pg.mkPen('#fab387', width=1.5), connect='finite'
+        )
+        self.quiver_item.setZValue(6)
+        self.plot_real_topology.addItem(self.quiver_item)
+
+        self.quiver_heads_item = pg.ScatterPlotItem(
+            x=head_x, y=head_y, size=4, symbol='o',
+            brush=pg.mkBrush('#fab387'), pen=pg.mkPen(None)
+        )
+        self.quiver_heads_item.setZValue(7)
+        self.plot_real_topology.addItem(self.quiver_heads_item)
+
+    def _update_topology_histograms(self):
+        """Actualiza el Visor 3: histogramas de residuos Δx/Δy, coordinación Voronoi P(Z) y distribución ψ4."""
+        if not hasattr(self, 'plot_topology_hist') or self.crystallography_results is None or self.kdtree_results is None:
+            return
+        self.plot_topology_hist.clear()
+        kd = self.kdtree_results
+        cryst = self.crystallography_results
+
+        p1 = self.plot_topology_hist.addPlot(row=0, col=0, title="Residuos Δx, Δy")
+        p1.showGrid(x=True, y=True, alpha=0.25)
+        dx = kd.get('delta_x', np.array([]))
+        dy = kd.get('delta_y', np.array([]))
+        if len(dx) > 3:
+            counts_x, edges_x = np.histogram(dx, bins=25)
+            counts_y, edges_y = np.histogram(dy, bins=25)
+            p1.plot(edges_x, counts_x, stepMode='center', fillLevel=0, brush=(137, 180, 250, 90), pen=pg.mkPen('#89b4fa'))
+            p1.plot(edges_y, counts_y, stepMode='center', fillLevel=0, brush=(243, 139, 168, 90), pen=pg.mkPen('#f38ba8'))
+
+        p2 = self.plot_topology_hist.addPlot(row=0, col=1, title="Coordinación Voronoi P(Z)")
+        p2.showGrid(x=True, y=True, alpha=0.25)
+        voronoi_res = cryst.get('voronoi')
+        if voronoi_res is not None and voronoi_res.get('n_internal', 0) > 0:
+            z_vals = voronoi_res['coordination'][voronoi_res['is_internal']]
+            z_unique, z_counts = np.unique(z_vals, return_counts=True)
+            bar = pg.BarGraphItem(x=z_unique.astype(float), height=z_counts.astype(float), width=0.6, brush='#89b4fa')
+            p2.addItem(bar)
+
+        p3 = self.plot_topology_hist.addPlot(row=0, col=2, title="Distribución |ψ4|")
+        p3.showGrid(x=True, y=True, alpha=0.25)
+        bo_res = cryst.get('bond_order')
+        if bo_res is not None and len(bo_res['psi4_local']) > 3:
+            counts_p, edges_p = np.histogram(bo_res['psi4_local'], bins=20, range=(0.0, 1.0))
+            p3.plot(edges_p, counts_p, stepMode='center', fillLevel=0, brush=(203, 166, 247, 110), pen=pg.mkPen('#cba6f7'))
 
     # ==========================================================================
-    # PESTAÑA 2: ESPACIO RECÍPROCO & FOURIER
+    # PESTAÑA 3: ESPACIO RECÍPROCO & FOURIER
     # ==========================================================================
-    def _build_tab2(self):
-        layout = QHBoxLayout(self.tab2)
+    def _build_tab3(self):
+        layout = QHBoxLayout(self.tab3)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter)
 
@@ -2437,7 +2889,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Guarde el patrón de difracción en alta resolución PNG (600 DPI) o vector SVG para publicaciones.",
             "Exporta el mapa log10(1 + S(fx, fy)) a 2400 px con ejes calibrados en nm⁻¹."
         ))
-        btn_exp_fourier.clicked.connect(lambda: self._export_single_plot(self.plot_fourier_2d, "fig03_espectro_reciproco_2d"))
+        btn_exp_fourier.clicked.connect(lambda: self._export_single_plot(self.plot_fourier_2d, "fig04_espectro_reciproco_2d"))
         h_m2d_hdr.addWidget(btn_exp_fourier)
         right_layout.addLayout(h_m2d_hdr)
 
@@ -2452,7 +2904,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Patrón de difracción bidimensional. Puntos brillantes representan reflexiones de Bragg. Clic derecho para exportar o auto-rango.",
             "Densidad espectral continua NUFFT normalizada log10(1 + S(q)) mostrando simetría tetragonal, armónicos superiores y halo difuso."
         ))
-        self._setup_plot_export_menu(self.plot_fourier_2d, "fig03_espectro_reciproco_2d", "Espectro Recíproco 2D NUFFT")
+        self._setup_plot_export_menu(self.plot_fourier_2d, "fig04_espectro_reciproco_2d", "Espectro Recíproco 2D NUFFT")
         right_layout.addWidget(self.plot_fourier_2d)
 
         # 2. Perfiles 1D con ajuste
@@ -2494,7 +2946,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Corte de difracción a lo largo de fx con ajuste gaussiano de los picos fundamental (1,0) y segundo armónico (2,0). Clic derecho para exportar.",
             "Proyección de intensidad espectral con ajuste multivariable I(fx) = B + H1*exp(-(fx-f0)²/(2w1²)) + H2*exp(-(fx-2f0)²/(2w2²))."
         ))
-        self._setup_plot_export_menu(self.plot_cut_x, "fig04_corte_espectral_fx", "Perfil fx (Horizontal)")
+        self._setup_plot_export_menu(self.plot_cut_x, "fig05_corte_espectral_fx", "Perfil fx (Horizontal)")
 
         self.plot_cut_y = pg.PlotWidget(title="Perfil fy (Vertical: Orden 1 + 2)")
         self.plot_cut_y.showGrid(x=True, y=True, alpha=0.3)
@@ -2506,7 +2958,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Corte de difracción a lo largo de fy con ajuste gaussiano de los picos fundamental (0,1) y segundo armónico (0,2). Clic derecho para exportar.",
             "Proyección de intensidad espectral a lo largo del eje Y con ajuste gaussiano para deducir a_y, H_y y FWHM_y."
         ))
-        self._setup_plot_export_menu(self.plot_cut_y, "fig05_corte_espectral_fy", "Perfil fy (Vertical)")
+        self._setup_plot_export_menu(self.plot_cut_y, "fig06_corte_espectral_fy", "Perfil fy (Vertical)")
 
         self.plot_cut_diag = pg.PlotWidget(title="Perfil Diagonal 45° (Orden Cruzado (1,1))")
         self.plot_cut_diag.showGrid(x=True, y=True, alpha=0.3)
@@ -2518,7 +2970,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Corte a 45° en el plano espectral correspondiente a la reflexión cruzada q_diag = sqrt(2) q0. Clic derecho para exportar.",
             "Intensidad de la reflexión tetragonal (1,1); fundamental para evaluar correlación 2D y simetría de la red."
         ))
-        self._setup_plot_export_menu(self.plot_cut_diag, "fig06_corte_espectral_diagonal_45deg", "Perfil Diagonal 45°")
+        self._setup_plot_export_menu(self.plot_cut_diag, "fig07_corte_espectral_diagonal_45deg", "Perfil Diagonal 45°")
 
         self.lay_cuts.addWidget(self.plot_cut_x)
         self.lay_cuts.addWidget(self.plot_cut_y)
@@ -2708,7 +3160,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Regresiones lineales separadas para los ejes X e Y, contrastando pendientes m e interceptos c. Clic derecho para exportar.",
             "Permite diagnosticar anisotropía posicional a partir de m_x y m_y, y evaluar coherencia frente al haz directo a partir de los interceptos."
         ))
-        self._setup_plot_export_menu(self.plot_wilson, "fig07_grafico_wilson_linear_fit", "Gráfico de Wilson")
+        self._setup_plot_export_menu(self.plot_wilson, "fig08_grafico_wilson_linear_fit", "Gráfico de Wilson")
         lay_plots_grid.addWidget(self.plot_wilson, 0, 0)
 
         # Plot 2: Decaimiento Multiórden Debye-Waller
@@ -2722,7 +3174,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Atenuación armónica teórica y experimental desglosada por dirección cristalina. Clic derecho para exportar.",
             "Contrasta curvas de atenuación para el eje X, eje Y y diagonal (1,1) con leyendas descriptivas."
         ))
-        self._setup_plot_export_menu(self.plot_dw_decay, "fig08_decaimiento_debye_waller_multi_orden", "Decaimiento Debye-Waller Multi-Orden")
+        self._setup_plot_export_menu(self.plot_dw_decay, "fig09_decaimiento_debye_waller_multi_orden", "Decaimiento Debye-Waller Multi-Orden")
         lay_plots_grid.addWidget(self.plot_dw_decay, 0, 1)
 
         # Plot 3: Comparativa de Estabilidad de Ratios
@@ -2736,7 +3188,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Gráfico comparativo que contrasta los valores de desorden inferidos por H₂/H₁, Diag, Wilson y H₀/H₁ para ambos ejes X e Y.",
             "Visualiza la concordancia o divergencia metrológica entre estimaciones de desorden para identificar efectos de fondo espurio o anisotropía."
         ))
-        self._setup_plot_export_menu(self.plot_ratio_stability, "fig09_comparativa_estabilidad_ratios", "Comparativa de Estabilidad de Ratios")
+        self._setup_plot_export_menu(self.plot_ratio_stability, "fig10_comparativa_estabilidad_ratios", "Comparativa de Estabilidad de Ratios")
         lay_plots_grid.addWidget(self.plot_ratio_stability, 1, 0)
 
         # Plot 4: Diagnóstico de Ancho Radial (Tipo I vs Tipo II)
@@ -2750,7 +3202,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Evolución del ancho a media altura (FWHM) para los ejes X e Y frente a modelos Tipo I (constante) y Tipo II (cuadrático Hosemann).",
             "Permite verificar si el ensanchamiento radial es isotrópico o si alguna dirección acumula desorden de espaciado."
         ))
-        self._setup_plot_export_menu(self.plot_fwhm_paracrystal, "fig10_diagnostico_paracristal_fwhm_hosemann", "Diagnóstico Paracristal Hosemann")
+        self._setup_plot_export_menu(self.plot_fwhm_paracrystal, "fig11_diagnostico_paracristal_fwhm_hosemann", "Diagnóstico Paracristal Hosemann")
         lay_plots_grid.addWidget(self.plot_fwhm_paracrystal, 1, 1)
 
         right_layout.addWidget(grp_ana_plots)
@@ -2766,10 +3218,10 @@ class LatticeDisorderWindow(QMainWindow):
         self.plot_cut_diag.setVisible(idx in (0, 3))
 
     # ==========================================================================
-    # PESTAÑA 3: MONTE CARLO & DEBYE-WALLER
+    # PESTAÑA 4: MONTE CARLO & DEBYE-WALLER
     # ==========================================================================
-    def _build_tab3(self):
-        layout = QHBoxLayout(self.tab3)
+    def _build_tab4(self):
+        layout = QHBoxLayout(self.tab4)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter)
 
@@ -2788,24 +3240,36 @@ class LatticeDisorderWindow(QMainWindow):
         lay_sim = QVBoxLayout(grp_sim)
 
         h1 = QHBoxLayout()
-        h1.addWidget(QLabel("Sitios Nominales N:"))
+        h1.addWidget(QLabel("Sitios Nominales Nx:"))
         self.spin_mc_n = QSpinBox()
         self.spin_mc_n.setRange(2, 200)
         self.spin_mc_n.setValue(30)
         self.spin_mc_n.setToolTip(make_tooltip(
-            "Tamaño Reticular Lateral (N)",
-            "Cantidad de partículas nominales por lado de la red cuadrada (ej. 30 para una red de 30x30 = 900 sitios).",
-            "Número de sitios en cada dimensión R_u,v in {0, ..., N-1}². Afecta directamente la finitud del cristal y la relación señal/fondo difuso."
+            "Tamaño Reticular Lateral en X (Nx)",
+            "Cantidad de partículas nominales por columna a lo largo de X (ej. 30 para una red de 30x30 = 900 sitios).",
+            "Número de sitios en X: R_u in {0, ..., Nx-1}. Afecta directamente la finitud del cristal y la relación señal/fondo difuso."
         ))
         h1.addWidget(self.spin_mc_n)
+
+        h1.addWidget(QLabel("Ny:"))
+        self.spin_mc_ny = QSpinBox()
+        self.spin_mc_ny.setRange(2, 200)
+        self.spin_mc_ny.setValue(30)
+        self.spin_mc_ny.setEnabled(False)
+        self.spin_mc_ny.setToolTip(make_tooltip(
+            "Tamaño Reticular Lateral en Y (Ny)",
+            "Cantidad de partículas nominales por fila a lo largo de Y (habilitado al activar red rectangular/anisótropa).",
+            "Número de sitios en Y: R_v in {0, ..., Ny-1}. Independiente de Nx en redes rectangulares."
+        ))
+        h1.addWidget(self.spin_mc_ny)
         lay_sim.addLayout(h1)
 
-        self.chk_mc_anisotropy = QCheckBox("Anisotropía Cristalográfica (ax != ay)")
+        self.chk_mc_anisotropy = QCheckBox("Red Rectangular / Anisótropa (ax != ay, Nx != Ny)")
         self.chk_mc_anisotropy.setStyleSheet("color: #fab387; font-weight: bold; font-size: 11px;")
         self.chk_mc_anisotropy.setToolTip(make_tooltip(
-            "Anisotropía Cristalográfica (ax != ay)",
-            "Active esta casilla si la distancia entre partículas es distinta en el eje horizontal X respecto al eje vertical Y.",
-            "Permite modelar una red tetragonal u ortorrómbica con períodos reticulares desacoplados a_x != a_y."
+            "Red Rectangular / Anisótropa (ax != ay, Nx != Ny)",
+            "Active esta casilla si tanto el período como el número de sitios difieren entre el eje X y el eje Y.",
+            "Permite modelar una red tetragonal u ortorrómbica con (a_x, N_x) desacoplados de (a_y, N_y)."
         ))
         lay_sim.addWidget(self.chk_mc_anisotropy)
 
@@ -2839,8 +3303,10 @@ class LatticeDisorderWindow(QMainWindow):
 
         def _on_aniso_toggled(checked):
             self.spin_mc_ay.setEnabled(checked)
+            self.spin_mc_ny.setEnabled(checked)
             if not checked:
                 self.spin_mc_ay.setValue(self.spin_mc_ax.value())
+                self.spin_mc_ny.setValue(self.spin_mc_n.value())
 
         self.chk_mc_anisotropy.toggled.connect(_on_aniso_toggled)
 
@@ -2849,6 +3315,12 @@ class LatticeDisorderWindow(QMainWindow):
                 self.spin_mc_ay.setValue(val)
 
         self.spin_mc_ax.valueChanged.connect(_on_ax_changed)
+
+        def _on_mc_nx_changed(val):
+            if not self.chk_mc_anisotropy.isChecked():
+                self.spin_mc_ny.setValue(val)
+
+        self.spin_mc_n.valueChanged.connect(_on_mc_nx_changed)
 
         h3 = QHBoxLayout()
         h3.addWidget(QLabel("Vacancias f_vac (%):"))
@@ -3080,7 +3552,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Pasa a la pestaña final para revisar la tabla metrológica consolidada y exportar informes.",
             "Conmuta a la pestaña 4 actualizando todas las filas de la tabla de parámetros y habilitando la galería completa."
         ))
-        btn_go_tab4.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
+        btn_go_tab4.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
         lay_res.addWidget(btn_go_tab4)
 
         left_layout.addWidget(grp_res)
@@ -3104,7 +3576,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Guarde este gráfico de calibración en alta resolución PNG (600 DPI) o vector SVG para publicaciones.",
             "Exporta la curva de atenuación, bandas de error de réplicas e interpolación experimental."
         ))
-        btn_exp_dw.clicked.connect(lambda: self._export_single_plot(self.plot_dw, "fig11_curva_calibracion_debye_waller_mc"))
+        btn_exp_dw.clicked.connect(lambda: self._export_single_plot(self.plot_dw, "fig12_curva_calibracion_debye_waller_mc"))
         h_dw_hdr.addWidget(btn_exp_dw)
         right_layout.addLayout(h_dw_hdr)
 
@@ -3120,7 +3592,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Relación entre el desorden posicional σ y la altura del pico de Bragg. La línea punteada indica el desorden de su muestra. Clic derecho para exportar (PNG 600 DPI / SVG).",
             "Función de calibración H(σ) = H₀(1-p)² exp(-σ² / 2σ_char²) + H_diffuse ajustada a las réplicas estocásticas, con puntos experimentales interpolados."
         ))
-        self._setup_plot_export_menu(self.plot_dw, "fig11_curva_calibracion_debye_waller_mc", "Calibración Debye-Waller MC")
+        self._setup_plot_export_menu(self.plot_dw, "fig12_curva_calibracion_debye_waller_mc", "Calibración Debye-Waller MC")
         right_layout.addWidget(self.plot_dw)
 
         splitter.addWidget(left_widget)
@@ -3129,10 +3601,10 @@ class LatticeDisorderWindow(QMainWindow):
         splitter.setStretchFactor(1, 2)
 
     # ==========================================================================
-    # PESTAÑA 4: FICHA METROLÓGICA & EXPORTACIÓN
+    # PESTAÑA 5: FICHA METROLÓGICA & EXPORTACIÓN
     # ==========================================================================
-    def _build_tab4(self):
-        layout = QVBoxLayout(self.tab4)
+    def _build_tab5(self):
+        layout = QVBoxLayout(self.tab5)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
@@ -3146,7 +3618,7 @@ class LatticeDisorderWindow(QMainWindow):
         layout.addWidget(lbl_title)
 
         # Tabla de Métricas con Contraste Optimizado y Tooltips
-        self.table_metrics = QTableWidget(18, 2)
+        self.table_metrics = QTableWidget(22, 2)
         self.table_metrics.setHorizontalHeaderLabels(["Parámetro Metrológico", "Valor Experimental"])
         self.table_metrics.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table_metrics.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -3168,9 +3640,9 @@ class LatticeDisorderWindow(QMainWindow):
             ("Archivo de Muestra", "-",
              "Identificador del archivo analizado.",
              "Nombre de la micrografía confocal o tabla de coordenadas fuente."),
-            ("Dimensiones Nominales de Red (N x N)", "-",
-             "Tamaño lateral del cristal 2D.",
-             "Número de partículas por fila y columna. Fija el total de sitios teóricos N²."),
+            ("Dimensiones Nominales de Red (Nx x Ny)", "-",
+             "Tamaño lateral del cristal 2D, soportando redes rectangulares Nx != Ny.",
+             "Número de partículas por columna (Nx) y fila (Ny). Fija el total de sitios teóricos Nx * Ny."),
             ("Período Experimental a_x / a_y / a_mean", "-",
              "Espaciado físico entre partículas en nanómetros.",
              "Inversión espectral continua a_i = 1/f_peak,i derivada de la NUFFT 2D."),
@@ -3218,7 +3690,19 @@ class LatticeDisorderWindow(QMainWindow):
              "Clasifica la red en Tipo I (Debye-Waller puro) o Tipo II (Paracristal acumulativo)."),
             ("Inversión Analítica Directa σ(H₂/H₁) / σ(Wilson)", "-",
              "Desorden estimado instantáneamente por relaciones analíticas directas.",
-             "Inversión analítica σ(H₂/H₁) y pendiente lineal en el Wilson plot.")
+             "Inversión analítica σ(H₂/H₁) y pendiente lineal en el Wilson plot."),
+            ("Orden Orientacional ⟨ψ4⟩ / ⟨ψ6⟩", "-",
+             "Grado de orden angular local respecto a la simetría de red (4-fold / 6-fold).",
+             "psi_n(j) = (1/Z_j) * sum_k exp(i n theta_jk), promediado sobre partículas internas vía triangulación de Delaunay."),
+            ("Orden Traslacional Ψ_T,x / Ψ_T,y", "-",
+             "Coherencia de fase de Bragg promediada en espacio real por eje.",
+             "Ψ_T,i = |mean(exp(2πi * r_i / periodo_i))| sobre las partículas emparejadas a la grilla ideal."),
+            ("Parámetro de Lindemann γ_L", "-",
+             "Criterio adimensional de estabilidad/fusión de la red cristalina.",
+             "γ_L = σ_pos / min(a, b). Valores > 0.1-0.15 indican proximidad al régimen de fusión de Lindemann."),
+            ("Defectos Topológicos Voronoi (Z≠4) / Dispersión de Área", "-",
+             "Fracción de celdas Voronoi internas con coordinación distinta de 4 y dispersión relativa de área.",
+             "f_defects = N_(Z≠4) / N_internas. Excluye celdas de borde con vértices infinitos o fuera del ROI.")
         ]
         for r, (param, val, tt_basic, tt_exp) in enumerate(rows_info):
             it0 = QTableWidgetItem(param)
@@ -3272,8 +3756,8 @@ class LatticeDisorderWindow(QMainWindow):
         btn_exp_gallery.setObjectName("primaryBtn")
         btn_exp_gallery.setToolTip(make_tooltip(
             "Exportar Galería Completa de Figuras (SVG / PNG 600 DPI)",
-            "Exporta de 1 solo clic los 11 gráficos del software en alta resolución (2400 px, 600 DPI) y vectores SVG a una carpeta.",
-            "Generación en lote de las 11 figuras científicas del análisis en formatos listos para publicación editorial (PNG de 600 DPI y SVG escalable)."
+            "Exporta de 1 solo clic los 12 gráficos del software en alta resolución (2400 px, 600 DPI) y vectores SVG a una carpeta.",
+            "Generación en lote de las 12 figuras científicas del análisis en formatos listos para publicación editorial (PNG de 600 DPI y SVG escalable)."
         ))
         btn_exp_gallery.clicked.connect(self._on_export_gallery)
         lay_exp.addWidget(btn_exp_gallery)
@@ -3295,6 +3779,10 @@ class LatticeDisorderWindow(QMainWindow):
             self.spin_scale.setValue(float(p.get("scale_nm", 50.0)))
             self.spin_n_side.setValue(int(p.get("n_side", 30)))
             self.spin_a_nominal.setValue(float(p.get("a_nominal", 500.0)))
+            self.chk_link_ab.setChecked(bool(p.get("link_ab", True)))
+            self.spin_b_nominal.setValue(float(p.get("b_nominal", self.spin_a_nominal.value())))
+            self.chk_link_nxny.setChecked(bool(p.get("link_nxny", True)))
+            self.spin_ny.setValue(int(p.get("n_side_y", self.spin_n_side.value())))
 
             self.chk_invert_img.setChecked(bool(p.get("invert", False)))
             self.chk_roi_enable.setChecked(bool(p.get("roi_enabled", True)))
@@ -3351,6 +3839,10 @@ class LatticeDisorderWindow(QMainWindow):
             "scale_nm": self.spin_scale.value(),
             "n_side": self.spin_n_side.value(),
             "a_nominal": self.spin_a_nominal.value(),
+            "link_ab": self.chk_link_ab.isChecked(),
+            "b_nominal": self.spin_b_nominal.value(),
+            "link_nxny": self.chk_link_nxny.isChecked(),
+            "n_side_y": self.spin_ny.value(),
             "invert": self.chk_invert_img.isChecked(),
             "roi_enabled": self.chk_roi_enable.isChecked(),
             "roi_xmin": self.spin_roi_xmin.value(),
@@ -3401,6 +3893,10 @@ class LatticeDisorderWindow(QMainWindow):
                 if "scale_nm" in data: self.spin_scale.setValue(float(data["scale_nm"]))
                 if "n_side" in data: self.spin_n_side.setValue(int(data["n_side"]))
                 if "a_nominal" in data: self.spin_a_nominal.setValue(float(data["a_nominal"]))
+                if "link_ab" in data: self.chk_link_ab.setChecked(bool(data["link_ab"]))
+                if "b_nominal" in data: self.spin_b_nominal.setValue(float(data["b_nominal"]))
+                if "link_nxny" in data: self.chk_link_nxny.setChecked(bool(data["link_nxny"]))
+                if "n_side_y" in data: self.spin_ny.setValue(int(data["n_side_y"]))
                 if "invert" in data: self.chk_invert_img.setChecked(bool(data["invert"]))
                 if "roi_enabled" in data: self.chk_roi_enable.setChecked(bool(data["roi_enabled"]))
                 if "roi_xmin" in data: self.spin_roi_xmin.setValue(float(data["roi_xmin"]))
@@ -4483,7 +4979,7 @@ class LatticeDisorderWindow(QMainWindow):
     def _on_go_to_reciprocal(self):
         if self.locs_df is not None and len(self.locs_df) > 0:
             self._on_recalculate_reciprocal()
-        self.tabs.setCurrentIndex(1)
+        self.tabs.setCurrentIndex(2)
 
     def _on_bg_filter_spin_changed(self, val: float):
         if hasattr(self, 'slider_bg_filter'):
@@ -4722,6 +5218,14 @@ class LatticeDisorderWindow(QMainWindow):
         self.table_clusters.setRowCount(0)
         self.lbl_cluster_summary.setText("Aglomerados: - | Sobrepuestas: -")
         self.plot_rdf.clear()
+        if hasattr(self, 'plot_real_topology'):
+            self.plot_real_topology.clear()
+            self.scatter_topology_base = None
+            self.voronoi_items = []
+            self.delaunay_item = None
+            self.quiver_item = None
+            self.quiver_heads_item = None
+        self.crystallography_results = None
 
         # Re-agregar las 4 reglas móviles de ROI
         for line in [self.line_roi_xmin, self.line_roi_xmax, self.line_roi_ymin, self.line_roi_ymax]:
@@ -4839,27 +5343,61 @@ class LatticeDisorderWindow(QMainWindow):
 
         self._clear_results_stale()
         a_nom = self.spin_a_nominal.value()
+        b_nom = self.spin_b_nominal.value() if (hasattr(self, 'chk_link_ab') and not self.chk_link_ab.isChecked()) else a_nom
         n_side = self.spin_n_side.value()
+        n_side_y = self.spin_ny.value() if (hasattr(self, 'chk_link_nxny') and not self.chk_link_nxny.isChecked()) else n_side
         x_nm = self.locs_df['x_nm'].values
         y_nm = self.locs_df['y_nm'].values
         margin_pct = self.spin_consistency_margin.value() if hasattr(self, 'spin_consistency_margin') else 10.0
 
-        # 1. KDTree Bounded con chequeo de margen físico
+        # 1. KDTree Bounded rectangular (a != b, Nx != Ny) con chequeo de margen físico
         self.kdtree_results = analyze_real_space_kdtree(
-            x_nm, y_nm, a=a_nom, n_side=n_side, margin_percent=margin_pct
+            x_nm, y_nm, a=a_nom, b=b_nom, n_side_x=n_side, n_side_y=n_side_y, margin_percent=margin_pct
         )
 
-        # 2. Función de Distribución Radial g(r)
+        # 2. Función de Distribución Radial g(r) (doble gaussiana automática si |a - b| > 15 nm)
         rmin = self.line_rdf_rmin.value() if (hasattr(self, 'line_rdf_rmin') and self.line_rdf_rmin and hasattr(self, 'chk_rdf_manual_roi') and self.chk_rdf_manual_roi.isChecked()) else None
         rmax = self.line_rdf_rmax.value() if (hasattr(self, 'line_rdf_rmax') and self.line_rdf_rmax and hasattr(self, 'chk_rdf_manual_roi') and self.chk_rdf_manual_roi.isChecked()) else None
         bg_val = self.line_rdf_bg.value() if (hasattr(self, 'line_rdf_bg') and self.line_rdf_bg and hasattr(self, 'chk_rdf_fix_bg') and self.chk_rdf_fix_bg.isChecked()) else None
 
         self.rdf_results = compute_radial_distribution_function(
-            x_nm, y_nm, a_nominal=a_nom, r_roi_min=rmin, r_roi_max=rmax, fixed_bg=bg_val
+            x_nm, y_nm, a_nominal=a_nom, b_nominal=b_nom, r_roi_min=rmin, r_roi_max=rmax, fixed_bg=bg_val
         )
 
-        # Actualizar tarjeta de métricas y consistencia
+        # 3. Cristalografía en Espacio Real: orden orientacional, topología Voronoi/Delaunay y campo de deformación
         kd = self.kdtree_results
+        matched = kd.get('matched_data_points')
+        bond_order_res = None
+        voronoi_res = None
+        quiver_res = None
+        if matched is not None and len(matched) >= 4:
+            mx, my = matched[:, 0], matched[:, 1]
+            bond_order_res = compute_bond_orientational_order(mx, my, k_neighbors=4, lattice_type='rectangular')
+
+            # Margen de borde adaptativo al desorden: a mayor sigma_pos/periodo, una celda de
+            # Voronoi genuinamente interior puede extender sus vértices más allá de 1 período
+            # nominal, filtrándola incorrectamente como "de borde" o viceversa. Escala con el
+            # desorden medido (capado en 2.5x para no descartar excesiva muestra a alto sigma).
+            sigma_pos_est = kd.get('sigma_pos', 0.0)
+            min_period = max(1e-6, min(a_nom, b_nom))
+            margin_factor = min(2.5, 1.0 + 3.0 * (sigma_pos_est / min_period))
+            margin_x = margin_factor * a_nom
+            margin_y = margin_factor * b_nom
+            x_range = (float(np.min(mx)) + margin_x, float(np.max(mx)) - margin_x)
+            y_range = (float(np.min(my)) + margin_y, float(np.max(my)) - margin_y)
+            voronoi_res = compute_voronoi_topology(mx, my, x_range=x_range, y_range=y_range)
+
+            quiver_res = compute_quiver_and_strain(
+                x_nm, y_nm, kd['x_ideal'], kd['y_ideal'], kd['valid_mask']
+            )
+
+        self.crystallography_results = {
+            'bond_order': bond_order_res,
+            'voronoi': voronoi_res,
+            'quiver': quiver_res
+        }
+
+        # Actualizar tarjeta de métricas y consistencia
         rdf = self.rdf_results
 
         v_prac = kd.get('n_vac_prac', kd.get('vacant_count', 0))
@@ -4902,6 +5440,32 @@ class LatticeDisorderWindow(QMainWindow):
             f"{alert_block}"
         )
 
+        if hasattr(self, 'lbl_topology_metrics'):
+            gamma_l = kd.get('gamma_lindemann', 0.0)
+            gamma_lx = kd.get('gamma_lindemann_x', 0.0)
+            gamma_ly = kd.get('gamma_lindemann_y', 0.0)
+            psi_tx = kd.get('psi_t_x', 0.0)
+            psi_ty = kd.get('psi_t_y', 0.0)
+            if bond_order_res is not None:
+                psi4_txt = f"⟨ψ4⟩ = {bond_order_res['psi4_mean']:.3f}  |  ⟨ψ6⟩ = {bond_order_res['psi6_mean']:.3f}"
+            else:
+                psi4_txt = "⟨ψ4⟩ = -  |  ⟨ψ6⟩ = -"
+            if voronoi_res is not None and voronoi_res.get('n_internal', 0) > 0:
+                voronoi_txt = (
+                    f"Defectos Topológicos (Z≠4): {voronoi_res['n_defects']}/{voronoi_res['n_internal']} "
+                    f"({voronoi_res['f_defects'] * 100.0:.1f}%)\n"
+                    f"Dispersión de Área Voronoi σ_A/⟨A⟩: {voronoi_res['area_cv'] * 100.0:.1f}%"
+                )
+            else:
+                voronoi_txt = "Defectos Topológicos (Z≠4): -\nDispersión de Área Voronoi σ_A/⟨A⟩: -"
+
+            self.lbl_topology_metrics.setText(
+                f"Orden Orientacional: {psi4_txt}\n"
+                f"Orden Traslacional Ψ_T,x: {psi_tx:.3f}  |  Ψ_T,y: {psi_ty:.3f}\n"
+                f"Lindemann γ_L: {gamma_l:.4f}  (γ_L,x: {gamma_lx:.4f}  |  γ_L,y: {gamma_ly:.4f})\n"
+                f"{voronoi_txt}"
+            )
+
         c_ok = kd.get('consistency_ok', True)
         c_msg = kd.get('consistency_msg', 'Consistencia: OK')
         if c_ok:
@@ -4910,9 +5474,9 @@ class LatticeDisorderWindow(QMainWindow):
             self.lbl_consistency.setStyleSheet("font-family: monospace; font-size: 11px; color: #f38ba8; font-weight: bold;")
         self.lbl_consistency.setText(c_msg)
 
-        # Actualizar scatter de vacancias y grilla
-        if self.scatter_vac and self.scatter_vac in self.plot_real_space.items():
-            self.plot_real_space.removeItem(self.scatter_vac)
+        # Actualizar scatter de vacancias y grilla sobre el lienzo de topología (Pestaña 2)
+        if self.scatter_vac and self.scatter_vac in self.plot_real_topology.items():
+            self.plot_real_topology.removeItem(self.scatter_vac)
             self.scatter_vac = None
 
         if len(kd['vacant_points']) > 0:
@@ -4928,10 +5492,10 @@ class LatticeDisorderWindow(QMainWindow):
             )
             self.scatter_vac.setZValue(20)
             self.scatter_vac.setVisible(self.chk_layer_vac.isChecked())
-            self.plot_real_space.addItem(self.scatter_vac)
+            self.plot_real_topology.addItem(self.scatter_vac)
 
-        if self.scatter_grid and self.scatter_grid in self.plot_real_space.items():
-            self.plot_real_space.removeItem(self.scatter_grid)
+        if self.scatter_grid and self.scatter_grid in self.plot_real_topology.items():
+            self.plot_real_topology.removeItem(self.scatter_grid)
             self.scatter_grid = None
 
         if len(kd['grid_points']) > 0:
@@ -4947,12 +5511,14 @@ class LatticeDisorderWindow(QMainWindow):
             )
             self.scatter_grid.setZValue(10)
             self.scatter_grid.setVisible(self.chk_layer_grid.isChecked())
-            self.plot_real_space.addItem(self.scatter_grid)
+            self.plot_real_topology.addItem(self.scatter_grid)
 
-        # Dibujar / actualizar g(r)
+        # Dibujar / actualizar g(r), capas topológicas conmutables e histogramas de diagnóstico
         self._plot_rdf_results()
+        self._update_topology_plot()
+        self._update_topology_histograms()
         self._update_metrics_table()
-        self.statusBar().showMessage("Grilla óptima, vacancias y g(r) calculados exitosamente.", 5000)
+        self.statusBar().showMessage("Grilla óptima, vacancias, topología y g(r) calculados exitosamente.", 5000)
 
     def _plot_rdf_results(self):
         if self.rdf_results is None:
@@ -5010,14 +5576,23 @@ class LatticeDisorderWindow(QMainWindow):
                     )
 
                 # Tarjeta de texto explicativa sobre el gráfico
+                is_double = bool(rdf.get('is_double_peak', False))
+                peak_kind_txt = "1er Pico de Coordinación (Doble Gaussiana, a/b resueltos)" if is_double else "1er Pico de Coordinación"
+                warn_txt = ""
+                if rdf.get('peak_resolution_warning', False):
+                    warn_txt = (
+                        "<br><span style='color: #f9e2af;'>⚠️ a y b demasiado cercanos para resolver "
+                        "picos independientes: degradado a ajuste simple.</span>"
+                    )
                 badge_text = (
                     f"<div style='background-color: rgba(24, 24, 37, 190); padding: 6px 10px; "
                     f"border: 1px solid #89dceb; border-radius: 5px; color: #cdd6f4; font-size: 10px;'>"
-                    f"<b>1er Pico de Coordinación:</b><br>"
+                    f"<b>{peak_kind_txt}:</b><br>"
                     f"• Centro r₀: <b>{fit_r0:.1f} nm</b> (Nominal: {a_nom:.0f} nm)<br>"
                     f"• Ancho FWHM: <b>{fit_fwhm:.1f} nm</b><br>"
                     f"• Desorden local σ_rdf: <b>{sigma_rdf:.1f} nm</b><br>"
                     f"• Fondo Base: <b>{bg_fit:.2f}</b>"
+                    f"{warn_txt}"
                     f"</div>"
                 )
                 txt_item = pg.TextItem(html=badge_text, anchor=(1, 0))
@@ -6283,13 +6858,17 @@ class LatticeDisorderWindow(QMainWindow):
         a_y = res.get('a_y', a_mean)
         aniso = abs(a_x - a_y)
 
+        n_x = self.spin_n_side.value()
+        n_y = self.spin_ny.value() if (hasattr(self, 'chk_link_nxny') and not self.chk_link_nxny.isChecked()) else n_x
+
         self.spin_mc_ax.setValue(a_x)
         self.spin_mc_ay.setValue(a_y)
-        is_aniso = aniso > 1.0
+        self.spin_mc_n.setValue(n_x)
+        self.spin_mc_ny.setValue(n_y)
+        is_aniso = (aniso > 1.0) or (n_x != n_y)
         self.chk_mc_anisotropy.setChecked(is_aniso)
         self.spin_mc_ay.setEnabled(is_aniso)
-
-        self.spin_mc_n.setValue(self.spin_n_side.value())
+        self.spin_mc_ny.setEnabled(is_aniso)
 
         if self.kdtree_results is not None:
             self.spin_mc_vac.setValue(self.kdtree_results['f_vac_percent'])
@@ -6303,20 +6882,21 @@ class LatticeDisorderWindow(QMainWindow):
         band_nm = band_bins * delta_f
         self.spin_mc_band.setValue(band_nm)
 
-        self.tabs.setCurrentIndex(2)
+        self.tabs.setCurrentIndex(3)
         aniso_str = f"- Anisotropía detectada: ax={a_x:.2f} nm, ay={a_y:.2f} nm (Δ={aniso:.2f} nm)\n" if is_aniso else f"- Período a_mean = {a_mean:.2f} nm (Isotrópico)\n"
         QMessageBox.information(
             self,
             "Parámetros Propagados",
             f"Parámetros transferidos a Monte Carlo:\n"
             f"{aniso_str}"
-            f"- Sitios N x N = {self.spin_n_side.value()}\n"
+            f"- Sitios Nx x Ny = {n_x} x {n_y}\n"
             f"- Vacancias = {self.spin_mc_vac.value():.1f}%\n"
             f"- Banda Transversal = ±{band_nm*1000.0:.3f} ×10⁻³ nm⁻¹"
         )
 
     def _on_run_monte_carlo(self):
         n_side = self.spin_mc_n.value()
+        n_side_y = self.spin_mc_ny.value() if self.chk_mc_anisotropy.isChecked() else n_side
         ax = self.spin_mc_ax.value()
         ay = self.spin_mc_ay.value() if self.chk_mc_anisotropy.isChecked() else ax
         f_vac = self.spin_mc_vac.value() / 100.0
@@ -6345,7 +6925,9 @@ class LatticeDisorderWindow(QMainWindow):
             a_y=ay if self.chk_mc_anisotropy.isChecked() else None,
             n_bragg_pts=n_bragg,
             band_width_nm=band_w,
-            n_transversal_pts=5
+            n_transversal_pts=5,
+            n_side_x=n_side,
+            n_side_y=n_side_y if self.chk_mc_anisotropy.isChecked() else None
         )
         self.mc_worker.progress_signal.connect(self._on_mc_progress)
         self.mc_worker.finished_signal.connect(self._on_mc_finished)
@@ -6664,7 +7246,8 @@ class LatticeDisorderWindow(QMainWindow):
     def _update_metrics_table(self):
         filename = os.path.basename(self.current_image_path) if self.current_image_path else "Muestra Sintética"
         self.table_metrics.item(0, 1).setText(filename)
-        self.table_metrics.item(1, 1).setText(f"{self.spin_n_side.value()} x {self.spin_n_side.value()}")
+        n_y_val = self.spin_ny.value() if (hasattr(self, 'chk_link_nxny') and not self.chk_link_nxny.isChecked()) else self.spin_n_side.value()
+        self.table_metrics.item(1, 1).setText(f"{self.spin_n_side.value()} x {n_y_val}")
 
         if self.reciprocal_results is not None:
             r = self.reciprocal_results
@@ -6743,6 +7326,24 @@ class LatticeDisorderWindow(QMainWindow):
             self.table_metrics.item(13, 1).setText(f"{n_cl} cúmulos ({n_pts} partículas involucradas)")
         else:
             self.table_metrics.item(13, 1).setText("No evaluado")
+
+        if self.crystallography_results is not None:
+            cryst = self.crystallography_results
+            bo_res = cryst.get('bond_order')
+            voronoi_res = cryst.get('voronoi')
+            if bo_res is not None:
+                self.table_metrics.item(18, 1).setText(f"{bo_res['psi4_mean']:.3f} / {bo_res['psi6_mean']:.3f}")
+            if self.kdtree_results is not None:
+                kd = self.kdtree_results
+                self.table_metrics.item(19, 1).setText(
+                    f"{kd.get('psi_t_x', 0.0):.3f} / {kd.get('psi_t_y', 0.0):.3f}"
+                )
+                self.table_metrics.item(20, 1).setText(f"{kd.get('gamma_lindemann', 0.0):.4f}")
+            if voronoi_res is not None and voronoi_res.get('n_internal', 0) > 0:
+                self.table_metrics.item(21, 1).setText(
+                    f"{voronoi_res['n_defects']}/{voronoi_res['n_internal']} ({voronoi_res['f_defects'] * 100.0:.1f}%) "
+                    f"| σ_A/⟨A⟩={voronoi_res['area_cv'] * 100.0:.1f}%"
+                )
 
     # ==========================================================================
     # EXPORTACIÓN CIENTÍFICA
@@ -6839,15 +7440,16 @@ class LatticeDisorderWindow(QMainWindow):
             gallery_items = [
                 (self.plot_real_space, "fig01_espacio_real_smlm", 2400),
                 (self.plot_rdf, "fig02_distribucion_radial_gr", 2000),
-                (self.plot_fourier_2d, "fig03_espectro_reciproco_2d", 2400),
-                (self.plot_cut_x, "fig04_corte_espectral_fx", 1800),
-                (self.plot_cut_y, "fig05_corte_espectral_fy", 1800),
-                (self.plot_cut_diag, "fig06_corte_espectral_diagonal_45deg", 1800),
-                (self.plot_wilson, "fig07_grafico_wilson_linear_fit", 2000),
-                (self.plot_dw_decay, "fig08_decaimiento_debye_waller_multi_orden", 2000),
-                (self.plot_ratio_stability, "fig09_comparativa_estabilidad_ratios", 2000),
-                (self.plot_fwhm_paracrystal, "fig10_diagnostico_paracristal_fwhm_hosemann", 2000),
-                (self.plot_dw, "fig11_curva_calibracion_debye_waller_mc", 2400),
+                (self.plot_real_topology, "fig03_espacio_real_topologia", 2400),
+                (self.plot_fourier_2d, "fig04_espectro_reciproco_2d", 2400),
+                (self.plot_cut_x, "fig05_corte_espectral_fx", 1800),
+                (self.plot_cut_y, "fig06_corte_espectral_fy", 1800),
+                (self.plot_cut_diag, "fig07_corte_espectral_diagonal_45deg", 1800),
+                (self.plot_wilson, "fig08_grafico_wilson_linear_fit", 2000),
+                (self.plot_dw_decay, "fig09_decaimiento_debye_waller_multi_orden", 2000),
+                (self.plot_ratio_stability, "fig10_comparativa_estabilidad_ratios", 2000),
+                (self.plot_fwhm_paracrystal, "fig11_diagnostico_paracristal_fwhm_hosemann", 2000),
+                (self.plot_dw, "fig12_curva_calibracion_debye_waller_mc", 2400),
             ]
 
             saved_png = 0
@@ -7133,13 +7735,17 @@ class LatticeDisorderWindow(QMainWindow):
             a_x = res.get('a_x', a_mean)
             a_y = res.get('a_y', a_mean)
             aniso = abs(a_x - a_y)
-            is_aniso = aniso > 1.0
+            n_x = self.spin_n_side.value()
+            n_y = self.spin_ny.value() if (hasattr(self, 'chk_link_nxny') and not self.chk_link_nxny.isChecked()) else n_x
+            is_aniso = (aniso > 1.0) or (n_x != n_y)
 
             self.spin_mc_ax.setValue(a_x)
             self.spin_mc_ay.setValue(a_y)
             self.chk_mc_anisotropy.setChecked(is_aniso)
             self.spin_mc_ay.setEnabled(is_aniso)
-            self.spin_mc_n.setValue(self.spin_n_side.value())
+            self.spin_mc_n.setValue(n_x)
+            self.spin_mc_ny.setValue(n_y)
+            self.spin_mc_ny.setEnabled(is_aniso)
 
             if self.kdtree_results is not None:
                 self.spin_mc_vac.setValue(self.kdtree_results.get('f_vac_percent', 0.0))

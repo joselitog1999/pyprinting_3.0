@@ -22,15 +22,18 @@ Fundamentos Teóricos:
 """
 
 import os
+import math
 import numpy as np
 import pandas as pd
 try:
     import cv2
 except ImportError:
     cv2 = None
-from scipy.spatial import cKDTree
+from scipy import ndimage
+from scipy.spatial import cKDTree, Voronoi
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks, correlate2d
+from collections import defaultdict
 from typing import Tuple, Dict, Any, Optional, Callable, List, Set
 
 
@@ -1520,36 +1523,47 @@ def compute_analytical_bragg_relations(
 def find_optimal_grid_bounding_box(
     v_ix: np.ndarray,
     v_iy: np.ndarray,
-    n_side: int
+    n_side: int,
+    n_side_y: Optional[int] = None
 ) -> Tuple[int, int, int, int]:
     """
-    Encuentra la posición óptima de la huella de red (n_side x n_side) en el espacio
+    Encuentra la posición óptima de la huella de red (n_side_x x n_side_y) en el espacio
     de índices cristalinos enteros (ix, iy) mediante maximización convolutiva 2D de ocupación.
 
     Garantiza que la grilla abarque la mayor cantidad posible de partículas reales impresas,
     eliminando el desplazamiento espurio de una fila o columna hacia el fondo vacío
     provocado por ruidos asimétricos en los bordes de la imagen confocal.
 
+    Parámetros:
+    -----------
+    n_side : int
+        Número de sitios en el eje X (retrocompatibilidad: también usado en Y si n_side_y es None).
+    n_side_y : int, opcional
+        Número de sitios en el eje Y. Si es None, se asume red cuadrada (n_side_y = n_side).
+
     Retorna:
     --------
     min_ix, max_ix, min_iy, max_iy : int
     """
+    n_side_x = int(n_side)
+    n_side_y = int(n_side_y) if n_side_y is not None else n_side_x
+
     if len(v_ix) == 0:
-        return 0, n_side - 1, 0, n_side - 1
+        return 0, n_side_x - 1, 0, n_side_y - 1
 
     min_x_idx, max_x_idx = int(np.min(v_ix)), int(np.max(v_ix))
     min_y_idx, max_y_idx = int(np.min(v_iy)), int(np.max(v_iy))
     span_x = max_x_idx - min_x_idx + 1
     span_y = max_y_idx - min_y_idx + 1
 
-    if span_x < n_side or span_y < n_side:
+    if span_x < n_side_x or span_y < n_side_y:
         # Si el rango es menor que el tamaño nominal, centrar simétricamente
-        pad_x = max(0, n_side - span_x)
-        pad_y = max(0, n_side - span_y)
+        pad_x = max(0, n_side_x - span_x)
+        pad_y = max(0, n_side_y - span_y)
         min_ix = min_x_idx - pad_x // 2
-        max_ix = min_ix + n_side - 1
+        max_ix = min_ix + n_side_x - 1
         min_iy = min_y_idx - pad_y // 2
-        max_iy = min_iy + n_side - 1
+        max_iy = min_iy + n_side_y - 1
         return min_ix, max_ix, min_iy, max_iy
 
     # Construir matriz de presencia binaria de ocupación
@@ -1557,7 +1571,7 @@ def find_optimal_grid_bounding_box(
     for xi, yi in zip(v_ix, v_iy):
         occ[xi - min_x_idx, yi - min_y_idx] = 1
 
-    kernel = np.ones((n_side, n_side), dtype=int)
+    kernel = np.ones((n_side_x, n_side_y), dtype=int)
     conv = correlate2d(occ, kernel, mode='valid')
 
     # Encontrar la ventana que maximiza la suma de partículas capturadas
@@ -1568,8 +1582,8 @@ def find_optimal_grid_bounding_box(
     else:
         # En caso de empate, desempatar eligiendo la ventana cuyo centro esté más cerca
         # de la mediana de los índices de las partículas
-        target_center_x = (float(np.median(v_ix)) - min_x_idx) - (n_side - 1) / 2.0
-        target_center_y = (float(np.median(v_iy)) - min_y_idx) - (n_side - 1) / 2.0
+        target_center_x = (float(np.median(v_ix)) - min_x_idx) - (n_side_x - 1) / 2.0
+        target_center_y = (float(np.median(v_iy)) - min_y_idx) - (n_side_y - 1) / 2.0
         dists = [
             (pos[0] - target_center_x) ** 2 + (pos[1] - target_center_y) ** 2
             for pos in best_positions
@@ -1578,8 +1592,8 @@ def find_optimal_grid_bounding_box(
 
     best_min_ix = min_x_idx + int(best_pos[0])
     best_min_iy = min_y_idx + int(best_pos[1])
-    best_max_ix = best_min_ix + n_side - 1
-    best_max_iy = best_min_iy + n_side - 1
+    best_max_ix = best_min_ix + n_side_x - 1
+    best_max_iy = best_min_iy + n_side_y - 1
 
     return best_min_ix, best_max_ix, best_min_iy, best_max_iy
 
@@ -1596,11 +1610,15 @@ def detect_clusters_and_chains(
     locs_df: Any = None,
     scale_nm: float = 50.0,
     signature_dict: Optional[Dict[str, Any]] = None,
-    tolerance_pct: float = 20.0
+    tolerance_pct: float = 30.0,
+    method: str = 'distance',
+    laplacian_sigma_px: Optional[float] = None,
+    laplacian_threshold_pct: float = 0.0,
+    contour_threshold_pct: float = 20.0
 ) -> Dict[str, Any]:
     """
     Detecta aglomeraciones de partículas, dímeros, trímeros, cadenas ("gusanitos" en L o S)
-    y spots individuales superpuestos por fotometría anómala.
+    y spots individuales superpuestos por fotometría anómala o análisis morfológico laplaciano.
 
     Parámetros:
     -----------
@@ -1624,6 +1642,12 @@ def detect_clusters_and_chains(
         Firma calibrada del monómero (V0, A0, sigma_psf_px).
     tolerance_pct : float
         Margen de tolerancia estequiométrica (default 20.0%).
+    method : str, opcional
+        Método de detección: 'distance' (grafo KDTree + fotometría) o 'laplacian' (LoG morfológico).
+    laplacian_sigma_px : float, opcional
+        Ancho sigma en píxeles para el filtro LoG (si None, usa sigma_psf de la firma).
+    laplacian_threshold_pct : float, opcional
+        Umbral relativo para el cruce por cero laplaciano (defecto 0.0).
 
     Retorna:
     --------
@@ -1631,6 +1655,20 @@ def detect_clusters_and_chains(
     """
     if a_nominal is not None:
         a = float(a_nominal)
+
+    # Despacho al método alternativo Laplaciano (LoG) si está seleccionado y hay imagen
+    if str(method).lower() in ('laplacian', 'log'):
+        if image_2d is not None and locs_df is not None and len(locs_df) > 0:
+            return detect_clusters_laplacian(
+                image_2d=image_2d,
+                locs_df=locs_df,
+                scale_nm=scale_nm,
+                a_nominal=a,
+                sigma_psf_px=laplacian_sigma_px,
+                laplacian_threshold_pct=laplacian_threshold_pct,
+                signature_dict=signature_dict,
+                tolerance_pct=tolerance_pct
+            )
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
     M = len(x)
@@ -1805,10 +1843,321 @@ def detect_clusters_and_chains(
             scale_nm=scale_nm,
             a_nominal=a,
             signature_dict=signature_dict,
-            tolerance_pct=tolerance_pct
+            tolerance_pct=tolerance_pct,
+            contour_threshold_pct=contour_threshold_pct
         )
 
     return res
+
+
+def detect_clusters_laplacian(
+    image_2d: np.ndarray,
+    locs_df: Any,
+    scale_nm: float = 50.0,
+    a_nominal: float = 500.0,
+    sigma_psf_px: Optional[float] = None,
+    laplacian_threshold_pct: float = 0.0,
+    signature_dict: Optional[Dict[str, Any]] = None,
+    tolerance_pct: float = 30.0,
+    min_component_area_px: int = 3
+) -> Dict[str, Any]:
+    """
+    Detecta cúmulos y aglomeraciones mediante el operador Laplaciano de Gaussiana (LoG)
+    y el mapeo morfológico de manchones de partículas.
+
+    Fundamento Físico:
+    - En una PSF difraccional gaussiana 2D, el Laplaciano negativo -∇²I > 0 define analíticamente
+      la cuenca / manchón de la partícula con cruce por cero en r = √2 * sigma.
+    - Para un monómero individual, el área teórica del manchón es A_lap,0 ≈ 2 * pi * sigma_psf_px².
+    - Se proyectan las coordenadas detectadas (Picasso/Trackpy) a la imagen laplaciana:
+      * Si un manchón contiene >= 2 partículas detectadas: se clasifica como Cúmulo Coalescente.
+      * Si contiene 1 partícula pero su área laplaciana o fotones exceden la cota física monomérica (1 + tol),
+        se clasifica como Cúmulo Sobrepuesto / Dímero no resuelto.
+      * Si contiene 1 partícula de área normal, se clasifica como monómero aislado.
+
+    Retorna:
+    --------
+    dict con estructura idéntica a detect_clusters_and_chains, incluyendo 'clusters', 'n_clusters',
+    'pair_lines', 'cluster_particle_indices', 'laplacian_image', 'laplacian_mask', etc.
+    """
+    if image_2d is None or locs_df is None or len(locs_df) == 0:
+        return {
+            'clusters': [],
+            'n_clusters': 0,
+            'n_dimers': 0,
+            'n_trimers': 0,
+            'n_chains': 0,
+            'n_superimposed': 0,
+            'pair_lines': [],
+            'cluster_particle_indices': set(),
+            'signature': signature_dict,
+            'method': 'laplacian'
+        }
+
+    img = np.asarray(image_2d, dtype=np.float64)
+    if img.ndim == 3:
+        img = img[0] if img.shape[0] < img.shape[2] else img[:, :, 0]
+    H, W = img.shape[:2]
+
+    # Extraer coordenadas
+    if 'x_nm' in locs_df.columns and 'y_nm' in locs_df.columns:
+        x_nm = locs_df['x_nm'].values.astype(float)
+        y_nm = locs_df['y_nm'].values.astype(float)
+    else:
+        x_nm = locs_df['x'].values.astype(float) * scale_nm
+        y_nm = locs_df['y'].values.astype(float) * scale_nm
+
+    M = len(x_nm)
+    if M == 0:
+        return {
+            'clusters': [],
+            'n_clusters': 0,
+            'n_dimers': 0,
+            'n_trimers': 0,
+            'n_chains': 0,
+            'n_superimposed': 0,
+            'pair_lines': [],
+            'cluster_particle_indices': set(),
+            'signature': signature_dict,
+            'method': 'laplacian'
+        }
+
+    # Calibrar o resolver firma monomérica
+    if signature_dict is None:
+        try:
+            signature_dict = calibrate_single_emitter_signature(
+                img, locs_df, scale_nm=scale_nm, a_nominal=a_nominal
+            )
+        except Exception:
+            signature_dict = None
+
+    if signature_dict is not None:
+        V0 = max(float(signature_dict.get('V0', 1000.0)), 1e-3)
+        A0 = max(float(signature_dict.get('A0', 30.0)), 1e-3)
+        sig_from_dict = signature_dict.get('sigma_psf_px', 139.0 / scale_nm)
+    else:
+        V0 = 1000.0
+        A0 = 30.0
+        sig_from_dict = 139.0 / scale_nm
+
+    sigma_px = float(sigma_psf_px) if sigma_psf_px is not None else float(sig_from_dict)
+    sigma_px = max(0.8, sigma_px)
+    A_lap_0 = 2.0 * np.pi * (sigma_px ** 2)
+
+    # 1. Calcular Laplaciano de Gaussiana (-∇²(G * I))
+    log_img = -ndimage.gaussian_laplace(img, sigma=sigma_px)
+
+    # 2. Binarizar por cruce por cero o porcentaje de pico
+    if laplacian_threshold_pct <= 0.0:
+        binary_mask = (log_img > 0.0)
+    else:
+        max_log = float(np.max(log_img))
+        thresh = (laplacian_threshold_pct / 100.0) * max_log if max_log > 0 else 0.0
+        binary_mask = (log_img > thresh)
+
+    # Filtrar ruido de píxeles aislados mediante apertura morfológica
+    binary_mask = ndimage.binary_opening(binary_mask, structure=np.ones((3, 3)))
+
+    # 3. Etiquetar componentes conexas (manchones)
+    labeled_mask, num_features = ndimage.label(binary_mask, structure=np.ones((3, 3)))
+
+    # 4. Mapear partículas detectadas a manchones laplacianos
+    particle_labels = np.zeros(M, dtype=int)
+    for i in range(M):
+        px_x = int(round(x_nm[i] / scale_nm))
+        px_y = int(round(y_nm[i] / scale_nm))
+        px_x = max(0, min(W - 1, px_x))
+        px_y = max(0, min(H - 1, px_y))
+        lbl = int(labeled_mask[px_y, px_x])
+
+        if lbl == 0:
+            # Buscar en vecindad de 5x5 por si el centroide cayó en el borde inmediato del cruce por cero
+            ymin_n, ymax_n = max(0, px_y - 2), min(H, px_y + 3)
+            xmin_n, xmax_n = max(0, px_x - 2), min(W, px_x + 3)
+            sub_lbl = labeled_mask[ymin_n:ymax_n, xmin_n:xmax_n]
+            nonzeros = sub_lbl[sub_lbl > 0]
+            if len(nonzeros) > 0:
+                vals, counts = np.unique(nonzeros, return_counts=True)
+                lbl = int(vals[np.argmax(counts)])
+
+        particle_labels[i] = lbl
+
+    # Invertir mapeo: label -> lista de índices de partículas
+    component_particles = defaultdict(list)
+    for i, lbl in enumerate(particle_labels):
+        if lbl > 0:
+            component_particles[lbl].append(i)
+
+    # Estimar área de monómero empírica de manchones que albergan exactamente 1 partícula
+    single_areas = []
+    for lbl, members in component_particles.items():
+        if len(members) == 1:
+            single_areas.append(float(np.sum(labeled_mask == lbl)))
+    if len(single_areas) >= 3:
+        A_lap_ref = float(np.median(single_areas))
+    else:
+        A_lap_ref = float(A_lap_0)
+
+    clusters_list = []
+    cluster_particle_indices = set()
+    pair_lines = []
+    cluster_idx = 1
+    tol_factor = float(tolerance_pct / 100.0)
+
+    for lbl, members in component_particles.items():
+        n_det = len(members)
+        comp_mask = (labeled_mask == lbl)
+        comp_area_px = float(np.sum(comp_mask))
+
+        if comp_area_px < min_component_area_px:
+            continue
+
+        yy, xx = np.where(comp_mask)
+        ymin, ymax = max(0, int(np.min(yy)) - 2), min(H, int(np.max(yy)) + 3)
+        xmin, xmax = max(0, int(np.min(xx)) - 2), min(W, int(np.max(xx)) + 3)
+
+        patch = img[ymin:ymax, xmin:xmax]
+        patch_mask = comp_mask[ymin:ymax, xmin:xmax]
+
+        # Estimar fondo local en el perímetro del parche
+        border = np.concatenate([patch[0, :], patch[-1, :], patch[:, 0], patch[:, -1]]) if patch.size > 0 else np.array([0.0])
+        bg = float(np.percentile(border, 50)) if len(border) > 0 else 0.0
+        sig = np.where(patch_mask, np.clip(patch - bg, 0, None), 0.0)
+        v_omega = float(np.sum(sig))
+        a_omega = float(comp_area_px)
+
+        # Polígono de contorno en nanómetros
+        contour_poly_nm = []
+        if cv2 is not None:
+            try:
+                cnts, _ = cv2.findContours(comp_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if cnts:
+                    largest = max(cnts, key=cv2.contourArea)
+                    pts = largest.squeeze()
+                    if pts.ndim == 2 and len(pts) > 2:
+                        for pt in pts:
+                            contour_poly_nm.append((float(pt[0] * scale_nm), float(pt[1] * scale_nm)))
+            except Exception:
+                pass
+
+        is_cluster = False
+        c_type = ""
+        n_est = n_det
+        status = 'OK'
+        com_x = 0.0
+        com_y = 0.0
+        sub_pts = np.empty((0, 2))
+        min_d = 0.0
+
+        if n_det >= 2:
+            is_cluster = True
+            for m in members:
+                cluster_particle_indices.add(m)
+            sub_x = x_nm[members]
+            sub_y = y_nm[members]
+            sub_pts = np.column_stack([sub_x, sub_y])
+            com_x = float(np.mean(sub_x))
+            com_y = float(np.mean(sub_y))
+
+            sub_tree = cKDTree(sub_pts)
+            dists, _ = sub_tree.query(sub_pts, k=min(len(sub_pts), 2))
+            min_d = float(np.min(dists[:, 1])) if dists.shape[1] > 1 else 0.0
+
+            # Líneas de conexión
+            for mi in range(len(members)):
+                for mj in range(mi + 1, len(members)):
+                    if np.hypot(sub_x[mi] - sub_x[mj], sub_y[mi] - sub_y[mj]) < 1.5 * a_nominal:
+                        pair_lines.append((float(sub_x[mi]), float(sub_y[mi]), float(sub_x[mj]), float(sub_y[mj])))
+
+            if n_det == 2:
+                c_type = "Dímero (Laplaciano)"
+            elif n_det == 3:
+                c_type = "Trímero (Laplaciano)"
+            else:
+                c_type = f"Cúmulo Laplaciano ({n_det}p)"
+
+            n_est_raw = max(2, int(round(v_omega / V0)))
+            n_est = max(n_det, n_est_raw)
+            lower_bound = n_det * (1.0 - tol_factor) * V0
+            upper_bound = n_det * (1.0 + tol_factor) * V0
+            if lower_bound <= v_omega <= upper_bound:
+                status = 'OK'
+            elif v_omega > upper_bound:
+                status = 'UNDER_RESOLVED'
+            else:
+                status = 'OVER_DETECTED'
+
+        elif n_det == 1:
+            idx = members[0]
+            ratio_area = a_omega / A_lap_ref if A_lap_ref > 0 else 1.0
+            ratio_vol = v_omega / V0 if V0 > 0 else 1.0
+
+            # Si el área del manchón laplaciano o el volumen superan la cota de tolerancia monomérica
+            if ratio_area >= (1.0 + tol_factor) or ratio_vol >= (1.0 + tol_factor):
+                is_cluster = True
+                cluster_particle_indices.add(idx)
+                com_x = float(x_nm[idx])
+                com_y = float(y_nm[idx])
+                sub_pts = np.array([[com_x, com_y]])
+                min_d = 0.0
+                c_type = "Sobrepuesta (Laplaciano)"
+                n_est = max(2, int(round(max(ratio_vol, ratio_area))))
+                status = 'UNDER_RESOLVED'
+
+        if is_cluster:
+            clusters_list.append({
+                'id': cluster_idx,
+                'cluster_id': cluster_idx,
+                'type': c_type,
+                'indices': sorted([int(m) for m in members]),
+                'particle_indices': sorted([int(m) for m in members]),
+                'n_particles': n_det,
+                'n_det': n_det,
+                'n_est': n_est,
+                'com_x': com_x,
+                'com_y': com_y,
+                'min_dist_nm': min_d,
+                'points': sub_pts,
+                'v_omega': v_omega,
+                'a_omega': a_omega,
+                'ratio_v': float(v_omega / (max(1, n_det) * V0)) if V0 > 0 else 1.0,
+                'ratio_a': float(a_omega / (max(1, n_det) * A_lap_ref)) if A_lap_ref > 0 else 1.0,
+                'status': status,
+                'contour_polygon_nm': contour_poly_nm,
+                'patch_origin_px': (xmin, ymin),
+                'patch': patch,
+                'mask': patch_mask,
+                'sigma_psf_px': sigma_px
+            })
+            cluster_idx += 1
+
+    n_dimers = sum(1 for c in clusters_list if "Dímero" in c['type'])
+    n_trimers = sum(1 for c in clusters_list if "Trímero" in c['type'])
+    n_chains = sum(1 for c in clusters_list if "Cúmulo" in c['type'])
+    n_super = sum(1 for c in clusters_list if "Sobrepuesta" in c['type'])
+
+    n_under = sum(1 for c in clusters_list if c.get('status') == 'UNDER_RESOLVED')
+    n_ok = sum(1 for c in clusters_list if c.get('status') == 'OK')
+    n_over = sum(1 for c in clusters_list if c.get('status') == 'OVER_DETECTED')
+
+    return {
+        'clusters': clusters_list,
+        'n_clusters': len(clusters_list),
+        'n_dimers': n_dimers,
+        'n_trimers': n_trimers,
+        'n_chains': n_chains,
+        'n_superimposed': n_super,
+        'n_under_resolved': n_under,
+        'n_ok_resolved': n_ok,
+        'n_over_detected': n_over,
+        'pair_lines': pair_lines,
+        'cluster_particle_indices': cluster_particle_indices,
+        'signature': signature_dict,
+        'method': 'laplacian',
+        'laplacian_image': log_img,
+        'laplacian_mask': binary_mask,
+        'laplacian_labels': labeled_mask
+    }
 
 
 def calibrate_from_psf_image(
@@ -2330,12 +2679,14 @@ def analyze_photometric_contours(
     scale_nm: float = 50.0,
     a_nominal: float = 500.0,
     signature_dict: Optional[Dict[str, Any]] = None,
-    tolerance_pct: float = 20.0
+    tolerance_pct: float = 30.0,
+    contour_threshold_pct: float = 20.0
 ) -> Dict[str, Any]:
     """
     Segmenta las regiones conexas de emisión alrededor de cada cúmulo,
     mide el volumen luminoso integrado V_omega y área A_omega,
     y evalúa la estequiometría estimada n_est vs detecciones n_det con tolerancia +/- tolerance_pct%.
+    Por definición física, todo cúmulo está conformado por 2 o más partículas (N >= 2).
     """
     if clusters_info is None:
         return {'clusters': [], 'n_clusters': 0}
@@ -2367,7 +2718,7 @@ def analyze_photometric_contours(
 
         if not has_img:
             ratio_p = float(c.get('ratio_photons', 1.0))
-            n_est = max(1, int(round(ratio_p))) if 'Sobrepuesta' in c.get('type', '') else n_det
+            n_est = max(2, int(round(ratio_p))) if 'Sobrepuesta' in c.get('type', '') else max(2, n_det)
             c['v_omega'] = V0 * ratio_p
             c['a_omega'] = A0 * n_est
             c['ratio_v'] = ratio_p
@@ -2410,7 +2761,7 @@ def analyze_photometric_contours(
         sig = np.clip(patch - bg, 0, None)
         v_omega = float(np.sum(sig))
 
-        thresh_val = bg + 0.25 * float(np.max(sig)) if np.max(sig) > 0 else bg
+        thresh_val = bg + (float(contour_threshold_pct) / 100.0) * float(np.max(sig)) if np.max(sig) > 0 else bg
         mask_binary = (patch > thresh_val).astype(np.uint8)
         a_omega = float(np.sum(mask_binary))
 
@@ -2434,20 +2785,20 @@ def analyze_photometric_contours(
 
         ratio_v = v_omega / V0
         ratio_a = a_omega / A0
-        n_est_raw = max(1, int(round(ratio_v)))
+        n_est_raw = max(2, int(round(ratio_v)))
 
         # Regla de tolerancia estequiométrica (+/- tolerance_pct%):
         lower_bound = n_det * (1.0 - tol_factor) * V0
         upper_bound = n_det * (1.0 + tol_factor) * V0
 
         if lower_bound <= v_omega <= upper_bound:
-            n_est = n_det
+            n_est = max(2, n_det)
             status = 'OK'
         elif v_omega > upper_bound:
-            n_est = max(n_det + 1, n_est_raw)
+            n_est = max(max(2, n_det + 1), n_est_raw)
             status = 'UNDER_RESOLVED'
         else:
-            n_est = max(1, min(n_det - 1, n_est_raw))
+            n_est = max(2, min(n_det - 1, n_est_raw)) if n_det > 2 else 2
             status = 'OVER_DETECTED'
 
         c['v_omega'] = v_omega
@@ -2861,6 +3212,23 @@ def resolve_clusters(
                 patch = image_2d[y_min:y_max, x_min:x_max]
                 origin_px = (x_min, y_min)
 
+            if use_contour_mask and patch is not None and (mask is None or not np.any(mask)):
+                poly_nm = c.get('contour_polygon_nm', [])
+                if len(poly_nm) > 2 and cv2 is not None:
+                    try:
+                        mask_from_poly = np.zeros(patch.shape[:2], dtype=np.uint8)
+                        pts_local = []
+                        for px_nm, py_nm in poly_nm:
+                            lx = (px_nm / scale_nm) - origin_px[0]
+                            ly = (py_nm / scale_nm) - origin_px[1]
+                            pts_local.append([int(round(lx)), int(round(ly))])
+                        pts_arr = np.array([pts_local], dtype=np.int32)
+                        cv2.fillPoly(mask_from_poly, pts_arr, 1)
+                        if np.any(mask_from_poly > 0):
+                            mask = (mask_from_poly > 0)
+                    except Exception:
+                        pass
+
             local_seeds = None
             if initial_seeds is not None and len(initial_seeds) >= 2 and (target_cluster_id is None or c.get('id') == target_cluster_id or c.get('cluster_id') == target_cluster_id):
                 n_target = len(initial_seeds)
@@ -3050,6 +3418,23 @@ def resolve_single_spot_multi_gaussian(
     origin_px = spot_info.get('patch_origin_px', (0, 0))
     sigma_psf_px = spot_info.get('sigma_psf_px', 139.0 / scale_nm)
     mask = spot_info.get('mask') if use_contour_mask else None
+    if use_contour_mask and patch is not None and (mask is None or not np.any(mask)):
+        poly_nm = spot_info.get('contour_polygon_nm', [])
+        if len(poly_nm) > 2:
+            try:
+                import cv2
+                mask_from_poly = np.zeros(patch.shape[:2], dtype=np.uint8)
+                pts_local = []
+                for px_nm, py_nm in poly_nm:
+                    lx = (px_nm / scale_nm) - origin_px[0]
+                    ly = (py_nm / scale_nm) - origin_px[1]
+                    pts_local.append([int(round(lx)), int(round(ly))])
+                pts_arr = np.array([pts_local], dtype=np.int32)
+                cv2.fillPoly(mask_from_poly, pts_arr, 1)
+                if np.any(mask_from_poly > 0):
+                    mask = (mask_from_poly > 0)
+            except Exception:
+                pass
 
     # Por regla física, si se desacopla un spot sospechoso debe ser al menos en n >= 2 partículas
     n_fit = min(max(int(n_particles), 2), 8)
@@ -3125,16 +3510,51 @@ def analyze_real_space_kdtree(
     x: np.ndarray,
     y: np.ndarray,
     a: float,
+    b: Optional[float] = None,
+    n_side_x: Optional[int] = None,
+    n_side_y: Optional[int] = None,
     n_side: Optional[int] = None,
     margin_percent: float = 10.0
 ) -> Dict[str, Any]:
     """
-    Realiza el mapeo en espacio real mediante KDTree con cota superior estricta
-    (distance_upper_bound = a / 2).
+    Realiza el mapeo en espacio real mediante índices de red enteros con cota superior
+    estricta (elipse normalizada de semiejes a/2, b/2), soportando redes rectangulares
+    / anisótropas (a != b, N_x != N_y).
 
     Evita el error histórico de emparejamiento con vecinos a 450 nm ante vacancias
     y descompone los residuos en componentes cartesianas Delta x y Delta y, eliminando
     la subestimación del 34.5% provocada por std() sobre distancias euclidianas Rayleigh.
+
+    Limitaciones Conocidas (no corregidas en esta versión, documentadas para uso informado):
+    1. Cota Elipsoidal Conservadora: la elipse (dx/a)^2+(dy/b)^2<0.25 está estrictamente
+       contenida en la celda de Wigner-Seitz rectangular real (|dx|<a/2, |dy|<b/2) —
+       tangente sólo en los 4 puntos medios de los ejes. Esto garantiza CERO riesgo de
+       emparejamiento cruzado con un nodo vecino (mejora sobre el bug histórico), pero
+       excluye partículas correctamente emparejadas cerca de las esquinas de la celda
+       (~21.5% del área de la celda) de sigma_x/sigma_y/Psi_T, sesgando ligeramente esas
+       métricas a alto desorden (sigma_pos/min(a,b) >~ 15-20%, régimen cercano a fusión
+       de Lindemann). Sesgo despreciable en el régimen de bajo desorden (< 5%).
+    2. Rotación Rígida No Modelada: la fase (x0, y0) es una traslación pura; no se estima
+       ni corrige una rotación de cuerpo rígido de la muestra respecto a los ejes de la
+       cámara/platina. Una rotación de apenas 0.5-1° (tolerancia de montaje típica) puede
+       inflar sigma_pos/gamma_lindemann de forma completamente espuria (confirmado
+       numéricamente: ~20-100 nm de "desorden" fabricado a partir de rotación pura sin
+       ruido real inyectado), y el efecto es proporcionalmente MAYOR cuanto más anisótropa
+       es la red (a muy distinto de b). Si se sospecha una rotación de muestra, comparar
+       contra `compute_quiver_and_strain`'s `omega` (que sí recupera el ángulo de rotación
+       correctamente) antes de interpretar sigma_pos/gamma_lindemann como desorden real.
+
+    Parámetros:
+    -----------
+    a : float
+        Período de red nominal en X [nm].
+    b : float, opcional
+        Período de red nominal en Y [nm]. Si es None, se asume red isótropa (b = a).
+    n_side_x, n_side_y : int, opcional
+        Número de sitios nominales por eje. Si son None, se usa `n_side` (retrocompatibilidad)
+        o se estima automáticamente a partir del span de datos.
+    n_side : int, opcional
+        Retrocompatibilidad: número de sitios por lado para redes cuadradas.
     """
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
@@ -3142,34 +3562,44 @@ def analyze_real_space_kdtree(
     if M == 0:
         raise ValueError("No hay coordenadas para analizar en espacio real.")
 
-    # Estimar dimensiones de la red si no fueron provistas
-    if n_side is None or n_side <= 0:
-        span_x = float(np.ptp(x))
-        span_y = float(np.ptp(y))
-        span_mean = max(span_x, span_y)
-        n_side = max(2, int(np.round(span_mean / a)) + 1)
+    b_val = float(b) if b is not None else float(a)
 
-    # 1. Estimación de Fase de Red Óptima (Media Circular de Fourier)
+    # Estimar dimensiones de la red si no fueron provistas
+    if n_side_x is None or n_side_x <= 0:
+        if n_side is not None and n_side > 0:
+            n_side_x = int(n_side)
+        else:
+            n_side_x = max(2, int(np.round(float(np.ptp(x)) / a)) + 1)
+    if n_side_y is None or n_side_y <= 0:
+        if n_side is not None and n_side > 0:
+            n_side_y = int(n_side)
+        else:
+            n_side_y = max(2, int(np.round(float(np.ptp(y)) / b_val)) + 1)
+
+    n_side_x = int(n_side_x)
+    n_side_y = int(n_side_y)
+
+    # 1. Estimación de Fase de Red Desacoplada (Media Circular de Fourier)
     # Encuentra la traslación exacta (x0, y0) del cristal independientemente
-    # de si n_side es par o impar, o de si la red está descentrada.
+    # de si n_side_x/n_side_y son pares o impares, o de si la red está descentrada.
     x0 = (a / (2.0 * np.pi)) * float(np.angle(np.sum(np.exp(2j * np.pi * x / a))))
-    y0 = (a / (2.0 * np.pi)) * float(np.angle(np.sum(np.exp(2j * np.pi * y / a))))
+    y0 = (b_val / (2.0 * np.pi)) * float(np.angle(np.sum(np.exp(2j * np.pi * y / b_val))))
 
     # 2. Asignación de índices enteros de nodo (ix, iy) para cada partícula
     ix = np.round((x - x0) / a).astype(int)
-    iy = np.round((y - y0) / a).astype(int)
+    iy = np.round((y - y0) / b_val).astype(int)
 
     # Posición ideal del nodo más cercano para cada partícula
     x_ideal = x0 + ix * a
-    y_ideal = y0 + iy * a
+    y_ideal = y0 + iy * b_val
 
-    # Residuos cartesianos y distancia
+    # Residuos cartesianos y cota elipsoidal normalizada (bounded)
     d_x = x - x_ideal
     d_y = y - y_ideal
-    dist = np.hypot(d_x, d_y)
+    dist_norm_sq = (d_x / a) ** 2 + (d_y / b_val) ** 2
 
-    # Cota estricta: sólo considerar partículas a menos de a/2 del nodo ideal
-    valid_mask = dist < (a / 2.0)
+    # Cota estricta: sólo considerar partículas dentro de la elipse normalizada de radio 0.5
+    valid_mask = dist_norm_sq < 0.25
     valid_dx = d_x[valid_mask]
     valid_dy = d_y[valid_mask]
 
@@ -3178,12 +3608,29 @@ def analyze_real_space_kdtree(
     sigma_y = float(np.std(valid_dy, ddof=1)) if len(valid_dy) > 1 else 0.0
     sigma_pos = float(np.sqrt((sigma_x ** 2 + sigma_y ** 2) / 2.0))
 
+    # Parámetro de Lindemann: gamma_L = sigma_pos / min(a, b)
+    # Parámetro de Lindemann combinado (mezcla sigma_pos isotrópico con el período más corto:
+    # válido bajo desorden isotrópico; ver gamma_lindemann_x/y para el criterio por eje).
+    gamma_lindemann = float(sigma_pos / min(a, b_val)) if min(a, b_val) > 1e-9 else 0.0
+    gamma_lindemann_x = float(sigma_x / a) if a > 1e-9 else 0.0
+    gamma_lindemann_y = float(sigma_y / b_val) if b_val > 1e-9 else 0.0
+
+    # Orden Traslacional Real (Psi_T): fase de Bragg promediada sobre partículas válidas
+    if len(valid_dx) > 0:
+        x_valid_pts = x[valid_mask]
+        y_valid_pts = y[valid_mask]
+        psi_t_x = float(np.abs(np.mean(np.exp(2j * np.pi * x_valid_pts / a))))
+        psi_t_y = float(np.abs(np.mean(np.exp(2j * np.pi * y_valid_pts / b_val))))
+    else:
+        psi_t_x = 0.0
+        psi_t_y = 0.0
+
     # 3. Detección de Vacancias mediante Maximización Convolutiva 2D de Ocupación
     valid_ix = ix[valid_mask]
     valid_iy = iy[valid_mask]
 
     if len(valid_ix) > 0:
-        min_ix, max_ix, min_iy, max_iy = find_optimal_grid_bounding_box(valid_ix, valid_iy, n_side)
+        min_ix, max_ix, min_iy, max_iy = find_optimal_grid_bounding_box(valid_ix, valid_iy, n_side_x, n_side_y)
 
         all_grid_coords = [
             (i, j) for i in range(min_ix, max_ix + 1) for j in range(min_iy, max_iy + 1)
@@ -3204,8 +3651,8 @@ def analyze_real_space_kdtree(
         # Detección de sobreposiciones (múltiples partículas en el mismo nodo)
         multi_occupied_count = int(np.sum(valid_mask & in_grid_mask) - len(occupied_in_grid))
 
-        grid_points = np.array([[x0 + i * a, y0 + j * a] for i, j in all_grid_coords], dtype=np.float64)
-        vacant_points = np.array([[x0 + i * a, y0 + j * a] for i, j in vacant_indices], dtype=np.float64) if vacant_indices else np.empty((0, 2))
+        grid_points = np.array([[x0 + i * a, y0 + j * b_val] for i, j in all_grid_coords], dtype=np.float64)
+        vacant_points = np.array([[x0 + i * a, y0 + j * b_val] for i, j in vacant_indices], dtype=np.float64) if vacant_indices else np.empty((0, 2))
         matched_grid_points = np.column_stack([x_ideal[valid_mask], y_ideal[valid_mask]])
         valid_data = np.column_stack([x[valid_mask], y[valid_mask]])
 
@@ -3225,12 +3672,12 @@ def analyze_real_space_kdtree(
         f_vac = f_vac_prac
         n_vac = n_vac_prac
     else:
-        min_ix, max_ix, min_iy, max_iy = 0, n_side - 1, 0, n_side - 1
+        min_ix, max_ix, min_iy, max_iy = 0, n_side_x - 1, 0, n_side_y - 1
         grid_points = np.empty((0, 2))
         vacant_points = np.empty((0, 2))
         matched_grid_points = np.empty((0, 2))
         valid_data = np.empty((0, 2))
-        N_total_sites = (n_side * n_side) if (n_side and n_side > 0) else 0
+        N_total_sites = (n_side_x * n_side_y) if (n_side_x and n_side_y) else 0
         matched_count = 0
         n_vac_teor = N_total_sites
         f_vac_teor = 1.0
@@ -3269,7 +3716,17 @@ def analyze_real_space_kdtree(
     ) if excess_particles else ""
 
     return {
-        'n_side': n_side,
+        'n_side': n_side_x,
+        'n_side_x': n_side_x,
+        'n_side_y': n_side_y,
+        'a': float(a),
+        'b': b_val,
+        'is_anisotropic': bool(abs(float(a) - b_val) > 1e-6),
+        'gamma_lindemann': gamma_lindemann,
+        'gamma_lindemann_x': gamma_lindemann_x,
+        'gamma_lindemann_y': gamma_lindemann_y,
+        'psi_t_x': psi_t_x,
+        'psi_t_y': psi_t_y,
         'N_total_sites': N_total_sites,
         'particles_detected': M,
         'particles_in_grid': particles_in_grid,
@@ -3309,7 +3766,300 @@ def analyze_real_space_kdtree(
         'grid_points': grid_points,
         'vacant_points': vacant_points,
         'matched_grid_points': matched_grid_points,
-        'matched_data_points': valid_data
+        'matched_data_points': valid_data,
+        'x_ideal': x_ideal,
+        'y_ideal': y_ideal,
+        'valid_mask': valid_mask,
+        'ix': ix,
+        'iy': iy
+    }
+
+
+# ==============================================================================
+# 2.5 CRISTALOGRAFÍA EN ESPACIO REAL: ORDEN ORIENTACIONAL, TOPOLOGÍA
+#     VORONOI/DELAUNAY Y CAMPO DE DEFORMACIÓN (QUIVER + STRAIN TENSOR)
+# ==============================================================================
+
+def compute_bond_orientational_order(
+    x: np.ndarray,
+    y: np.ndarray,
+    k_neighbors: int = 4,
+    lattice_type: str = 'rectangular'
+) -> Dict[str, Any]:
+    """
+    Calcula el orden orientacional de enlace (bond-orientational order) psi_4 y psi_6
+    a partir de la triangulación de Delaunay de las posiciones (x, y):
+
+        psi_n(j) = (1 / Z_j) * sum_{k=1}^{Z_j} exp(i * n * theta_jk)
+
+    donde theta_jk = atan2(y_k - y_j, x_k - x_j) y Z_j es el número de vecinos de
+    Delaunay de la partícula j. |psi_n| -> 1 indica orden perfecto local de simetría
+    n-fold; |psi_n| -> 0 indica desorden orientacional total.
+
+    Nota de Implementación (Degeneración de Delaunay en Redes Cuadradas/Rectangulares):
+    La triangulación de Delaunay de una red cuadrada perfecta es geométricamente
+    degenerada (4 puntos cocirculares por celda unitaria), lo que introduce aristas
+    diagonales espurias de forma arbitraria y subestima psi_4 en ~50%. Se mitiga
+    restringiendo, para cada partícula, los `k_neighbors` vecinos MÁS CERCANOS por
+    distancia euclidiana (kNN vía cKDTree, no la lista de adyacencia de Delaunay),
+    el estándar práctico de la literatura para bond-orientational order sobre redes
+    de Bravais. Vectorizado: una sola consulta cKDTree.query(k=k_neighbors+1) sobre
+    todas las partículas a la vez (~30x más rápido que un bucle Python por partícula).
+
+    Nota Metrológica sobre `coordination`: al usar kNN de grado fijo, `coordination`
+    es simplemente `k_neighbors` para toda partícula con al menos esa cantidad de
+    vecinos (constante, no informativo de defectos topológicos reales). NO usar este
+    campo para detectar vacancias/dislocaciones — para el número de coordinación
+    topológico real (que sí varía en bordes y defectos), usar compute_voronoi_topology.
+
+    Parámetros:
+    -----------
+    k_neighbors : int
+        Número de vecinos más cercanos considerados por partícula para promediar
+        psi_n. Por defecto 4 (red rectangular/cuadrada).
+    lattice_type : str
+        Etiqueta descriptiva de la simetría nominal de la red ('rectangular', 'hexagonal', ...).
+    """
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    N = len(x)
+    k_cap = max(1, int(k_neighbors))
+
+    if N < k_cap + 1:
+        return {
+            'psi4_local': np.zeros(N),
+            'psi6_local': np.zeros(N),
+            'psi4_mean': 0.0,
+            'psi6_mean': 0.0,
+            'psi4_phase_mean': 0.0,
+            'psi6_phase_mean': 0.0,
+            'coordination': np.zeros(N, dtype=int),
+            'k_neighbors': k_neighbors,
+            'lattice_type': lattice_type
+        }
+
+    points = np.column_stack([x, y])
+    tree = cKDTree(points)
+    _, neighbor_idx_full = tree.query(points, k=k_cap + 1)
+    neighbor_idx = neighbor_idx_full[:, 1:]  # columna 0 es la propia partícula (dist=0)
+
+    dxj = x[neighbor_idx] - x[:, None]
+    dyj = y[neighbor_idx] - y[:, None]
+    theta = np.arctan2(dyj, dxj)
+    psi4_local = np.mean(np.exp(1j * 4.0 * theta), axis=1)
+    psi6_local = np.mean(np.exp(1j * 6.0 * theta), axis=1)
+    coordination = np.full(N, k_cap, dtype=int)
+
+    return {
+        'psi4_local': np.abs(psi4_local),
+        'psi6_local': np.abs(psi6_local),
+        'psi4_local_complex': psi4_local,
+        'psi6_local_complex': psi6_local,
+        'psi4_mean': float(np.mean(np.abs(psi4_local))),
+        'psi6_mean': float(np.mean(np.abs(psi6_local))),
+        'psi4_phase_mean': float(np.angle(np.mean(psi4_local))),
+        'psi6_phase_mean': float(np.angle(np.mean(psi6_local))),
+        'coordination': coordination,
+        'k_neighbors': k_neighbors,
+        'lattice_type': lattice_type
+    }
+
+
+def _merge_close_polygon_vertices_xy(vx: list, vy: list, tol: float) -> int:
+    """
+    Cuenta los vértices de un polígono cerrado (listas Python planas, no ndarray:
+    evita el overhead de dispatch de ufunc de NumPy sobre arreglos de 4-8 elementos)
+    tras fusionar los consecutivos separados por menos de `tol`, colapsando los pares
+    numéricamente degenerados (ver nota en compute_voronoi_topology). Retorna sólo el
+    conteo final (coordinación Z), que es todo lo que compute_voronoi_topology necesita.
+    """
+    k = len(vx)
+    if k <= 3 or tol <= 0.0:
+        return k
+    mx, my = [vx[0]], [vy[0]]
+    for j in range(1, k):
+        if math.hypot(vx[j] - mx[-1], vy[j] - my[-1]) > tol:
+            mx.append(vx[j])
+            my.append(vy[j])
+    if len(mx) > 1 and math.hypot(mx[-1] - mx[0], my[-1] - my[0]) <= tol:
+        mx.pop()
+        my.pop()
+    return len(mx)
+
+
+def compute_voronoi_topology(
+    x: np.ndarray,
+    y: np.ndarray,
+    x_range: Optional[Tuple[float, float]] = None,
+    y_range: Optional[Tuple[float, float]] = None
+) -> Dict[str, Any]:
+    """
+    Calcula la teselación de Voronoi de las posiciones (x, y) y determina el número
+    de coordinación Z_j (lados del polígono) de cada partícula interna, identificando
+    defectos topológicos (Z != 4 en una red rectangular/cuadrada, típicamente pares 3-5).
+
+    Las celdas de borde (con vértices en el infinito, region=[-1, ...], o vértices fuera
+    de [x_range, y_range]) se excluyen del cómputo de coordinación y de la fracción de
+    defectos, ya que su geometría trunca artificialmente el conteo de lados.
+
+    Nota de Implementación (Degeneración Numérica de Vértices en Redes Cuadradas/Rectangulares):
+    En una red cuadrada/rectangular perfecta, 4 partículas son exactamente cocirculares en
+    cada vértice de Voronoi (degeneración geométrica). Cualquier desorden posicional real
+    (incluso sub-nanométrico) rompe la degeneración y separa ese vértice único en 2-3 vértices
+    casi coincidentes, inflando espuriamente Z de 4 a 6-8. Se mitiga fusionando, para cada
+    celda, los vértices consecutivos separados por menos del 10% de la distancia mediana al
+    vecino más cercano del conjunto completo de partículas (escala física característica de
+    la red, independiente de la geometría particular de cada celda).
+    """
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    N = len(x)
+
+    if N < 4:
+        return {
+            'coordination': np.zeros(N, dtype=int),
+            'is_internal': np.zeros(N, dtype=bool),
+            'defects_mask': np.zeros(N, dtype=bool),
+            'n_internal': 0,
+            'n_defects': 0,
+            'f_defects': 0.0,
+            'cell_areas': np.full(N, np.nan),
+            'area_mean': 0.0,
+            'area_std': 0.0,
+            'area_cv': 0.0,
+            'vor': None
+        }
+
+    points = np.column_stack([x, y])
+    vor = Voronoi(points)
+
+    # Escala física característica: distancia mediana al vecino más cercano
+    nn_tree = cKDTree(points)
+    nn_dist, _ = nn_tree.query(points, k=2)
+    median_nn_dist = float(np.median(nn_dist[:, 1])) if N > 1 else 1.0
+    vertex_merge_tol = 0.10 * median_nn_dist
+
+    x_lo, x_hi = x_range if x_range is not None else (float(np.min(x)), float(np.max(x)))
+    y_lo, y_hi = y_range if y_range is not None else (float(np.min(y)), float(np.max(y)))
+
+    coordination = np.zeros(N, dtype=int)
+    is_internal = np.zeros(N, dtype=bool)
+    cell_areas = np.full(N, np.nan)
+
+    for i, region_index in enumerate(vor.point_region):
+        region = vor.regions[region_index]
+        if not region or -1 in region:
+            continue  # Celda de borde con vértice(s) en el infinito
+
+        vertices = vor.vertices[region]
+        vx_arr, vy_arr = vertices[:, 0], vertices[:, 1]
+        if vx_arr.min() < x_lo or vx_arr.max() > x_hi or vy_arr.min() < y_lo or vy_arr.max() > y_hi:
+            continue
+
+        is_internal[i] = True
+        vx_l = vx_arr.tolist()
+        vy_l = vy_arr.tolist()
+        coordination[i] = _merge_close_polygon_vertices_xy(vx_l, vy_l, vertex_merge_tol)
+
+        # Fórmula del área de Gauss (shoelace) sobre listas planas de Python: evita el
+        # overhead de dispatch de np.roll/np.any sobre arreglos diminutos (4-8 elementos)
+        k = len(vx_l)
+        area_sum = 0.0
+        for j in range(k):
+            j2 = j + 1 if j + 1 < k else 0
+            area_sum += vx_l[j] * vy_l[j2] - vx_l[j2] * vy_l[j]
+        cell_areas[i] = 0.5 * abs(area_sum)
+
+    defects_mask = is_internal & (coordination != 4)
+    n_internal = int(np.sum(is_internal))
+    n_defects = int(np.sum(defects_mask))
+    f_defects = float(n_defects / n_internal) if n_internal > 0 else 0.0
+
+    valid_areas = cell_areas[is_internal]
+    area_mean = float(np.mean(valid_areas)) if len(valid_areas) > 0 else 0.0
+    area_std = float(np.std(valid_areas, ddof=1)) if len(valid_areas) > 1 else 0.0
+    area_cv = float(area_std / area_mean) if area_mean > 1e-9 else 0.0
+
+    return {
+        'coordination': coordination,
+        'is_internal': is_internal,
+        'defects_mask': defects_mask,
+        'n_internal': n_internal,
+        'n_defects': n_defects,
+        'f_defects': f_defects,
+        'cell_areas': cell_areas,
+        'area_mean': area_mean,
+        'area_std': area_std,
+        'area_cv': area_cv,
+        'vor': vor
+    }
+
+
+def compute_quiver_and_strain(
+    x: np.ndarray,
+    y: np.ndarray,
+    x_ideal: np.ndarray,
+    y_ideal: np.ndarray,
+    valid_mask: np.ndarray
+) -> Dict[str, Any]:
+    """
+    Retorna los vectores de desplazamiento (Delta x, Delta y) = (x - x_ideal, y - y_ideal)
+    para graficar con Quiver, y ajusta por mínimos cuadrados una deformación afín:
+
+        [Delta x]   [ exx        exy - omega ] [x_ideal]   [tx]
+        [Delta y] = [ exy + omega   eyy       ] [y_ideal] + [ty]
+
+    donde omega es la rotación de cuerpo rígido y exx, eyy, exy son las componentes
+    del tensor de deformación (strain).
+
+    Nota (Alcance Global, no Local): el ajuste se realiza sobre TODA la población de
+    partículas válidas simultáneamente, produciendo un único tensor de deformación
+    afín GLOBAL para el campo completo (apto para deriva de platina, calibración
+    a/b, o distorsión de campo de lente). No es un mapa de deformación LOCAL: bajo
+    desorden local no-correlacionado (térmico/de fabricación) con media nula, el
+    ajuste converge a exx=eyy=exy=omega=0 aunque exista heterogeneidad de
+    deformación real concentrada en defectos puntuales (vacancias, dislocaciones),
+    que se promedia y desaparece en este ajuste de un solo tensor global.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    x_ideal = np.asarray(x_ideal, dtype=np.float64)
+    y_ideal = np.asarray(y_ideal, dtype=np.float64)
+    valid_mask = np.asarray(valid_mask, dtype=bool)
+
+    dx = (x - x_ideal)[valid_mask]
+    dy = (y - y_ideal)[valid_mask]
+    xi = x_ideal[valid_mask]
+    yi = y_ideal[valid_mask]
+    n_valid = len(xi)
+
+    if n_valid < 4:
+        return {
+            'dx': dx, 'dy': dy, 'x_ideal': xi, 'y_ideal': yi,
+            'exx': 0.0, 'eyy': 0.0, 'exy': 0.0, 'omega': 0.0,
+            'tx': 0.0, 'ty': 0.0, 'success': False
+        }
+
+    design_matrix = np.column_stack([xi, yi, np.ones(n_valid)])
+    try:
+        coef_x, _, _, _ = np.linalg.lstsq(design_matrix, dx, rcond=None)
+        coef_y, _, _, _ = np.linalg.lstsq(design_matrix, dy, rcond=None)
+        a11, a12, tx = coef_x
+        a21, a22, ty = coef_y
+        exx = float(a11)
+        eyy = float(a22)
+        exy = float((a12 + a21) / 2.0)
+        omega = float((a21 - a12) / 2.0)
+        success = True
+    except Exception:
+        exx = eyy = exy = omega = 0.0
+        tx = ty = 0.0
+        success = False
+
+    return {
+        'dx': dx, 'dy': dy, 'x_ideal': xi, 'y_ideal': yi,
+        'exx': exx, 'eyy': eyy, 'exy': exy, 'omega': omega,
+        'tx': float(tx), 'ty': float(ty), 'success': success
     }
 
 
@@ -3317,6 +4067,7 @@ def compute_radial_distribution_function(
     x: np.ndarray,
     y: np.ndarray,
     a_nominal: float = 450.0,
+    b_nominal: Optional[float] = None,
     r_max_factor: float = 3.0,
     n_bins: int = 120,
     r_diffraction_limit: float = 250.0,
@@ -3376,8 +4127,9 @@ def compute_radial_distribution_function(
 
     counts, _ = np.histogram(dists, bins=r_edges)
 
-    # Densidad media de partículas en el área encerrada
-    area = (np.ptp(x) + a_nominal) * (np.ptp(y) + a_nominal)
+    # Densidad media de partículas en el área encerrada (rectangular: pad X con a, Y con b)
+    b_val = float(b_nominal) if b_nominal is not None else a_nominal
+    area = (np.ptp(x) + a_nominal) * (np.ptp(y) + b_val)
     rho = N / area if area > 0 else 1.0
 
     # Normalización por el área anular: 2 * pi * r * dr * (N * (N - 1) / 2)
@@ -3399,12 +4151,18 @@ def compute_radial_distribution_function(
     sublattice_defects_count = int(np.sum(counts[mask_defects]))
     sublattice_defect_ratio = float(sublattice_defects_count / len(pairs)) if len(pairs) > 0 else 0.0
 
+    # Modelo de doble gaussiana: red rectangular con periodos de vecino resueltos (a != b)
+    is_double_mode = bool(b_nominal is not None and abs(a_nominal - b_val) > 15.0)
+
     # Búsqueda del primer pico de red
     if r_roi_min is not None and r_roi_max is not None:
         lower_bound = min(float(r_roi_min), float(r_roi_max))
         upper_bound = max(float(r_roi_min), float(r_roi_max))
-    else:
+    elif is_double_mode:
         # El límite inferior respeta el límite de difracción instrumental sin presuponer rigidez
+        lower_bound = max(r_diffraction_limit, min(a_nominal, b_val) * 0.65)
+        upper_bound = max(a_nominal, b_val) * 1.35
+    else:
         lower_bound = max(r_diffraction_limit, a_nominal * 0.65)
         upper_bound = a_nominal * 1.35
 
@@ -3420,44 +4178,110 @@ def compute_radial_distribution_function(
     fit_gr = np.array([])
     height_rdf = 0.0
     bg_rdf = 0.0
+    is_double_peak = False
+    secondary_peak = None
+    peak_resolution_warning = False
+
+    if fixed_bg is not None:
+        bg_low = float(fixed_bg) - 1e-6
+        bg_high = float(fixed_bg) + 1e-6
+    else:
+        bg_low = 0.0
+        bg_high = np.inf
 
     if len(r_peak_region) >= 5 and np.max(gr_peak_region) > 0.1:
-        idx_pk = np.argmax(gr_peak_region)
-        first_peak_r = float(r_peak_region[idx_pk])
         bg_init = float(fixed_bg) if fixed_bg is not None else float(np.min(gr_peak_region))
-        H_init = max(float(np.max(gr_peak_region)) - bg_init, 1e-3)
-        p0 = [H_init, first_peak_r, a_nominal * 0.08, bg_init]
 
-        if fixed_bg is not None:
-            bg_low = float(fixed_bg) - 1e-6
-            bg_high = float(fixed_bg) + 1e-6
-        else:
-            bg_low = 0.0
-            bg_high = np.inf
+        if is_double_mode and len(r_peak_region) >= 8:
+            # Doble gaussiana: resuelve los dos primeros picos de vecinos a distancias a y b
+            r1_init = float(r_peak_region[np.argmin(np.abs(r_peak_region - a_nominal))])
+            r2_init = float(r_peak_region[np.argmin(np.abs(r_peak_region - b_val))])
+            H1_init = max(float(gr_peak_region[np.argmin(np.abs(r_peak_region - r1_init))]) - bg_init, 1e-3)
+            H2_init = max(float(gr_peak_region[np.argmin(np.abs(r_peak_region - r2_init))]) - bg_init, 1e-3)
+            s1_init = a_nominal * 0.08
+            s2_init = b_val * 0.08
 
-        bounds = ([0.0, lower_bound, 1e-3, bg_low], [np.inf, upper_bound, a_nominal, bg_high])
-        try:
-            popt, _ = curve_fit(
-                lambda r, A, r0, s, bg: A * np.exp(-((r - r0) ** 2) / (2 * s ** 2)) + bg,
-                r_peak_region,
-                gr_peak_region,
-                p0=p0,
-                bounds=bounds,
-                maxfev=1000
+            p0 = [H1_init, r1_init, s1_init, H2_init, r2_init, s2_init, bg_init]
+            bounds = (
+                [0.0, lower_bound, 1e-3, 0.0, lower_bound, 1e-3, bg_low],
+                [np.inf, upper_bound, max(a_nominal, b_val), np.inf, upper_bound, max(a_nominal, b_val), bg_high]
             )
-            A_fit, r0_fit, s_fit, bg_fit = popt
-            first_peak_r = float(r0_fit)
-            sigma_peak = abs(float(s_fit))
-            # Para dos partículas fluctuando independientemente: Var(Delta r) = 2 * sigma^2
-            sigma_rdf = sigma_peak / np.sqrt(2.0)
-            fwhm_rdf = 2.35482 * sigma_peak
-            height_rdf = float(A_fit)
-            bg_rdf = float(bg_fit)
+            try:
+                def _double_gr(r, A1, r1, s1, A2, r2, s2, bg):
+                    return (A1 * np.exp(-((r - r1) ** 2) / (2 * s1 ** 2)) +
+                            A2 * np.exp(-((r - r2) ** 2) / (2 * s2 ** 2)) + bg)
 
-            fit_r = np.linspace(float(r_peak_region[0]), float(r_peak_region[-1]), 150)
-            fit_gr = A_fit * np.exp(-((fit_r - r0_fit) ** 2) / (2.0 * (s_fit ** 2))) + bg_fit
-        except Exception:
-            sigma_rdf = 0.0
+                popt, _ = curve_fit(_double_gr, r_peak_region, gr_peak_region, p0=p0, bounds=bounds, maxfev=2000)
+                A1_f, r1_f, s1_f, A2_f, r2_f, s2_f, bg_f = popt
+
+                # Criterio de resolubilidad: dos gaussianas cuya separación de centros es menor a
+                # ~1.5x la suma de sus anchos no son estadísticamente distinguibles (ajuste no-identificable,
+                # el optimizador intercambia amplitud/ancho libremente entre ambas). Degradar a simple gaussiana
+                # en ese caso en vez de reportar un "is_double_peak=True" con parámetros espurios.
+                peaks_resolved = abs(r1_f - r2_f) > 1.5 * (abs(s1_f) + abs(s2_f))
+
+                if not peaks_resolved:
+                    is_double_mode = False
+                    peak_resolution_warning = True
+                else:
+                    # El pico "primario" es el más cercano a a_nominal (eje X de referencia)
+                    if abs(r1_f - a_nominal) <= abs(r2_f - a_nominal):
+                        primary = (A1_f, r1_f, s1_f)
+                        secondary = (A2_f, r2_f, s2_f)
+                    else:
+                        primary = (A2_f, r2_f, s2_f)
+                        secondary = (A1_f, r1_f, s1_f)
+
+                    height_rdf, first_peak_r, sigma_peak = float(primary[0]), float(primary[1]), abs(float(primary[2]))
+                    sigma_rdf = sigma_peak / np.sqrt(2.0)
+                    fwhm_rdf = 2.35482 * sigma_peak
+                    bg_rdf = float(bg_f)
+                    is_double_peak = True
+
+                    H_sec, r0_sec, s_sec = secondary
+                    sigma_sec = abs(float(s_sec))
+                    secondary_peak = {
+                        'first_peak_r': float(r0_sec),
+                        'height_rdf': float(H_sec),
+                        'sigma_peak': sigma_sec,
+                        'sigma_rdf': sigma_sec / np.sqrt(2.0),
+                        'fwhm_rdf': 2.35482 * sigma_sec
+                    }
+
+                    fit_r = np.linspace(float(r_peak_region[0]), float(r_peak_region[-1]), 200)
+                    fit_gr = _double_gr(fit_r, A1_f, r1_f, s1_f, A2_f, r2_f, s2_f, bg_f)
+            except Exception:
+                is_double_mode = False  # Degradar a ajuste simple si el doble gaussiano no converge
+
+        if not is_double_peak:
+            idx_pk = np.argmax(gr_peak_region)
+            first_peak_r = float(r_peak_region[idx_pk])
+            H_init = max(float(np.max(gr_peak_region)) - bg_init, 1e-3)
+            p0 = [H_init, first_peak_r, a_nominal * 0.08, bg_init]
+
+            bounds = ([0.0, lower_bound, 1e-3, bg_low], [np.inf, upper_bound, max(a_nominal, b_val), bg_high])
+            try:
+                popt, _ = curve_fit(
+                    lambda r, A, r0, s, bg: A * np.exp(-((r - r0) ** 2) / (2 * s ** 2)) + bg,
+                    r_peak_region,
+                    gr_peak_region,
+                    p0=p0,
+                    bounds=bounds,
+                    maxfev=1000
+                )
+                A_fit, r0_fit, s_fit, bg_fit = popt
+                first_peak_r = float(r0_fit)
+                sigma_peak = abs(float(s_fit))
+                # Para dos partículas fluctuando independientemente: Var(Delta r) = 2 * sigma^2
+                sigma_rdf = sigma_peak / np.sqrt(2.0)
+                fwhm_rdf = 2.35482 * sigma_peak
+                height_rdf = float(A_fit)
+                bg_rdf = float(bg_fit)
+
+                fit_r = np.linspace(float(r_peak_region[0]), float(r_peak_region[-1]), 150)
+                fit_gr = A_fit * np.exp(-((fit_r - r0_fit) ** 2) / (2.0 * (s_fit ** 2))) + bg_fit
+            except Exception:
+                sigma_rdf = 0.0
 
     return {
         'r': r_centers,
@@ -3475,7 +4299,12 @@ def compute_radial_distribution_function(
         'r_roi_max': upper_bound,
         'r_diffraction_limit': float(r_diffraction_limit),
         'sub_diffraction_artifacts': sub_diff_artifacts,
-        'sublattice_defect_ratio': sublattice_defect_ratio
+        'sublattice_defect_ratio': sublattice_defect_ratio,
+        'a_nominal': a_nominal,
+        'b_nominal': b_val,
+        'is_double_peak': is_double_peak,
+        'secondary_peak': secondary_peak,
+        'peak_resolution_warning': peak_resolution_warning
     }
 
 
@@ -3496,7 +4325,9 @@ def run_monte_carlo_calibration(
     n_bragg_pts: int = 81,
     band_width_nm: float = 0.0,
     n_transversal_pts: int = 5,
-    seed: Optional[int] = None
+    seed: Optional[int] = None,
+    n_side_x: Optional[int] = None,
+    n_side_y: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Ejecuta la calibración estocástica Monte Carlo de la atenuación de Debye-Waller
@@ -3532,9 +4363,14 @@ def run_monte_carlo_calibration(
         Número de puntos de cuadratura en la banda transversal (Mejora 2).
     seed : int, opcional
         Semilla para el generador aleatorio de NumPy para reproducibilidad.
+    n_side_x, n_side_y : int, opcional
+        Número de sitios independientes por eje (red rectangular N_x x N_y).
+        Si son None, se usa `n_side` para ambos ejes (retrocompatibilidad, red cuadrada).
     """
     n_side = max(2, int(n_side))
-    N_sites = n_side * n_side
+    n_side_x = max(2, int(n_side_x)) if n_side_x is not None else n_side
+    n_side_y = max(2, int(n_side_y)) if n_side_y is not None else n_side
+    N_sites = n_side_x * n_side_y
     f_vac = np.clip(float(f_vac), 0.0, 0.95)
     rng = np.random.default_rng(seed)
 
@@ -3545,11 +4381,11 @@ def run_monte_carlo_calibration(
     sigma_values = np.linspace(sigma_min, sigma_max, n_sigma_steps)
     total_runs = n_sigma_steps * iterations_per_step
 
-    # Grilla base ideal 2D centrada (soportando rectangulares/anisótropas)
-    half_span_x = ((n_side - 1) * ax_val) / 2.0
-    half_span_y = ((n_side - 1) * ay_val) / 2.0
-    gx = np.linspace(-half_span_x, half_span_x, n_side)
-    gy = np.linspace(-half_span_y, half_span_y, n_side)
+    # Grilla base ideal 2D centrada (soportando rectangulares/anisótropas, N_x != N_y)
+    half_span_x = ((n_side_x - 1) * ax_val) / 2.0
+    half_span_y = ((n_side_y - 1) * ay_val) / 2.0
+    gx = np.linspace(-half_span_x, half_span_x, n_side_x)
+    gy = np.linspace(-half_span_y, half_span_y, n_side_y)
     X0, Y0 = np.meshgrid(gx, gy)
     x0_flat = X0.ravel()
     y0_flat = Y0.ravel()
@@ -3700,7 +4536,10 @@ def run_monte_carlo_calibration(
     fit_res_2y = fit_debye_waller_curve(sigma_values, H_mean_2y, f_vac=f_vac) if is_anisotropic else fit_res_2x
 
     return {
-        'n_side': n_side,
+        'n_side': n_side_x,
+        'n_side_x': n_side_x,
+        'n_side_y': n_side_y,
+        'N_sites': N_sites,
         'a': ax_val,
         'a_x': ax_val,
         'a_y': ay_val,
