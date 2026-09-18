@@ -88,7 +88,18 @@ Si el software no desacopla este factor, una red con $10\%$ de vacancias ($p=0.1
 
 ---
 
-## 3. 🖥️ Arquitectura de la Interfaz Gráfica (4 Pestañas Secuenciales)
+## 3. 🖥️ Arquitectura de la Interfaz Gráfica (5 Pestañas Secuenciales)
+
+> [!IMPORTANT]
+> **Actualización de Arquitectura (Fase 1 → Fase 2):** La suite se reestructuró de 4 a 5 pestañas al
+> introducir la **Pestaña 2 dedicada a Cristalografía en Espacio Real & Topología** (Voronoi, Delaunay,
+> quiver, ψ4/ψ6). Con la **Fase 2** (esta actualización), esa misma Pestaña 2 se generaliza para soportar
+> redes **hexagonales/triangulares** y **honeycomb/grafeno** además de las cuadradas/rectangulares
+> originales — ver `[[MOD-08#6. 🔷 Redes Hexagonales y Honeycomb Fase 2|Sección 6]]` y `DEC-012`. Las
+> mecánicas descriptas para "Pestaña 2: Espacio Recíproco" en las secciones históricas de abajo
+> corresponden ahora a la **Pestaña 3**, "Monte Carlo" a la **Pestaña 4** y "Reportes/Ficha Metrológica"
+> a la **Pestaña 5**; el contenido detallado de la antigua Pestaña 1 permanece dividido entre la
+> Pestaña 1 (Detección, SMLM & Curación) y la nueva Pestaña 2 (parámetros de red, grilla, vacancias, g(r)).
 
 La aplicación sigue el modelo de diseño ergonómico de **SIF Analyzer** con paneles colapsables, scroll vertical fluido, gráficos interactivos con tema oscuro Catppuccin Mocha y widgets dinámicos sensibles al contexto.
 
@@ -96,7 +107,7 @@ La aplicación sigue el modelo de diseño ergonómico de **SIF Analyzer** con pa
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  PyPrinting 3.0 — Analizador de Desorden y Estructura de Redes Cristalinas 2D                -  □  ×   │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  [ 📍 1. Espacio Real & SMLM ]   [ 📊 2. Espacio Recíproco ]   [ 🔄 3. Monte Carlo ]   [ 📤 4. Reportes ] │
+│ [🔬1.Detección,SMLM&Curación] [📐2.Espacio Real&Topología] [📊3.Recíproco&Fourier] [🔄4.Monte Carlo] [📤5.Ficha]│
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -358,3 +369,175 @@ La suite fue sometida a una validación metrológica estricta utilizando la imag
 5. **Pestaña 4 (Ficha Metrológica):**
    - Revisar la tabla consolidada.
    - Presionar `🖼 Exportar Galería de Figuras (SVG / PNG)` para generar las figuras vectoriales listas para informe o publicación.
+
+---
+
+## 6. 🔷 Redes Hexagonales y Honeycomb (Fase 2)
+
+> [!NOTE]
+> **Decisión Arquitectónica:** `[[DEC-012_Universal_Template_Matching_Redes_Hexagonales_Honeycomb]]`
+> documenta el diseño completo, los 3 hallazgos numéricos corregidos durante el desarrollo y el
+> plan de verificación. Esta sección resume la teoría cristalográfica y la interpretación operativa.
+
+### 6.1 Puente Universal hacia `core/lattice_generator.py`
+
+En vez de reimplementar la generación de redes, `core/lattice_disorder.py::generate_ideal_lattice_template()`
+reutiliza directamente el motor cristalográfico ya validado del **Diseñador de Redes** (`grid_generator.py`
+/ `core/lattice_generator.py::CrystalGridComposer`, `LatticeLayer`, `BasisAtom`, `BoundingGeometry`):
+
+1. Construye un `LatticeLayer` con el tipo de red, período `a` [nm→µm], `gamma_deg` (60° para
+   familias hexagonales, 90° para cuadradas/rectangulares) y la base atómica correspondiente.
+2. Delega en `CrystalGridComposer.generate()` la expansión de celdas, rotación afín, recorte por
+   `BoundingGeometry` (hexágono, círculo o rectángulo) y deduplicación — sin reescribir esa lógica.
+3. Convierte los nodos resultantes de vuelta a nanómetros y etiqueta cada partícula con su
+   `sublattice_id` (`material_id` de `BasisAtom`: 1 = Subred A, 2 = Subred B).
+
+> [!WARNING]
+> **Hallazgo (`DEC-012`): Base Honeycomb Incorrecta en `core/lattice_generator.py`.**
+> `LatticeLayer._default_basis_for_type()` define la base honeycomb/grafeno con coordenadas
+> fraccionales $u=1/3, v=2/3$. Combinada con $\gamma=60°$ (la convención que `grid_generator.py`
+> aplica automáticamente a redes hexagonales), esto **no produce un honeycomb geométricamente
+> válido**: se verificó numéricamente que genera 4 distancias de enlace distintas en el primer
+> vecindario ($0.2a, 0.4a, 0.529a \times 2$) en vez de 3 vecinos equidistantes a $a/\sqrt{3}$.
+> La base fraccional correcta para esta convención de $\mathbf{a}_1, \mathbf{a}_2$ es
+> $u=1/3, v=1/3$ (verificado: reproduce exactamente 3 vecinos a $a/\sqrt{3}$, luego 3 a $a$).
+> `generate_ideal_lattice_template()` usa la base corregida **localmente**, sin modificar
+> `core/lattice_generator.py` (fuera de alcance de esta fase — afecta también las muestras
+> honeycomb reales fabricadas con `grid_generator.py`; se recomienda corregir el generador en
+> un follow-up y re-validar cualquier receta honeycomb ya impresa con la base antigua).
+
+### 6.2 Redes de Bravais: Hexagonal / Triangular ($\gamma=60°$, $Z=6$)
+
+Red monoatómica ($1$ átomo por celda unidad) con vectores primitivos $\mathbf{a}_1=(a,0)$,
+$\mathbf{a}_2=(a\cos 60°, a\sin 60°)$. Cada partícula tiene 6 vecinos equidistantes a $a$
+(coordinación de Voronoi $Z=6$, orden orientacional hexático $\psi_6$ de Halperin-Nelson):
+$$\psi_6(j) = \frac{1}{Z_j}\sum_{k=1}^{Z_j} e^{i 6\theta_{jk}}, \qquad |\psi_6| \to 1 \text{ (orden perfecto)}$$
+
+**Firma de $g(r)$:** primer pico en $r_1=a$ ($Z=6$), segundo en $r_2=\sqrt{3}a$, tercero en $r_3=2a$.
+
+**Retículo recíproco:** los vectores primitivos recíprocos están **rotados 30° respecto a los
+reales** (resultado cristalográfico estándar, verificado numéricamente por fuerza bruta antes
+de fijarlo como constante — ver hallazgo de `DEC-012` sobre el bug de dirección de Bragg). Los
+6 picos de Bragg de 1er orden equivalentes caen en $-30°, 30°, 90°, 150°, 210°, 270°$ (no en
+$0°, 60°, 120°, \ldots$, alineados con los ejes reales), a magnitud:
+$$f_0 = \frac{|\mathbf{G}_1|}{2\pi} = \frac{2}{\sqrt{3}\,a}$$
+
+### 6.3 Honeycomb / Grafeno: Base Biatómica ($\gamma=60°$, $Z=3$)
+
+Red con 2 átomos por celda unidad (subredes A y B, offset $\boldsymbol{\tau}$), coordinación
+de enlace $Z=3$ (cada átomo tiene 3 vecinos de la subred opuesta, no 6). El factor de
+estructura geométrico de la base acopla la difracción de ambas subredes:
+$$F(\mathbf{G}) = \sum_{\kappa \in \{A,B\}} e^{-i\mathbf{G}\cdot\mathbf{d}_\kappa} = 1 + e^{-i\mathbf{G}\cdot\boldsymbol{\tau}}$$
+$$H(\mathbf{G}) = |F(\mathbf{G})|^2\, H_0\,(1-p)^2\,\exp\!\left(-\frac{|\mathbf{G}|^2\sigma^2}{2}\right) + H_{\text{diff}}$$
+
+`core/lattice_disorder.py::compute_basis_structure_factor()` evalúa $|F(\mathbf{G})|^2$
+analíticamente (predicción geométrica independiente del desorden); en la práctica, este
+efecto **emerge naturalmente** al calcular $S(f_x,f_y)$ por NUFFT sobre las posiciones reales
+de ambas subredes (`compute_structure_factor_2d`), sin necesidad de un término multiplicativo
+aparte — igual que la NUFFT ya incorporaba correctamente la anisotropía $a \neq b$ en Fase 1.
+
+**Firma de $g(r)$:** primer pico (dominante, enlace A-B) en $d=a/\sqrt{3}$, $Z=3$; segundo
+pico (misma subred, geometría equivalente a la red triangular subyacente) en $r_2=a$, $Z=6$.
+La ventana de búsqueda del primer pico en `compute_radial_distribution_function` debe
+parametrizarse con `a_nominal = a/√3` (la distancia de enlace), **no** con el período de
+red $a$, o el ajuste localizará erróneamente el segundo pico.
+
+**Coordinación de Voronoi vs. coordinación de enlace:** se verificó numéricamente que la
+teselación de Voronoi de las posiciones atómicas honeycomb (no el grafo de enlaces químicos)
+da celdas de **3 lados** ($Z_{\text{Voronoi}}=3$), dominadas geométricamente por los 3 vecinos
+de enlace (mucho más cercanos, $a/\sqrt{3}$, que el segundo anillo a $a$) — coincide
+numéricamente con la coordinación de enlace en este caso particular, pero son cálculos
+independientes (`compute_voronoi_topology(..., ideal_z=3)` vs. `compute_bond_orientational_order`
+con `n_fold=3`).
+
+### 6.4 Algoritmo de Registro Rígido y Emparejamiento Universal
+
+`register_and_match_template()` alinea la plantilla ideal (generada por §6.1) contra las
+partículas reales detectadas mediante:
+
+1. **Alineación de centroides** (traslación inicial).
+
+> [!CAUTION]
+> **Hallazgo (`DEC-012`): no pre-centrar la plantilla con `center_x_nm`/`center_y_nm`.**
+> Se detectó que `BoundingGeometry.is_inside()` evalúa el contorno envolvente siempre fijo
+> en el origen, mientras que `offset_x`/`offset_y` desplaza los puntos de la red ANTES de
+> ese chequeo — un centroide de apenas ~1 nm puede alinear accidentalmente una fila completa
+> de una red hexagonal con el borde recto del hexágono, volcándola entera adentro/afuera del
+> recorte (confirmado: 217→192 nodos, centroide real desplazado 287 nm para un pedido de
+> 0.86 nm) e inflando `sigma_pos` ~10× tras el registro. La GUI genera la plantilla siempre
+> en el origen (paso 1 de este algoritmo ya la re-centra correctamente); no reintroducir un
+> pre-centrado manual.
+
+2. **Búsqueda de rotación en 2 etapas** (gruesa → fina): barrido exhaustivo del ángulo
+   $\theta$ minimizando el residuo cuadrático medio de emparejamiento al vecino más cercano
+   (con recorte de outliers), **no** un optimizador de gradiente local. Esto es deliberado:
+   un mínimo local ingenuo puede atraparse en un múltiplo del ángulo entre vecinos
+   equivalentes (p.ej. $60°$ en una red hexagonal) en vez de la verdadera desalineación de
+   montaje de la muestra ($1°$–$5°$ es tolerancia de montaje típica).
+3. **Emparejamiento KDTree acotado** (`max_dist_nm`, por defecto la mitad de la distancia
+   mediana al vecino más cercano de la plantilla) con **desacoplamiento por subred**: cada
+   partícula real se etiqueta con la subred (A/B) de su nodo ideal más cercano.
+4. **Vacancias por subred:** los nodos de plantilla sin partícula real emparejada se cuentan
+   independientemente por subred (`n_vacancies_by_sublattice`), permitiendo distinguir, por
+   ejemplo, si la subred A (o B) tiene una tasa de vacancias sistemáticamente mayor —
+   diagnóstico imposible con un conteo de vacancias global.
+
+> [!WARNING]
+> **Limitación Conocida:** la cota elipsoidal/circular de emparejamiento y el registro rígido
+> asumen una **rotación global única** de toda la muestra. No corrigen deformaciones locales
+> no-rígidas (p.ej. distorsión de campo de lente dependiente de la posición). Para ese caso,
+> `compute_quiver_and_strain` reporta un tensor de deformación afín global que puede usarse
+> como diagnóstico complementario, pero tampoco resuelve heterogeneidad de deformación local.
+
+### 6.5 Interpretación de Métricas de Topología
+
+| Métrica | Cuadrada/Rectangular | Hexagonal/Triangular | Honeycomb/Grafeno |
+|---|---|---|---|
+| $Z$ ideal (Voronoi) | 4 | 6 | 3 |
+| Orden orientacional | $\psi_4$ | $\psi_6$ | $\psi_3$ (nuevo, ver `n_fold` en `compute_bond_orientational_order`) |
+| 1er pico $g(r)$ | $r=a$ | $r=a$ | $r=a/\sqrt{3}$ (enlace A-B) |
+| Vacancias | Globales | Globales | **Por subred A y B independientemente** |
+| Defecto topológico | $Z \neq 4$ (pares 3-5) | $Z \neq 6$ (pares 5-7) | $Z \neq 3$ |
+
+### 6.6 Calibración Monte Carlo Hexagonal/Honeycomb
+
+`core/lattice_disorder.py::run_hexagonal_monte_carlo_calibration()` reutiliza
+`generate_ideal_lattice_template` para la grilla base e inyecta vacancias + desorden
+gaussiano con el mismo esquema estadístico que la calibración rectangular de Fase 1,
+evaluando $S(f)$ promediada sobre las 6 direcciones de Bragg equivalentes
+($-30°,30°,90°,\ldots$) en $f_0=2/(\sqrt{3}a)$, vectorizado vía BLAS (sin bucle Python por
+dirección/frecuencia). Para honeycomb, el factor de estructura de base emerge naturalmente
+de la doble subred real, igual que en el motor NUFFT principal (§6.3).
+
+> [!CAUTION]
+> **Hallazgo Corregido:** la primera implementación de esta función asumió incorrectamente
+> que las 6 direcciones de Bragg estaban a $0°,60°,120°,\ldots$ (alineadas con los ejes
+> reales), produciendo una atenuación de Debye-Waller **creciente** y físicamente espuria con
+> $\sigma$ (en vez de decreciente). Corregido a $-30°,30°,90°,\ldots$ tras verificación
+> numérica por fuerza bruta del retículo recíproco real — ver `DEC-012` y el test de
+> regresión `test_run_hexagonal_monte_carlo_calibration_monotonic_attenuation`.
+
+### 6.7 Procedimiento Operativo: Caracterizar una Muestra Hexagonal o Honeycomb
+
+1. **Pestaña 1:** Cargar y detectar partículas exactamente igual que para una red cuadrada.
+2. **Pestaña 2 — Grupo 0 (Tipo de Red):** Seleccionar `Hexagonal / Triangular` o
+   `Honeycomb / Grafeno`. Se revela el panel de geometría envolvente (`Hexagonal`, `Circular`
+   o `Rectangular`, con el tamaño en nm — debe cubrir holgadamente la muestra real) y el
+   control de rotación (automática por defecto, o manual/semilla inicial).
+3. **Pestaña 2 — Grupo 1:** Ingresar el período nominal `a` (para honeycomb, `a` es el
+   período de la red de Bravais subyacente, **no** la distancia de enlace $a/\sqrt{3}$).
+4. Presionar `▶ Analizar Espacio Real y Topología`. La tarjeta de métricas reporta el ángulo
+   de registro rígido $\theta$ encontrado, $\psi_6$/$\psi_3$, $\gamma_L$, defectos Voronoi y
+   **vacancias desglosadas por subred A/B**.
+5. **Visor 1:** el selector de visualización topológica permite ver celdas de Voronoi
+   (coloreadas por $Z$), triangulación de Delaunay, campo de desplazamientos (quiver) o el
+   mapa de color $\psi_n$ local; las subredes A (azul) y B (rojo/rosa) se distinguen por
+   color en el lienzo cuando hay más de una presente.
+6. **Pestaña 3 (Espacio Recíproco):** el mapa $S(f_x,f_y)$ muestra automáticamente las 6
+   direcciones de Bragg hexagonales correctas y un anillo de referencia a $f_0=2/(\sqrt{3}a)$;
+   la tarjeta de métricas reporta el radio real detectado vía integración radial azimutal
+   $S(q)$ en vez de la jerarquía de Bragg cartesiana (que no aplica a esta simetría).
+7. **Pestaña 4 (Monte Carlo):** despacha automáticamente a la calibración hexagonal cuando
+   la Pestaña 2 tiene una red hexagonal/honeycomb activa, usando la misma geometría
+   envolvente configurada en el paso 2.
+8. **Pestaña 5:** exportar la ficha metrológica y galería de figuras como de costumbre.

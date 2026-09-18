@@ -1291,7 +1291,12 @@ def compute_analytical_bragg_relations(
     elif sigma_wilson_x > sigma_wilson_y:
         aniso_text = f"Anisotropía en X dominante (σ_x/σ_y = {aniso_ratio:.2f}, Δσ = {delta_sigma:.2f} nm). Jitter o deriva en barrido rápido X."
     else:
-        aniso_text = f"Anisotropía en Y dominante (σ_y/σ_x = {1.0/aniso_ratio:.2f}, Δσ = {delta_sigma:.2f} nm). Deriva de platina o relajación ortogonal en Y."
+        # Guarda defensiva: aniso_ratio puede ser exactamente 0.0 (no sólo evitado por el
+        # max(1e-6,...) del denominador de su propio cálculo) si sigma_wilson_x=0, p.ej. con
+        # datos de red hexagonal/honeycomb cuyos picos de Bragg no caen en los ejes cartesianos
+        # fx/fy asumidos por este análisis (ver DEC-012) y el ajuste Wilson-X degenera a pendiente nula.
+        inv_aniso_ratio = 1.0 / max(1e-6, aniso_ratio)
+        aniso_text = f"Anisotropía en Y dominante (σ_y/σ_x = {inv_aniso_ratio:.2f}, Δσ = {delta_sigma:.2f} nm). Deriva de platina o relajación ortogonal en Y."
 
     if can_anchor:
         intercept_text = f"Interceptos anclados a ln(H₀) = {c_h0:.2f} (I₀ = {H0:.2e}). Ajuste forzado en el origen (1 parámetro)."
@@ -3784,7 +3789,8 @@ def compute_bond_orientational_order(
     x: np.ndarray,
     y: np.ndarray,
     k_neighbors: int = 4,
-    lattice_type: str = 'rectangular'
+    lattice_type: str = 'rectangular',
+    n_fold: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Calcula el orden orientacional de enlace (bond-orientational order) psi_4 y psi_6
@@ -3819,6 +3825,11 @@ def compute_bond_orientational_order(
         psi_n. Por defecto 4 (red rectangular/cuadrada).
     lattice_type : str
         Etiqueta descriptiva de la simetría nominal de la red ('rectangular', 'hexagonal', ...).
+    n_fold : int, opcional
+        Si se especifica, calcula ADEMÁS el orden orientacional genérico psi_n (p.ej.
+        n_fold=3 para el orden de enlace local de una red honeycomb, cuya simetría de
+        enlace fundamental es 3-fold, no 4 ni 6-fold), bajo las claves psi_n_local/
+        psi_n_mean/psi_n_phase_mean. psi4/psi6 siempre se calculan (retrocompatibilidad).
     """
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
@@ -3826,7 +3837,7 @@ def compute_bond_orientational_order(
     k_cap = max(1, int(k_neighbors))
 
     if N < k_cap + 1:
-        return {
+        empty_result = {
             'psi4_local': np.zeros(N),
             'psi6_local': np.zeros(N),
             'psi4_mean': 0.0,
@@ -3837,6 +3848,12 @@ def compute_bond_orientational_order(
             'k_neighbors': k_neighbors,
             'lattice_type': lattice_type
         }
+        if n_fold is not None:
+            empty_result.update({
+                'psi_n_local': np.zeros(N), 'psi_n_mean': 0.0,
+                'psi_n_phase_mean': 0.0, 'n_fold': int(n_fold)
+            })
+        return empty_result
 
     points = np.column_stack([x, y])
     tree = cKDTree(points)
@@ -3850,7 +3867,7 @@ def compute_bond_orientational_order(
     psi6_local = np.mean(np.exp(1j * 6.0 * theta), axis=1)
     coordination = np.full(N, k_cap, dtype=int)
 
-    return {
+    result = {
         'psi4_local': np.abs(psi4_local),
         'psi6_local': np.abs(psi6_local),
         'psi4_local_complex': psi4_local,
@@ -3864,39 +3881,68 @@ def compute_bond_orientational_order(
         'lattice_type': lattice_type
     }
 
+    if n_fold is not None:
+        psi_n_local = np.mean(np.exp(1j * float(n_fold) * theta), axis=1)
+        result.update({
+            'psi_n_local': np.abs(psi_n_local),
+            'psi_n_local_complex': psi_n_local,
+            'psi_n_mean': float(np.mean(np.abs(psi_n_local))),
+            'psi_n_phase_mean': float(np.angle(np.mean(psi_n_local))),
+            'n_fold': int(n_fold)
+        })
+
+    return result
+
 
 def _merge_close_polygon_vertices_xy(vx: list, vy: list, tol: float) -> int:
     """
     Cuenta los vértices de un polígono cerrado (listas Python planas, no ndarray:
     evita el overhead de dispatch de ufunc de NumPy sobre arreglos de 4-8 elementos)
-    tras fusionar los consecutivos separados por menos de `tol`, colapsando los pares
+    tras fusionar los consecutivos separados por menos de `tol`, colapsando los grupos
     numéricamente degenerados (ver nota en compute_voronoi_topology). Retorna sólo el
     conteo final (coordinación Z), que es todo lo que compute_voronoi_topology necesita.
+
+    Implementación (invariante topológico de grafo cíclico, no un barrido secuencial
+    con semilla fija): los k vértices forman un ciclo; se cuenta el número de aristas
+    consecutivas (incluyendo el cierre k-1 -> 0) cuya longitud excede `tol` ("aristas
+    reales"). Ese conteo es exactamente el número de vértices tras contraer cada arista
+    corta, sin importar en qué índice del arreglo empiece o termine un grupo degenerado.
+    Un barrido secuencial ingenuo con semilla en vertices[0] (versión previa de esta
+    función) falla cuando un grupo degenerado de 3+ vértices cruza el límite de cierre
+    del arreglo (índice k-1 -> 0): se detectó que esto ocurre con frecuencia real en
+    redes honeycomb (no sólo como caso patológico raro), donde produjo Z=4 espurio en
+    ~50% de las celdas internas bajo ruido posicional moderado (~3% del enlace) en vez
+    del Z=3 correcto — ver DEC-012.
     """
     k = len(vx)
     if k <= 3 or tol <= 0.0:
         return k
-    mx, my = [vx[0]], [vy[0]]
-    for j in range(1, k):
-        if math.hypot(vx[j] - mx[-1], vy[j] - my[-1]) > tol:
-            mx.append(vx[j])
-            my.append(vy[j])
-    if len(mx) > 1 and math.hypot(mx[-1] - mx[0], my[-1] - my[0]) <= tol:
-        mx.pop()
-        my.pop()
-    return len(mx)
+    n_far_edges = 0
+    for j in range(k):
+        j2 = (j + 1) % k
+        if math.hypot(vx[j] - vx[j2], vy[j] - vy[j2]) > tol:
+            n_far_edges += 1
+    return max(1, n_far_edges)
 
 
 def compute_voronoi_topology(
     x: np.ndarray,
     y: np.ndarray,
     x_range: Optional[Tuple[float, float]] = None,
-    y_range: Optional[Tuple[float, float]] = None
+    y_range: Optional[Tuple[float, float]] = None,
+    ideal_z: int = 4
 ) -> Dict[str, Any]:
     """
     Calcula la teselación de Voronoi de las posiciones (x, y) y determina el número
     de coordinación Z_j (lados del polígono) de cada partícula interna, identificando
-    defectos topológicos (Z != 4 en una red rectangular/cuadrada, típicamente pares 3-5).
+    defectos topológicos (Z != ideal_z). ideal_z por defecto es 4 (red cuadrada/
+    rectangular, defectos típicos en pares 3-5); usar ideal_z=6 para redes
+    hexagonales/triangulares o ideal_z=3 para redes honeycomb (verificado
+    numéricamente: la coordinación geométrica de Voronoi de un sitio honeycomb es 3,
+    dominada por sus 3 vecinos de enlace, mucho más cercanos que el segundo anillo
+    de la misma subred — no confundir con la coordinación de enlace química, que
+    también es 3 mediante compute_bond_orientational_order, pero es un cálculo
+    geométricamente independiente).
 
     Las celdas de borde (con vértices en el infinito, region=[-1, ...], o vértices fuera
     de [x_range, y_range]) se excluyen del cómputo de coordinación y de la fracción de
@@ -3937,7 +3983,13 @@ def compute_voronoi_topology(
     nn_tree = cKDTree(points)
     nn_dist, _ = nn_tree.query(points, k=2)
     median_nn_dist = float(np.median(nn_dist[:, 1])) if N > 1 else 1.0
-    vertex_merge_tol = 0.10 * median_nn_dist
+    # 20% (no 10%): calibrado empíricamente contra redes honeycomb, cuyas celdas
+    # triangulares (3 vecinos, menos redundancia geométrica que las 4-8 restricciones
+    # de una celda cuadrada) amplifican más el desplazamiento del vértice de Voronoi
+    # por unidad de ruido posicional. 10% dejaba sin fusionar ~40-50% de los vértices
+    # degenerados honeycomb bajo ruido moderado (~3% del enlace); 20% los resuelve sin
+    # ocultar el defecto real de la prueba de regresión de vacancia (ver DEC-012).
+    vertex_merge_tol = 0.20 * median_nn_dist
 
     x_lo, x_hi = x_range if x_range is not None else (float(np.min(x)), float(np.max(x)))
     y_lo, y_hi = y_range if y_range is not None else (float(np.min(y)), float(np.max(y)))
@@ -3970,7 +4022,7 @@ def compute_voronoi_topology(
             area_sum += vx_l[j] * vy_l[j2] - vx_l[j2] * vy_l[j]
         cell_areas[i] = 0.5 * abs(area_sum)
 
-    defects_mask = is_internal & (coordination != 4)
+    defects_mask = is_internal & (coordination != ideal_z)
     n_internal = int(np.sum(is_internal))
     n_defects = int(np.sum(defects_mask))
     f_defects = float(n_defects / n_internal) if n_internal > 0 else 0.0
@@ -3982,6 +4034,7 @@ def compute_voronoi_topology(
 
     return {
         'coordination': coordination,
+        'ideal_z': ideal_z,
         'is_internal': is_internal,
         'defects_mask': defects_mask,
         'n_internal': n_internal,
@@ -4061,6 +4114,460 @@ def compute_quiver_and_strain(
         'exx': exx, 'eyy': eyy, 'exy': exy, 'omega': omega,
         'tx': float(tx), 'ty': float(ty), 'success': success
     }
+
+
+# ==============================================================================
+# 2.6 GENERALIZACIÓN CRISTALOGRÁFICA UNIVERSAL: TEMPLATE MATCHING PARA REDES
+#     HEXAGONALES, HONEYCOMB Y GEOMETRÍAS COMPLEJAS (FASE 2)
+# ==============================================================================
+#
+# Puente hacia core/lattice_generator.py (CrystalGridComposer/LatticeLayer/BasisAtom/
+# BoundingGeometry): en vez de reimplementar la expansión de celdas, rotación,
+# recorte por geometría envolvente y ordenamiento de trayectoria, este módulo
+# reutiliza el motor cristalográfico ya validado del diseñador de redes, y añade
+# el registro rígido (traslación + rotación) + emparejamiento KDTree con
+# desacoplamiento de subredes necesario para el ANÁLISIS de muestras reales
+# (a diferencia del diseñador, que sólo GENERA la plantilla ideal).
+#
+# Nota de Hallazgo (Corrección de Base Honeycomb — ver DEC-012):
+# core/lattice_generator.py::LatticeLayer._default_basis_for_type() define la base
+# honeycomb/graphene con coordenadas fraccionales u=1/3, v=2/3. Combinada con
+# gamma_deg=60° (la convención que grid_generator.py aplica automáticamente a
+# redes hexagonales/honeycomb), esto NO produce una coordinación de enlace de 3
+# vecinos equidistantes: se verificó numéricamente que genera 4 distancias de
+# enlace distintas (0.2a, 0.4a, 0.529a x2) en el primer vecindario, en vez de la
+# geometría honeycomb correcta (exactamente 3 vecinos B a d = a/sqrt(3), luego 3
+# vecinos A a d = a). La base fraccional correcta para esta convención de a1/a2
+# (gamma=60°) es u=1/3, v=1/3 (verificado numéricamente: reproduce 3 vecinos
+# equidistantes a a/sqrt(3) exactamente). Esta función usa la base corregida
+# LOCALMENTE (sin modificar core/lattice_generator.py, fuera de alcance de esta
+# misión) — se recomienda corregir el generador en un follow-up, dado que
+# CrystalGridComposer también se usa para fabricar muestras reales vía
+# grid_generator.py, y el defecto geométrico afectaría la red honeycomb impresa.
+
+_HEXAGONAL_LATTICE_TYPES = ('hexagonal', 'triangular')
+_HONEYCOMB_LATTICE_TYPES = ('honeycomb', 'graphene')
+_LATTICE_TYPE_TO_GENERATOR = {
+    'square': 'square',
+    'rectangular': 'rectangular',
+    'hexagonal': 'hexagonal',
+    'triangular': 'hexagonal',
+    'honeycomb': 'graphene',
+    'graphene': 'graphene',
+}
+
+
+def _ideal_voronoi_coordination_for_type(lattice_type: str) -> int:
+    """Coordinación geométrica de Voronoi ideal (número de lados de celda) esperada
+    para cada familia de red, verificada numéricamente en redes sintéticas sin
+    ruido: 4 (cuadrada/rectangular), 6 (hexagonal/triangular), 3 (honeycomb —
+    dominada por los 3 vecinos de enlace más cercanos, mucho más próximos que
+    el segundo anillo de la misma subred)."""
+    lt = lattice_type.lower().strip()
+    if lt in _HEXAGONAL_LATTICE_TYPES:
+        return 6
+    if lt in _HONEYCOMB_LATTICE_TYPES:
+        return 3
+    return 4
+
+
+def generate_ideal_lattice_template(
+    lattice_type: str,
+    a: float,
+    b: Optional[float] = None,
+    gamma_deg: Optional[float] = None,
+    boundary_type: str = 'hexagon',
+    boundary_size_nm: float = 5000.0,
+    rotation_deg: float = 0.0,
+    center_x_nm: float = 0.0,
+    center_y_nm: float = 0.0
+) -> Dict[str, Any]:
+    """
+    Genera una plantilla de red ideal en espacio real [nm] usando el motor
+    CrystalGridComposer de core/lattice_generator.py, recortada por una geometría
+    envolvente (hexágono, círculo o rectángulo), para servir de referencia de
+    registro rígido (template matching) contra partículas detectadas
+    experimentalmente.
+
+    Parámetros:
+    -----------
+    lattice_type : str
+        'square', 'rectangular', 'hexagonal'/'triangular' (base monoatómica,
+        gamma=60°), 'honeycomb'/'graphene' (base biatómica, gamma=60°).
+    a, b : float
+        Período(s) de red nominal [nm]. Para redes hexagonales/honeycomb, b se
+        fija a `a` (celda unitaria de Bravais monoclínica-hexagonal, b=a por
+        definición) independientemente del valor pasado.
+    gamma_deg : float, opcional
+        Ángulo entre a1 y a2. Si es None: 60° para familias hexagonal/honeycomb,
+        90° en caso contrario (misma convención que grid_generator.py).
+    boundary_type : str
+        'hexagon', 'circle' o 'rectangle'.
+    boundary_size_nm : float
+        Radio (hexágono/círculo) o lado (rectángulo) de la geometría envolvente [nm].
+    rotation_deg, center_x_nm, center_y_nm : float
+        Rotación global y desplazamiento del centro de la plantilla ideal.
+
+        ADVERTENCIA (ver DEC-012): `BoundingGeometry.is_inside()` (core/lattice_generator.py)
+        evalúa el contorno envolvente SIEMPRE centrado en el origen (0,0), incluso cuando la
+        red se traslada vía `offset_x`/`offset_y` (aplicado a los puntos ANTES del recorte, no
+        al contorno). Se verificó numéricamente que un `center_x_nm`/`center_y_nm` de apenas
+        ~1 nm puede alinear accidentalmente una fila completa de una red hexagonal exactamente
+        con el borde recto del contorno, volcándola entera adentro/afuera del recorte y
+        produciendo una plantilla con un centroide real muy distinto del solicitado (cientos
+        de nm de diferencia) y un conteo de nodos distinto. **No usar `center_x_nm`/`center_y_nm`
+        para pre-centrar la plantilla antes de `register_and_match_template`** — esa función ya
+        realiza su propia alineación de centroides internamente; generar siempre la plantilla
+        en el origen (valores por defecto) para ese flujo de trabajo.
+    """
+    try:
+        from core.lattice_generator import LatticeLayer, BasisAtom, CrystalGridComposer
+    except ImportError as e:
+        raise ImportError(f"No se pudo importar core.lattice_generator: {e}")
+
+    ltype_key = lattice_type.lower().strip()
+    mapped_type = _LATTICE_TYPE_TO_GENERATOR.get(ltype_key, ltype_key)
+    is_hex_family = ltype_key in _HEXAGONAL_LATTICE_TYPES or ltype_key in _HONEYCOMB_LATTICE_TYPES
+
+    if is_hex_family:
+        b_val = float(a)  # celda unitaria hexagonal: b = a por definición
+        gamma_val = 60.0 if gamma_deg is None else float(gamma_deg)
+    else:
+        b_val = float(b) if b is not None else float(a)
+        gamma_val = 90.0 if gamma_deg is None else float(gamma_deg)
+
+    a_um = float(a) / 1000.0
+    b_um = float(b_val) / 1000.0
+
+    layer_kwargs = dict(
+        name='template', lattice_type=mapped_type, a=a_um, b=b_um, gamma_deg=gamma_val,
+        rotation_deg=float(rotation_deg),
+        offset_x=float(center_x_nm) / 1000.0, offset_y=float(center_y_nm) / 1000.0
+    )
+    if ltype_key in _HONEYCOMB_LATTICE_TYPES:
+        # Base corregida (ver nota de hallazgo arriba): u=1/3, v=1/3 (no 1/3, 2/3)
+        layer_kwargs['atoms'] = [
+            BasisAtom(u=0.0, v=0.0, material_id=1, label='Subred A'),
+            BasisAtom(u=1.0 / 3.0, v=1.0 / 3.0, material_id=2, label='Subred B')
+        ]
+    layer = LatticeLayer(**layer_kwargs)
+
+    boundary_key = boundary_type.lower().strip()
+    size_um = float(boundary_size_nm) / 1000.0
+    if boundary_key in ('hexagon', 'hexagonal'):
+        bshape = 'hexagon'
+        bparams = {'radius': size_um}
+    elif boundary_key in ('circle', 'circular'):
+        bshape = 'circle'
+        bparams = {'radius': size_um}
+    elif boundary_key in ('rectangle', 'rectangular', 'square'):
+        bshape = 'rectangle'
+        bparams = {'lx': size_um, 'ly': size_um}
+    else:
+        bshape = 'circle'
+        bparams = {'radius': size_um}
+
+    composer = CrystalGridComposer()
+    composer.layers = [layer]
+    composer.bounding_shape = bshape
+    composer.bounding_params = bparams
+    composer.anchor_config.enabled = False
+    composer.min_distance_um = 0.0
+    composer.collision_tolerance_um = 1e-6
+
+    result = composer.generate()
+    nodes = result.get('nodes', [])
+
+    ideal_z = _ideal_voronoi_coordination_for_type(ltype_key)
+
+    if len(nodes) == 0:
+        return {
+            'x': np.array([]), 'y': np.array([]), 'sublattice_id': np.array([], dtype=int),
+            'sublattice_labels': {}, 'a_nm': float(a), 'b_nm': b_val, 'gamma_deg': gamma_val,
+            'lattice_type': ltype_key, 'n_points': 0, 'ideal_voronoi_coordination': ideal_z,
+            'boundary_type': bshape, 'boundary_size_nm': float(boundary_size_nm)
+        }
+
+    x_nm = np.array([n['x'] * 1000.0 for n in nodes], dtype=np.float64)
+    y_nm = np.array([n['y'] * 1000.0 for n in nodes], dtype=np.float64)
+    sublattice_id = np.array([n['material_id'] for n in nodes], dtype=int)
+
+    sublattice_labels: Dict[int, str] = {}
+    for n in nodes:
+        sublattice_labels.setdefault(int(n['material_id']), n.get('label', f"Subred {n['material_id']}"))
+
+    return {
+        'x': x_nm, 'y': y_nm, 'sublattice_id': sublattice_id,
+        'sublattice_labels': sublattice_labels,
+        'a_nm': float(a), 'b_nm': b_val, 'gamma_deg': gamma_val,
+        'lattice_type': ltype_key, 'n_points': len(nodes),
+        'ideal_voronoi_coordination': ideal_z,
+        'boundary_type': bshape, 'boundary_size_nm': float(boundary_size_nm)
+    }
+
+
+def register_and_match_template(
+    x_real: np.ndarray,
+    y_real: np.ndarray,
+    template_x: np.ndarray,
+    template_y: np.ndarray,
+    template_sublattice: Optional[np.ndarray] = None,
+    max_dist_nm: Optional[float] = None,
+    auto_rotate: bool = True,
+    initial_rotation_deg: float = 0.0,
+    rotation_search_range_deg: float = 15.0,
+    rotation_search_coarse_step_deg: float = 1.0,
+    rotation_search_fine_step_deg: float = 0.05
+) -> Dict[str, Any]:
+    """
+    Registro rígido (rotación + traslación) de una plantilla ideal contra
+    coordenadas reales detectadas, mediante búsqueda de rotación en 2 etapas
+    (gruesa -> fina) para evitar mínimos locales de emparejamiento con vecinos
+    adyacentes (riesgo real ante desorientación angular de montaje de muestra,
+    ~1-5°: un optimizador local ingenuo puede quedar atrapado en un múltiplo
+    del ángulo entre vecinos en vez del ángulo verdadero de desalineación).
+    Tras fijar la rotación óptima, empareja cada partícula real con su nodo de
+    plantilla más cercano (cota `max_dist_nm`) y desacopla el resultado por
+    subred (A/B) para redes con base poli-atómica (honeycomb).
+
+    Parámetros:
+    -----------
+    template_sublattice : np.ndarray, opcional
+        Etiqueta de subred (entero) de cada nodo de `template_x`/`template_y`.
+        Si es None, se asume una única subred (red de Bravais monoatómica).
+    max_dist_nm : float, opcional
+        Cota de emparejamiento. Si es None, se usa 0.5x la distancia mediana
+        al vecino más cercano dentro de la plantilla.
+    rotation_search_range_deg, rotation_search_coarse_step_deg :
+        Ventana y paso de la búsqueda gruesa (barrido exhaustivo, no gradiente,
+        para no caer en mínimos locales periódicos).
+    rotation_search_fine_step_deg :
+        Paso de refinamiento fino alrededor del mejor candidato grueso.
+    """
+    x_real = np.asarray(x_real, dtype=np.float64)
+    y_real = np.asarray(y_real, dtype=np.float64)
+    template_x = np.asarray(template_x, dtype=np.float64)
+    template_y = np.asarray(template_y, dtype=np.float64)
+    M = len(x_real)
+    N_t = len(template_x)
+
+    if M == 0 or N_t == 0:
+        raise ValueError("Se requieren coordenadas reales y de plantilla no vacías para el registro.")
+
+    if template_sublattice is None:
+        template_sublattice = np.ones(N_t, dtype=int)
+    else:
+        template_sublattice = np.asarray(template_sublattice, dtype=int)
+
+    if N_t > 1:
+        t_tree_tmp = cKDTree(np.column_stack([template_x, template_y]))
+        nn_d, _ = t_tree_tmp.query(np.column_stack([template_x, template_y]), k=2)
+        median_nn = float(np.median(nn_d[:, 1]))
+    else:
+        median_nn = 1.0
+
+    if max_dist_nm is None:
+        max_dist_nm = 0.5 * median_nn
+
+    # 1. Alineación de centroides (estimación inicial de traslación)
+    cx_real, cy_real = float(np.mean(x_real)), float(np.mean(y_real))
+    cx_t0, cy_t0 = float(np.mean(template_x)), float(np.mean(template_y))
+    tx0 = template_x - cx_t0
+    ty0 = template_y - cy_t0
+
+    def _residual_for_theta(theta_deg: float) -> float:
+        th = np.radians(theta_deg)
+        c, s = np.cos(th), np.sin(th)
+        rx = tx0 * c - ty0 * s + cx_real
+        ry = tx0 * s + ty0 * c + cy_real
+        t_tree = cKDTree(np.column_stack([rx, ry]))
+        d, _ = t_tree.query(np.column_stack([x_real, y_real]), k=1)
+        # Recorte de outliers (aglomerados / partículas espurias) para que no dominen el objetivo
+        d_clipped = np.minimum(d, median_nn)
+        return float(np.mean(d_clipped ** 2))
+
+    best_theta = float(initial_rotation_deg)
+    rotation_search_curve = None
+    if auto_rotate:
+        coarse_thetas = np.arange(
+            initial_rotation_deg - rotation_search_range_deg,
+            initial_rotation_deg + rotation_search_range_deg + 1e-9,
+            rotation_search_coarse_step_deg
+        )
+        coarse_residuals = np.array([_residual_for_theta(t) for t in coarse_thetas])
+        best_coarse_theta = float(coarse_thetas[int(np.argmin(coarse_residuals))])
+
+        fine_half_width = rotation_search_coarse_step_deg * 1.5
+        fine_thetas = np.arange(
+            best_coarse_theta - fine_half_width,
+            best_coarse_theta + fine_half_width + 1e-9,
+            rotation_search_fine_step_deg
+        )
+        fine_residuals = np.array([_residual_for_theta(t) for t in fine_thetas])
+        best_theta = float(fine_thetas[int(np.argmin(fine_residuals))])
+
+        rotation_search_curve = {'theta_deg': coarse_thetas, 'residual': coarse_residuals}
+
+    # 2. Aplicar rotación + traslación óptimas a la plantilla completa
+    th = np.radians(best_theta)
+    c, s = np.cos(th), np.sin(th)
+    reg_x = tx0 * c - ty0 * s + cx_real
+    reg_y = tx0 * s + ty0 * c + cy_real
+
+    # 3. Emparejamiento KDTree acotado: real -> plantilla más cercana
+    t_tree = cKDTree(np.column_stack([reg_x, reg_y]))
+    d_real_to_t, idx_real_to_t = t_tree.query(np.column_stack([x_real, y_real]), k=1)
+    valid_mask = d_real_to_t < max_dist_nm
+
+    x_ideal = np.where(valid_mask, reg_x[idx_real_to_t], np.nan)
+    y_ideal = np.where(valid_mask, reg_y[idx_real_to_t], np.nan)
+    sublattice_id_per_real = np.where(valid_mask, template_sublattice[idx_real_to_t], -1)
+
+    delta_x = np.full(M, np.nan)
+    delta_y = np.full(M, np.nan)
+    delta_x[valid_mask] = x_real[valid_mask] - x_ideal[valid_mask]
+    delta_y[valid_mask] = y_real[valid_mask] - y_ideal[valid_mask]
+
+    valid_dx = delta_x[valid_mask]
+    valid_dy = delta_y[valid_mask]
+    sigma_x = float(np.std(valid_dx, ddof=1)) if len(valid_dx) > 1 else 0.0
+    sigma_y = float(np.std(valid_dy, ddof=1)) if len(valid_dy) > 1 else 0.0
+    sigma_pos = float(np.sqrt((sigma_x ** 2 + sigma_y ** 2) / 2.0))
+
+    # 4. Vacancias: nodos de plantilla sin partícula real emparejada (matching inverso)
+    r_tree = cKDTree(np.column_stack([x_real, y_real]))
+    d_t_to_real, _ = r_tree.query(np.column_stack([reg_x, reg_y]), k=1)
+    template_matched_mask = d_t_to_real < max_dist_nm
+    vacant_mask = ~template_matched_mask
+    vacant_x = reg_x[vacant_mask]
+    vacant_y = reg_y[vacant_mask]
+    vacant_sublattice = template_sublattice[vacant_mask]
+
+    n_vac_by_sublattice: Dict[int, int] = {}
+    n_sites_by_sublattice: Dict[int, int] = {}
+    for sub_id in np.unique(template_sublattice):
+        n_sites_by_sublattice[int(sub_id)] = int(np.sum(template_sublattice == sub_id))
+        n_vac_by_sublattice[int(sub_id)] = int(np.sum(vacant_sublattice == sub_id))
+
+    return {
+        'theta_fit_deg': best_theta,
+        'centroid_shift_x_nm': cx_real - cx_t0,
+        'centroid_shift_y_nm': cy_real - cy_t0,
+        'x_ideal': x_ideal, 'y_ideal': y_ideal,
+        'valid_mask': valid_mask,
+        'sublattice_id': sublattice_id_per_real,
+        'delta_x': delta_x, 'delta_y': delta_y,
+        'sigma_x': sigma_x, 'sigma_y': sigma_y, 'sigma_pos': sigma_pos,
+        'matched_count': int(np.sum(valid_mask)),
+        'particles_detected': M,
+        'vacant_points': np.column_stack([vacant_x, vacant_y]) if len(vacant_x) > 0 else np.empty((0, 2)),
+        'vacant_sublattice_id': vacant_sublattice,
+        'n_vacancies_by_sublattice': n_vac_by_sublattice,
+        'n_sites_by_sublattice': n_sites_by_sublattice,
+        'n_vacancies_total': int(np.sum(vacant_mask)),
+        'n_template_sites': N_t,
+        'registered_template_x': reg_x, 'registered_template_y': reg_y,
+        'rotation_search_curve': rotation_search_curve,
+        'max_dist_nm': float(max_dist_nm),
+        'median_nn_dist_nm': median_nn
+    }
+
+
+def compute_basis_structure_factor(
+    Gx: np.ndarray,
+    Gy: np.ndarray,
+    sublattice_offsets_nm: List[Tuple[float, float]]
+) -> np.ndarray:
+    """
+    Factor de estructura geométrico |F(G)|^2 = |sum_kappa exp(-i G . d_kappa)|^2 de
+    una base de N_atomos por celda unidad, evaluado en vectores recíprocos (Gx, Gy)
+    [rad/nm]. Predice qué órdenes de Bragg son geométricamente suprimidos por
+    interferencia destructiva entre subredes, independientemente del desorden
+    posicional (efecto puramente geométrico de la base, no del desorden térmico).
+
+    Para honeycomb (2 átomos, offset relativo tau = d_B - d_A):
+        F(G) = 1 + exp(-i G . tau)
+    con d_A = (0,0) como origen de referencia.
+    """
+    Gx = np.asarray(Gx, dtype=np.float64)
+    Gy = np.asarray(Gy, dtype=np.float64)
+    F = np.zeros(Gx.shape, dtype=complex)
+    for dx, dy in sublattice_offsets_nm:
+        F = F + np.exp(-1j * (Gx * dx + Gy * dy))
+    return np.abs(F) ** 2
+
+
+def extract_angular_profile(
+    S: np.ndarray,
+    fx: np.ndarray,
+    fy: np.ndarray,
+    angle_deg: float,
+    band_width_bins: int = 2
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Extrae el perfil 1D de S(fx, fy) a lo largo de una dirección angular arbitraria
+    (0° = eje fx positivo, sentido antihorario), promediando una banda transversal
+    de ancho `band_width_bins`. Generaliza extract_diagonal_profile (caso fijo 45°)
+    a ángulos arbitrarios, necesario para los cortes de simetría hexagonal a
+    0°, 60° y 120°.
+    """
+    n_bins_y, n_bins_x = S.shape
+    iy_zero = int(np.argmin(np.abs(fy)))
+    ix_zero = int(np.argmin(np.abs(fx)))
+    theta = math.radians(angle_deg)
+    cos_t, sin_t = math.cos(theta), math.sin(theta)
+
+    df_x = float(fx[1] - fx[0]) if len(fx) > 1 else 1.0
+    df_y = float(fy[1] - fy[0]) if len(fy) > 1 else 1.0
+
+    f_max = float(min(np.max(np.abs(fx)), np.max(np.abs(fy))))
+    n_r = max(2, min(n_bins_x, n_bins_y) // 2)
+    r_vals = np.linspace(0.0, f_max, n_r)
+    profile = np.zeros(n_r, dtype=np.float64)
+
+    for idx, r in enumerate(r_vals):
+        f_along_x = r * cos_t
+        f_along_y = r * sin_t
+        vals = []
+        for k in range(-band_width_bins, band_width_bins + 1):
+            fx_query = f_along_x - sin_t * k * df_x
+            fy_query = f_along_y + cos_t * k * df_y
+            ix = ix_zero + int(round(fx_query / df_x))
+            iy = iy_zero + int(round(fy_query / df_y))
+            if 0 <= ix < n_bins_x and 0 <= iy < n_bins_y:
+                vals.append(S[iy, ix])
+        profile[idx] = float(np.mean(vals)) if vals else 0.0
+
+    return r_vals, profile
+
+
+def compute_radial_azimuthal_profile(
+    S: np.ndarray,
+    fx: np.ndarray,
+    fy: np.ndarray,
+    n_r_bins: int = 128
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Integra azimutalmente S(fx, fy): S(q) = (1/2*pi) * integral_0^(2*pi) S(q,theta) dtheta,
+    vectorizado vía np.bincount (sin bucle Python sobre el ángulo). Útil para redes
+    con mosaico angular significativo o muestras policristalinas donde los picos de
+    Bragg discretos de una red hexagonal/honeycomb se combinan en anillos continuos.
+    """
+    FX, FY = np.meshgrid(fx, fy)
+    R = np.sqrt(FX ** 2 + FY ** 2).ravel()
+    S_flat = np.asarray(S, dtype=np.float64).ravel()
+
+    f_max = float(min(np.max(np.abs(fx)), np.max(np.abs(fy))))
+    r_edges = np.linspace(0.0, f_max, n_r_bins + 1)
+    r_centers = (r_edges[:-1] + r_edges[1:]) / 2.0
+
+    bin_idx = np.digitize(R, r_edges) - 1
+    valid = (bin_idx >= 0) & (bin_idx < n_r_bins)
+    sums = np.bincount(bin_idx[valid], weights=S_flat[valid], minlength=n_r_bins)
+    counts = np.bincount(bin_idx[valid], minlength=n_r_bins)
+    q_profile = np.divide(sums, counts, out=np.zeros(n_r_bins, dtype=np.float64), where=counts > 0)
+
+    return r_centers, q_profile
 
 
 def compute_radial_distribution_function(
@@ -4572,6 +5079,127 @@ def run_monte_carlo_calibration(
         'H_mean_2y': H_mean_2y,
         'H_std_2y': H_std_2y,
         'fit_2y': fit_res_2y
+    }
+
+
+def run_hexagonal_monte_carlo_calibration(
+    lattice_type: str,
+    a: float,
+    boundary_type: str = 'hexagon',
+    boundary_size_nm: float = 4000.0,
+    f_vac: float = 0.0,
+    sigma_min: float = 0.0,
+    sigma_max: float = 60.0,
+    n_sigma_steps: int = 25,
+    iterations_per_step: int = 40,
+    progress_callback: Optional[Callable[[int, int, float], None]] = None,
+    n_bragg_pts: int = 81,
+    seed: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Calibración estocástica Monte Carlo de la atenuación de Debye-Waller para redes
+    hexagonales/triangulares (Z=6) y honeycomb/grafeno (Z=3, base biatómica), acotadas
+    dentro de una geometría poligonal (hexágono, círculo o rectángulo).
+
+    Reutiliza `generate_ideal_lattice_template` (puente a core/lattice_generator.py)
+    para la grilla ideal base, e inyecta vacancias + desorden gaussiano con el mismo
+    esquema estadístico que `run_monte_carlo_calibration`, evaluando S(f) promediada
+    sobre las 6 direcciones de Bragg de 1er orden equivalentes por simetría hexagonal
+    (0°, 60°, ..., 300°) en f0 = 2/(sqrt(3)*a), mediante una única evaluación vectorizada
+    BLAS (np.outer + suma compleja) sin bucle Python por dirección/frecuencia. Para
+    honeycomb, el factor de estructura de base F(G) = 1 + exp(-i*G.tau) emerge
+    naturalmente de la doble subred real (A+B) al evaluar S sobre TODAS las partículas
+    (no requiere un término multiplicativo aparte), igual que en el motor NUFFT principal
+    (compute_structure_factor_2d) — ver compute_basis_structure_factor para la predicción
+    analítica independiente de este mismo efecto.
+    """
+    ltype_key = lattice_type.lower().strip()
+    template = generate_ideal_lattice_template(
+        lattice_type=ltype_key, a=a, boundary_type=boundary_type, boundary_size_nm=boundary_size_nm
+    )
+    x0_flat = template['x']
+    y0_flat = template['y']
+    N_sites = len(x0_flat)
+    if N_sites < 4:
+        raise ValueError("La geometría envolvente no generó suficientes sitios de red ideal para calibrar.")
+
+    f_vac = float(np.clip(f_vac, 0.0, 0.95))
+    rng = np.random.default_rng(seed)
+    sigma_values = np.linspace(sigma_min, sigma_max, n_sigma_steps)
+    total_runs = n_sigma_steps * iterations_per_step
+
+    f0 = 2.0 / (np.sqrt(3.0) * float(a))
+    n_pts = max(31, int(n_bragg_pts))
+    f_eval = np.linspace(f0 * 0.75, f0 * 1.25, n_pts)
+    # Las 6 direcciones equivalentes de Bragg de 1er orden están a -30°, 30°, 90°, ...
+    # (paso de 60°), NO a 0°, 60°, 120°, ... : el retículo recíproco de una red triangular
+    # con vectores primitivos reales a1=(a,0), a2=(a*cos60, a*sin60) está rotado 30° respecto
+    # a la orientación real-espacio (resultado cristalográfico estándar, verificado numéricamente
+    # por fuerza bruta contra generate_ideal_lattice_template antes de fijar esta constante —
+    # una asunción inicial de 0°/60°/... producía una atenuación Debye-Waller CRECIENTE y
+    # espuria con sigma, ya que evaluaba S fuera del pico real de Bragg).
+    angles_deg = np.array([-30.0, 30.0, 90.0, 150.0, 210.0, 270.0])
+    angles_rad = np.radians(angles_deg)
+    fx_dirs = np.outer(np.cos(angles_rad), f_eval).ravel()  # (6*n_pts,)
+    fy_dirs = np.outer(np.sin(angles_rad), f_eval).ravel()
+
+    H_mean = np.zeros(n_sigma_steps, dtype=np.float64)
+    H_std = np.zeros(n_sigma_steps, dtype=np.float64)
+    run_counter = 0
+
+    for i, s in enumerate(sigma_values):
+        heights_step = []
+        for _ in range(iterations_per_step):
+            if f_vac > 0:
+                keep_mask = rng.uniform(0, 1, N_sites) >= f_vac
+                if np.sum(keep_mask) < 4:
+                    keep_mask[:4] = True
+                x_occ = x0_flat[keep_mask]
+                y_occ = y0_flat[keep_mask]
+            else:
+                x_occ = x0_flat
+                y_occ = y0_flat
+            N_occ = len(x_occ)
+
+            if s > 0:
+                x_noisy = x_occ + rng.normal(0, s, N_occ)
+                y_noisy = y_occ + rng.normal(0, s, N_occ)
+            else:
+                x_noisy = x_occ
+                y_noisy = y_occ
+
+            phase = np.outer(fx_dirs, x_noisy) + np.outer(fy_dirs, y_noisy)  # (6*n_pts, N_occ)
+            amp_sum = np.sum(np.exp(-2j * np.pi * phase), axis=1)
+            S_by_dir = ((np.abs(amp_sum) ** 2) / float(N_occ)).reshape(len(angles_deg), n_pts)
+            profile = np.mean(S_by_dir, axis=0)
+            heights_step.append(float(np.max(profile)))
+
+            run_counter += 1
+            if progress_callback is not None and run_counter % 10 == 0:
+                progress_callback(run_counter, total_runs, (run_counter / total_runs) * 100.0)
+
+        H_mean[i] = float(np.mean(heights_step))
+        H_std[i] = float(np.std(heights_step, ddof=1)) if len(heights_step) > 1 else 0.0
+
+    if progress_callback is not None:
+        progress_callback(total_runs, total_runs, 100.0)
+
+    fit_res = fit_debye_waller_curve(sigma_values, H_mean, f_vac=f_vac)
+
+    return {
+        'lattice_type': ltype_key,
+        'a': float(a),
+        'f0': f0,
+        'boundary_type': template['boundary_type'],
+        'boundary_size_nm': float(boundary_size_nm),
+        'N_sites': N_sites,
+        'n_side': int(round(math.sqrt(N_sites))),  # aproximación retrocompatible para UI ("N x N" nominal)
+        'f_vac': f_vac,
+        'sigma_values': sigma_values,
+        'H_mean': H_mean,
+        'H_std': H_std,
+        'fit': fit_res,
+        'ideal_voronoi_coordination': template['ideal_voronoi_coordination']
     }
 
 

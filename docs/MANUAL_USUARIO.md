@@ -1201,12 +1201,19 @@ Cualquier operador puede procesar una serie espectral completa siguiendo este pr
 
 El botón **`✨ Analizador de Redes & Desorden`** (en la categoría de *Herramientas de Análisis y Procesamiento* del lanzador `main.py` o ejecutando directamente `python analysis/lattice_disorder_gui.py`) abre la suite metrológica dedicada a la caracterización cristalográfica de redes 2D nanofabricadas.
 
-### 13.1 Arquitectura en 4 Pestañas Secuenciales (Workflow Wizard)
+### 13.1 Arquitectura en 5 Pestañas Secuenciales (Workflow Wizard)
+
+> [!IMPORTANT]
+> **Fase 2:** desde esta actualización, la suite soporta además redes **hexagonales/triangulares**
+> y **honeycomb/grafeno** (no sólo cuadradas/rectangulares), con registro rígido contra una
+> plantilla ideal y desacople por subred A/B — ver §13.6 más abajo y [[MOD-08_Analizador_Desorden_Redes_2D|MOD-08]] §6.
+
 Siguiendo la ergonomía modular de SIF Analyzer, la suite se estructura en un flujo secuencial continuo:
-1. **Pestaña 1 (📍 Espacio Real & SMLM):** Carga dual de imágenes confocales (`.tiff`, `.png`, `.h5`) o tablas de coordenadas previas (`.csv`, `.txt`), configuración métrica ($\text{nm/px}$), panel dinámico de detección (Picasso / Trackpy), superposición de partículas detectadas (cian) y nodos vacantes (rojo), métricas de KDTree acotado, pipeline de curación de clústeres, inspección manual de puntos sospechosos y sub-panel interactivo de la función de distribución radial $g(r)$.
-2. **Pestaña 2 (📊 Espacio Recíproco & Fourier):** Mapa de difracción 2D continuo $S(f_x, f_y)$ mediante NUFFT acelerada por BLAS en $\log_{10}(1+S)$ con retículo en $\text{nm}^{-1}$, marcas de cruces en los picos de Bragg ajustados, perfiles transversales 1D integrados con ajuste gaussiano analítico en tiempo real, selector de tamaño de grilla ($256$ vs $512$), control reactivo de corte DC, tarjeta de parámetros de red ($a_x, a_y, a_{\text{mean}}$, anisotropía, alturas $H_x, H_y$, $\text{FWHM}$ y longitud de correlación $\xi$) y botón de propagación a Monte Carlo en 1 clic.
-3. **Pestaña 3 (🔄 Monte Carlo & Debye-Waller):** Simulación estocástica asíncrona en hilo dedicado (`QThread`) con barra de progreso interactiva, inyección explícita de la fracción de vacancias $p = f_{\text{vac}}$, soporte para anisotropía cristalográfica de red ($a_x \neq a_y$) con evaluación simultánea de curvas Debye-Waller duales para $X$ (azul) e $Y$ (rojo), muestreo continuo de alta resolución en la campana de Bragg (81 o 121 puntos continuos) para suprimir el error de cuantización por efecto peine (*picket-fence*), isomorfismo de cuadratura mediante integración de banda transversal idéntica a la Pestaña 2, proyección gráfica de las alturas experimentales e interpolación numérica de $\sigma_{\text{real}, x}, \sigma_{\text{real}, y} \pm \Delta \sigma$ junto a los dos coeficientes $R^2_x, R^2_y$, con persistencia completa en disco (`.npz`).
-4. **Pestaña 4 (📤 Ficha Metrológica & Exportación):** Ficha metrológica consolidada de 12 parámetros cuantitativos, exportadores de coordenadas `.csv` (con parámetros extendidos de localización), resumen metrológico `.txt`, curva de calibración `.csv` y generador de galería de 5 figuras científicas listas para publicación a 600 DPI (formatos SVG y PNG).
+1. **Pestaña 1 (🔬 Detección, SMLM & Curación):** Carga dual de imágenes confocales (`.tiff`, `.png`, `.h5`) o tablas de coordenadas previas (`.csv`, `.txt`), configuración métrica ($\text{nm/px}$), panel dinámico de detección (Picasso / Trackpy), superposición de partículas detectadas (cian), pipeline de curación de clústeres e inspección manual de puntos sospechosos.
+2. **Pestaña 2 (📐 Espacio Real & Topología):** Tipo de red (cuadrada/rectangular/hexagonal-triangular/honeycomb-grafeno), geometría envolvente y rotación (Fase 2); métricas de KDTree/registro rígido acotado, nodos vacantes (rojo), sub-panel interactivo de $g(r)$, y visor de topología (celdas de Voronoi, triangulación de Delaunay, campo de desplazamientos quiver y mapa de orden orientacional $\psi_n$).
+3. **Pestaña 3 (📊 Espacio Recíproco & Fourier):** Mapa de difracción 2D continuo $S(f_x, f_y)$ mediante NUFFT acelerada por BLAS en $\log_{10}(1+S)$ con retículo en $\text{nm}^{-1}$, marcas de cruces en los picos de Bragg ajustados, perfiles transversales 1D integrados con ajuste gaussiano analítico en tiempo real, selector de tamaño de grilla ($256$ vs $512$), control reactivo de corte DC, tarjeta de parámetros de red ($a_x, a_y, a_{\text{mean}}$, anisotropía, alturas $H_x, H_y$, $\text{FWHM}$ y longitud de correlación $\xi$) y botón de propagación a Monte Carlo en 1 clic. En redes hexagonales/honeycomb, este mapa muestra automáticamente las 6 direcciones de Bragg correctas y el perfil radial azimutal $S(q)$ en su lugar.
+4. **Pestaña 4 (🔄 Monte Carlo & Debye-Waller):** Simulación estocástica asíncrona en hilo dedicado (`QThread`) con barra de progreso interactiva, inyección explícita de la fracción de vacancias $p = f_{\text{vac}}$, soporte para anisotropía cristalográfica de red ($a_x \neq a_y$) con evaluación simultánea de curvas Debye-Waller duales para $X$ (azul) e $Y$ (rojo), muestreo continuo de alta resolución en la campana de Bragg (81 o 121 puntos continuos) para suprimir el error de cuantización por efecto peine (*picket-fence*), isomorfismo de cuadratura mediante integración de banda transversal idéntica a la Pestaña 3, proyección gráfica de las alturas experimentales e interpolación numérica de $\sigma_{\text{real}, x}, \sigma_{\text{real}, y} \pm \Delta \sigma$ junto a los dos coeficientes $R^2_x, R^2_y$, con persistencia completa en disco (`.npz`). Despacha automáticamente a la calibración hexagonal/honeycomb cuando corresponde.
+5. **Pestaña 5 (📤 Ficha Metrológica & Exportación):** Ficha metrológica consolidada de parámetros cuantitativos, exportadores de coordenadas `.csv` (con parámetros extendidos de localización), resumen metrológico `.txt`, curva de calibración `.csv` y generador de galería de figuras científicas listas para publicación a 600 DPI (formatos SVG y PNG).
 
 ---
 
@@ -1297,7 +1304,67 @@ $$S(\mathbf{q}) = \frac{1}{N} \left| \sum_{j=1}^N e^{-i \mathbf{q} \cdot \mathbf
 
 ---
 
-### 13.6 Referencias Cruzadas y Reportes Científicos
+### 13.6 Caracterización de Muestras Hexagonales o Honeycomb (Fase 2)
+
+> [!NOTE]
+> Aplica a muestras impresas con simetría hexagonal/triangular (coordinación $Z=6$) o
+> honeycomb/grafeno (base de 2 subredes A/B, coordinación de enlace $Z=3$). Para redes
+> cuadradas/rectangulares, seguir el flujo estándar de §13.1 sin cambios.
+
+**Procedimiento paso a paso:**
+
+1. **Pestaña 1:** Cargar la imagen o tabla de coordenadas y detectar partículas exactamente
+   igual que para una red cuadrada (§13.1, paso 1).
+2. **Pestaña 2 → Grupo "0. Tipo de Red y Geometría Envolvente":**
+   - Seleccionar `Hexagonal / Triangular` o `Honeycomb / Grafeno` en el selector de tipo de red.
+   - Se revela un panel adicional:
+     - **Geometría Envolvente:** `Hexagonal`, `Circular` o `Rectangular` — la forma del
+       contorno usado para generar la plantilla ideal de referencia.
+     - **Tamaño Envolvente (radio/lado, nm):** debe cubrir holgadamente el área real
+       impresa (se recomienda 1.2–1.5× el radio de la muestra); si es demasiado chico, se
+       perderán partículas reales cerca del borde de la plantilla como falsas vacancias.
+     - **Rotación Automática (registro rígido):** activada por defecto — el software
+       encuentra automáticamente el ángulo de desalineación de montaje de la muestra
+       (tolerancia típica $1$–$5°$) sin intervención manual.
+     - **Rotación Manual / Inicial (°):** si se desactiva la rotación automática, fija el
+       ángulo exactamente a este valor; si permanece activa, se usa como punto de partida
+       de la búsqueda (útil si se conoce aproximadamente la orientación de montaje).
+3. **Pestaña 2 → Grupo "1. Parámetros Cristalográficos":** ingresar el período nominal `a`
+   de la red de Bravais subyacente. **Para honeycomb, `a` es el período de red, no la
+   distancia de enlace átomo-átomo** ($a/\sqrt{3}$, calculada automáticamente).
+4. Presionar **`▶ Analizar Espacio Real y Topología`**. La tarjeta de métricas reporta:
+   - El ángulo de registro rígido $\theta$ encontrado.
+   - Orden orientacional $\langle\psi_6\rangle$ (hexagonal) o $\langle\psi_3\rangle$ (honeycomb).
+   - Defectos topológicos de Voronoi ($Z \neq 6$ o $Z \neq 3$ según corresponda).
+   - **Vacancias desglosadas por subred A y B independientemente** (sólo honeycomb) — permite
+     detectar si una subred tiene una tasa de vacancias sistemáticamente mayor que la otra.
+5. **Visor de Topología (Pestaña 2, derecha):** el selector permite alternar entre celdas de
+   Voronoi (coloreadas por coordinación $Z$), triangulación de Delaunay, campo de
+   desplazamientos (quiver, con escala de flecha ajustable) o el mapa de color del orden
+   orientacional local. En honeycomb, las partículas de la subred A se muestran en azul y
+   las de la subred B en rojo/rosa.
+6. **Pestaña 3 (Espacio Recíproco):** el mapa $S(f_x,f_y)$ dibuja automáticamente las 6
+   direcciones de Bragg hexagonales correctas (rotadas 30° respecto a los ejes reales, **no**
+   sobre los ejes cartesianos $f_x/f_y$) y un anillo de referencia; la tarjeta de métricas
+   reporta el radio de anillo detectado vía integración radial en vez de la jerarquía
+   cartesiana de Bragg (que no aplica a esta simetría).
+7. **Pestaña 4 (Monte Carlo):** al presionar `🚀 Iniciar Simulación Monte Carlo`, la suite
+   despacha automáticamente a la calibración hexagonal/honeycomb (misma geometría envolvente
+   configurada en el paso 2), sin necesidad de configuración adicional.
+8. **Pestaña 5:** exportar la ficha metrológica y galería de figuras como de costumbre.
+
+> [!WARNING]
+> **Corrección de Base Honeycomb:** si se importa una plantilla o receta honeycomb generada
+> con una versión anterior del **Diseñador de Redes** (`grid_generator.py`), verificar la
+> distancia de enlace real de la muestra impresa contra $a/\sqrt{3}$ antes de confiar en el
+> análisis — se detectó y documentó (`DEC-012`) que la base honeycomb del generador no
+> produce geometría de enlace válida bajo su configuración por defecto. El analizador de
+> desorden ya usa la base corregida internamente; el generador de redes está pendiente de
+> corrección en una tarea de seguimiento.
+
+---
+
+### 13.7 Referencias Cruzadas y Reportes Científicos
 Para una profundización exhaustiva en la teoría física, las derivaciones analíticas y los benchmarks computacionales, consulte los documentos complementarios en la suite:
 * 📄 **Manual Técnico del Módulo 08:** [[MOD-08_Analizador_Desorden_Redes_2D|MOD-08: Analizador de Desorden y Redes 2D]].
 * 🔬 **Reporte de Superresolución y Curación:** [[CAT-204_Curacion_Fotometrica_Desacople_MultiGaussiano_Consistencia|CAT-204: Curación Fotométrica y Desacople Multi-Gaussiano]].

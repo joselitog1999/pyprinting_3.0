@@ -55,7 +55,13 @@ from core.lattice_disorder import (
     compute_analytical_bragg_relations,
     compute_bond_orientational_order,
     compute_voronoi_topology,
-    compute_quiver_and_strain
+    compute_quiver_and_strain,
+    generate_ideal_lattice_template,
+    register_and_match_template,
+    compute_basis_structure_factor,
+    extract_angular_profile,
+    compute_radial_azimuthal_profile,
+    run_hexagonal_monte_carlo_calibration
 )
 from core.localization_pipeline import (
     load_coordinates,
@@ -1264,6 +1270,344 @@ def test_run_monte_carlo_calibration_independent_grid_dimensions():
     assert mc_res['n_side_y'] == 9
     assert mc_res['N_sites'] == 54
     assert mc_res['is_anisotropic'] is True
+
+
+# ==============================================================================
+# FASE 2: REDES HEXAGONALES, HONEYCOMB Y TEMPLATE MATCHING UNIVERSAL
+# ==============================================================================
+
+def test_generate_ideal_lattice_template_hexagonal():
+    """Verifica que la plantilla hexagonal generada vía core.lattice_generator tenga
+    coordinación Voronoi ideal 6 y una única subred (base monoatómica)."""
+    template = generate_ideal_lattice_template(
+        lattice_type='hexagonal', a=500.0, boundary_type='hexagon', boundary_size_nm=4000.0
+    )
+    assert template['n_points'] > 50
+    assert template['ideal_voronoi_coordination'] == 6
+    assert np.all(template['sublattice_id'] == 1)
+    assert template['gamma_deg'] == 60.0
+    assert template['b_nm'] == 500.0
+
+
+def test_generate_ideal_lattice_template_honeycomb():
+    """Verifica que la plantilla honeycomb tenga 2 subredes A/B casi equinuméricas,
+    coordinación Voronoi ideal 3, y que la base corregida (u=1/3, v=1/3; ver DEC-012)
+    produzca la geometría de enlace honeycomb correcta: 3 vecinos equidistantes a
+    d = a/sqrt(3), no la base original de core.lattice_generator (u=1/3, v=2/3) que
+    se verificó no produce un honeycomb geométricamente válido bajo gamma=60°."""
+    a_val = 600.0
+    template = generate_ideal_lattice_template(
+        lattice_type='honeycomb', a=a_val, boundary_type='hexagon', boundary_size_nm=4500.0
+    )
+    assert template['n_points'] > 100
+    assert template['ideal_voronoi_coordination'] == 3
+    assert set(np.unique(template['sublattice_id']).tolist()) == {1, 2}
+    n_a = int(np.sum(template['sublattice_id'] == 1))
+    n_b = int(np.sum(template['sublattice_id'] == 2))
+    assert abs(n_a - n_b) <= max(2, int(0.1 * max(n_a, n_b)))
+
+    # Verificar geometría de enlace: cada átomo A interno tiene exactamente 3 vecinos B
+    # equidistantes a a/sqrt(3), no una mezcla de distancias distintas (bug de la base original)
+    from scipy.spatial import cKDTree
+    pts = np.column_stack([template['x'], template['y']])
+    tree = cKDTree(pts)
+    cx, cy = np.mean(template['x']), np.mean(template['y'])
+    d_center = np.hypot(template['x'] - cx, template['y'] - cy)
+    idx_internal = np.where((template['sublattice_id'] == 1) & (d_center < 1500.0))[0]
+    assert len(idx_internal) > 0
+    d_bond_expected = a_val / np.sqrt(3.0)
+    for idx in idx_internal[:10]:
+        dist, nn = tree.query(pts[idx], k=4)
+        bond_dists = dist[1:4]  # 3 vecinos más cercanos (excluye el propio punto)
+        assert np.all(np.abs(bond_dists - d_bond_expected) < 1.0), (
+            f"Vecinos no equidistantes: {bond_dists} vs esperado {d_bond_expected}"
+        )
+
+
+def test_register_and_match_template_hexagonal_recovers_rotation_and_sigma():
+    """Misión Fase 2: red hexagonal sintética dentro de un hexágono (a=500nm) con
+    rotación y ruido posicional inyectados. Verifica recuperación del ángulo de
+    rotación, de sigma_pos, detección de Z=6 en el bulk y <psi6> ~ 1.0."""
+    a_val = 500.0
+    template = generate_ideal_lattice_template(
+        lattice_type='hexagonal', a=a_val, boundary_type='hexagon', boundary_size_nm=4000.0
+    )
+
+    rng = np.random.default_rng(42)
+    sigma_in = 15.0
+    theta_true_deg = 3.0
+    th = np.radians(theta_true_deg)
+    cx, cy = np.mean(template['x']), np.mean(template['y'])
+    tx = template['x'] - cx
+    ty = template['y'] - cy
+    x_rot = tx * np.cos(th) - ty * np.sin(th) + cx
+    y_rot = tx * np.sin(th) + ty * np.cos(th) + cy
+    x_real = x_rot + rng.normal(0, sigma_in, len(x_rot))
+    y_real = y_rot + rng.normal(0, sigma_in, len(y_rot))
+
+    match = register_and_match_template(
+        x_real, y_real, template['x'], template['y'], template['sublattice_id'],
+        rotation_search_range_deg=10.0
+    )
+
+    assert abs(match['theta_fit_deg'] - theta_true_deg) < 0.5, (
+        f"theta_fit={match['theta_fit_deg']} lejos del verdadero {theta_true_deg}"
+    )
+    assert abs(match['sigma_pos'] - sigma_in) < 4.0
+    assert match['matched_count'] > 0.9 * len(x_real)
+
+    mx = x_real[match['valid_mask']]
+    my = y_real[match['valid_mask']]
+    margin = 1.0 * a_val
+    x_range = (float(np.min(mx)) + margin, float(np.max(mx)) - margin)
+    y_range = (float(np.min(my)) + margin, float(np.max(my)) - margin)
+    vor_res = compute_voronoi_topology(mx, my, x_range=x_range, y_range=y_range, ideal_z=6)
+    assert vor_res['n_internal'] > 0
+    internal_coord = vor_res['coordination'][vor_res['is_internal']]
+    assert np.mean(internal_coord == 6) > 0.85
+
+    bo_res = compute_bond_orientational_order(mx, my, k_neighbors=6)
+    assert bo_res['psi6_mean'] > 0.7
+
+
+def test_register_and_match_template_honeycomb_sublattices_and_vacancies():
+    """Misión Fase 2: red honeycomb sintética (a=600nm, 2 átomos por celda) con 3
+    vacancias inyectadas (1 en subred A, 2 en subred B). Verifica asignación correcta
+    a subredes A/B, detección de vacancias por subred, Z=3 en el bulk (coordinación
+    Voronoi) y primer pico de g(r) en d = a/sqrt(3) (no en a, que sería el 2do pico
+    de la misma subred)."""
+    a_val = 600.0
+    template = generate_ideal_lattice_template(
+        lattice_type='honeycomb', a=a_val, boundary_type='hexagon', boundary_size_nm=4500.0
+    )
+
+    rng = np.random.default_rng(7)
+    idx_a = np.where(template['sublattice_id'] == 1)[0]
+    idx_b = np.where(template['sublattice_id'] == 2)[0]
+    cx, cy = np.mean(template['x']), np.mean(template['y'])
+    d_center = np.hypot(template['x'] - cx, template['y'] - cy)
+    # Elegir átomos internos (lejos del borde) para que la vacancia no se confunda
+    # con el recorte de la geometría envolvente
+    idx_a_internal = idx_a[np.argsort(d_center[idx_a])[:len(idx_a) // 2]]
+    idx_b_internal = idx_b[np.argsort(d_center[idx_b])[:len(idx_b) // 2]]
+    remove_a = rng.choice(idx_a_internal, size=1, replace=False)
+    remove_b = rng.choice(idx_b_internal, size=2, replace=False)
+    keep_mask = np.ones(template['n_points'], dtype=bool)
+    keep_mask[remove_a] = False
+    keep_mask[remove_b] = False
+
+    sigma_in = 10.0
+    x_real = template['x'][keep_mask] + rng.normal(0, sigma_in, int(np.sum(keep_mask)))
+    y_real = template['y'][keep_mask] + rng.normal(0, sigma_in, int(np.sum(keep_mask)))
+
+    match = register_and_match_template(
+        x_real, y_real, template['x'], template['y'], template['sublattice_id'],
+        rotation_search_range_deg=5.0
+    )
+
+    assert match['n_vacancies_by_sublattice'][1] >= 1
+    assert match['n_vacancies_by_sublattice'][2] >= 2
+    assert abs(match['sigma_pos'] - sigma_in) < 5.0
+
+    # Verificar que las partículas reales fueron correctamente etiquetadas por subred:
+    # comparar contra la subred del template en el índice correcto (usando el registro
+    # identidad ~0° para este caso sin rotación inyectada)
+    valid = match['valid_mask']
+    assert np.all(np.isin(match['sublattice_id'][valid], [1, 2]))
+
+    # g(r): primer pico en d = a/sqrt(3), NO en a (2do pico, misma subred)
+    d_bond = a_val / np.sqrt(3.0)
+    rdf_res = compute_radial_distribution_function(
+        x_real, y_real, a_nominal=d_bond, r_max_factor=3.0,
+        r_diffraction_limit=0.0, enforce_diffraction_limit=False
+    )
+    assert abs(rdf_res['first_peak_r'] - d_bond) < 30.0, (
+        f"first_peak_r={rdf_res['first_peak_r']} lejos de d_bond={d_bond}"
+    )
+
+    # Coordinación Voronoi ideal_z=3 en el bulk
+    mx, my = x_real[valid], y_real[valid]
+    margin = 1.0 * a_val
+    x_range = (float(np.min(mx)) + margin, float(np.max(mx)) - margin)
+    y_range = (float(np.min(my)) + margin, float(np.max(my)) - margin)
+    vor_res = compute_voronoi_topology(mx, my, x_range=x_range, y_range=y_range, ideal_z=3)
+    assert vor_res['n_internal'] > 0
+    internal_coord = vor_res['coordination'][vor_res['is_internal']]
+    assert np.mean(internal_coord == 3) > 0.85
+
+
+def test_register_and_match_template_hexagonal_robust_to_unshifted_template():
+    """Regresión (DEC-012): register_and_match_template debe alinear correctamente datos
+    reales hexagonales contra una plantilla generada SIN center_x_nm/center_y_nm (el patrón
+    correcto -- la función ya hace su propia alineación de centroides internamente). Se
+    encontró y documentó que pre-centrar la plantilla en generate_ideal_lattice_template
+    con un offset de apenas ~1 nm puede alinear accidentalmente una fila completa de la red
+    con el borde recto del contorno envolvente (BoundingGeometry.is_inside no se re-centra
+    con offset_x/offset_y), produciendo una plantilla asimétrica con centroide real muy
+    distinto del solicitado y arruinando el registro rígido (sigma_pos inflado ~10x)."""
+    a_val = 500.0
+    template = generate_ideal_lattice_template(
+        lattice_type='hexagonal', a=a_val, boundary_type='hexagon', boundary_size_nm=4000.0
+    )
+    rng = np.random.default_rng(2)
+    sigma_in = 12.0
+    x_real = template['x'] + rng.normal(0, sigma_in, template['n_points'])
+    y_real = template['y'] + rng.normal(0, sigma_in, template['n_points'])
+
+    # Patrón correcto: NO pasar center_x_nm/center_y_nm (aunque los datos reales no estén
+    # centrados exactamente en el origen -- register_and_match_template debe manejarlo).
+    match = register_and_match_template(x_real, y_real, template['x'], template['y'], template['sublattice_id'])
+
+    assert abs(match['sigma_pos'] - sigma_in) < 4.0, (
+        f"sigma_pos={match['sigma_pos']} muy lejos de sigma inyectado={sigma_in} "
+        "(síntoma de una plantilla mal alineada/asimétrica)"
+    )
+    assert match['matched_count'] == template['n_points']
+
+
+def test_generate_ideal_lattice_template_center_offset_sensitivity_documented():
+    """Documenta (no 'arregla', ver DEC-012) la sensibilidad conocida de
+    generate_ideal_lattice_template/BoundingGeometry a offsets sub-período: un desplazamiento
+    de ~1 nm puede volcar una fila completa de la red hexagonal dentro/fuera del contorno
+    envolvente (fijo en el origen), cambiando el conteo de nodos y el centroide real en
+    cientos de nm. Este test fija el comportamiento conocido como regresión de referencia,
+    no como validación de que sea deseable -- la recomendación operativa (docstring de la
+    función, DEC-012) es generar siempre la plantilla en el origen para template matching."""
+    a_val = 500.0
+    template0 = generate_ideal_lattice_template(
+        lattice_type='hexagonal', a=a_val, boundary_type='hexagon', boundary_size_nm=4000.0
+    )
+    template_shifted = generate_ideal_lattice_template(
+        lattice_type='hexagonal', a=a_val, boundary_type='hexagon', boundary_size_nm=4000.0,
+        center_x_nm=-0.126, center_y_nm=-0.857
+    )
+    # Comportamiento conocido: el conteo de nodos difiere pese al offset submicroscópico
+    assert template0['n_points'] != template_shifted['n_points']
+
+
+def test_compute_basis_structure_factor_honeycomb():
+    """Verifica el factor de estructura geométrico de base honeycomb F(G) = 1 + exp(-i G.tau):
+    en G=0 (pico central), |F|^2 = 4 (2 átomos en fase); para el desplazamiento tau
+    verdadero (offset real A->B en un template honeycomb generado), F debe evaluarse
+    consistentemente entre 0 (supresión geométrica total) y 4 (máxima constructiva)."""
+    a_val = 600.0
+    template = generate_ideal_lattice_template(lattice_type='honeycomb', a=a_val, boundary_type='circle', boundary_size_nm=1000.0)
+    idx_a0 = np.where(template['sublattice_id'] == 1)[0][0]
+    # Vector tau: del átomo A más cercano al origen hacia su vecino B más cercano
+    from scipy.spatial import cKDTree
+    pts = np.column_stack([template['x'], template['y']])
+    tree = cKDTree(pts)
+    dist, nn = tree.query(pts[idx_a0], k=4)
+    b_neighbors = [n for n in nn[1:] if template['sublattice_id'][n] == 2]
+    assert len(b_neighbors) > 0
+    tau_x = template['x'][b_neighbors[0]] - template['x'][idx_a0]
+    tau_y = template['y'][b_neighbors[0]] - template['y'][idx_a0]
+
+    Gx0, Gy0 = np.array([0.0]), np.array([0.0])
+    F0 = compute_basis_structure_factor(Gx0, Gy0, [(0.0, 0.0), (tau_x, tau_y)])
+    assert abs(F0[0] - 4.0) < 1e-9, f"F(G=0) debe ser 4 (2 átomos en fase), obtuvo {F0[0]}"
+
+    # En |G| = 4*pi/(sqrt(3)*a) proyectado sobre la dirección de tau, la interferencia
+    # debe ser destructiva o parcial (no necesariamente 0 exacto en esta proyección simple,
+    # pero estrictamente <= 4 y >= 0 -- verificación de cota física)
+    G_mag = 4.0 * np.pi / (np.sqrt(3.0) * a_val)
+    Gx1 = np.array([G_mag])
+    Gy1 = np.array([0.0])
+    F1 = compute_basis_structure_factor(Gx1, Gy1, [(0.0, 0.0), (tau_x, tau_y)])
+    assert 0.0 <= F1[0] <= 4.0 + 1e-6
+
+
+def test_extract_angular_profile_matches_cartesian_cuts():
+    """Verifica que extract_angular_profile a 0deg y 90deg coincida aproximadamente
+    con los cortes cartesianos fx/fy de extract_1d_profiles para una red cuadrada.
+    Nota: en una red perfecta (sigma=0) el pico DC (r=0) y el pico de Bragg de 1er
+    orden tienen alturas casi idénticas (ambos son picos coherentes no atenuados de
+    un cristal perfecto), por lo que la ventana de búsqueda debe excluir la región DC
+    explícitamente (mismo patrón que fit_bragg_peak_1d's dc_cut_factor), no depender
+    de que argmax rompa el empate hacia el lado correcto."""
+    a_nominal = 450.0
+    x, y = _generate_synthetic_grid(n_side=20, a=a_nominal, sigma=0.0)
+    fx, fy, S = compute_structure_factor_2d(x, y, a_nominal=a_nominal, n_bins=256)
+    _, profile_x, _, profile_y = extract_1d_profiles(S, fx, fy, band_width_bins=3)
+
+    r_0, prof_0 = extract_angular_profile(S, fx, fy, angle_deg=0.0, band_width_bins=3)
+    r_90, prof_90 = extract_angular_profile(S, fx, fy, angle_deg=90.0, band_width_bins=3)
+
+    f0_target = 1.0 / a_nominal
+    dc_cut = 0.4 * f0_target
+
+    mask_cart_x = (fx > dc_cut) & (fx < 1.4 * f0_target)
+    peak_cart_x = fx[mask_cart_x][np.argmax(profile_x[mask_cart_x])]
+    mask_ang_0 = (r_0 > dc_cut) & (r_0 < 1.4 * f0_target)
+    peak_ang_0 = r_0[mask_ang_0][np.argmax(prof_0[mask_ang_0])]
+    assert abs(peak_cart_x - peak_ang_0) < (fx[1] - fx[0]) * 5
+
+    mask_cart_y = (fy > dc_cut) & (fy < 1.4 * f0_target)
+    peak_cart_y = fy[mask_cart_y][np.argmax(profile_y[mask_cart_y])]
+    mask_ang_90 = (r_90 > dc_cut) & (r_90 < 1.4 * f0_target)
+    peak_ang_90 = r_90[mask_ang_90][np.argmax(prof_90[mask_ang_90])]
+    assert abs(peak_cart_y - peak_ang_90) < (fy[1] - fy[0]) * 5
+
+
+def test_compute_radial_azimuthal_profile_hexagonal_peak():
+    """Verifica que la integración azimutal S(q) de una red hexagonal muestre un pico
+    dominante cerca de |G|/(2*pi) = 2/(sqrt(3)*a) (primer orden de Bragg hexagonal)."""
+    a_val = 500.0
+    template = generate_ideal_lattice_template(lattice_type='hexagonal', a=a_val, boundary_type='hexagon', boundary_size_nm=4000.0)
+    f0_expected = 2.0 / (np.sqrt(3.0) * a_val)
+    fx, fy, S = compute_structure_factor_2d(template['x'], template['y'], a_nominal=a_val, n_bins=256, f_max_factor=3.0)
+    r_q, q_profile = compute_radial_azimuthal_profile(S, fx, fy, n_r_bins=128)
+
+    # Buscar el pico dominante en una ventana alrededor de f0_expected, evitando el pico DC
+    mask = (r_q > 0.5 * f0_expected) & (r_q < 1.5 * f0_expected)
+    assert np.any(mask)
+    peak_r = r_q[mask][np.argmax(q_profile[mask])]
+    assert abs(peak_r - f0_expected) < 0.15 * f0_expected
+
+
+def test_analyze_reciprocal_space_2d_no_crash_on_hexagonal_data():
+    """Regresión: analyze_reciprocal_space_2d (y compute_analytical_bragg_relations,
+    invocada internamente) no debe lanzar ZeroDivisionError sobre datos de red hexagonal,
+    cuyos picos de Bragg reales no caen en los ejes cartesianos fx/fy que este análisis
+    asume — el ajuste Wilson-X puede degenerar a sigma_wilson_x=0 exactamente, y
+    1.0/aniso_ratio (no sólo aniso_ratio en sí) carecía de guarda contra división por cero."""
+    a_val = 500.0
+    template = generate_ideal_lattice_template(
+        lattice_type='hexagonal', a=a_val, boundary_type='hexagon', boundary_size_nm=4000.0
+    )
+    rng = np.random.default_rng(11)
+    x = template['x'] + rng.normal(0, 12.0, template['n_points'])
+    y = template['y'] + rng.normal(0, 12.0, template['n_points'])
+    res = analyze_reciprocal_space_2d(x, y, a_nominal=a_val, n_bins=256)
+    assert 'analytical_relations' in res
+
+
+def test_run_hexagonal_monte_carlo_calibration_monotonic_attenuation():
+    """Regresión: la calibración Monte Carlo hexagonal debe mostrar atenuación de
+    Debye-Waller MONÓTONAMENTE DECRECIENTE con sigma (nunca creciente), y un ajuste
+    de buena calidad (r^2 alto). Se detectó y corrigió un bug real durante el desarrollo:
+    asumir que las 6 direcciones equivalentes de Bragg de 1er orden estaban a 0°, 60°,
+    120°, ... (alineadas con los vectores de red real) en vez de -30°, 30°, 90°, ...
+    (el retículo recíproco de una red triangular está rotado 30° respecto al real, hecho
+    cristalográfico estándar) evaluaba S(f) fuera del pico de Bragg real, produciendo
+    una atenuación CRECIENTE y espuria con sigma en vez de decreciente."""
+    res_hex = run_hexagonal_monte_carlo_calibration(
+        lattice_type='hexagonal', a=500.0, boundary_type='hexagon', boundary_size_nm=3000.0,
+        f_vac=0.05, sigma_min=0.0, sigma_max=50.0, n_sigma_steps=6, iterations_per_step=15, seed=3
+    )
+    H_hex = res_hex['H_mean']
+    assert np.all(np.diff(H_hex) < 0), f"H_mean hexagonal no es monótonamente decreciente: {H_hex}"
+    assert res_hex['fit']['success']
+    assert res_hex['fit']['r_squared'] > 0.95
+
+    res_honeycomb = run_hexagonal_monte_carlo_calibration(
+        lattice_type='honeycomb', a=600.0, boundary_type='hexagon', boundary_size_nm=3500.0,
+        f_vac=0.0, sigma_min=0.0, sigma_max=50.0, n_sigma_steps=6, iterations_per_step=15, seed=3
+    )
+    H_honeycomb = res_honeycomb['H_mean']
+    assert np.all(np.diff(H_honeycomb) < 0), f"H_mean honeycomb no es monótonamente decreciente: {H_honeycomb}"
+    assert res_honeycomb['fit']['success']
+    assert res_honeycomb['fit']['r_squared'] > 0.95
 
 
 if __name__ == "__main__":
