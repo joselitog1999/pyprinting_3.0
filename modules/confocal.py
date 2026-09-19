@@ -136,6 +136,26 @@ class Frontend(QFrame):
         else:
             self.parametersstepSignal.emit(params)
 
+    def set_ramp_parameters_from_external(self, range_x_um: float, range_y_um: float,
+                                            px_x: float, px_y: float):
+        """Refleja en los campos visibles del panel un rango/resolución calculados
+        externamente (Fase C: Cámara -> Confocal, StageCameraTransform) y dispara la
+        emisión normal de parametersrampSignal — el operador ve exactamente qué se cargó
+        antes de decidir si presiona 'Iniciar Escaneo'. Fuerza modo Ramp (el único que
+        entiende roiToConfocalSignal). Los campos se actualizan con blockSignals para no
+        disparar _set_parameters() una vez por cada campo con un estado intermedio
+        inconsistente — se llama una sola vez al final, con los 4 valores ya cargados."""
+        if self.scan_mode.currentText() != SCAN_MODES[0]:
+            self.scan_mode.blockSignals(True)
+            self.scan_mode.setCurrentText(SCAN_MODES[0])
+            self.scan_mode.blockSignals(False)
+        for edit, value in ((self.scanrangeEdit, range_x_um), (self.scanrangeEdit_y, range_y_um),
+                             (self.NxEdit, int(round(px_x))), (self.NyEdit, int(round(px_y)))):
+            edit.blockSignals(True)
+            edit.setText(str(value))
+            edit.blockSignals(False)
+        self._set_parameters()
+
     def _get_scan(self):
         self.point_graph_CM.hide()
         self.point_graph_CM_2.hide()
@@ -518,7 +538,7 @@ class Backend(QObject):
         open_shutter(self.laser)
         try:
             for name, cx, cy in corners:
-                heartbeat_shutter(30.0)  # Lock Focus por esquina puede demorar; renueva el watchdog
+                heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
                 cx_c = max(0.0, min(100.0, cx))
                 cy_c = max(0.0, min(100.0, cy))
                 pi.MOV([1, 2], [cx_c, cy_c])
@@ -763,23 +783,47 @@ class Backend(QObject):
         self.PDtimer_stepxy.start(0)
 
     def _scan_step_xy(self):
-        if self.j < self.Ny:
+        if not getattr(self, "signal_scan_stop", False) and self.j < self.Ny:
             if self.i < self.Nx:
-                heartbeat_shutter(30.0)
+                heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
                 target_x = self.matrix_scan_step[0][self.i]
                 target_y = self.matrix_scan_step[1][self.j]
+                # ANOM-CONFOCAL-03: self.i==0 aquí significa que el pi.MOV de más abajo ES
+                # el flyback (retorno de fila) recién ejecutado — antes, la pausa larga se
+                # aplicaba en la rama de fin de fila, ANTES de que este MOV siquiera
+                # existiera (se dispara en el tick SIGUIENTE), dejando el primer píxel de
+                # cada fila con solo el margen de un paso normal tras una excursión mucho
+                # más grande.
+                is_flyback = (self.i == 0)
                 if getattr(self, "tilt_correction_enabled", False):
                     target_z = self._evaluate_tilt_z(target_x, target_y)
                     pi.MOV([1, 2, 3], [target_x, target_y, target_z])
                 else:
                     pi.MOV([1, 2], [target_x, target_y])
+
+                # 1. Tiempo de asentamiento piezoeléctrico: mayor tras el flyback (excursión
+                #    de varios µm de retorno de fila) que en un paso normal de un solo píxel.
+                time.sleep(0.035 if is_flyback else 0.003)
+
+                # 2. Adquisición DAQmx
                 if self._step_task is None:
                     self._step_task = channels_photodiodos(self.rate, self.Nph)
                 raw = self._step_task.read(self.Nph)
                 self.image[self.j, self.i] = np.mean(raw[PD_CHANS_LIST.index(PD_CHANNELS[self.laser])])
-                self.dataSignal.emit(self.image); self.i += 1
+
+                # 3. Decimación / Throttling de GUI para no saturar el hilo principal de PyQt6
+                if self.i % 10 == 0:
+                    self.dataSignal.emit(self.image)
+
+                self.i += 1
             else:
-                self.i = 0; self.j += 1
+                # Fin de fila: refresco forzado de imagen completa. El flyback físico
+                # (pi.MOV) y su asentamiento ocurren en el PRÓXIMO tick, cuando self.i
+                # vuelve a valer 0 (ver rama de arriba) — no hay pausa aquí.
+                self.dataSignal.emit(self.image)
+                self.i = 0
+                self.j += 1
+
                 # Actualización de ETA y Tiempo Total cada 5 filas
                 if self.j % 5 == 0 or self.j == self.Ny:
                     elapsed = time.time() - self.tic
@@ -795,6 +839,7 @@ class Backend(QObject):
         else:
             self.PDtimer_stepxy.stop()
             self.signal_scan_stop = True
+            self.dataSignal.emit(self.image)
             if self._step_task is not None:
                 try:
                     self._step_task.close()
@@ -901,15 +946,26 @@ class Backend(QObject):
         return self._profiles(ph, trigger)
 
     def _profiles(self, ph, trig):
+        # Nota (P3): cada rama de fallback de abajo cae a un split fijo por posición
+        # (L//2, L//3...) en vez de un flanco de trigger realmente detectado — se avisa
+        # por consola porque puede indicar cableado/trigger degradado sin ser un error
+        # fatal (el scan sigue corriendo, solo con segmentación gone/back potencialmente
+        # incorrecta para esa fila).
         d    = np.diff(trig); L = len(trig)
         asc  = np.where(d >= 1.5)[0]; dsc = np.where(d <= -1.5)[0]
         if not len(asc) or not len(dsc):
+            print("[Confocal Ramp] ⚠️ No se detectaron flancos de trigger válidos en esta fila — "
+                  "usando split fijo L//2 (verificar cableado/trigger si persiste).")
             half = L // 2
             return ph[:half], ph[half:]
         fa = asc[0]
         d2 = np.where(asc > fa + L/3)[0]
+        if not len(d2):
+            print("[Confocal Ramp] ⚠️ Flanco ascendente de retorno no detectado — usando fallback posicional.")
         sa = asc[d2[0]] if len(d2) else (fa + L//2 if fa + L//2 < L else fa)
         fd_i = np.where(dsc > fa + L/6)[0]
+        if not len(fd_i):
+            print("[Confocal Ramp] ⚠️ Flanco descendente de ida no detectado — usando fallback posicional.")
         fd   = dsc[fd_i[0]] if len(fd_i) else (fa + L//3 if fa + L//3 < L else L)
         d3   = np.where(dsc > fd + L/3)[0]
         sd   = dsc[d3[0]] if len(d3) else L
@@ -918,18 +974,38 @@ class Backend(QObject):
         back = ph[sa:sd] if sd > sa else ph[L//2:]
         return gone, back
 
+    def _wait_axis_settle(self, axes, timeout_s: float = 0.05):
+        """Confirma asentamiento físico (qONT) del eje/es recién movidos antes de disparar
+        la rampa (pi.WGO, dentro de _ramp_x_line/_ramp_y_line) — sin esto, el trigger del
+        wave-table puede dispararse mientras el eje todavía está en vuelo inercial de la
+        transición de fila/columna, produciendo error de posición Y por fila que difumina
+        la imagen reconstruida (ANOM-CONFOCAL-04). Acotado a timeout_s: igual que
+        ANOM-FOCUS-03 en focus.py, un poll sin límite aquí colgaría el hilo confocal
+        compartido ante un fallo real de servo — mejor entrar a la rampa sin confirmación
+        total que colgar el escaneo."""
+        t0 = time.time()
+        try:
+            while not all(pi.qONT(axes).values()):
+                if time.time() - t0 > timeout_s:
+                    break
+                time.sleep(0.002)
+        except Exception:
+            pass
+
     # ── Scan ramp loops ───────────────────────────────────────────────────────
 
     def _scan_ramp_xy(self):
         dy = self.range_y / self.Ny
         if self.i < self.Ny:
-            heartbeat_shutter(30.0)
+            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
             target_y = getattr(self, "y_min", self.y_pos - self.range_y/2) + dy/2 + self.i*dy
             if getattr(self, "tilt_correction_enabled", False):
                 target_z = self._evaluate_tilt_z(self.x_pos, target_y)
                 pi.MOV([2, 3], [target_y, target_z])
+                self._wait_axis_settle([2, 3])
             else:
                 pi.MOV(2, target_y)
+                self._wait_axis_settle(2)
             gone, back = self._ramp_x_line()
             self.image_gone[self.i, :] = _average(gone, self.Nx)
             self.image_back[self.i, :] = _average(back, self.Nx)
@@ -949,9 +1025,10 @@ class Backend(QObject):
     def _scan_ramp_xz(self):
         dz = self.range_y / self.Ny
         if self.i < self.Ny:
-            heartbeat_shutter(30.0)
+            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
             target_z = getattr(self, "z_min", self.z_pos - self.range_y/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
+            self._wait_axis_settle(3)
             gone, back = self._ramp_x_line()
             self.image_gone[self.i, :] = _average(gone, self.Nx)
             self.image_back[self.i, :] = _average(back, self.Nx)
@@ -968,9 +1045,10 @@ class Backend(QObject):
     def _scan_ramp_yx(self):
         dx = self.range_x / self.Nx
         if self.i < self.Nx:
-            heartbeat_shutter(30.0)
+            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
             target_x = getattr(self, "x_min", self.x_pos - self.range_x/2) + dx/2 + self.i*dx
             pi.MOV(1, target_x)
+            self._wait_axis_settle(1)
             gone, back = self._ramp_y_line()
             self.image_gone[:, self.i] = _average(gone, self.Ny)
             self.image_back[:, self.i] = _average(back, self.Ny)
@@ -989,9 +1067,10 @@ class Backend(QObject):
     def _scan_ramp_yz(self):
         dz = self.range_x / self.Nx
         if self.i < self.Nx:
-            heartbeat_shutter(30.0)
+            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
             target_z = getattr(self, "z_min", self.z_pos - self.range_x/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
+            self._wait_axis_settle(3)
             gone, back = self._ramp_y_line()
             self.image_gone[self.i, :] = _average(gone, self.Ny)
             self.image_back[self.i, :] = _average(back, self.Ny)

@@ -829,7 +829,7 @@ El botón **`📷 Iniciar Cámara Live View`** (Fila 2, Columna 2 del lanzador `
 - **Reglas H/V en µm**: Reglas orientables en pantalla calibradas en micrómetros según `PIXEL_SIZE_UM`.
 - **Cursor de Platina PI (`Cursor_pp`)**: Muestra en tiempo real la posición del cursor de la platina nano-posicionadora PI sobre la imagen.
 - **Medición 2 Puntos**: Muestra la distancia proyectada ($\mu\text{m}$) y el ángulo ($\theta^\circ$) entre dos clics en pantalla.
-- **ROI → Confocal**: Permite dibujar un rectángulo de interés y enviarlo directamente como coordenadas de escaneo al módulo confocal (`sendRoiSignal`).
+- **ROI → Confocal**: Permite dibujar un rectángulo de interés y mapearlo a coordenadas físicas de platina vía la cinemática calibrada `StageCameraTransform` (ver §7.8) — posiciona la platina y carga el rango/resolución en el panel Confocal, sin arrancar el escaneo automáticamente.
 - **Detección de Partículas**: Integra detección puntual (`psf.py` / `trackpy`) y tabla interactiva de coordenadas ($x, y, \sigma$).
 
 ### 7.6 Visor Emergente Desplegable de Diagnóstico EDSDK (`EDSDKLogDialog`)
@@ -852,6 +852,27 @@ Para garantizar una experiencia continua sin cuelgues en el laboratorio y proteg
    - El controlador de bajo nivel valida y restringe estrictamente que las coordenadas solicitadas para zoom 5x y 10x se ubiquen dentro del plano físico del sensor de 15.1 MP, absorbiendo no-bloqueantemente estados de cámara ocupada (`EDS_ERR_DEVICE_BUSY`).
 7. **Debounce en Detección de Partículas (`TrackpyDialog`):**
    - Los cambios de parámetros en los controles numéricos de Trackpy y Picasso se ejecutan con un retardo de 250 ms, permitiendo ingresar valores sin que el diálogo se bloquee calculando en cada dígito.
+8. **Corrección de Auto-Cuelgue Determinístico en Cambios de Zoom (`DEC-014`):**
+   - El lock global EDSDK era no-reentrante y el cambio de zoom lo readquiría internamente en el mismo hilo — un cuelgue garantizado en cada cambio de zoom exitoso con cámara real. Convertido a `RLock`, resolviendo la causa raíz de por qué el zoom nunca terminaba de ser cómodo y estable pese a parches anteriores.
+9. **Cierre Cruzado de Hilo Corregido (`DEC-014`):**
+   - Tanto el cierre de la ventana de cámara como el cierre general de la aplicación llamaban a métodos del worker de cámara directamente desde el hilo de interfaz, sin pasar por el mecanismo de señales de Qt — corregido para garantizar un cierre ordenado incluso si el worker estuviera ocupado.
+10. **Tamaño Fijo del Búfer de Memoria Live View (`DEC-014`):**
+    - El stream de memoria que recibe cada cuadro JPEG se reasignaba desde cero 25 veces por segundo. Ahora arranca con un tamaño inicial fijo (2 MiB, el mismo valor del ejemplo oficial de Canon), reduciendo la sobrecarga de reasignación sin limitar el tamaño máximo del cuadro.
+
+### 7.8 Cinemática de Ejes y Sincronización Espacial Bidireccional (Cámara ↔ Confocal ↔ Impresión)
+> 📖 Ver [[MOD-04_Camara_Live_View_Canon_EDSDK|MOD-04 §10]] para el detalle técnico completo y `DEC-014` para el contexto de diseño.
+
+Desde `DEC-014`, la Cámara, el Confocal y las rutinas de Impresión/Dímeros comparten una cinemática calibrada de la platina PI E-517, permitiendo traducir posiciones entre los tres sistemas de coordenadas en ambas direcciones:
+
+- **Calibración (`🎯 Calibrar Ejes`)**: asistente de dos ejes que mueve la platina un paso físico conocido, detecta el desplazamiento correspondiente en píxeles de sensor y **exige confirmación visual humana** antes de aceptar cada eje. Requiere zoom 1x.
+- **Corroboración por fiducial (`🔬 Corroborar (Fiducial)`)**: verifica (no reemplaza) la calibración marcando en pantalla un par de nanopartículas impresas a distancia conocida — opcionalmente contrastada contra una medición confocal — y reporta la discrepancia porcentual contra la predicción de la cinemática calibrada.
+- **Cámara → Confocal (`→ Confocal`)**: dibujar un ROI y presionar el botón posiciona la platina en el centro calculado y carga el rango/resolución en el panel Confocal (modo Ramp). El escaneo **no** arranca solo — el operador presiona "Iniciar Escaneo" manualmente.
+- **Confocal → Cámara / Impresión → Cámara**: dos overlays independientes sobre el live view, activables con `🟦 Caja Confocal` y `🟪 Grilla Impresión`:
+  - La **caja confocal** (cian) muestra el área de escaneo confocal actual proyectada — se dibuja completa o no se dibuja nada si alguna esquina cae fuera del encuadre visible.
+  - La **grilla de impresión** (magenta) muestra una cruz por cada partícula/dímero de la grilla cargada, descartando en silencio los puntos que caen fuera del encuadre actual (normal al hacer zoom o *pan* sobre una grilla grande).
+  - Ambos overlays siguen siendo correctos en cualquier nivel de zoom óptico Canon ($1\times$/$5\times$/$10\times$) y se recalculan sólo cuando cambia la información relevante (posición de platina, parámetros de escaneo, referencia/grilla de impresión, o el zoom/centro de la cámara) — nunca en cada cuadro de video.
+
+**Nota**: estos overlays son una ayuda visual *best-effort*, no un interlock de seguridad — no reemplazan la lectura de posición real de la platina para decisiones críticas de posicionamiento.
 
 ---
 

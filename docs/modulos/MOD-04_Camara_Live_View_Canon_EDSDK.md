@@ -81,6 +81,11 @@ Funcionalidades centrales:
 | `Zoom Combo` | `QComboBox` | — | `1x`, `5x`, `10x` | Controla el zoom digital óptico nativo del visor réflex (`kEdsPropID_Evf_Zoom`). |
 | `Set Scale` | `QPushButton` | — | Diálogo con regla | Calibra la relación de píxeles a micrómetros reales ($\mu\text{m}/\text{px}$). |
 | `Detect Particles`| `QPushButton` | — | Diálogo multimotor | Abre el diálogo `TrackpyDialog` / Picasso para detección y conteo sub-píxel. |
+| `→ Confocal` | `QPushButton` | — | Requiere zoom 1x + calibración | Mapea las 4 esquinas del ROI dibujado a coordenadas físicas de platina vía `StageCameraTransform` y carga el rango/resolución en el panel Confocal — **no** arranca el escaneo (ver §10.3). |
+| `🎯 Calibrar Ejes` | `QPushButton` | — | Requiere zoom 1x | Abre el asistente de calibración platina↔cámara de dos ejes (`StageCalibrationWizardDialog`, ver §10.2). |
+| `🔬 Corroborar (Fiducial)` | `QPushButton` | — | Requiere zoom 1x + calibración | Abre `FiducialValidationDialog` para corroborar la calibración vigente contra un par de partículas impresas a distancia conocida (ver §10.2). |
+| `🟦 Caja Confocal` | `QPushButton` (checkable) | — | `ON` por defecto | Muestra/oculta la caja cian proyectada del área de escaneo confocal actual (ver §10.4). |
+| `🟪 Grilla Impresión` | `QPushButton` (checkable) | — | `ON` por defecto | Muestra/oculta la grilla magenta proyectada de la red de nanopartículas cargada en Impresión/Dímeros (ver §10.4). |
 
 ---
 
@@ -168,12 +173,57 @@ Durante el arrastre del ratón con el botón presionado en el canvas o en la min
 ### 8.6 Clamping Metrológico en Sensor de 15.1 MP
 * En `set_live_view_zoom_position`, las coordenadas del recorte en zoom $5\times$ y $10\times$ se acotan estrictamente dentro de la matriz física de $4752 \times 3168\ \text{píxeles}$, descartando desbordes negativos o excesivos que disparaban el error de hardware `EDS_ERR_INVALID_PARAMETER (0x07)`.
 
+### 8.7 Auditoría Adversarial de Cuelgues y Zoom (`DEC-014`, Fase A)
+El módulo había recibido múltiples parches previos sin lograr estabilidad total — a pedido explícito del usuario se ejecutó una auditoría dedicada, no sólo la corrección puntual del stream EDSDK originalmente planeada:
+* **Auto-deadlock determinístico (`ANOM-CAM-01`)**: `_edsdk_lock` era un `threading.Lock` no reentrante. `set_live_view_zoom()` lo adquiría y, sin liberarlo, llamaba a `_apply_zoom_position_from_center()` → `set_live_view_zoom_position()`, que intentaba readquirir el **mismo** lock en el **mismo** hilo — cuelgue garantizado en cada cambio de zoom exitoso con cámara real. Corregido con `threading.RLock()` y reestructurando el llamado anidado para que ocurra fuera del `with` externo.
+* **Cierre cruzado de hilo sin marshalling (`ANOM-CAM-02`/`02b`)**: tanto `CameraWindow.closeEvent()` como `app.py::Backend.close_all()` llamaban a los métodos del worker de cámara directamente desde el hilo GUI, aunque el worker vive en su propio `QThread` — colgaría el cierre de la app si el worker estuviera bloqueado. Corregido con `QMetaObject.invokeMethod(..., Qt.ConnectionType.BlockingQueuedConnection)` en ambos sitios.
+* **Definición duplicada de `OverlayWidget.set_zoom_level()` (`ANOM-CAM-06`)**: Python silenciosamente sólo ejecutaba la segunda definición (con la lógica de congelado de PiP); la primera, muerta, carecía de esa lógica — probable explicación de por qué parches de zoom anteriores nunca surtieron efecto completo. Eliminada.
+* **Constantes `UILock`/`UIUnLock` indefinidas (`ANOM-CAM-04`)**: usadas por el fallback NonAF de `take_photo()` sin estar declaradas, produciendo un `NameError` silenciado por un `except Exception: pass`. Agregadas con los valores oficiales verificados contra `EDSDKTypes.h:468-469`.
+* **Liberación de handles fuera de `try/finally` (`ANOM-CAM-05`)**: `_download_newest_photo_from_camera()` liberaba `vol_ref`/`folder_ref`/`last_item` inline en el camino feliz — una excepción a mitad del recorrido saltaba los releases pendientes, filtrando handles EDSDK. Reestructurado con `try/finally` anidado por cada handle adquirido.
+
+### 8.8 Tamaño Inicial Fijo del Stream de Memoria Live View (`DEC-014`, Fase E)
+`get_live_view_frame()` creaba el `EdsStreamRef` con `EdsCreateMemoryStream(0, ...)` en cada uno de los hasta 25 cuadros por segundo — reasignación repetida desde tamaño cero, candidata a la inestabilidad reportada. Corregido a un tamaño inicial fijo de **2 MiB**, el mismo valor que usa el propio ejemplo oficial de Canon (`Sample/CSharp/.../DownloadEvfCommand.cs:41`) para este llamado idéntico. Según `EDSDK.h`, el stream sigue extendiéndose automáticamente si el frame real es más grande, así que el fix no introduce un límite duro de tamaño — sólo elimina el costo de reasignación desde cero en cada frame. Se descartó deliberadamente intentar reutilizar un único handle de stream entre frames (comportamiento del SDK no verificado).
+
 ---
 
-## 9. 🔗 Referencias Cruzadas
+## 10. 🎯 Cinemática de Ejes y Sincronización Espacial Bidireccional (Cámara ↔ Confocal ↔ Impresión)
+
+> Ver `DEC-014` en `docs/decisions/DECISION_LOG.md` para el contexto de diseño completo (Rondas 1-2, paneles de especialistas, opciones descartadas).
+
+### 10.1 `StageCameraTransform`: Modelo Cinemático (`core/stage_camera_transform.py`)
+Convierte entre desplazamientos de la platina PI E-517 y desplazamientos en píxeles de sensor completo mediante una matriz $2\times2$ calibrada:
+$$\begin{pmatrix}\Delta u_{\text{px}} \\ \Delta v_{\text{px}}\end{pmatrix} = M_{\text{forward}} \begin{pmatrix}\Delta a_1{}_{\mu\text{m}} \\ \Delta a_2{}_{\mu\text{m}}\end{pmatrix}$$
+
+* **Ejes físicos, no regímenes de coordenadas**: calibra sobre los ejes 1/2 que `pi.MOV()`/`pi.qPOS()` usan nativamente — no una matriz separada por cada uno de los 3 regímenes de UI (Legacy/Laser-Ref/Sample-Ref). Esto es correcto porque el "Principio de Invariancia" de `SYS-103` establece que el régimen es un relabeling puramente de interfaz que nunca altera la cinemática real del actuador (confirmado por `tests/test_coordinate_nomenclature_sync.py`).
+* **Píxeles de sensor completo, no por nivel de zoom**: calibra en $4752\times3168\ \text{px}$ (invariante ante el zoom óptico Canon por construcción), evitando necesitar una matriz separada por cada nivel de zoom ($1\times/5\times/10\times$). La composición de la ventana de recorte de zoom se resuelve aparte, sólo en el momento de proyectar a pantalla (§10.4).
+* **Persistencia por rig**: `StageCameraTransform(rig_id)` guarda/carga JSON en `DEFAULT_DATA_PATH/stage_camera_calibration_{rig_id}.json` — ambos rigs (microscopio derecho y contrapropagante) tienen calibraciones independientes desde el inicio.
+* **Chequeo de sanidad, no una hipótesis**: `matches_known_sign_pattern()` compara la orientación de la matriz calibrada contra un patrón físico ya verificado por el operador (platina arriba → láser +u en cámara; platina derecha → láser +v), y `determinant()` confirma que la transformación es una **reflexión** ($\det < 0$), no una rotación — ambos se calculan después de calibrar, nunca se asumen de antemano.
+
+### 10.2 Calibración: Asistente por Pasos + Corroboración por Fiducial
+Dos herramientas independientes, deliberadamente **no** dos métodos de calibración redundantes:
+* **`🎯 Calibrar Ejes` (`StageCalibrationWizardDialog`)** — el método real de calibración. Mueve la platina un paso físico conocido en cada eje por separado, captura frames antes/después, detecta el desplazamiento del feature dominante (`detect_dominant_feature`, basado en `trackpy`) y **exige confirmación visual humana obligatoria** antes de aceptar cada eje — el operador ve el frame anotado y decide si el desplazamiento detectado es correcto. Requiere zoom 1x.
+* **`🔬 Corroborar (Fiducial)` (`FiducialValidationDialog`)** — corrobora (no recalibra) la calibración ya aceptada contra un par de nanopartículas impresas a una distancia conocida y, opcionalmente, medida por microscopía confocal. El operador marca ambas partículas en pantalla; el diálogo compara la distancia física predicha por `StageCameraTransform` contra el valor nominal impreso (y el confocal, si se ingresa), señalando una discrepancia si supera el 10%. Un solo par de fiduciales da una sola ecuación/dirección — insuficiente para derivar una matriz $2\times2$ completa por sí solo, por eso es una corroboración y no un segundo método independiente.
+
+### 10.3 Cámara → Confocal: ROI Dirigido (`→ Confocal`)
+Dibujar un ROI sobre el live view y presionar `→ Confocal` (requiere zoom 1x y calibración vigente):
+1. Mapea las 4 esquinas del ROI (no sólo una diagonal) a coordenadas físicas de platina vía `StageCameraTransform`, tomando el *bounding box* resultante — robusto incluso si la calibración medida tuviera algo de anisotropía/*shear*.
+2. Si el escaneo resultante excede los límites físicos de la platina ($0$–$100\ \mu\text{m}$), se bloquea con un diálogo de advertencia detallando qué eje se excede.
+3. Si es válido, pide la resolución deseada (nm/px) y **posiciona la platina + carga rango/resolución en el panel Confocal** (forzando modo Ramp) — pero **no** arranca el escaneo. El operador debe presionar "Iniciar Escaneo" a mano en el panel Confocal, una decisión de diseño explícita para no disparar un escaneo con láser desde un solo clic en la cámara.
+
+### 10.4 Confocal → Cámara / Impresión → Cámara: Overlays Proyectados
+Dos capas visuales, cada una independientemente activable/desactivable (`🟦 Caja Confocal`, `🟪 Grilla Impresión`), superpuestas sobre el live view y correctas en cualquier nivel de zoom óptico Canon:
+* **Caja confocal (cian)**: el área de escaneo confocal actual (centrada en la última posición de platina leída, con el rango del panel Confocal), proyectada en pantalla. **Todo o nada**: si cualquiera de las 4 esquinas cae fuera del recuadro actualmente visible, no se dibuja nada — un cuadrilátero parcial confundiría al operador.
+* **Grilla de impresión (magenta)**: una cruz por cada partícula/dímero de la grilla cargada en Impresión o Dímeros, anclada a su referencia absoluta. A diferencia de la caja confocal, dibuja lo que sí entra en el frame actual y descarta en silencio los puntos fuera de vista — con una grilla grande, ver sólo una parte al hacer zoom o *pan* es el comportamiento esperado, no un error.
+* **Cacheo estricto**: ambas capas se recalculan únicamente ante la señal upstream relevante (posición de platina leída, parámetros de Confocal cambiados, referencia/grilla de Impresión-Dímeros cambiada, o el zoom/centro de hardware Canon mutando) — **nunca** dentro del bucle de refresco de video a 25 fps.
+* **Ayuda visual, no interlock de seguridad**: ambos overlays son *best-effort* — pueden quedar desactualizados entre eventos discretos de lectura de posición o cambio de parámetros; no reemplazan la lectura de posición real de la platina para decisiones críticas.
+
+---
+
+## 11. 🔗 Referencias Cruzadas
 - [[MOD-01_Microscopio_Derecho_App]] — Control del escáner confocal y sincronización de platina PI.
 - [[MOD-10_Image_Analyzer_Tracking]] — Analizador de imágenes capturadas con la cámara Canon.
 - [[SYS-204_Modulo_Camara_Canon_EDSDK_y_Buffer_RAM]] — Arquitectura del módulo de cámara Canon, buffer RAM y EDSDK.
 - [[CAT-108_Teoria_Optica_Telescopio_Rele_4f_y_Canales_Confocales]] — Trazado de rayos y óptica 4f hacia el sensor réflex.
 - [[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia]] — Calibración de escala nanométrica $\mu\text{m/px}$ y presupuesto GUM.
+- `DEC-014` (`docs/decisions/DECISION_LOG.md`) — Auditoría de estabilidad Canon EDSDK, cinemática `StageCameraTransform` y sincronización espacial bidireccional.
 

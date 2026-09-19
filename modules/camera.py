@@ -58,7 +58,8 @@ import numpy as np
 import cv2
 import pyqtgraph as pg
 from PyQt6.QtCore    import (Qt, QObject, QThread, QTimer, QRectF,
-                               pyqtSignal, pyqtSlot, QPointF, QPoint)
+                               pyqtSignal, pyqtSlot, QPointF, QPoint, QMetaObject,
+                               QEventLoop, Q_ARG)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QFrame, QWidget,
                                QGridLayout, QHBoxLayout, QVBoxLayout,
                                QLabel, QLineEdit, QPushButton, QCheckBox,
@@ -624,6 +625,19 @@ class OverlayWidget(QWidget):
         self._snap_highlight: Optional[tuple[float, float]] = None
         self._pip_enabled = False
 
+        # Fase D: cajas/grillas proyectadas (Confocal/Impresión -> Cámara). Campos
+        # SEPARADOS de _roi_rect (que es el ROI dibujado a mano por el operador) —
+        # reusar el mismo campo introduciría un riesgo de loop de feedback señalado en
+        # la Ronda 1 (el operador dibuja -> se envía a Confocal -> Confocal redibuja
+        # sobre el mismo _roi_rect -> ...). Ambos se recalculan solo ante las señales
+        # relevantes (parámetros de escaneo, posición leída, grilla cargada, cambio de
+        # zoom/pan) — nunca dentro de _update_frame, para no recorrer la conversión
+        # completa a 25 FPS con grillas potencialmente grandes.
+        self._confocal_box_pts: Optional[list] = None   # [(fx,fy) x4] esquinas
+        self._printing_grid_pts: Optional[list] = None  # [(fx,fy), ...]
+        self._show_confocal_box = True
+        self._show_printing_grid = True
+
     def set_pip_enabled(self, enabled: bool):
         self._pip_enabled = enabled
         self.update()
@@ -682,15 +696,10 @@ class OverlayWidget(QWidget):
         return (sx, sy)
 
     # ── Métodos de Zoom y Pan ──────────────────────────────────────────────────
-
-    def set_zoom_level(self, level: float, center: Optional[tuple[float, float]] = None):
-        self._zoom_level = max(1.0, min(10.0, level))
-        if center is not None:
-            self._zoom_center = center
-        self._clamp_zoom_center()
-        fx0, fy0, fx1, fy1 = self.viewport_bounds()
-        self.zoomChangedSignal.emit(fx0, fy0, fx1, fy1)
-        self.update()
+    # ANOM-CAM-06: esta clase tenía DOS definiciones de set_zoom_level() — Python usa
+    # silenciosamente la última de la clase (línea ~807, con la lógica de congelado de
+    # PiP), así que esta primera versión (sin esa lógica) era código muerto: cualquier
+    # parche aplicado acá nunca tenía efecto en tiempo de ejecución. Eliminada.
 
     def zoom_in(self):
         if self._zoom_level < 2.0:
@@ -769,6 +778,24 @@ class OverlayWidget(QWidget):
     def clear_roi(self):
         self._roi_rect = None
         self.update()
+
+    def set_confocal_box(self, corners_frac: Optional[list]):
+        self._confocal_box_pts = corners_frac
+        self.update()
+
+    def set_printing_grid_points(self, pts_frac: Optional[list]):
+        self._printing_grid_pts = pts_frac
+        self.update()
+
+    def toggle_confocal_box_visible(self) -> bool:
+        self._show_confocal_box = not self._show_confocal_box
+        self.update()
+        return self._show_confocal_box
+
+    def toggle_printing_grid_visible(self) -> bool:
+        self._show_printing_grid = not self._show_printing_grid
+        self.update()
+        return self._show_printing_grid
 
     def cycle_rulers(self) -> int:
         self._rulers_state = (self._rulers_state + 1) % 3
@@ -911,9 +938,38 @@ class OverlayWidget(QWidget):
             self._draw_roi(p)
         if self._snap_highlight:
             self._draw_snap_highlight(p)
+        if self._show_confocal_box and self._confocal_box_pts:
+            self._draw_confocal_box(p)
+        if self._show_printing_grid and self._printing_grid_pts:
+            self._draw_printing_grid(p)
 
         if getattr(self, '_pip_enabled', True):
             self._draw_pip_minimap(p)
+
+    def _draw_confocal_box(self, p: QPainter):
+        """Caja cian: área de escaneo confocal proyectada, centrada en la última
+        posición de platina conocida (read_pos_signal) con el rango del panel Confocal
+        — es una ayuda visual best-effort, no un interlock de seguridad (puede quedar
+        desactualizada entre eventos discretos de lectura de posición, señalado
+        explícitamente en la Ronda 1)."""
+        screen_pts = [self.frac_to_screen(fx, fy) for fx, fy in self._confocal_box_pts]
+        p.setPen(QPen(QColor(137, 220, 235, 220), 2, Qt.PenStyle.SolidLine))
+        poly = [QPointF(sx, sy) for sx, sy in screen_pts]
+        for i in range(len(poly)):
+            p.drawLine(poly[i], poly[(i + 1) % len(poly)])
+
+    def _draw_printing_grid(self, p: QPainter):
+        """Grilla magenta: contorno de la red de nanopartículas cargada en Impresión,
+        con una cruz por cada disparo láser previsto — puntos fuera del recorte de zoom
+        actual se omiten en vez de distorsionar la grilla (a diferencia de la caja
+        confocal, que se oculta entera si cualquiera de sus 4 esquinas queda fuera de
+        vista, acá es esperable que solo una parte de una grilla grande esté visible)."""
+        p.setPen(QPen(QColor(243, 139, 168, 200), 1.5))
+        r = 4
+        for fx, fy in self._printing_grid_pts:
+            sx, sy = self.frac_to_screen(fx, fy)
+            p.drawLine(int(sx - r), int(sy), int(sx + r), int(sy))
+            p.drawLine(int(sx), int(sy - r), int(sx), int(sy + r))
 
     def _draw_rulers(self, p: QPainter):
         pen1 = QPen(QColor(245, 166, 35, 220), 1, Qt.PenStyle.DashLine)
@@ -1252,9 +1308,15 @@ class CameraWindow(QMainWindow):
 
     # ── Señales de Utilidades de Microfotónica ────────────────────────────────
     setReferenceSignal  = pyqtSignal(float, float)              # fx, fy
-    roiToConfocalSignal = pyqtSignal(float, float, float, float) # range_x, range_y, px_x, px_y
+    # range_x, range_y, px_x, px_y, target_x_stage_um, target_y_stage_um — los últimos
+    # 2 se agregaron en la Fase C: antes la señal no llevaba el centro objetivo (bug
+    # encontrado por el panel de la Ronda 1), así que nadie podía posicionar la platina
+    # a partir de ella y quedó completamente sin conectar en todo el repo.
+    roiToConfocalSignal = pyqtSignal(float, float, float, float, float, float)
     scaleChangedSignal  = pyqtSignal(float)
     directorySignal     = pyqtSignal(str)
+    openCalibrationWizardSignal = pyqtSignal()  # Fase B: platina<->cámara (StageCameraTransform)
+    openFiducialValidationSignal = pyqtSignal(object)  # Fase B Método B: frame ya recortado
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1269,6 +1331,15 @@ class CameraWindow(QMainWindow):
         self._ref_frac    = (0.5, 0.5)
         self._ref_pos_um  = (50.0, 50.0)
         self._current_frame: Optional[np.ndarray] = None
+        self._stage_transform = None  # StageCameraTransform inyectado por app.py (Fase C)
+
+        # Fase D: estado cacheado para los overlays proyectados (Confocal/Impresión ->
+        # Cámara). Se recalculan solo ante las señales relevantes (ver
+        # _recompute_confocal_box/_recompute_printing_grid), nunca por frame.
+        self._last_stage_xy: Optional[tuple[float, float]] = None       # última read_pos_signal
+        self._last_confocal_range: Optional[tuple[float, float]] = None  # (range_x_um, range_y_um)
+        self._printing_ref_xy: Optional[tuple[float, float]] = None      # referenceSignal de Impresión
+        self._printing_grid_datos = None  # np.ndarray crudo de gridplotSignal (offsets relativos)
         self._particles: list[tuple[float, float, float]] = []
         self._saved_measures: list[dict] = []
         self._trackpy_params  = dict(
@@ -1341,6 +1412,12 @@ class CameraWindow(QMainWindow):
         self._btn_setscale  = self._mkbtn("Set scale", color="#f5a623")
         self._btn_rulers    = self._mkbtn("Reglas (0)", color="#f5a623")
         self._btn_confocal  = self._mkbtn("→ Confocal", color="#8b7cf8")
+        self._btn_calib_axes = self._mkbtn("🎯 Calibrar Ejes", color="#f9e2af")
+        self._btn_fiducial  = self._mkbtn("🔬 Corroborar (Fiducial)", color="#8b7cf8")
+        self._btn_show_confocal_box = self._mkbtn("🟦 Caja Confocal", checkable=True, color="#89dceb")
+        self._btn_show_confocal_box.setChecked(True)
+        self._btn_show_printing_grid = self._mkbtn("🟪 Grilla Impresión", checkable=True, color="#f38ba8")
+        self._btn_show_printing_grid.setChecked(True)
         self._btn_log       = self._mkbtn("Log EDSDK", color="#888")
         self._btn_diag      = self._mkbtn("🛡 Obturador", color="#ffaa00")
         self._btn_clear_all = self._mkbtn("Limpiar Todo", color="#e5534b")
@@ -1351,12 +1428,34 @@ class CameraWindow(QMainWindow):
         self._btn_setscale.clicked.connect(self._open_set_scale)
         self._btn_rulers.clicked.connect(self._cycle_rulers)
         self._btn_confocal.clicked.connect(self._send_roi_to_confocal)
+        self._btn_calib_axes.clicked.connect(lambda: self.openCalibrationWizardSignal.emit())
+        self._btn_calib_axes.setToolTip(
+            "Asistente de calibración platina↔cámara (StageCameraTransform): mide el "
+            "desplazamiento real en píxeles de sensor ante un paso físico conocido en "
+            "cada eje, con confirmación visual obligatoria antes de aceptar. Requiere "
+            "zoom 1x.")
+        self._btn_fiducial.clicked.connect(self._open_fiducial_validation)
+        self._btn_fiducial.setToolTip(
+            "Corrobora la calibración de ejes contra un par de dímeros impresos a "
+            "separación conocida — marcá las dos partículas y comparación contra el "
+            "valor nominal impreso (y, opcionalmente, una medición confocal). No "
+            "modifica la calibración por sí sola.")
+        self._btn_show_confocal_box.toggled.connect(lambda: self._overlay.toggle_confocal_box_visible())
+        self._btn_show_confocal_box.setToolTip(
+            "Muestra/oculta la caja cian proyectada del área de escaneo confocal "
+            "(centrada en la última posición de platina conocida).")
+        self._btn_show_printing_grid.toggled.connect(lambda: self._overlay.toggle_printing_grid_visible())
+        self._btn_show_printing_grid.setToolTip(
+            "Muestra/oculta la grilla magenta proyectada de la red de nanopartículas "
+            "cargada en el panel Impresión.")
         self._btn_log.clicked.connect(self._open_log_dialog)
         self._btn_diag.clicked.connect(self._force_shutter_cleanup)
         self._btn_clear_all.clicked.connect(self._global_clear_with_confirm)
 
         for w in (self._btn_live, self._btn_photo, self._btn_setref, self._btn_setscale,
-                  self._btn_rulers, self._btn_confocal, self._btn_log, self._btn_diag, self._btn_clear_all):
+                  self._btn_rulers, self._btn_confocal, self._btn_calib_axes, self._btn_fiducial,
+                  self._btn_show_confocal_box, self._btn_show_printing_grid,
+                  self._btn_log, self._btn_diag, self._btn_clear_all):
             tb_lo.addWidget(w)
         tb_lo.addStretch()
         main_vlo.addWidget(tb, stretch=0)
@@ -1843,6 +1942,7 @@ class CameraWindow(QMainWindow):
             self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
         if self._is_camera_active:
             self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
+        self._on_zoom_state_changed()
 
     def _recenter_canon(self):
         self._canon_cx = 0.5
@@ -1852,6 +1952,7 @@ class CameraWindow(QMainWindow):
             self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
         if self._is_camera_active:
             self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
+        self._on_zoom_state_changed()
 
     def _on_ext_pip_click(self, cx: float, cy: float):
         self._canon_cx = cx
@@ -1861,6 +1962,17 @@ class CameraWindow(QMainWindow):
             self._ext_pip.set_zoom_state(self._canon_cx, self._canon_cy, float(val))
         if self._is_camera_active:
             self.setZoomCenterSignal.emit(self._canon_cx, self._canon_cy)
+        self._on_zoom_state_changed()
+
+    def _on_zoom_state_changed(self):
+        """Fase D: el zoom/centro de hardware Canon (_canon_zoom_idx/_canon_cx/_canon_cy)
+        es un insumo de sensor_px_to_display_fraction — cualquier cambio invalida la
+        proyección en pantalla de la caja confocal y la grilla de impresión, aunque las
+        posiciones físicas subyacentes no hayan cambiado. Se llama desde los 4 puntos
+        donde ese estado muta (zoom in/out vía _sync_canon_zoom_hardware, pan, recenter,
+        clic en el picture-in-picture), nunca desde _update_frame (25fps)."""
+        self._recompute_confocal_box()
+        self._recompute_printing_grid()
 
     def _set_zoom_controls_enabled(self, enabled: bool):
         btns = (getattr(self, '_btn_up', None), getattr(self, '_btn_down', None),
@@ -1898,6 +2010,11 @@ class CameraWindow(QMainWindow):
         if hasattr(self, '_ext_pip'):
             self._ext_pip.set_locked(False)
         self._set_zoom_controls_enabled(True)
+        # Se recalcula acá (tras el debounce de 400ms) y no en _sync_canon_zoom_hardware
+        # (que sólo actualiza la etiqueta de inmediato): recién ahora el hardware Canon
+        # recibe el nuevo nivel de zoom, así que es el momento en que el frame recibido
+        # empezará a corresponder al nuevo recorte que sensor_px_to_display_fraction asume.
+        self._on_zoom_state_changed()
 
     def _open_log_dialog(self):
         self._log_dialog.show()
@@ -2057,6 +2174,125 @@ class CameraWindow(QMainWindow):
     @pyqtSlot(list)
     def set_ref_pos_um(self, pos: list):
         self._ref_pos_um = (pos[0], pos[1])
+
+    def set_stage_camera_transform(self, transform) -> None:
+        """Inyecta un core.stage_camera_transform.StageCameraTransform ya cargado (Fase
+        C) — igual patrón de responsabilidad que nano_backend en
+        StageCalibrationWizardDialog: este módulo no importa/construye la calibración
+        por rig, la recibe de app.py, que sabe qué rig_id corresponde. Es un objeto de
+        datos puro (sin afinidad de hilo Qt), seguro de leer en cualquier momento desde
+        el hilo GUI."""
+        self._stage_transform = transform
+
+    # ── Overlays Confocal → Cámara / Impresión → Cámara (Fase D) ────────────────
+
+    def _stage_um_to_display_frac(self, a1_um: float, a2_um: float) -> Optional[tuple]:
+        """Convierte una posición absoluta de platina (ejes físicos 1/2, µm) a la
+        fracción relativa al frame ACTUALMENTE TRANSMITIDO (ya recortado por el zoom de
+        hardware Canon, si corresponde). Ancla en la referencia de cámara (_ref_frac /
+        _ref_pos_um, la misma que fija 'Set ref.'), igual que _send_roi_to_confocal —
+        pero a diferencia de esa función no exige zoom 1x: usa
+        sensor_px_to_display_fraction (generalizada a cualquier zoom, Fase D) en vez de
+        limitarse al caso 1x puro, para que la caja confocal y la grilla de impresión
+        sigan siendo correctas mientras el operador navega con el zoom óptico. Devuelve
+        None si falta la referencia/calibración o si el punto cae fuera del recorte
+        actualmente en pantalla."""
+        if not self._ref_set or self._stage_transform is None or not self._stage_transform.is_calibrated():
+            return None
+        from core.stage_camera_calibration import (display_fraction_to_sensor_px,
+                                                     sensor_px_to_display_fraction)
+        ref_fx, ref_fy = self._ref_frac
+        xref, yref = self._ref_pos_um
+        u_ref, v_ref = display_fraction_to_sensor_px(ref_fx, ref_fy)
+        du, dv = self._stage_transform.stage_um_delta_to_sensor_px(a1_um - xref, a2_um - yref)
+        zoom = self._canon_zoom_levels[self._canon_zoom_idx]
+        return sensor_px_to_display_fraction(u_ref + du, v_ref + dv, zoom,
+                                              (self._canon_cx, self._canon_cy))
+
+    @pyqtSlot(list)
+    def update_confocal_center(self, pos: list):
+        """Conectado a nanopositioning.Backend.read_pos_signal — cachea la posición
+        física actual de la platina como centro del recuadro de escaneo confocal.
+        read_pos_signal sólo se emite tras conectar/mover/fijar referencia (nunca por
+        polling de alta frecuencia — confirmado en core/nanopositioning.py), así que
+        recomputar acá no viola la disciplina de cacheo de la Ronda 1."""
+        self._last_stage_xy = (float(pos[0]), float(pos[1]))
+        self._recompute_confocal_box()
+
+    @pyqtSlot(list)
+    def update_confocal_range(self, params: list):
+        """Conectado a confocal.Frontend.parametersrampSignal/parametersstepSignal —
+        params = [range_x_um, range_y_um, Nx, Ny], mismo formato que emite
+        Frontend._set_parameters()."""
+        self._last_confocal_range = (float(params[0]), float(params[1]))
+        self._recompute_confocal_box()
+
+    def _recompute_confocal_box(self):
+        """Recalcula las 4 esquinas del recuadro de escaneo confocal, centrado en la
+        última posición física conocida de la platina (_last_stage_xy). No contempla el
+        checkbox '📍 Inicio en Posición Actual' de confocal.py (que usa esa posición como
+        esquina en vez de centro) — es una ayuda visual aproximada, no una fuente de
+        verdad geométrica, esa distinción queda fuera de alcance de esta fase. Todo o
+        nada: si cualquier esquina cae fuera del frame actual, no dibuja nada (un
+        cuadrilátero parcial confundiría al operador — decisión de diseño de la Ronda 1)."""
+        if self._last_stage_xy is None or self._last_confocal_range is None:
+            self._overlay.set_confocal_box(None)
+            return
+        a1, a2 = self._last_stage_xy
+        rx, ry = self._last_confocal_range
+        corners_stage = [(a1 - rx / 2.0, a2 - ry / 2.0), (a1 + rx / 2.0, a2 - ry / 2.0),
+                          (a1 + rx / 2.0, a2 + ry / 2.0), (a1 - rx / 2.0, a2 + ry / 2.0)]
+        corners_frac = []
+        for ca1, ca2 in corners_stage:
+            frac = self._stage_um_to_display_frac(ca1, ca2)
+            if frac is None:
+                self._overlay.set_confocal_box(None)
+                return
+            corners_frac.append(frac)
+        self._overlay.set_confocal_box(corners_frac)
+
+    @pyqtSlot(list)
+    def update_printing_reference(self, ref: list):
+        """Conectado a measurements.Backend.referenceSignal — Impresión y Dímeros
+        comparten la misma clase Backend, así que una sola conexión por instancia cubre
+        ambas rutinas. ref=[xref,yref,zref] en µm absolutos, o ['NaN','NaN','NaN'] al
+        limpiar la referencia (clear_reference) — float('NaN') es una conversión válida
+        en Python (no lanza ValueError), así que hay que chequear math.isnan()
+        explícitamente además de capturar la excepción de conversión, o una referencia
+        limpiada quedaría cacheada como una posición 'nan' en vez de None."""
+        try:
+            x, y = float(ref[0]), float(ref[1])
+            self._printing_ref_xy = None if (math.isnan(x) or math.isnan(y)) else (x, y)
+        except (TypeError, ValueError):
+            self._printing_ref_xy = None
+        self._recompute_printing_grid()
+
+    @pyqtSlot(np.ndarray)
+    def set_printing_grid(self, datos):
+        """Conectado a measurements.Backend.gridplotSignal — datos[0,:]/datos[1,:] son
+        offsets RELATIVOS a la referencia (xref/yref), no posiciones absolutas (confirmado
+        en modules/measurements.py::grid_create/grid_read — startX == xref exactamente al
+        fijar la referencia)."""
+        self._printing_grid_datos = datos
+        self._recompute_printing_grid()
+
+    def _recompute_printing_grid(self):
+        """A diferencia de la caja confocal, la grilla de impresión dibuja lo que sí
+        entra en el frame actual y descarta en silencio los puntos fuera de vista — con
+        una grilla grande, panear/hacer zoom para ver sólo una parte es el caso normal,
+        no un error de cálculo (decisión de diseño de la Ronda 1)."""
+        if self._printing_grid_datos is None or self._printing_ref_xy is None:
+            self._overlay.set_printing_grid_points(None)
+            return
+        xref, yref = self._printing_ref_xy
+        pts_frac = []
+        for i in range(self._printing_grid_datos.shape[1]):
+            a1 = xref + float(self._printing_grid_datos[0, i])
+            a2 = yref + float(self._printing_grid_datos[1, i])
+            frac = self._stage_um_to_display_frac(a1, a2)
+            if frac is not None:
+                pts_frac.append(frac)
+        self._overlay.set_printing_grid_points(pts_frac if pts_frac else None)
 
     # ── Set Reference y Reglas ─────────────────────────────────────────────────
 
@@ -2271,11 +2507,28 @@ class CameraWindow(QMainWindow):
             self._overlay.clear_ref()
             self._overlay.clear_roi()
             self._ref_set = False
+            # La caja confocal y la grilla de impresión están ancladas a _ref_frac/
+            # _ref_pos_um (ver _stage_um_to_display_frac) — sin limpiar también su
+            # caché acá quedarían proyecciones obsoletas en pantalla, calculadas contra
+            # una referencia que "Limpiar Todo" acaba de invalidar, hasta el próximo
+            # read_pos_signal/gridplotSignal.
+            self._last_stage_xy = None
+            self._last_confocal_range = None
+            self._printing_ref_xy = None
+            self._printing_grid_datos = None
+            self._overlay.set_confocal_box(None)
+            self._overlay.set_printing_grid_points(None)
             self._update_guards()
 
     # ── ROI → Confocal ────────────────────────────────────────────────────────
 
     def _send_roi_to_confocal(self):
+        """Fase C: usa StageCameraTransform (calibrado por el asistente de la Fase B) en
+        vez de la fórmula ad-hoc anterior (un solo _um_per_px isotrópico, sin escalar
+        por zoom, con un swap de ejes hardcodeado e independiente del régimen de
+        coordenadas activo — el hallazgo original del panel de la Ronda 1). Requiere
+        zoom 1x, igual que el asistente de calibración y la corroboración por fiducial:
+        evita tener que componer además la ventana de recorte del zoom acá."""
         if not self._ref_set:
             QMessageBox.warning(self, "ROI → Confocal", "Primero fijá la referencia con Set ref.")
             return
@@ -2283,28 +2536,44 @@ class CameraWindow(QMainWindow):
         if not roi:
             QMessageBox.warning(self, "ROI → Confocal", "Dibujá un ROI de escaneo primero.")
             return
+        zoom = self._canon_zoom_levels[self._canon_zoom_idx]
+        if zoom != 1:
+            QMessageBox.warning(self, "ROI → Confocal",
+                                 f"Requiere zoom 1x (actual: {zoom}x) para la transformación cinemática calibrada.")
+            return
+        if self._stage_transform is None or not self._stage_transform.is_calibrated():
+            QMessageBox.warning(
+                self, "ROI → Confocal",
+                "No hay una calibración platina↔cámara para este rig — corré "
+                "'🎯 Calibrar Ejes' primero (Fase B).")
+            return
+
+        from core.stage_camera_calibration import display_fraction_to_sensor_px
 
         fx0, fy0, fx1, fy1 = roi
-        ref_fx, ref_fy    = self._ref_frac
-        xref, yref        = self._ref_pos_um
+        ref_fx, ref_fy = self._ref_frac
+        xref, yref = self._ref_pos_um
 
-        W, H = self._overlay.get_img_dims()
-        roi_center_fx = (fx0 + fx1) / 2.0
-        roi_center_fy = (fy0 + fy1) / 2.0
+        u_ref, v_ref = display_fraction_to_sensor_px(ref_fx, ref_fy)
 
-        dy_cam_um = (roi_center_fx - ref_fx) * W * self._um_per_px
-        dx_cam_um = (roi_center_fy - ref_fy) * H * self._um_per_px
+        # Mapea las 4 esquinas del ROI (no solo una diagonal) para obtener el bounding
+        # box correcto en ejes físicos incluso si la calibración medida tuviera algo de
+        # anisotropía/shear, no solo el caso puro de swap 90° ya verificado.
+        corners_frac = [(fx0, fy0), (fx1, fy0), (fx0, fy1), (fx1, fy1)]
+        axis1_positions, axis2_positions = [], []
+        for cfx, cfy in corners_frac:
+            u, v = display_fraction_to_sensor_px(cfx, cfy)
+            delta_axis1_um, delta_axis2_um = self._stage_transform.sensor_px_delta_to_stage_um(
+                u - u_ref, v - v_ref)
+            axis1_positions.append(xref + delta_axis1_um)
+            axis2_positions.append(yref + delta_axis2_um)
 
-        target_x_stage = xref + dx_cam_um
-        target_y_stage = yref + dy_cam_um
-
-        range_y_um = abs(fx1 - fx0) * W * self._um_per_px
-        range_x_um = abs(fy1 - fy0) * H * self._um_per_px
-
-        x_min = target_x_stage - range_x_um / 2.0
-        x_max = target_x_stage + range_x_um / 2.0
-        y_min = target_y_stage - range_y_um / 2.0
-        y_max = target_y_stage + range_y_um / 2.0
+        x_min, x_max = min(axis1_positions), max(axis1_positions)
+        y_min, y_max = min(axis2_positions), max(axis2_positions)
+        target_x_stage = (x_min + x_max) / 2.0
+        target_y_stage = (y_min + y_max) / 2.0
+        range_x_um = x_max - x_min
+        range_y_um = y_max - y_min
 
         ok_x = (0.0 <= x_min) and (x_max <= PI_STAGE_RANGE_UM)
         ok_y = (0.0 <= y_min) and (y_max <= PI_STAGE_RANGE_UM)
@@ -2331,7 +2600,28 @@ class CameraWindow(QMainWindow):
 
         print(f"[Camera -> Confocal] Target: ({target_x_stage:.2f}, {target_y_stage:.2f}) µm | "
               f"Range: ({range_x_um:.2f}, {range_y_um:.2f}) µm | Pixels: ({pixels_x}, {pixels_y})")
-        self.roiToConfocalSignal.emit(range_x_um, range_y_um, float(pixels_x), float(pixels_y))
+        self.roiToConfocalSignal.emit(range_x_um, range_y_um, float(pixels_x), float(pixels_y),
+                                       target_x_stage, target_y_stage)
+
+    # ── Corroboración por Fiducial (Fase B, Método B) ───────────────────────
+
+    def _open_fiducial_validation(self):
+        """Emite openFiducialValidationSignal con el frame COMPLETO (sin recorte de ROI,
+        a diferencia de _open_set_scale): FiducialValidationDialog necesita que las
+        fracciones de clic sean relativas al frame 1x completo para que
+        display_fraction_to_sensor_px() las convierta correctamente — recortar por ROI
+        rompería esa conversión en silencio. Quien conecta la señal (app.py) inyecta el
+        StageCameraTransform del rig correspondiente y construye el diálogo, mismo
+        patrón de responsabilidad que openCalibrationWizardSignal."""
+        if self._current_frame is None:
+            QMessageBox.warning(self, "Corroborar Calibración", "Activá el Live antes de corroborar.")
+            return
+        zoom = self._canon_zoom_levels[self._canon_zoom_idx]
+        if zoom != 1:
+            QMessageBox.warning(self, "Corroborar Calibración",
+                                 f"Requiere zoom 1x (actual: {zoom}x) — misma razón que el asistente de calibración.")
+            return
+        self.openFiducialValidationSignal.emit(self._current_frame.copy())
 
     # ── Set Scale ─────────────────────────────────────────────────────────────
 
@@ -2362,9 +2652,18 @@ class CameraWindow(QMainWindow):
         """Cierre limpio y garantizado de hardware, descendiendo el espejo réflex y terminando el hilo."""
         try:
             self._is_camera_active = False
-            self.stopCameraSignal.emit()
             if hasattr(self, '_worker') and self._worker:
-                self._worker.stop_camera()
+                # ANOM-CAM-02: self._worker vive en _worker_thread; llamarlo directamente
+                # desde el hilo GUI (como hacía antes) invoca stop_camera()/close_session()
+                # sin marshalling, y colgaba la ventana entera si el worker estaba
+                # bloqueado en _edsdk_lock (ver ANOM-CAM-01). QMetaObject.invokeMethod con
+                # BlockingQueuedConnection lo despacha al hilo correcto y espera a que
+                # termine — sustituye tanto a la llamada directa como al
+                # stopCameraSignal.emit() que había antes (evita disparar stop_camera()
+                # dos veces por el mismo cierre).
+                QMetaObject.invokeMethod(
+                    self._worker, "stop_camera", Qt.ConnectionType.BlockingQueuedConnection
+                )
             if hasattr(self, '_worker_thread') and self._worker_thread and self._worker_thread.isRunning():
                 self._worker_thread.quit()
                 self._worker_thread.wait(2000)
@@ -2531,6 +2830,560 @@ class SetScaleDialog(QDialog):
     def _accept(self):
         if self._um_per_px: self.scaleAccepted.emit(self._um_per_px)
         self.accept()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ASISTENTE DE CALIBRACIÓN PLATINA↔CÁMARA (Fase B — StageCameraTransform)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class StageCalibrationWizardDialog(QDialog):
+    """Asistente de calibración de StageCameraTransform: mide, eje físico por eje
+    físico, el desplazamiento real en píxeles de sensor completo producido por un paso
+    conocido de la platina, con confirmación visual humana obligatoria antes de aceptar
+    cada eje — nunca escribe en el StageCameraTransform sin que el operador vea y
+    apruebe el resultado explícitamente.
+
+    Corre exclusivamente a zoom 1x (ver core/stage_camera_calibration.py, nota de
+    diseño #1) — se verifica al abrir y antes de cada paso.
+
+    camera_window: CameraWindow ya activo con Live View corriendo (fuente de frames).
+    nano_backend: core.nanopositioning.Backend real, inyectado por quien instancia este
+    diálogo (mismo patrón que setReferenceSignal en app.py — este módulo no importa
+    nanopositioning directamente para no acoplar modules/camera.py a esa capa)."""
+
+    AXES = (1, 2)
+    AXIS_LABELS = {1: "Eje físico 1 (Legacy 'x')", 2: "Eje físico 2 (Legacy 'y')"}
+
+    def __init__(self, camera_window: "CameraWindow", nano_backend, rig_id: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Calibrar Ejes Platina↔Cámara — {rig_id}")
+        self.setMinimumSize(760, 640)
+        self._camera_window = camera_window
+        self._nano_backend = nano_backend
+
+        from core.stage_camera_transform import StageCameraTransform
+        from core.stage_camera_calibration import StepCalibrationSession, detect_dominant_feature
+        self._StepCalibrationSession = StepCalibrationSession
+        self._detect_dominant_feature = detect_dominant_feature
+        self._transform = StageCameraTransform(rig_id)
+
+        self._axis_idx = 0
+        self._step_um = 1.0
+        self._session = None
+        self._pending_result = None
+        self._before_captured = False
+
+        self._build_ui()
+        self._refresh_axis_label()
+
+    # ── UI ───────────────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(8, 8, 8, 8)
+
+        intro = QLabel(
+            "<b>Calibración de ejes físicos de la platina contra el plano de la cámara.</b> "
+            "Por cada eje: capturá 'Antes', dejá que el asistente mueva la platina un paso "
+            "conocido y capture 'Después', y confirmá visualmente el desplazamiento medido "
+            "antes de aceptarlo. Requiere zoom 1x."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #aaa; margin-bottom: 4px;")
+        lo.addWidget(intro)
+
+        self._axis_lbl = QLabel()
+        self._axis_lbl.setStyleSheet("font-weight: bold; color: #f9e2af; font-size: 11pt;")
+        lo.addWidget(self._axis_lbl)
+
+        step_row = QHBoxLayout()
+        step_row.addWidget(QLabel("Paso físico de prueba (µm):"))
+        self._step_edit = QLineEdit(str(self._step_um))
+        self._step_edit.setFixedWidth(70)
+        self._step_edit.setToolTip(
+            "Con la escala típica de este banco, 1 µm produce un desplazamiento de "
+            "decenas de píxeles — suficiente para medir por encima del ruido sin sacar "
+            "la partícula del campo de visión.")
+        step_row.addWidget(self._step_edit)
+        step_row.addStretch()
+        lo.addLayout(step_row)
+
+        # Vista previa antes/después lado a lado
+        views_row = QHBoxLayout()
+        self._view_before = pg.GraphicsLayoutWidget()
+        vb_b = self._view_before.addViewBox(lockAspect=True); vb_b.invertY(True)
+        self._img_before = pg.ImageItem(); vb_b.addItem(self._img_before)
+        self._scatter_before = pg.ScatterPlotItem(size=16, pen=pg.mkPen("#3ecf8e", width=2), brush=pg.mkBrush(None))
+        vb_b.addItem(self._scatter_before)
+        views_row.addWidget(self._view_before)
+
+        self._view_after = pg.GraphicsLayoutWidget()
+        vb_a = self._view_after.addViewBox(lockAspect=True); vb_a.invertY(True)
+        self._img_after = pg.ImageItem(); vb_a.addItem(self._img_after)
+        self._scatter_after = pg.ScatterPlotItem(size=16, pen=pg.mkPen("#f38ba8", width=2), brush=pg.mkBrush(None))
+        vb_a.addItem(self._scatter_after)
+        views_row.addWidget(self._view_after)
+        lo.addLayout(views_row, stretch=1)
+
+        self._result_lbl = QLabel("— Capturá 'Antes' para empezar.")
+        self._result_lbl.setWordWrap(True)
+        self._result_lbl.setStyleSheet("font-family: monospace; color: orange; font-weight: bold;")
+        lo.addWidget(self._result_lbl)
+
+        btn_row = QHBoxLayout()
+        self._btn_before = QPushButton("1. Capturar 'Antes'")
+        self._btn_before.clicked.connect(self._on_capture_before)
+        btn_row.addWidget(self._btn_before)
+
+        self._btn_move_after = QPushButton("2. Mover y Capturar 'Después'")
+        self._btn_move_after.setEnabled(False)
+        self._btn_move_after.clicked.connect(self._on_move_and_capture_after)
+        btn_row.addWidget(self._btn_move_after)
+
+        self._btn_accept_axis = QPushButton("✅ Aceptar este eje")
+        self._btn_accept_axis.setEnabled(False)
+        self._btn_accept_axis.setStyleSheet("QPushButton { background-color: #3ecf8e; color: #111; font-weight: bold; }")
+        self._btn_accept_axis.clicked.connect(self._on_accept_axis)
+        btn_row.addWidget(self._btn_accept_axis)
+
+        self._btn_retry_axis = QPushButton("↺ Reintentar este eje")
+        self._btn_retry_axis.setEnabled(False)
+        self._btn_retry_axis.clicked.connect(self._on_retry_axis)
+        btn_row.addWidget(self._btn_retry_axis)
+        lo.addLayout(btn_row)
+
+        self._sign_check_lbl = QLabel("")
+        self._sign_check_lbl.setWordWrap(True)
+        lo.addWidget(self._sign_check_lbl)
+
+        final_row = QHBoxLayout()
+        self._btn_save = QPushButton("💾 Guardar Calibración")
+        self._btn_save.setEnabled(False)
+        self._btn_save.setStyleSheet("QPushButton { background-color: #4a9eff; color: #111; font-weight: bold; }")
+        self._btn_save.clicked.connect(self._on_save)
+        final_row.addWidget(self._btn_save)
+        btn_close = QPushButton("Cerrar")
+        btn_close.clicked.connect(self.reject)
+        final_row.addWidget(btn_close)
+        lo.addLayout(final_row)
+
+    def _refresh_axis_label(self):
+        axis = self.AXES[self._axis_idx]
+        self._axis_lbl.setText(f"Calibrando: {self.AXIS_LABELS[axis]}  "
+                                f"({self._axis_idx + 1} de {len(self.AXES)})")
+
+    # ── Precondiciones ───────────────────────────────────────────────────────
+
+    def _check_preconditions(self) -> bool:
+        if self._camera_window._current_frame is None:
+            QMessageBox.warning(self, "Calibración", "Activá el Live View antes de calibrar.")
+            return False
+        zoom = self._camera_window._canon_zoom_levels[self._camera_window._canon_zoom_idx]
+        if zoom != 1:
+            QMessageBox.warning(
+                self, "Calibración",
+                f"El asistente requiere zoom 1x (actual: {zoom}x) — evita tener que "
+                f"componer la ventana de recorte del zoom en la propia calibración. "
+                f"Volvé a 1x y reintentá.")
+            return False
+        return True
+
+    def _current_step_um(self) -> float:
+        try:
+            v = float(self._step_edit.text().replace(",", "."))
+            if abs(v) < 1e-6:
+                raise ValueError
+            return v
+        except ValueError:
+            QMessageBox.warning(self, "Calibración", "Paso físico inválido — usando 1.0 µm.")
+            self._step_edit.setText("1.0")
+            return 1.0
+
+    # ── Captura de múltiples frames (promedio + control de calidad) ─────────
+
+    def _capture_n_frames(self, n: int = 3, interval_ms: int = 150) -> list:
+        """Captura n frames del Live View espaciados en el tiempo (no n copias idénticas
+        del mismo frame) sin congelar el diálogo — usa un QEventLoop local, patrón Qt
+        estándar para esperar sin bloquear el procesamiento de señales entrantes
+        (los frames siguen llegando de cameraThread mientras se espera)."""
+        frames = []
+        loop = QEventLoop(self)
+        timer = QTimer(self)
+        timer.setInterval(interval_ms)
+        state = {"n": 0}
+
+        def _tick():
+            if self._camera_window._current_frame is not None:
+                frames.append(self._camera_window._current_frame.copy())
+            state["n"] += 1
+            if state["n"] >= n:
+                timer.stop()
+                loop.quit()
+
+        timer.timeout.connect(_tick)
+        timer.start()
+        loop.exec()
+        return frames
+
+    # ── Movimiento seguro de platina (bloqueante para esta ventana modal) ────
+
+    def _move_stage_blocking(self, axis: int, dist_um: float) -> bool:
+        axis_str = {1: "x", 2: "y"}[axis]
+        try:
+            QMetaObject.invokeMethod(
+                self._nano_backend, "move", Qt.ConnectionType.BlockingQueuedConnection,
+                Q_ARG(str, axis_str), Q_ARG(float, dist_um)
+            )
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Platina", f"No se pudo mover la platina: {e}")
+            return False
+
+    # ── Flujo del asistente ──────────────────────────────────────────────────
+
+    def _on_capture_before(self):
+        if not self._check_preconditions():
+            return
+        self._step_um = self._current_step_um()
+        frame = self._camera_window._current_frame
+        H, W = frame.shape[:2]
+        self._session = self._StepCalibrationSession(
+            axis=self.AXES[self._axis_idx], step_um=self._step_um,
+            frame_width_px=W, frame_height_px=H)
+
+        self._result_lbl.setText("Capturando 'Antes' (3 frames)...")
+        QApplication.processEvents()
+        for fr in self._capture_n_frames():
+            self._session.add_before_frame(fr)
+
+        preview = self._session.before_frames[-1]
+        self._img_before.setImage(preview.transpose(1, 0, 2))
+        det = self._detect_dominant_feature(preview)
+        if det["ok"]:
+            self._scatter_before.setData([det["x_px"]], [det["y_px"]])
+            self._result_lbl.setText(
+                f"'Antes' capturado — partícula detectada en ({det['x_px']:.1f}, {det['y_px']:.1f}) px. "
+                f"Presioná 'Mover y Capturar Después'.")
+            self._btn_move_after.setEnabled(True)
+        else:
+            self._scatter_before.setData([], [])
+            self._result_lbl.setText(f"⚠ {det['reason']} — recapturá 'Antes' con una partícula visible y única.")
+            self._btn_move_after.setEnabled(False)
+        self._btn_before.setEnabled(True)
+        self._btn_accept_axis.setEnabled(False)
+        self._btn_retry_axis.setEnabled(False)
+
+    def _on_move_and_capture_after(self):
+        if self._session is None or not self._check_preconditions():
+            return
+        self._btn_move_after.setEnabled(False)
+        self._result_lbl.setText(f"Moviendo platina {self._step_um:+.3f} µm en "
+                                  f"{self.AXIS_LABELS[self.AXES[self._axis_idx]]}...")
+        QApplication.processEvents()
+
+        if not self._move_stage_blocking(self.AXES[self._axis_idx], self._step_um):
+            self._btn_move_after.setEnabled(True)
+            return
+
+        self._result_lbl.setText("Capturando 'Después' (3 frames)...")
+        QApplication.processEvents()
+        for fr in self._capture_n_frames():
+            self._session.add_after_frame(fr)
+
+        preview = self._session.after_frames[-1]
+        self._img_after.setImage(preview.transpose(1, 0, 2))
+        det = self._detect_dominant_feature(preview)
+        if det["ok"]:
+            self._scatter_after.setData([det["x_px"]], [det["y_px"]])
+
+        result = self._session.compute_result()
+        if not result["ok"]:
+            self._result_lbl.setText(f"❌ {result['reason']} — presioná 'Reintentar este eje'.")
+            self._btn_retry_axis.setEnabled(True)
+            self._pending_result = None
+            self._btn_accept_axis.setEnabled(False)
+            return
+
+        self._pending_result = result
+        self._result_lbl.setText(
+            f"Desplazamiento medido: Δu_sensor={result['delta_u_sensor_px']:.2f} px, "
+            f"Δv_sensor={result['delta_v_sensor_px']:.2f} px, para un paso de {self._step_um:+.3f} µm.\n"
+            f"Revisá visualmente los dos paneles — el punto verde ('Antes') y el rosa "
+            f"('Después') deben corresponder a la MISMA partícula física. "
+            f"Confirmá con 'Aceptar este eje' o descartá con 'Reintentar este eje'.")
+        self._btn_accept_axis.setEnabled(True)
+        self._btn_retry_axis.setEnabled(True)
+
+    def _on_retry_axis(self):
+        self._session = None
+        self._pending_result = None
+        self._scatter_before.setData([], [])
+        self._scatter_after.setData([], [])
+        self._img_before.clear()
+        self._img_after.clear()
+        self._result_lbl.setText("— Capturá 'Antes' para empezar de nuevo con este eje.")
+        self._btn_move_after.setEnabled(False)
+        self._btn_accept_axis.setEnabled(False)
+        self._btn_retry_axis.setEnabled(False)
+
+    def _on_accept_axis(self):
+        if self._pending_result is None:
+            return
+        r = self._pending_result
+        self._transform.calibrate_axis_from_step(
+            r["axis"], r["step_um"], r["delta_u_sensor_px"], r["delta_v_sensor_px"])
+
+        self._axis_idx += 1
+        self._session = None
+        self._pending_result = None
+        self._scatter_before.setData([], [])
+        self._scatter_after.setData([], [])
+        self._btn_move_after.setEnabled(False)
+        self._btn_accept_axis.setEnabled(False)
+        self._btn_retry_axis.setEnabled(False)
+
+        if self._axis_idx >= len(self.AXES):
+            self._on_all_axes_done()
+        else:
+            self._refresh_axis_label()
+            self._result_lbl.setText("— Capturá 'Antes' para el siguiente eje.")
+
+    def _on_all_axes_done(self):
+        self._axis_lbl.setText("Calibración de los 2 ejes completa.")
+        det = self._transform.determinant()
+        matches = self._transform.matches_known_sign_pattern()
+        if matches:
+            self._sign_check_lbl.setStyleSheet("color: #3ecf8e; font-weight: bold;")
+            self._sign_check_lbl.setText(
+                f"✅ El patrón de signos medido coincide con la convención física ya "
+                f"verificada (determinante={det:.4g}).")
+        else:
+            self._sign_check_lbl.setStyleSheet("color: #f38ba8; font-weight: bold;")
+            self._sign_check_lbl.setText(
+                f"⚠️ ATENCIÓN: el patrón de signos medido NO coincide con la convención "
+                f"ya verificada por el operador (determinante={det:.4g}). Esto puede "
+                f"indicar un montaje óptico distinto, un error en la calibración, o que "
+                f"este rig realmente tiene una convención distinta — revisá antes de "
+                f"guardar, no lo asumas correcto solo porque el asistente completó.")
+        self._result_lbl.setText(
+            f"Matriz final (eje_físico ← sensor_px):\n{self._transform.M_forward}")
+        self._btn_save.setEnabled(True)
+
+    def _on_save(self):
+        try:
+            self._transform.save()
+            QMessageBox.information(
+                self, "Calibración", f"Calibración guardada para '{self._transform.rig_id}'.")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar la calibración: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CORROBORACIÓN POR FIDUCIAL DE DÍMEROS (Fase B, Método B)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class FiducialValidationDialog(QDialog):
+    """Corrobora una calibración de StageCameraTransform ya existente (del asistente de
+    paso) contra un par de dímeros impresos a separación física conocida
+    (modules/measurements.py, modo dímeros): el operador marca las dos partículas en
+    cámara, ingresa el dx/dy nominal impreso y, opcionalmente, la separación medida
+    independientemente por un escaneo confocal — el diálogo NUNCA modifica la matriz
+    por sí solo (ver core/stage_camera_calibration.py::compare_fiducial_calibration,
+    nota de diseño #3: es validación cruzada, no una segunda calibración), solo muestra
+    las discrepancias y, si el operador lo pide explícitamente, las deja registradas
+    junto a la calibración.
+
+    frame: recorte de cámara (a 1x) donde se ven ambas partículas del dímero, igual
+    convención que SetScaleDialog."""
+
+    DISCREPANCY_WARN_PCT = 10.0
+
+    def __init__(self, frame: np.ndarray, transform, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Corroborar Calibración por Fiducial — {transform.rig_id}")
+        self.setMinimumSize(720, 640)
+        self._frame = frame
+        self._transform = transform
+        self._pts: list[tuple[float, float]] = []
+        self._particles: list[tuple[float, float]] = []
+        self._last_result: Optional[dict] = None
+
+        from core.stage_camera_calibration import compare_fiducial_calibration
+        self._compare_fiducial_calibration = compare_fiducial_calibration
+
+        self._build_ui()
+
+    def _build_ui(self):
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(8, 8, 8, 8)
+
+        intro = QLabel(
+            "<b>Corroboración por fiducial:</b> marcá las dos partículas del dímero impreso "
+            "sobre la imagen (Shift+clic para encajar a la partícula detectada), ingresá la "
+            "separación física nominal impresa y, si la tenés, la separación medida por un "
+            "escaneo confocal independiente. Esto NO modifica la calibración — solo la corrobora."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #aaa; margin-bottom: 4px;")
+        lo.addWidget(intro)
+
+        self._view = pg.GraphicsLayoutWidget()
+        self._vb = self._view.addViewBox(lockAspect=True); self._vb.invertY(True)
+        self._img_item = pg.ImageItem(); self._vb.addItem(self._img_item)
+        self._scatter = pg.ScatterPlotItem(size=14, pen=pg.mkPen("r", width=2), brush=pg.mkBrush(None))
+        self._part_scatter = pg.ScatterPlotItem(size=18, pen=pg.mkPen("#3ecf8e", width=2), brush=pg.mkBrush(None))
+        self._vb.addItem(self._part_scatter)
+        self._vb.addItem(self._scatter)
+        self._img_item.setImage(self._frame.transpose(1, 0, 2))
+        self._view.scene().sigMouseClicked.connect(self._on_click)
+        lo.addWidget(self._view, stretch=1)
+
+        btn_detect = QPushButton("Detectar Partículas (Snap)")
+        btn_detect.clicked.connect(self._detect_particles)
+        lo.addWidget(btn_detect)
+
+        grid = QGridLayout()
+        grid.addWidget(QLabel("dx impreso (µm, eje físico 1):"), 0, 0)
+        self._dx_printed_edit = QLineEdit("0.0"); self._dx_printed_edit.setFixedWidth(90)
+        grid.addWidget(self._dx_printed_edit, 0, 1)
+        grid.addWidget(QLabel("dy impreso (µm, eje físico 2):"), 0, 2)
+        self._dy_printed_edit = QLineEdit("0.0"); self._dy_printed_edit.setFixedWidth(90)
+        grid.addWidget(self._dy_printed_edit, 0, 3)
+
+        self._chk_confocal = QCheckBox("Corroborar también contra medición confocal:")
+        grid.addWidget(self._chk_confocal, 1, 0, 1, 2)
+        self._dx_confocal_edit = QLineEdit(); self._dx_confocal_edit.setFixedWidth(90)
+        self._dx_confocal_edit.setPlaceholderText("dx confocal")
+        self._dx_confocal_edit.setEnabled(False)
+        grid.addWidget(self._dx_confocal_edit, 1, 2)
+        self._dy_confocal_edit = QLineEdit(); self._dy_confocal_edit.setFixedWidth(90)
+        self._dy_confocal_edit.setPlaceholderText("dy confocal")
+        self._dy_confocal_edit.setEnabled(False)
+        grid.addWidget(self._dy_confocal_edit, 1, 3)
+        self._chk_confocal.toggled.connect(self._dx_confocal_edit.setEnabled)
+        self._chk_confocal.toggled.connect(self._dy_confocal_edit.setEnabled)
+        lo.addLayout(grid)
+
+        btn_compute = QPushButton("Calcular Corroboración")
+        btn_compute.clicked.connect(self._on_compute)
+        lo.addWidget(btn_compute)
+
+        self._result_lbl = QLabel("— Marcá los 2 puntos y presioná 'Calcular Corroboración'.")
+        self._result_lbl.setWordWrap(True)
+        self._result_lbl.setStyleSheet("font-family: monospace; color: orange; font-weight: bold;")
+        lo.addWidget(self._result_lbl)
+
+        btn_row = QHBoxLayout()
+        self._btn_record = QPushButton("💾 Registrar Validación en la Calibración")
+        self._btn_record.setEnabled(False)
+        self._btn_record.setStyleSheet("QPushButton { background-color: #4a9eff; color: #111; font-weight: bold; }")
+        self._btn_record.clicked.connect(self._on_record)
+        btn_row.addWidget(self._btn_record)
+        btn_close = QPushButton("Cerrar")
+        btn_close.clicked.connect(self.reject)
+        btn_row.addWidget(btn_close)
+        lo.addLayout(btn_row)
+
+    def _detect_particles(self):
+        from core.stage_camera_calibration import _TRACKPY_AVAILABLE
+        if not _TRACKPY_AVAILABLE:
+            QMessageBox.warning(self, "Detección", "trackpy no disponible en este entorno.")
+            return
+        import warnings
+        gray = np.mean(self._frame, axis=2).astype(float) if self._frame.ndim == 3 else self._frame.astype(float)
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = tp.locate(gray, diameter=11, separation=8)
+            self._particles = list(zip(df["x"].values, df["y"].values))
+            self._part_scatter.setData([p[0] for p in self._particles], [p[1] for p in self._particles])
+        except Exception as e:
+            QMessageBox.warning(self, "Error Detección", str(e))
+
+    def _on_click(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        pos = self._img_item.mapFromScene(event.scenePos())
+        H, W = self._frame.shape[:2]
+        px, py = pos.x(), pos.y()
+        if not (0 <= px < W and 0 <= py < H):
+            return
+        modifiers = QApplication.keyboardModifiers()
+        if (modifiers & Qt.KeyboardModifier.ShiftModifier) or self._particles:
+            best_p = None; best_d = 20.0
+            for cx, cy in self._particles:
+                d = math.hypot(cx - px, cy - py)
+                if d < best_d:
+                    best_d = d; best_p = (cx, cy)
+            if best_p:
+                px, py = best_p
+        self._pts.append((px, py))
+        if len(self._pts) > 2:
+            self._pts = self._pts[-2:]
+        self._scatter.setData([p[0] for p in self._pts], [p[1] for p in self._pts])
+
+    def _on_compute(self):
+        if len(self._pts) < 2:
+            QMessageBox.warning(self, "Corroboración", "Marcá los 2 puntos del dímero primero.")
+            return
+        try:
+            dx_printed = float(self._dx_printed_edit.text().replace(",", "."))
+            dy_printed = float(self._dy_printed_edit.text().replace(",", "."))
+        except ValueError:
+            QMessageBox.warning(self, "Corroboración", "dx/dy impreso inválido.")
+            return
+
+        H, W = self._frame.shape[:2]
+        (px1, py1), (px2, py2) = self._pts[-2], self._pts[-1]
+        pt1_frac = (px1 / W, py1 / H)
+        pt2_frac = (px2 / W, py2 / H)
+
+        confocal_dx = confocal_dy = None
+        if self._chk_confocal.isChecked():
+            try:
+                confocal_dx = float(self._dx_confocal_edit.text().replace(",", "."))
+                confocal_dy = float(self._dy_confocal_edit.text().replace(",", "."))
+            except ValueError:
+                QMessageBox.warning(self, "Corroboración", "dx/dy confocal inválido.")
+                return
+
+        result = self._compare_fiducial_calibration(
+            self._transform, dx_printed, dy_printed, pt1_frac, pt2_frac, confocal_dx, confocal_dy)
+        self._last_result = result
+
+        lines = [
+            f"Predicho por la calibración actual: eje1={result['predicted_axis1_um']:.3f} µm, "
+            f"eje2={result['predicted_axis2_um']:.3f} µm (magnitud {result['predicted_magnitude_um']:.3f} µm)",
+            f"Nominal impreso: {result['printed_magnitude_um']:.3f} µm → "
+            f"discrepancia {result['discrepancy_vs_printed_pct']:.1f}%",
+        ]
+        if "confocal_magnitude_um" in result:
+            lines.append(
+                f"Medido por confocal: {result['confocal_magnitude_um']:.3f} µm → "
+                f"discrepancia {result['discrepancy_vs_confocal_pct']:.1f}%")
+
+        worst_pct = result["discrepancy_vs_printed_pct"]
+        if "discrepancy_vs_confocal_pct" in result:
+            worst_pct = max(worst_pct, result["discrepancy_vs_confocal_pct"])
+        if worst_pct > self.DISCREPANCY_WARN_PCT:
+            self._result_lbl.setStyleSheet("font-family: monospace; color: #f38ba8; font-weight: bold;")
+            lines.insert(0, f"⚠️ Discrepancia por encima del {self.DISCREPANCY_WARN_PCT:.0f}% — revisá la calibración.")
+        else:
+            self._result_lbl.setStyleSheet("font-family: monospace; color: #3ecf8e; font-weight: bold;")
+            lines.insert(0, "✅ Discrepancia dentro de lo esperado.")
+        self._result_lbl.setText("\n".join(lines))
+        self._btn_record.setEnabled(True)
+
+    def _on_record(self):
+        if self._last_result is None:
+            return
+        try:
+            self._transform.record_fiducial_validation(self._last_result)
+            self._transform.save()
+            QMessageBox.information(self, "Corroboración", "Validación registrada junto a la calibración.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo registrar la validación: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -486,8 +486,19 @@ def flipper_notch532(desired: str) -> None:
             print(f"[NI-DAQ Error] flipper_notch532: {e}")
 
 
-def channels_photodiodos(rate: float, samps_per_chan: int):
-    """Devuelve una Task real o un _MockNITask según SAFE_MODE o disponibilidad."""
+def channels_photodiodos(rate: float, samps_per_chan: int, continuous: bool = False):
+    """Devuelve una Task real o un _MockNITask según SAFE_MODE o disponibilidad.
+
+    continuous=True configura AcquisitionType.CONTINUOUS con un buffer de hardware más
+    grande que samps_per_chan, pensado para que el llamador cree la Task UNA sola vez,
+    la inicie con .start() y luego reutilice múltiples .read(samps_per_chan) sobre la
+    misma instancia (ANOM-TRACE-01) en vez de crear/destruir una Task nueva en cada tick.
+
+    Los llamadores existentes que necesitan una adquisición de un solo disparo
+    sincronizada a un trigger externo (p.ej. la rampa Z de focus.py, disparada por el
+    wave-table del piezo) deben seguir usando el default continuous=False (FINITE) —
+    cambiar el modo global de esta función rompería esa sincronización.
+    """
     if SAFE_MODE:
         return _MockNITask(len(PD_CHANS_LIST) + 1, samps_per_chan)
     try:
@@ -502,10 +513,16 @@ def channels_photodiodos(rate: float, samps_per_chan: int):
             task.ai_channels.add_ai_voltage_chan(
                 physical_channel=f"{NIDAQ_DEVICE}/ai{ch}",
                 name_to_assign_to_channel=f"chan_PD{ch}")
-        task.timing.cfg_samp_clk_timing(
-            rate=rate,
-            sample_mode=AcquisitionType.FINITE,
-            samps_per_chan=samps_per_chan)
+        if continuous:
+            task.timing.cfg_samp_clk_timing(
+                rate=rate,
+                sample_mode=AcquisitionType.CONTINUOUS,
+                samps_per_chan=max(samps_per_chan * 10, 1000))
+        else:
+            task.timing.cfg_samp_clk_timing(
+                rate=rate,
+                sample_mode=AcquisitionType.FINITE,
+                samps_per_chan=samps_per_chan)
         return task
     except Exception as e:
         print(f"[NI-DAQ Warning] Error al crear task de fotodiodos ({e}). Usando mock.")

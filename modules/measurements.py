@@ -50,7 +50,7 @@ from config import (pi, SAFE_MODE, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE,
                     DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY,
                     DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, PI_STAGE_RANGE_UM)
 from nidaq  import (open_shutter, close_shutter, close_all_shutters,
-                    up_flipper, down_flipper)
+                    up_flipper, down_flipper, heartbeat_shutter)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2313,6 +2313,14 @@ class Backend(QObject):
 
     @pyqtSlot(list)
     def grid_trace_detect(self, data: list):
+        # ANOM-MEASURE-02: renueva el watchdog en cada muestra mientras el obturador
+        # está abierto — antes, ninguna llamada en el loop de impresión lo renovaba, así
+        # que un nodo cuyo tiempo de exposición se acerca al timeout default del
+        # watchdog (30s) podía perder el obturador a mitad de pulso sin que esta máquina
+        # de estados se enterara (queda esperando un salto que ya no puede ocurrir hasta
+        # el timeout por `elapsed > effective_tmax`). Sin timeout_s explícito: respeta la
+        # política global configurada en el dock de Shutters (no la hardcodea a 30.0).
+        heartbeat_shutter()
         self.ptr      = data[0]
         self.timeaxis = data[1]
         self.data1    = data[2]
@@ -2934,7 +2942,16 @@ class Backend(QObject):
         self._grid_move()
 
     @pyqtSlot(int)
-    def grid_change_index(self, new_index: int): self.i_global = new_index
+    def grid_change_index(self, new_index: int):
+        # P2: sin esta guarda, editar el campo "Target Index" a mano mientras hay una
+        # traza activa (mode_printing != "none") reasigna self.i_global de inmediato —
+        # el resultado de grid_trace_detect() en curso terminaría atribuyéndose al nodo
+        # nuevo en vez del que físicamente se estaba imprimiendo.
+        if self.mode_printing != "none":
+            print(f"[Measurements] ⚠️ No se puede cambiar el índice objetivo mientras hay "
+                  f"una impresión activa (nodo {self.i_global} en curso) — pausar primero.")
+            return
+        self.i_global = new_index
 
     # ── Guardado ──────────────────────────────────────────────────────────────
 

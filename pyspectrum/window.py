@@ -410,7 +410,17 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.raman_backend.make_connection(self.raman_widget)
         self.raman_backend.statusMessageSignal.connect(lambda msg: self.statusBar().showMessage(msg, 4000))
 
+        # ANOM-HYPERSPEC-01: segunda excepción arquitectónica (junto a Escaneo Lineal
+        # Espectral, DEC-006) con Worker en QThread real — a diferencia de las demás
+        # rutinas de este archivo, cada punto del mapeo bloquea con un pi.MOV() + una
+        # exposición/lectura CCD completa; en el hilo GUI eso congelaba toda la ventana
+        # (incluido el Stop/E-STOP) por la duración de cada exposición, cientos o miles
+        # de veces por mapa. moveToThread() también arrastra a self.scan_timer, que se
+        # parenta a self dentro de ConfocalBackend.__init__.
         self.confocal_backend = ConfocalBackend(self.camera, self.spectrometer)
+        self.confocal_thread = QThread(self)
+        self.confocal_backend.moveToThread(self.confocal_thread)
+        self.confocal_thread.start()
         self.confocal_backend.make_connection(self.confocal_widget)
 
         self.calib_backend = CalibrationBackend(self.camera, self.spectrometer)
@@ -528,7 +538,16 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             hardware_session.emergency_stop()
             self.cam_backend.toggle_live(False)
             self.raman_backend.toggle_live(False)
-            self.confocal_backend.stop_scan()
+            # ConfocalBackend vive en confocal_thread (ANOM-HYPERSPEC-01): una llamada
+            # directa a stop_scan() desde el hilo GUI tocaría self.scan_timer (que
+            # pertenece al otro hilo) sin marshalling — se invoca vía QMetaObject para
+            # que el propio confocal_thread la ejecute, bloqueando hasta que termine.
+            QtCore.QMetaObject.invokeMethod(
+                self.confocal_backend, "stop_scan",
+                QtCore.Qt.ConnectionType.BlockingQueuedConnection,
+            )
+            self.confocal_thread.quit()
+            self.confocal_thread.wait(3000)
             self.lumin_backend.stop_luminescence()
             self.growth_backend.stop_growth()
             self.linescan_worker.cancel_scan()

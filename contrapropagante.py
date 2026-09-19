@@ -29,7 +29,6 @@ import time
 import math
 import numpy as np
 from PIL import Image
-from scipy import optimize
 
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt, QObject, QThread, QTimer, pyqtSignal, pyqtSlot
@@ -443,12 +442,26 @@ class ConfocalDualBackend(QObject):
         self.cm_bot = [0.0, 0.0]
         self.signal_scan_stop = False
         self.PDtimer_rampxy = None
+        self.PDtimer_rampxz = None
+        self.PDtimer_rampyx = None
+        self.PDtimer_rampyz = None
         self.is_grid_routine = False
 
     def _ensure_timer(self):
+        # Un QTimer por modo PSF (x/y, x/z, y/x, y/z) — mismo patrón que
+        # modules/confocal.py::Backend, que también usa un timer dedicado por modo.
         if self.PDtimer_rampxy is None:
             self.PDtimer_rampxy = QTimer(self)
             self.PDtimer_rampxy.timeout.connect(self._scan_ramp_xy)
+        if self.PDtimer_rampxz is None:
+            self.PDtimer_rampxz = QTimer(self)
+            self.PDtimer_rampxz.timeout.connect(self._scan_ramp_xz)
+        if self.PDtimer_rampyx is None:
+            self.PDtimer_rampyx = QTimer(self)
+            self.PDtimer_rampyx.timeout.connect(self._scan_ramp_yx)
+        if self.PDtimer_rampyz is None:
+            self.PDtimer_rampyz = QTimer(self)
+            self.PDtimer_rampyz.timeout.connect(self._scan_ramp_yz)
 
     def make_connection(self, frontend: ConfocalDualFrontend):
         frontend.startSignal.connect(self.start_scan)
@@ -517,6 +530,10 @@ class ConfocalDualBackend(QObject):
         self.range_x, self.range_y, self.Nx, self.Ny = p[0], p[1], int(p[2]), int(p[3])
         self.extra = self.range_x / 6
         self.range_total = self.range_x + 2 * self.extra
+        # Necesarios para _configure_ramp_y (modos y/x, y/z) — mismo cálculo que
+        # modules/confocal.py::_scan_ramp_parameters.
+        self.extra_y = self.range_y / 6
+        self.range_total_y = self.range_y + 2 * self.extra_y
         self.frequency = RATE_MULTICHANNEL / 100
 
         if self.Nx <= 50 and self.range_x <= 5.0:
@@ -561,17 +578,31 @@ class ConfocalDualBackend(QObject):
         self.x_min, self.x_max = x_min, x_max
         self.y_min, self.y_max = y_min, y_max
 
-        self._configure_ramp_x(self.x_pos)
+        # Dispatch por modo PSF — mismo patrón que modules/confocal.py::_start_scan.
+        # Antes, start_scan() siempre configuraba/corría x/y sin importar qué eligiera
+        # el operador en el combo PSF_mode: las otras 3 opciones eran decorativas.
+        dispatch = {
+            PSF_MODES[0]: (self._configure_ramp_x, self.PDtimer_rampxy),
+            PSF_MODES[1]: (self._configure_ramp_x, self.PDtimer_rampxz),
+            PSF_MODES[2]: (self._configure_ramp_y, self.PDtimer_rampyx),
+            PSF_MODES[3]: (self._configure_ramp_y, self.PDtimer_rampyz),
+        }
+        configure_fn, timer = dispatch.get(self.psf_mode_opt, (self._configure_ramp_x, self.PDtimer_rampxy))
+        if self.psf_mode_opt in (PSF_MODES[2], PSF_MODES[3]):
+            configure_fn(self.y_pos)
+        else:
+            configure_fn(self.x_pos)
 
         open_shutter(SHUTTERS[self.top_laser_idx])
         open_shutter(SHUTTERS[self.bot_laser_idx])
-        self.PDtimer_rampxy.start(0)
+        timer.start(0)
 
     @pyqtSlot()
     def stop_scan(self):
         self.signal_scan_stop = True
-        if self.PDtimer_rampxy and self.PDtimer_rampxy.isActive():
-            self.PDtimer_rampxy.stop()
+        for timer in (self.PDtimer_rampxy, self.PDtimer_rampxz, self.PDtimer_rampyx, self.PDtimer_rampyz):
+            if timer is not None and timer.isActive():
+                timer.stop()
         close_all_shutters()
         xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
         yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
@@ -602,81 +633,219 @@ class ConfocalDualBackend(QObject):
         pi.CTO(1, 5, xo + self.extra)
         pi.CTO(1, 6, xo + self.range_total - self.extra)
 
-    def _scan_ramp_xy(self):
-        if self.signal_scan_stop or self.i >= self.Ny:
-            self.PDtimer_rampxy.stop()
-            close_all_shutters()
-            self.measure_CM()
-            xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
-            yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
-            zp = getattr(self, "z_start", getattr(self, "z_pos", 50.0))
-            pi.MOV([1, 2, 3], [xp, yp, zp])
-            if getattr(self, 'is_grid_routine', False):
-                self.is_grid_routine = False
-                self.gridScanFinishedSignal.emit(self.image_top, self.cm_top, None, None,
-                                                 getattr(self, 'mode_printing', 'none'),
-                                                 getattr(self, 'number_scan', 'none'))
-            else:
-                self.scanfinishedSignal.emit(self.image_top, self.image_bot, self.cm_top, self.cm_bot)
-            return
+    def _configure_ramp_y(self, y_pos: float):
+        """Configuración del wave-table del eje Y — mismo patrón que _configure_ramp_x,
+        necesaria para los modos PSF y/x e y/z (idéntica a
+        modules/confocal.py::_configure_ramp_y, Backend simple)."""
+        sp = self.range_y / self.Ny
+        Npoints = int(self.range_total_y / sp) * 20
+        Npoints = max(100, min(4000, Npoints))
+        Nspeed = int(Npoints / 4)
+        WTRtime = int(1 / (self.frequency_ramp * PI_SERVO_TIME * Npoints))
+        WTRtime = max(1, WTRtime)
+        pi.WTR(0, WTRtime, 0)
+        pi.WAV_LIN(2, 0, Npoints, "X", Nspeed, self.range_total_y, 0, Npoints)
+        pi.WAV_LIN(2, 0, Npoints, "&", Nspeed, -self.range_total_y, self.range_total_y, Npoints)
+        pi.WSL(2, 2); pi.WGC(2, 1)
+        yo = y_pos - self.range_total_y / 2
+        yo = max(0.0, min(100.0 - self.range_total_y, yo))
+        pi.MOV(2, yo); pi.WOS(2, yo)
+        pi.TWC(); pi.CTO(2, 3, 3)
+        pi.CTO(2, 5, yo + self.extra_y)
+        pi.CTO(2, 6, yo + self.range_total_y - self.extra_y)
 
-        heartbeat_shutter(30.0)
-        dy = self.range_y / self.Ny
-        target_y = getattr(self, "y_min", self.y_pos - self.range_y / 2) + dy / 2 + self.i * dy
-        pi.MOV(2, target_y)
+    def _wait_axis_settle(self, axes, timeout_s: float = 0.05):
+        """Confirma asentamiento físico (qONT) del eje/es recién movidos antes de disparar
+        la rampa (pi.WGO) — mismo patrón que modules/confocal.py::_wait_axis_settle
+        (ANOM-CONFOCAL-04 / ANOM-CONTRAPROP-01a): sin esto, el trigger del wave-table
+        puede dispararse mientras el eje todavía está en vuelo inercial de la transición
+        de fila, produciendo error de posición Y por fila en el par de imágenes dual.
+        Acotado a timeout_s para no colgar el hilo confocal compartido ante un fallo de
+        servo real."""
+        t0 = time.time()
+        try:
+            while not all(pi.qONT(axes).values()):
+                if time.time() - t0 > timeout_s:
+                    break
+                time.sleep(0.002)
+        except Exception:
+            pass
 
-        # Adquisición multicanal mapeando canal láser -> canal fotodiodo
+    def _synthetic_dual_grid(self):
+        """Imagen gaussiana sintética determinística (SAFE_MODE) para demo/testing —
+        misma fórmula que usaba _scan_ramp_xy antes de esta extensión, factorizada para
+        reutilizarse en los modos x/y y x/z (ambos de Nx de ancho por fila)."""
+        grid_x, grid_y = np.meshgrid(np.linspace(-1, 1, self.Nx), np.linspace(-1, 1, self.Ny))
+        g_top = np.exp(-((grid_x - 0.05) ** 2 + (grid_y - 0.02) ** 2) / 0.15) * 8.5
+        g_bot = np.exp(-((grid_x + 0.03) ** 2 + (grid_y + 0.04) ** 2) / 0.18) * 7.2
+        return g_top, g_bot
+
+    @staticmethod
+    def _bin_or_interp(g: np.ndarray, n: int) -> np.ndarray:
+        """Promedia/interpola un segmento crudo de fotodiodo a n píxeles — misma lógica
+        que ya usaba _scan_ramp_xy, factorizada para los 4 modos PSF."""
+        n_g = len(g)
+        if n_g >= n:
+            pts_px = n_g // n
+            return np.array([g[k * pts_px:(k + 1) * pts_px].mean() for k in range(n)])
+        return np.interp(np.linspace(0, max(0, n_g - 1), n), np.arange(n_g), g)
+
+    def _acquire_dual_pixel_row(self, trigger_axis: str, wgo_axis: int, n_pixels: int, synth_fn):
+        """Adquiere y devuelve (top, bot), cada uno de n_pixels valores — el segmento
+        'de ida' de ambos fotodiodos sincronizado al trigger de trigger_axis, disparado
+        por el wave-table de wgo_axis. En SAFE_MODE devuelve synth_fn() en su lugar.
+        Compartido por los 4 modos PSF (x/y, x/z, y/x, y/z) — mismo patrón de
+        adquisición que ya usaba _scan_ramp_xy en solitario."""
         task = channels_photodiodos(self.frequency, self.Nramp)
-        channels_triggers(task, "X")
-        pi.WGO(1, 1)
-
+        channels_triggers(task, trigger_axis)
+        pi.WGO(wgo_axis, 1)
         try:
             if SAFE_MODE:
-                # Simular imágenes gaussianas sintéticas con ligera diferencia espacial
-                grid_x, grid_y = np.meshgrid(np.linspace(-1, 1, self.Nx), np.linspace(-1, 1, self.Ny))
-                g_top = np.exp(-((grid_x - 0.05)**2 + (grid_y - 0.02)**2) / 0.15) * 8.5
-                g_bot = np.exp(-((grid_x + 0.03)**2 + (grid_y + 0.04)**2) / 0.18) * 7.2
-                self.image_top[self.i, :] = g_top[self.i, :]
-                self.image_bot[self.i, :] = g_bot[self.i, :]
+                return synth_fn()
+
+            from config import PD_CHANNELS, TRIGGER_CHANNELS
+            data = task.read(number_of_samples_per_channel=self.Nramp)
+            data = np.array(data)
+
+            top_pd_chan = PD_CHANNELS.get(SHUTTERS[self.top_laser_idx], 0)
+            bot_pd_chan = PD_CHANNELS.get(SHUTTERS[self.bot_laser_idx], 0)
+            ph_top = data[top_pd_chan]
+            ph_bot = data[bot_pd_chan]
+            trig_chan = TRIGGER_CHANNELS.get(trigger_axis, 4)
+            trig = data[trig_chan] if len(data) > trig_chan else data[-1]
+
+            d = np.diff(trig); L = len(trig)
+            asc = np.where(d >= 1.5)[0]; dsc = np.where(d <= -1.5)[0]
+            if len(asc) and len(dsc):
+                fa = asc[0]; fd_i = np.where(dsc > fa + L / 6)[0]; fd = dsc[fd_i[0]] if len(fd_i) else fa
+                g_top = ph_top[fa:fd] if fd > fa else ph_top[:L // 2]
+                g_bot = ph_bot[fa:fd] if fd > fa else ph_bot[:L // 2]
             else:
-                from config import PD_CHANNELS, TRIGGER_CHANNELS
-                data = task.read(number_of_samples_per_channel=self.Nramp)
-                data = np.array(data)
+                g_top = ph_top[:L // 2]
+                g_bot = ph_bot[:L // 2]
 
-                top_laser_name = SHUTTERS[self.top_laser_idx]
-                bot_laser_name = SHUTTERS[self.bot_laser_idx]
-                top_pd_chan = PD_CHANNELS.get(top_laser_name, 0)
-                bot_pd_chan = PD_CHANNELS.get(bot_laser_name, 0)
-
-                ph_top = data[top_pd_chan]
-                ph_bot = data[bot_pd_chan]
-                trig_chan = TRIGGER_CHANNELS.get("X", 4)
-                trig = data[trig_chan] if len(data) > trig_chan else data[-1]
-
-                d = np.diff(trig); L = len(trig)
-                asc = np.where(d >= 1.5)[0]; dsc = np.where(d <= -1.5)[0]
-                if len(asc) and len(dsc):
-                    fa = asc[0]; fd_i = np.where(dsc > fa + L/6)[0]; fd = dsc[fd_i[0]] if len(fd_i) else fa
-                    g_top = ph_top[fa:fd] if fd > fa else ph_top[:L//2]
-                    g_bot = ph_bot[fa:fd] if fd > fa else ph_bot[:L//2]
-                else:
-                    g_top = ph_top[:L//2]
-                    g_bot = ph_bot[:L//2]
-
-                # Promedio / Interpolación por píxel
-                n_g = len(g_top)
-                if n_g >= self.Nx:
-                    pts_px = n_g // self.Nx
-                    self.image_top[self.i, :] = [g_top[k*pts_px:(k+1)*pts_px].mean() for k in range(self.Nx)]
-                    self.image_bot[self.i, :] = [g_bot[k*pts_px:(k+1)*pts_px].mean() for k in range(self.Nx)]
-                else:
-                    self.image_top[self.i, :] = np.interp(np.linspace(0, max(0, n_g-1), self.Nx), np.arange(n_g), g_top)
-                    self.image_bot[self.i, :] = np.interp(np.linspace(0, max(0, n_g-1), self.Nx), np.arange(n_g), g_bot)
+            return self._bin_or_interp(g_top, n_pixels), self._bin_or_interp(g_bot, n_pixels)
         finally:
             try:
                 task.close()
             except Exception:
                 pass
+
+    def _finish_ramp_scan(self, timer: QTimer):
+        """Cierre común a los 4 modos PSF: parar el timer activo, cerrar obturadores,
+        medir CM, volver a la posición de inicio y emitir la señal de fin que corresponda."""
+        timer.stop()
+        close_all_shutters()
+        self.measure_CM()
+        xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
+        yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
+        zp = getattr(self, "z_start", getattr(self, "z_pos", 50.0))
+        pi.MOV([1, 2, 3], [xp, yp, zp])
+        if getattr(self, 'is_grid_routine', False):
+            self.is_grid_routine = False
+            self.gridScanFinishedSignal.emit(self.image_top, self.cm_top, None, None,
+                                             getattr(self, 'mode_printing', 'none'),
+                                             getattr(self, 'number_scan', 'none'))
+        else:
+            self.scanfinishedSignal.emit(self.image_top, self.image_bot, self.cm_top, self.cm_bot)
+
+    def _scan_ramp_xy(self):
+        if self.signal_scan_stop or self.i >= self.Ny:
+            self._finish_ramp_scan(self.PDtimer_rampxy)
+            return
+
+        heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+        dy = self.range_y / self.Ny
+        target_y = getattr(self, "y_min", self.y_pos - self.range_y / 2) + dy / 2 + self.i * dy
+        pi.MOV(2, target_y)
+        self._wait_axis_settle(2)  # ANOM-CONTRAPROP-01a: confirma asentamiento antes del WGO
+
+        row = self.i
+        def _synth():
+            g_top, g_bot = self._synthetic_dual_grid()
+            return g_top[row, :], g_bot[row, :]
+        self.image_top[self.i, :], self.image_bot[self.i, :] = \
+            self._acquire_dual_pixel_row("X", 1, self.Nx, _synth)
+
+        self.dataDualSignal.emit(self.image_top, self.image_bot)
+        self.i += 1
+
+    def _scan_ramp_xz(self):
+        """Modo PSF x/z: dispara la rampa a lo largo de X (igual que x/y), pero avanza
+        por fila moviendo Z en vez de Y — reutiliza range_y/Ny como paso de Z, mismo
+        convenio que modules/confocal.py::_scan_ramp_xz (sin parámetro de rango propio
+        para Z)."""
+        if self.signal_scan_stop or self.i >= self.Ny:
+            self._finish_ramp_scan(self.PDtimer_rampxz)
+            return
+
+        heartbeat_shutter()
+        dz = self.range_y / self.Ny
+        target_z = getattr(self, "z_min", self.z_pos - self.range_y / 2) + dz / 2 + self.i * dz
+        pi.MOV(3, target_z)
+        self._wait_axis_settle(3)
+
+        row = self.i
+        def _synth():
+            g_top, g_bot = self._synthetic_dual_grid()
+            return g_top[row, :], g_bot[row, :]
+        self.image_top[self.i, :], self.image_bot[self.i, :] = \
+            self._acquire_dual_pixel_row("X", 1, self.Nx, _synth)
+
+        self.dataDualSignal.emit(self.image_top, self.image_bot)
+        self.i += 1
+
+    def _scan_ramp_yx(self):
+        """Modo PSF y/x: dispara la rampa a lo largo de Y, avanza por columna moviendo
+        X — mismo convenio que modules/confocal.py::_scan_ramp_yx (almacena por columna,
+        image[:, i])."""
+        if self.signal_scan_stop or self.i >= self.Nx:
+            self._finish_ramp_scan(self.PDtimer_rampyx)
+            return
+
+        heartbeat_shutter()
+        dx = self.range_x / self.Nx
+        target_x = getattr(self, "x_min", self.x_pos - self.range_x / 2) + dx / 2 + self.i * dx
+        pi.MOV(1, target_x)
+        self._wait_axis_settle(1)
+
+        col = self.i
+        def _synth():
+            g_top, g_bot = self._synthetic_dual_grid()
+            return g_top[:, col], g_bot[:, col]
+        self.image_top[:, self.i], self.image_bot[:, self.i] = \
+            self._acquire_dual_pixel_row("Y", 2, self.Ny, _synth)
+
+        self.dataDualSignal.emit(self.image_top, self.image_bot)
+        self.i += 1
+
+    def _scan_ramp_yz(self):
+        """Modo PSF y/z: dispara la rampa a lo largo de Y, avanza por fila moviendo Z
+        (paso derivado de range_x/Nx) — mismo convenio que
+        modules/confocal.py::_scan_ramp_yz, incluyendo su particularidad heredada de
+        almacenar Ny valores en la fila self.i (que recorre 0..Nx-1): dormant si
+        Nx==Ny (caso por defecto), no se “corrige” acá para no divergir del comportamiento
+        de microscopio derecho."""
+        if self.signal_scan_stop or self.i >= self.Nx:
+            self._finish_ramp_scan(self.PDtimer_rampyz)
+            return
+
+        heartbeat_shutter()
+        dz = self.range_x / self.Nx
+        target_z = getattr(self, "z_min", self.z_pos - self.range_x / 2) + dz / 2 + self.i * dz
+        pi.MOV(3, target_z)
+        self._wait_axis_settle(3)
+
+        row = self.i
+        def _synth():
+            # No se reutiliza _synthetic_dual_grid (Nx de ancho): este modo necesita Ny
+            # valores por fila, así que se genera un perfil 1D propio de longitud Ny.
+            xs = np.linspace(-1, 1, self.Ny)
+            amp_top = 8.5 * np.exp(-((xs - 0.05) ** 2) / 0.15) * (0.7 + 0.3 * np.cos(row * 0.3))
+            amp_bot = 7.2 * np.exp(-((xs + 0.03) ** 2) / 0.18) * (0.7 + 0.3 * np.cos(row * 0.35 + 0.5))
+            return amp_top, amp_bot
+        self.image_top[self.i, :], self.image_bot[self.i, :] = \
+            self._acquire_dual_pixel_row("Y", 2, self.Ny, _synth)
 
         self.dataDualSignal.emit(self.image_top, self.image_bot)
         self.i += 1

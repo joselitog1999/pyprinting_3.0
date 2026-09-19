@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
                               QComboBox, QPushButton)
 from PyQt6.QtGui     import QShortcut, QKeySequence
 
-from config  import pi, SHUTTERS
+from config  import pi, SHUTTERS, PI_STAGE_RANGE_UM
 from nidaq   import (open_shutter, close_shutter, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, RATE_MULTICHANNEL, PD_CHANNELS,
                      PD_CHANS_LIST)
@@ -111,6 +111,8 @@ class Frontend(QFrame):
               np.ndarray, np.ndarray, np.ndarray, np.ndarray)
     def plot_focus(self, z_gone, prof_gone, prof_gone_f, prof_gone_max,
                    z_back, prof_back, prof_back_f, prof_back_max):
+        if getattr(self, "_plot_win_focus", None) is not None:
+            self._plot_win_focus.close()
         win = pg.GraphicsLayoutWidget(title="Go to maximum")
         win.show()
         p = win.addPlot(title="Go to maximum")
@@ -127,6 +129,8 @@ class Frontend(QFrame):
 
     @pyqtSlot(np.ndarray, np.ndarray)
     def plot_lock(self, profile, profile_filter):
+        if getattr(self, "_plot_win_lock", None) is not None:
+            self._plot_win_lock.close()
         win = pg.GraphicsLayoutWidget(title="Lock focus")
         win.show()
         p = win.addPlot(title="Lock focus")
@@ -140,6 +144,8 @@ class Frontend(QFrame):
     def plot_auto(self, new_f, lock_f, corr):
         if hasattr(self, "show_autocorr_btn") and not self.show_autocorr_btn.isChecked():
             return
+        if getattr(self, "_plot_win_auto", None) is not None:
+            self._plot_win_auto.close()
         win = pg.GraphicsLayoutWidget(title="Autocorrelation")
         win.show()
         p = win.addPlot(title="Autocorrelation")
@@ -166,6 +172,11 @@ class Backend(QObject):
     lockdoneSignal    = pyqtSignal()
     autodoneSignal    = pyqtSignal()
     autofinishSignal  = pyqtSignal(str)   # emite mode_printing — unificada
+
+    # ANOM-FOCUS-01: cota de reintentos ante fallo de detección de flancos de trigger Z.
+    # Sin esta cota, un cableado/controller degradado provoca un retry infinito que además
+    # re-arma el watchdog del obturador en cada vuelta, impidiéndole disparar.
+    MAX_RAMP_RETRIES = 5
 
     plot_focusSignal = pyqtSignal(
         np.ndarray, np.ndarray, np.ndarray, np.ndarray,
@@ -199,6 +210,35 @@ class Backend(QObject):
         size_point           = self.range_total / self.Npoints
         self.Nz              = int(self.range / size_point)
 
+    def _clamped_zo(self, center_z: float) -> float:
+        """Ancla el origen [zo, zo+range_total] de la rampa Z al mismo rango físico
+        [0, PI_STAGE_RANGE_UM] que pi.MOV() clampea a nivel de driver. WOS/CTO/WAV_LIN
+        (usados para la geometría de trigger de la rampa) van directo al driver GCS sin
+        clamping propio, así que sin este ajuste la geometría de trigger puede quedar
+        desfasada del movimiento físico realmente alcanzable cerca de los límites de
+        recorrido (ANOM-FOCUS-02)."""
+        zo = center_z - self.range_total / 2
+        return max(0.0, min(PI_STAGE_RANGE_UM - self.range_total, zo))
+
+    def _ramp_lin_with_retry_cap(self, context: str):
+        """Ejecuta _ramp_lin() reintentando hasta MAX_RAMP_RETRIES veces si no se
+        detectan flancos de trigger válidos. Levanta RuntimeError en vez de reintentar
+        sin límite (ANOM-FOCUS-01): un fallo de cableado/controller ya no puede colgar
+        el hilo confocal compartido ni mantener el ciclo de reintentos re-armando el
+        watchdog del obturador indefinidamente."""
+        flag = True
+        retries = 0
+        gone = back = None
+        while flag:
+            heartbeat_shutter(30.0)
+            gone, back, flag = self._ramp_lin()
+            retries += 1
+            if flag and retries >= self.MAX_RAMP_RETRIES:
+                raise RuntimeError(
+                    f"[Focus] ABORT ({context}): {retries} fallos consecutivos de detección "
+                    f"de flancos de trigger Z — verificar cableado/controller PI.")
+        return gone, back
+
     # ── Go to maximum ─────────────────────────────────────────────────────────
 
     @pyqtSlot(int)
@@ -206,39 +246,52 @@ class Backend(QObject):
         self.laser = SHUTTERS[color_laser]
         pos        = pi.qPOS()
         z_pos      = pos["3"]
-        self.zo    = z_pos - self.range_total / 2
+        self.zo    = self._clamped_zo(z_pos)
 
-        self._move_z(self.zo)
-        pi.WOS(3, self.zo)
+        try:
+            self._move_z(self.zo)
+            pi.WOS(3, self.zo)
 
-        flag = True
-        while flag:
-            open_shutter(self.laser)
-            heartbeat_shutter(30.0)
-            gone, back, flag = self._ramp_lin()
-            close_shutter(self.laser)
+            flag = True
+            retries = 0
+            while flag:
+                open_shutter(self.laser)
+                heartbeat_shutter(30.0)
+                try:
+                    gone, back, flag = self._ramp_lin()
+                finally:
+                    close_shutter(self.laser)
+                retries += 1
+                if flag and retries >= self.MAX_RAMP_RETRIES:
+                    raise RuntimeError(
+                        f"[Focus] ABORT go_to_maximum: {retries} fallos consecutivos de "
+                        f"detección de flancos de trigger Z — verificar cableado/controller PI.")
 
-        f_gone = int(len(gone) / self.Nz)
-        gone_m = _average(gone, f_gone)
-        gone_f = _filter(gone_m)
+            f_gone = int(len(gone) / self.Nz)
+            gone_m = _average(gone, f_gone)
+            gone_f = _filter(gone_m)
 
-        f_back = int(len(back) / self.Nz)
-        back_m = _average(back, f_back)
-        back_f = _filter(back_m)
+            f_back = int(len(back) / self.Nz)
+            back_m = _average(back, f_back)
+            back_f = _filter(back_m)
 
-        dz     = self.range / self.Nz
-        z_gone = np.linspace(z_pos - self.range/2 + dz/2,
-                             z_pos + self.range/2 - dz/2, len(gone_m))
-        z_back = np.linspace(z_pos + self.range/2 - dz/2,
-                             z_pos - self.range/2 + dz/2, len(back_m))
+            dz     = self.range / self.Nz
+            z_gone = np.linspace(z_pos - self.range/2 + dz/2,
+                                 z_pos + self.range/2 - dz/2, len(gone_m))
+            z_back = np.linspace(z_pos + self.range/2 - dz/2,
+                                 z_pos - self.range/2 + dz/2, len(back_m))
 
-        i_gone = np.argmax(gone_f)
-        i_back = np.argmax(back_f)
-        gone_max_arr = np.zeros_like(gone_f); gone_max_arr[i_gone] = gone_f[i_gone]
-        back_max_arr = np.zeros_like(back_f); back_max_arr[i_back] = back_f[i_back]
+            i_gone = np.argmax(gone_f)
+            i_back = np.argmax(back_f)
+            gone_max_arr = np.zeros_like(gone_f); gone_max_arr[i_gone] = gone_f[i_gone]
+            back_max_arr = np.zeros_like(back_f); back_max_arr[i_back] = back_f[i_back]
 
-        z_max = np.around((z_gone[i_gone] + z_back[i_back]) / 2, 3)
-        self._move_z(z_max)
+            z_max = np.around((z_gone[i_gone] + z_back[i_back]) / 2, 3)
+            self._move_z(z_max)
+        except (RuntimeError, TimeoutError) as e:
+            print(str(e))
+            return
+
         self.gotomaxdoneSignal.emit()
         self.plot_focusSignal.emit(z_gone, gone_m, gone_f, gone_max_arr,
                                    z_back, back_m, back_f, back_max_arr)
@@ -252,22 +305,36 @@ class Backend(QObject):
         if lock_bool:
             pos    = pi.qPOS()
             z_lock = pos["3"]
-            self.zo = z_lock - self.range_total / 2
-            self._move_z(self.zo)
-            pi.WOS(3, self.zo)
+            self.zo = self._clamped_zo(z_lock)
 
-            flag = True
-            while flag:
-                open_shutter(self.laser)
-                heartbeat_shutter(30.0)
-                gone, _, flag = self._ramp_lin()
-                close_shutter(self.laser)
+            try:
+                self._move_z(self.zo)
+                pi.WOS(3, self.zo)
 
-            f_gone = int(len(gone) / self.Nz)
-            self.z_profile_gone_lock  = _average(gone, f_gone)
-            self.z_profile_lock_filter = _filter(self.z_profile_gone_lock)
+                flag = True
+                retries = 0
+                while flag:
+                    open_shutter(self.laser)
+                    heartbeat_shutter(30.0)
+                    try:
+                        gone, _, flag = self._ramp_lin()
+                    finally:
+                        close_shutter(self.laser)
+                    retries += 1
+                    if flag and retries >= self.MAX_RAMP_RETRIES:
+                        raise RuntimeError(
+                            f"[Focus] ABORT lock_focus: {retries} fallos consecutivos de "
+                            f"detección de flancos de trigger Z — verificar cableado/controller PI.")
 
-            self._move_z(z_lock)
+                f_gone = int(len(gone) / self.Nz)
+                self.z_profile_gone_lock  = _average(gone, f_gone)
+                self.z_profile_lock_filter = _filter(self.z_profile_gone_lock)
+                self._move_z(z_lock)
+            except (RuntimeError, TimeoutError) as e:
+                print(str(e))
+                self.locked_focus = False
+                return
+
             self.locked_focus = True
             self.lockdoneSignal.emit()
             self.plot_lockSignal.emit(self.z_profile_gone_lock,
@@ -291,32 +358,41 @@ class Backend(QObject):
                 return
 
         open_shutter(self.laser)
-        for _ in range(2):
-            heartbeat_shutter(30.0)
-            self._focus_autocorr_lin()
-        close_shutter(self.laser)
+        ok = True
+        try:
+            for _ in range(2):
+                heartbeat_shutter(30.0)
+                self._focus_autocorr_lin()
+        except (RuntimeError, TimeoutError) as e:
+            print(str(e))
+            ok = False
+        finally:
+            close_shutter(self.laser)
 
-        self.plot_autoSignal.emit(self.new_profile_filter,
-                                  self.z_profile_lock_filter,
-                                  self.correlation_filter)
-        self.autodoneSignal.emit()
+        if ok:
+            self.plot_autoSignal.emit(self.new_profile_filter,
+                                      self.z_profile_lock_filter,
+                                      self.correlation_filter)
+            self.autodoneSignal.emit()
+        # Se emite siempre, éxito o abort: la máquina de estados de impresión/dímeros
+        # (grid_finish_autofoco) espera este callback y quedaría colgada sin él (ANOM-FOCUS-01).
         self.autofinishSignal.emit(mode_printing)
 
     @pyqtSlot()
     def focus_autocorr_lin(self):
-        self._focus_autocorr_lin()
+        try:
+            self._focus_autocorr_lin()
+        except (RuntimeError, TimeoutError) as e:
+            print(str(e))
 
     def _focus_autocorr_lin(self):
         pos     = pi.qPOS()
         z_before = pos["3"]
-        self.zo  = z_before - self.range_total / 2
+        self.zo  = self._clamped_zo(z_before)
         self._move_z(self.zo)
         pi.WOS(3, self.zo)
 
-        flag = True
-        while flag:
-            heartbeat_shutter(30.0)
-            gone, _, flag = self._ramp_lin()
+        gone, _ = self._ramp_lin_with_retry_cap("autocorrelation")
 
         f_gone          = int(len(gone) / self.Nz)
         new_profile     = _average(gone, f_gone)
@@ -389,9 +465,13 @@ class Backend(QObject):
 
     # ── Movimiento Z ─────────────────────────────────────────────────────────
 
-    def _move_z(self, z: float):
+    def _move_z(self, z: float, timeout_s: float = 10.0):
         pi.MOV(3, z)
+        t0 = time.time()
         while not all(pi.qONT(3).values()):
+            if time.time() - t0 > timeout_s:
+                raise TimeoutError(
+                    f"[Focus] PI qONT() timeout ({timeout_s}s) moviendo a Z={z:.3f} µm.")
             time.sleep(0.1)
 
     def make_connection(self, frontend: Frontend):

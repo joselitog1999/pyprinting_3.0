@@ -18,7 +18,7 @@ from datetime import datetime
 
 import numpy as np
 
-from PyQt6.QtCore    import QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore    import QObject, QThread, pyqtSignal, pyqtSlot, QMetaObject, Qt, Q_ARG
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                               QGridLayout, QMessageBox, QFileDialog)
 from PyQt6.QtGui     import QAction, QKeySequence
@@ -36,6 +36,30 @@ from camera          import (CameraWindow, CanonWorker as CameraBackend,
                               Laser532Window, Laser532Backend)
 from image_analyzer  import ImageAnalyzerWidget, ImageAnalyzerWindow
 from psf_analyzer    import PSFAnalyzerWidget, PSFAnalyzerWindow
+
+
+def move_stage_to_absolute_xy(nano_backend, target_x_um: float, target_y_um: float) -> bool:
+    """Mueve la platina a una posición absoluta (ejes físicos 1/2, µm) de forma segura
+    entre hilos — nano_backend (core.nanopositioning.Backend) vive en instrumentThread,
+    así que se despacha vía QMetaObject.invokeMethod + BlockingQueuedConnection sobre su
+    slot move() (relativo), calculando el delta desde la posición actual leída
+    sincrónicamente con pi.qPOS() (mismo patrón ya establecido en _on_set_reference).
+    Usado por ROI -> Confocal (Fase C). Devuelve False sin mover nada si no se pudo leer
+    la posición actual — nunca mueve a ciegas."""
+    from config import pi
+    try:
+        pos = pi.qPOS()
+        current_x, current_y = float(pos["1"]), float(pos["2"])
+    except Exception as e:
+        print(f"[App] No se pudo leer la posición actual de la platina: {e}")
+        return False
+    dx = target_x_um - current_x
+    dy = target_y_um - current_y
+    QMetaObject.invokeMethod(nano_backend, "move", Qt.ConnectionType.BlockingQueuedConnection,
+                              Q_ARG(str, "x"), Q_ARG(float, dx))
+    QMetaObject.invokeMethod(nano_backend, "move", Qt.ConnectionType.BlockingQueuedConnection,
+                              Q_ARG(str, "y"), Q_ARG(float, dy))
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -136,6 +160,11 @@ class Frontend(QMainWindow):
         self.hardwareWindow      = HardwareDashboardWindow()# Tools → Tablero de Conexiones (Ctrl+H)
         self.hardwareWidget      = self.hardwareWindow.widget  # Para compatibilidad de señal
         self.cameraWindow        = CameraWindow()          # Tools → Cámara
+        # Fase C: carga (si existe) la calibración platina<->cámara ya persistida para
+        # este rig — StageCameraTransform.load() es un no-op silencioso si el archivo
+        # todavía no existe (M_forward queda None, is_calibrated() False).
+        from core.stage_camera_transform import StageCameraTransform
+        self.cameraWindow.set_stage_camera_transform(StageCameraTransform("microscopio_derecho"))
         self.imageAnalyzerWindow = ImageAnalyzerWindow()   # Tools → Analizador de Imágenes
         self.psfAnalyzerWindow   = PSFAnalyzerWindow()     # Tools → PSF Analyzer
         self.laser532Window      = Laser532Window()         # Tools → Láser 532
@@ -255,6 +284,79 @@ class Frontend(QMainWindow):
                 print(f"[App] Error leyendo posición PI para referencia: {e}")
 
         self.cameraWindow.setReferenceSignal.connect(_on_set_reference)
+
+        # Asistente de calibración platina<->cámara (Fase B, StageCameraTransform):
+        # CameraWindow no importa core.nanopositioning directamente (evita acoplar
+        # modules/camera.py a esa capa) — se inyecta backend.nanoWorker acá, mismo
+        # patrón que _on_set_reference arriba.
+        def _on_open_calibration_wizard():
+            from modules.camera import StageCalibrationWizardDialog
+            from PyQt6.QtWidgets import QDialog
+            dlg = StageCalibrationWizardDialog(
+                self.cameraWindow, backend.nanoWorker, rig_id="microscopio_derecho",
+                parent=self.cameraWindow)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                # dlg._transform ya fue guardado por el propio diálogo (_on_save) — se
+                # refresca acá la copia que CameraWindow usa para ROI -> Confocal
+                # (Fase C), que si no quedaría con la calibración vieja (o ninguna)
+                # hasta el próximo reinicio de la app.
+                self.cameraWindow.set_stage_camera_transform(dlg._transform)
+        self.cameraWindow.openCalibrationWizardSignal.connect(_on_open_calibration_wizard)
+
+        # Corroboración por fiducial de dímeros (Fase B, Método B): misma inyección de
+        # rig_id que el asistente de paso, esta vez sin necesitar nanoWorker (no mueve
+        # la platina, solo compara contra la calibración ya persistida).
+        def _on_open_fiducial_validation(frame):
+            from modules.camera import FiducialValidationDialog
+            from core.stage_camera_transform import StageCameraTransform
+            transform = StageCameraTransform("microscopio_derecho")
+            if not transform.is_calibrated():
+                QMessageBox.warning(
+                    self.cameraWindow, "Corroborar Calibración",
+                    "Todavía no hay una calibración guardada para este rig — corré primero "
+                    "el asistente '🎯 Calibrar Ejes'.")
+                return
+            dlg = FiducialValidationDialog(frame, transform, parent=self.cameraWindow)
+            dlg.exec()
+        self.cameraWindow.openFiducialValidationSignal.connect(_on_open_fiducial_validation)
+
+        # Cámara -> Confocal (Fase C): posiciona la platina en el centro ya calculado
+        # por StageCameraTransform (roiToConfocalSignal ahora lo incluye — antes no lo
+        # llevaba, hallazgo de la Ronda 1) y carga los parámetros de rango en el panel
+        # Confocal. Deliberadamente NO inicia el escaneo (decisión explícita del
+        # operador): el escaneo se arranca a mano desde el panel Confocal, para no
+        # disparar un escaneo con láser desde un solo click de cámara.
+        def _on_roi_to_confocal(range_x_um, range_y_um, px_x, px_y, target_x_um, target_y_um):
+            if not move_stage_to_absolute_xy(backend.nanoWorker, target_x_um, target_y_um):
+                return
+            self.confocalWidget.set_ramp_parameters_from_external(range_x_um, range_y_um, px_x, px_y)
+            self.statusBar().showMessage(
+                f"📍 Platina posicionada en ({target_x_um:.2f}, {target_y_um:.2f}) µm para escaneo "
+                f"confocal — presioná 'Iniciar Escaneo' en el panel Confocal cuando quieras arrancar.",
+                8000)
+        self.cameraWindow.roiToConfocalSignal.connect(_on_roi_to_confocal)
+
+        # Overlays Confocal -> Cámara / Impresión -> Cámara (Fase D): conexiones
+        # cross-thread directas por señal/slot Qt (QueuedConnection automática, cada
+        # worker vive en su propio QThread — ver worker.*.moveToThread más abajo), sin
+        # closures intermedias porque las señales ya coinciden 1:1 en firma con los
+        # slots de CameraWindow (ver modules/camera.py::update_confocal_center/
+        # update_confocal_range/update_printing_reference/set_printing_grid). Todo el
+        # recálculo queda cacheado del lado de CameraWindow, nunca en el hilo de estos
+        # workers.
+        backend.nanoWorker.read_pos_signal.connect(self.cameraWindow.update_confocal_center)
+        self.confocalWidget.parametersrampSignal.connect(self.cameraWindow.update_confocal_range)
+        self.confocalWidget.parametersstepSignal.connect(self.cameraWindow.update_confocal_range)
+        # printingWorker y dimersWorker comparten la misma clase Backend
+        # (modules/measurements.py) y por lo tanto la misma forma de referenceSignal/
+        # gridplotSignal — ambas rutinas alimentan los mismos slots cacheados de
+        # CameraWindow; la última en emitir "gana" la caché (aceptable: son ayudas
+        # visuales, no una fuente de verdad crítica, y las dos rutinas no corren a la
+        # vez sobre la misma platina).
+        backend.printingWorker.referenceSignal.connect(self.cameraWindow.update_printing_reference)
+        backend.dimersWorker.referenceSignal.connect(self.cameraWindow.update_printing_reference)
+        backend.printingWorker.gridplotSignal.connect(self.cameraWindow.set_printing_grid)
+        backend.dimersWorker.gridplotSignal.connect(self.cameraWindow.set_printing_grid)
 
         # Propagar cambio de directorio a la cámara
         def _on_file_signal(path: str):
@@ -428,10 +530,19 @@ class Backend(QObject):
         except Exception as e:
             print(f"[App] No se pudo guardar posición: {e}")
         if hasattr(self, 'cameraWorker') and self.cameraWorker:
-            if hasattr(self.cameraWorker, 'close'):
-                self.cameraWorker.close()
-            elif hasattr(self.cameraWorker, 'stop_camera'):
-                self.cameraWorker.stop_camera()
+            # ANOM-CAM-02b: cameraWorker vive en cameraThread (moveToThread en
+            # main_appliance/__main__ de este módulo) — una llamada directa desde acá
+            # (hilo GUI, vía close_all() conectado a closeSignal) invoca close()/
+            # stop_camera() sin marshalling entre hilos, y colgaría el cierre de la app
+            # entera si el worker estuviera bloqueado (ver ANOM-CAM-01 en
+            # core/canon_edsdk.py, ya corregido, pero esta llamada seguía siendo insegura
+            # en sí misma independientemente de esa causa puntual).
+            method_name = "close" if hasattr(self.cameraWorker, 'close') else (
+                "stop_camera" if hasattr(self.cameraWorker, 'stop_camera') else None)
+            if method_name is not None:
+                QMetaObject.invokeMethod(
+                    self.cameraWorker, method_name, Qt.ConnectionType.BlockingQueuedConnection
+                )
         close_all_tasks()
         flipper_notch532("down")
         pi.disconnect()

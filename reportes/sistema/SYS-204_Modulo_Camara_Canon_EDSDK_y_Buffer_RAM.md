@@ -12,13 +12,15 @@
 
 - **Reportes de Sistema Conexos:**
   - `[[SYS-101_Arquitectura_Hilos_Concurrencia_QThread]]`
+  - `[[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica]]` — cinemática `StageCameraTransform` (§7 de este reporte, detalle completo en SYS-103 §8)
   - `[[SYS-002_Evaluacion_Arquitectonica_AST_y_Metricas_Graphify]]`
   - `[[SYS-305_Arquitectura_Optomecanica_Microscopio_Derecho_y_Ruteo_Espectral]]`
 - **Fundamentos Científicos Asociados:**
   - `[[CAT-108_Teoria_Optica_Telescopio_Rele_4f_y_Canales_Confocales]]`
   - `[[CAT-201_Deconvolucion_Optica_Richardson_Lucy_y_Tracking_Trackpy]]`
   - `[[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia]]`
-- **Módulos de Código Fuente:** `core/canon_edsdk.py`, `modules/camera.py`
+- **Decisiones de Arquitectura:** `DEC-014` (`docs/decisions/DECISION_LOG.md`) — auditoría de estabilidad, cinemática y sincronización espacial bidireccional.
+- **Módulos de Código Fuente:** `core/canon_edsdk.py`, `modules/camera.py`, `core/stage_camera_transform.py`, `core/stage_camera_calibration.py`
 
 ---
 
@@ -72,6 +74,33 @@ edsdk.EdsSetPropertyData(
 
 ---
 
+### 2.3 Estabilidad y Concurrencia (Auditoría Adversarial, `DEC-014` Fase A)
+
+El módulo había recibido múltiples parches sin lograr estabilidad total en sesiones prolongadas de laboratorio. Ante instrucción explícita del usuario ("no te confíes de las implementaciones previas"), se ejecutó una auditoría adversarial dedicada de `core/canon_edsdk.py` + `modules/camera.py` que encontró y corrigió:
+
+| Hallazgo | Causa Raíz | Corrección |
+| :--- | :--- | :--- |
+| **Auto-deadlock determinístico** (`ANOM-CAM-01`) | `_edsdk_lock` era `threading.Lock` (no reentrante). `set_live_view_zoom()` lo adquiría y, sin liberarlo, llamaba internamente a `_apply_zoom_position_from_center()` → `set_live_view_zoom_position()`, que intentaba readquirir el **mismo** lock en el **mismo** hilo. | `threading.RLock()` + reestructuración para que el llamado anidado ocurra fuera del `with` externo. Reproducido y verificado con un hilo separado + `join(timeout=3.0)` en `tests/test_canon_camera_stability.py`. |
+| **Cierre cruzado de hilo sin marshalling** (`ANOM-CAM-02`/`02b`) | `CameraWindow.closeEvent()` y `app.py::Backend.close_all()` llamaban a métodos del worker de cámara directamente desde el hilo GUI, pese a que el worker vive en su propio `QThread`. | `QMetaObject.invokeMethod(worker, "stop_camera", Qt.ConnectionType.BlockingQueuedConnection)` en ambos sitios. |
+| **Definición duplicada de `OverlayWidget.set_zoom_level()`** (`ANOM-CAM-06`) | Python silenciosamente sólo ejecutaba la segunda definición (con lógica de congelado de PiP); la primera, muerta, carecía de esa lógica — explica por qué parches de zoom anteriores no surtían efecto completo. | Eliminada la definición muerta. |
+| **Constantes UILock/UIUnLock indefinidas** (`ANOM-CAM-04`) | El fallback NonAF de `take_photo()` las usaba sin declarar, produciendo un `NameError` silenciado por `except Exception: pass`. | Definidas con los valores oficiales verificados contra `ESDK_CANON/.../EDSDKTypes.h:468-469`. |
+| **Fuga de handles EDSDK en camino de error** (`ANOM-CAM-05`) | `_download_newest_photo_from_camera()` liberaba `vol_ref`/`folder_ref`/`last_item` inline en el camino feliz — una excepción a mitad del recorrido saltaba los releases pendientes. | `try/finally` anidado por cada handle adquirido. |
+
+Adicionalmente, e independientemente del alcance de esta auditoría, se encontró que `core/nanopositioning.py::Backend.move()`/`_moveto()` sondeaban `pi.qONT()` sin timeout (mismo patrón ya corregido en `focus.py` por `DEC-013`) — corregido con un parámetro `timeout_s`.
+
+### 2.4 Tamaño Inicial Fijo del Stream de Memoria Live View (`DEC-014` Fase E)
+
+`get_live_view_frame()` creaba el `EdsStreamRef` receptor de cada cuadro JPEG con `EdsCreateMemoryStream(0, ...)` — reasignación desde tamaño cero en cada uno de los hasta 25 cuadros por segundo, candidata plausible a la inestabilidad reportada. Corregido a un tamaño inicial fijo de **2 MiB**:
+
+```python
+# core/canon_edsdk.py::get_live_view_frame()
+err = edsdk.EdsCreateMemoryStream(2 * 1024 * 1024, ctypes.byref(stream))
+```
+
+El valor no fue elegido arbitrariamente: es la constante exacta que usa el propio ejemplo oficial de Canon para este mismo llamado (`ESDK_CANON/.../Sample/CSharp/CameraControl/CameraControl/Command/EVF/DownloadEvfCommand.cs:41`). `EDSDK.h` documenta que el stream sigue extendiéndose automáticamente si el frame real excede el tamaño inicial ("In the case of writing in excess of the allocated buffer size, the memory is automatically extended"), de modo que el fix no introduce un límite duro — sólo elimina la reasignación repetida desde cero. Se descartó deliberadamente reutilizar un único handle de stream entre frames, por tratarse de un comportamiento del SDK no verificado documentalmente.
+
+---
+
 ## 3. Procesamiento de Imagen en Vivo y Supresión de Ruido
 
 Los fotogramas adquiridos en `cameraThread` ingresan a la función `process_frame_live_adjustments`:
@@ -113,10 +142,22 @@ $$\text{width}_{\text{box}} = \frac{1}{\text{ZoomLevel}} \cdot W_{\text{pip}}, \
 
 ---
 
-## 6. Documentación Relacionada y Red de Reportes
+## 6. Cinemática Platina ↔ Cámara (`StageCameraTransform`)
+
+Desde `DEC-014`, la cámara comparte una cinemática calibrada con el Confocal y las rutinas de Impresión/Dímeros a través de `core/stage_camera_transform.py::StageCameraTransform` — el detalle matemático completo (formulación matricial, verificación de reflexión vs. rotación, chequeo de patrón de signo conocido) vive en `[[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica]]` §8, por ser la extensión natural del Principio de Invariancia ya documentado allí. Resumen relevante a este módulo:
+
+- **Calibrada en píxeles de sensor completo** ($4752\times3168$), no por nivel de zoom óptico — `core/stage_camera_calibration.py::sensor_px_to_display_fraction()` compone aparte, sólo al proyectar a pantalla, la ventana de recorte de zoom vigente (misma geometría que `_apply_zoom_position_from_center()`, §2.2).
+- **Dos herramientas de calibración expuestas en la GUI** (`StageCalibrationWizardDialog`, `FiducialValidationDialog`) — ver `[[MOD-04_Camara_Live_View_Canon_EDSDK]]` §10.2 para el flujo de usuario.
+- **Overlays proyectados** (caja de escaneo confocal, grilla de impresión) recalculados sólo ante la señal upstream relevante — nunca dentro del bucle de refresco de video a 25 fps (§2 de este reporte).
+
+---
+
+## 7. Documentación Relacionada y Red de Reportes
 
 - **Manual Principal de Usuario**: [Manual de Usuario PyPrinting 3.0 (docs/MANUAL_USUARIO.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/docs/MANUAL_USUARIO.md)
 - **Visión General y Árbol**: [README PyPrinting 3.0 (README.md)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/README.md)
+- **Decisión de Arquitectura**: `DEC-014` (`docs/decisions/DECISION_LOG.md`) — auditoría de estabilidad, cinemática y sincronización espacial bidireccional.
 - **Reportes Técnicos Vinculados**:
   - 🧵 [[SYS-101_Arquitectura_Hilos_Concurrencia_QThread|Arquitectura de Hilos y Concurrencia]]
+  - 🧭 [[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica|Regímenes de Coordenadas e Invariancia Cinemática]]
   - 🔌 [[SYS-102_Senales_Slots_PyQt6_y_Temporizacion_DAQmx|Diagnóstico de Señales y Conexiones]]

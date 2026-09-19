@@ -13,11 +13,13 @@
 - **Reportes de Sistema Conexos:**
   - `[[SYS-001_Estandares_Diseno_Arquitectura_PyPrinting3]]`
   - `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO]]`
+  - `[[SYS-204_Modulo_Camara_Canon_EDSDK_y_Buffer_RAM]]` — aplicación cinemática a la cámara réflex (§8 de este reporte)
   - `[[SYS-403_Registro_Bugs_Causa_Raiz_Rutina_Printing]]`
 - **Fundamentos Científicos Asociados:**
   - `[[CAT-102_Sintesis_Cristalografica_Redes_2D_y_Particula_Ancla]]`
   - `[[CAT-105_Compensacion_Deriva_Termomecanica_Particula_Ancla_P0]]`
-- **Módulos de Código Fuente:** `core/nanopositioning.py`, `modules/confocal.py`, `modules/measurements.py`, `tests/test_coordinate_nomenclature_sync.py`
+- **Decisiones de Arquitectura:** `DEC-014` (`docs/decisions/DECISION_LOG.md`)
+- **Módulos de Código Fuente:** `core/nanopositioning.py`, `modules/confocal.py`, `modules/measurements.py`, `tests/test_coordinate_nomenclature_sync.py`, `core/stage_camera_transform.py`, `core/stage_camera_calibration.py`, `modules/camera.py`
 
 ---
 
@@ -298,9 +300,45 @@ Se ejecutó la batería completa de 56 diagnósticos del sistema:
 
 ---
 
-## 7. Conclusiones y Recomendaciones de Uso
+## 7. `StageCameraTransform`: Aplicación Cinemática a la Cámara Réflex (`DEC-014`)
+
+El Principio Rector de Invariancia (§1) —que el régimen de coordenadas es un relabeling puramente de interfaz, sin efecto sobre la cinemática real del actuador— se explotó directamente en el diseño de la sincronización espacial bidireccional Cámara ↔ Confocal ↔ Impresión (`core/stage_camera_transform.py::StageCameraTransform`, `[[MOD-04_Camara_Live_View_Canon_EDSDK]]` §10).
+
+### 7.1 Por Qué la Transformación No Depende del Régimen Activo
+Una transformación platina→cámara calibrada ingenuamente por régimen requeriría 3 matrices independientes (una por cada uno de `Legacy`/`Laser Ref`/`Sample Ref`) y recalibrarse cada vez que el operador cambia el selector de régimen en tiempo real. Dado que $\Delta\mathbf{r}_{\text{stage}}(\text{Casilla } i) \equiv \Delta\mathbf{r}_{\text{stage}}^{\text{hardware}}(\text{Eje } i)$ para todo régimen (§1), `StageCameraTransform` calibra directamente sobre los **ejes físicos 1 y 2** de la platina PI (los mismos que reciben `pi.MOV()`/`pi.qPOS()`), no sobre las etiquetas de UI — la calibración queda automáticamente correcta bajo los 3 regímenes sin necesitar recalibrarse ni almacenar más de una matriz.
+
+### 7.2 Formulación Matricial
+$$\begin{pmatrix}\Delta u_{\text{px}} \\ \Delta v_{\text{px}}\end{pmatrix} = M_{\text{forward}} \begin{pmatrix}\Delta a_1{}_{\mu\text{m}} \\ \Delta a_2{}_{\mu\text{m}}\end{pmatrix}, \qquad M_{\text{forward}} \in \mathbb{R}^{2\times2}$$
+
+donde $(u, v)$ son coordenadas en **píxeles de sensor completo** ($4752\times3168$, no fracciones de pantalla ni píxeles recortados por zoom) y $(a_1, a_2)$ son los ejes físicos de la platina PI. Calibrar en píxeles de sensor completo hace que $M_{\text{forward}}$ sea también invariante al nivel de zoom óptico Canon ($1\times/5\times/10\times$) por construcción — la composición de la ventana de recorte de zoom se resuelve aparte, sólo al proyectar a pantalla (`core/stage_camera_calibration.py::sensor_px_to_display_fraction()`, que replica la geometría ya validada de `core/canon_edsdk.py::_apply_zoom_position_from_center()`).
+
+$M_{\text{forward}}$ se construye columna por columna a partir de un paso físico conocido por eje (`calibrate_axis_from_step(axis, physical_step_um, measured_delta_u_px, measured_delta_v_px)`), y se invierte una sola vez y se cachea (`sensor_px_delta_to_stage_um`) para el sentido Cámara → Confocal.
+
+### 7.3 Verificación Post-Calibración, No Supuesto A Priori
+Dos chequeos se calculan **después** de calibrar, nunca se asumen de antemano:
+- **`determinant()`**: confirma que la transformación es una **reflexión** ($\det(M_{\text{forward}}) < 0$), no una rotación — resultado esperado dado el pipeline óptico (`cv2.rotate(90°CW)` + `cv2.flip(1)` en el procesamiento de video, §2.2 de `[[SYS-204_Modulo_Camara_Canon_EDSDK_y_Buffer_RAM]]`), verificado analíticamente por derivación manual antes de codificarse como test de regresión.
+- **`matches_known_sign_pattern(tolerance_deg=30.0)`**: compara la orientación de $M_{\text{forward}}$ contra `KNOWN_SIGN_PATTERN`, la convención física ya verificada por el operador (platina arriba → láser +u en cámara; platina derecha → láser +v) — una discrepancia señala una calibración probablemente errónea (eje invertido, unidades confundidas) sin bloquear su uso, ya que el patrón conocido es una guía de sanidad, no una restricción impuesta a la física real medida.
+
+### 7.4 Persistencia y Alcance por Rig
+Cada rig físico (`microscopio_derecho`, `contrapropagante`) tiene su propia calibración independiente, persistida en JSON (`DEFAULT_DATA_PATH/stage_camera_calibration_{rig_id}.json`) y cargada por `StageCameraTransform(rig_id)` al construirse — un `.load()` sobre un archivo inexistente es un no-op silencioso (`is_calibrated() == False`), consistente con el resto de la suite (arranque limpio sin calibración forzada).
+
+### 7.5 Sincronización Bidireccional Resultante
+Con la matriz calibrada, tres flujos de datos quedan habilitados (detalle de interacción de usuario en `[[MOD-04_Camara_Live_View_Canon_EDSDK]]` §10):
+1. **Cámara → Confocal**: un ROI dibujado en el live view se mapea (las 4 esquinas, no una diagonal) a un centro y rango de escaneo en ejes físicos de platina.
+2. **Confocal → Cámara**: el área de escaneo confocal actual se proyecta de vuelta como una caja sobre el live view.
+3. **Impresión/Dímeros → Cámara**: la grilla de nanopartículas cargada se proyecta punto a punto sobre el live view.
+
+Los 3 flujos comparten la misma matriz $M_{\text{forward}}$/$M_{\text{forward}}^{-1}$ — no hay fórmulas ad-hoc paralelas por módulo, eliminando la clase de bug que originó este trabajo (un swap de ejes hardcodeado e independiente del régimen activo en la implementación previa de ROI → Confocal).
+
+### 7.6 Validación
+`tests/test_stage_camera_transform.py` (15 pruebas: calibración de ejes, persistencia JSON, chequeo de reflexión/patrón de signo, conversión bidireccional sensor↔platina) y `tests/test_stage_camera_calibration.py` (13 pruebas: proyección de fracción de pantalla a píxel de sensor, detección de feature dominante, sesión de calibración por pasos, comparación fiducial) — ambas suites 100% en verde, sin dependencia de hardware real (`SAFE_MODE=True`).
+
+---
+
+## 8. Conclusiones y Recomendaciones de Uso
 
 1. **Invariancia Garantizada**: Los usuarios pueden alternar libremente entre regímenes en cualquier momento sin riesgo de descalibrar la platina, perder el plano de enfoque ni alterar secuencias de impresión en curso.
 2. **Recomendación para Nuevos Operarios**: Se recomienda utilizar por defecto el régimen **`Laser Ref`**, ya que ofrece una correspondencia 1:1 inmediata con la vista en vivo de la cámara réflex Canon y con la grilla de visualización 2D.
 3. **Recomendación para Colaboraciones Externas**: Cuando se envíen muestras a caracterización en AFM o SEM, el régimen **`Sample Ref`** permite al usuario razonar en las coordenadas intrínsecas del sustrato de vidrio sin tener que hacer conversiones de signo mentales.
 4. **Preservación de Trazabilidad**: El archivo `grid_info.txt` y los metadatos HDF5 conservan la definición exacta del régimen y los valores de cada eje físico de la platina, eliminando toda ambigüedad histórica.
+5. **Extensibilidad Confirmada**: El Principio de Invariancia demostró ser directamente reutilizable fuera del alcance original de nomenclatura de UI — `StageCameraTransform` (§7, `DEC-014`) lo aplica para calibrar una única cinemática platina↔cámara válida bajo los 3 regímenes y todo nivel de zoom óptico, sin necesitar matrices redundantes por régimen.

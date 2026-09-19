@@ -10,7 +10,8 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer
 import pyqtgraph as pg
 
-from config import pi
+from config import pi, SHUTTERS
+from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.modules.hardware_session import hardware_session
@@ -20,7 +21,9 @@ from pyspectrum.ui.viewbox_tools import LinePlotWidget
 class Frontend(QtWidgets.QFrame):
     """Interfaz para escaneo confocal hiperespectral y visualización de cubos (X, Y, λ)."""
 
-    startScanSignal = pyqtSignal(float, float, float, float, float, float)  # (xmin, xmax, ymin, ymax, step, exp)
+    # (xmin, xmax, ymin, ymax, step, exp, laser) — el láser se agregó en ANOM-HYPERSPEC-02:
+    # antes este mapeo no tenía ningún selector de excitación ni ciclo de vida de obturador.
+    startScanSignal = pyqtSignal(float, float, float, float, float, float, str)
     stopScanSignal = pyqtSignal()
     pointSelectedSignal = pyqtSignal(int, int)
 
@@ -129,6 +132,12 @@ class Frontend(QtWidgets.QFrame):
         self.edit_exp.setToolTip("Tiempo de integración/exposición del sensor CCD Andor (segundos) por cada punto del mapa.")
         grid.addWidget(self.edit_exp, 3, 1)
 
+        grid.addWidget(QtWidgets.QLabel("Láser de Excitación:"), 4, 0)
+        self.combo_laser = QtWidgets.QComboBox()
+        self.combo_laser.addItems(SHUTTERS)
+        self.combo_laser.setToolTip("Línea láser cuyo obturador se abre durante el mapeo hiperespectral.")
+        grid.addWidget(self.combo_laser, 4, 1)
+
         ctrl_vlo.addLayout(grid)
 
         # Botón Iniciar Escaneo
@@ -201,10 +210,11 @@ class Frontend(QtWidgets.QFrame):
                 ymax = float(self.edit_ymax.text())
                 step = float(self.edit_step.text())
                 exp = float(self.edit_exp.text())
+                laser = self.combo_laser.currentText()
 
                 self.btn_scan.setText("⏹️ Detener Escaneo")
                 self.btn_scan.setStyleSheet("background-color: #F38BA8; color: #11111B;")
-                self.startScanSignal.emit(xmin, xmax, ymin, ymax, step, exp)
+                self.startScanSignal.emit(xmin, xmax, ymin, ymax, step, exp, laser)
             except ValueError:
                 self.btn_scan.setChecked(False)
         else:
@@ -245,6 +255,8 @@ class Backend(QtCore.QObject):
         self._datacube = None  # Shape: (Nx, Ny, N_lambda)
         self.wave_axis = np.linspace(450, 750, 1004)
 
+        self.laser_in_use = ""
+
         self.scan_timer = QTimer(self)
         self.scan_timer.setInterval(20)
         self.scan_timer.timeout.connect(self._scan_step)
@@ -257,8 +269,9 @@ class Backend(QtCore.QObject):
         self.progressSignal.connect(frontend.update_progress)
         self.pointSpectrumSignal.connect(frontend.update_point_spectrum)
 
-    @pyqtSlot(float, float, float, float, float, float)
-    def start_scan(self, xmin: float, xmax: float, ymin: float, ymax: float, step: float, exp_time: float):
+    @pyqtSlot(float, float, float, float, float, float, str)
+    def start_scan(self, xmin: float, xmax: float, ymin: float, ymax: float, step: float,
+                    exp_time: float, laser: str = ""):
         if not hardware_session.acquire_session("Mapeo Confocal"):
             self.stop_scan()
             return
@@ -289,6 +302,14 @@ class Backend(QtCore.QObject):
         self.points_done = 0
 
         self.camera.set_exposure_time(exp_time)
+
+        # ANOM-HYPERSPEC-02: ciclo de vida de obturador — antes este mapeo nunca abría ni
+        # cerraba ningún shutter; si el operador lo abría manualmente desde el dock de
+        # Shutters, el watchdog central lo cerraba a mitad de mapa sin que nada acá lo supiera.
+        self.laser_in_use = laser or (SHUTTERS[0] if SHUTTERS else "")
+        if self.laser_in_use:
+            open_shutter(self.laser_in_use)
+
         self._scanning = True
         self.scan_timer.start()
 
@@ -297,6 +318,9 @@ class Backend(QtCore.QObject):
         if self._scanning:
             self._scanning = False
             self.scan_timer.stop()
+            if self.laser_in_use:
+                close_shutter(self.laser_in_use)
+                self.laser_in_use = ""
             hardware_session.release_session("Mapeo Confocal")
             self.progressSignal.emit(100)
             self.scanFinishedSignal.emit()
@@ -307,6 +331,8 @@ class Backend(QtCore.QObject):
         if hardware_session.is_emergency_stopped:
             self.stop_scan()
             return
+
+        heartbeat_shutter()  # renueva el watchdog en cada punto; respeta la política global
 
         x = self.xs[self.curr_ix]
         y = self.ys[self.curr_iy]

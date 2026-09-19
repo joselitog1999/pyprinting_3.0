@@ -75,7 +75,10 @@ else:
     print("[Canon EDSDK] EDSDK.dll no fue encontrado en el proyecto. Modo seguro/MOCK activo para la cámara Canon.")
 
 # Lock de exclusión mutua para llamadas ctypes a la DLL de EDSDK
-_edsdk_lock = threading.Lock()
+_edsdk_lock = threading.RLock()  # RLock: re-entrante — ver ANOM-CAM-01 (auto-deadlock
+# determinístico en set_live_view_zoom() cuando el mismo hilo intentaba readquirir un
+# Lock no-reentrante); también protege contra una posible reentrancia todavía no
+# confirmada desde el callback de EdsSetObjectEventHandler.
 
 # ── Tipos y Constantes Canon EDSDK ────────────────────────────────────────────
 
@@ -156,6 +159,13 @@ kEdsCameraCommand_ShutterButton_Halfway             = 0x00000001
 kEdsCameraCommand_ShutterButton_Completely          = 0x00000003
 kEdsCameraCommand_ShutterButton_Halfway_NonAF       = 0x00010001
 kEdsCameraCommand_ShutterButton_Completely_NonAF    = 0x00010003
+
+# Status Commands (valores oficiales: ESDK_CANON/.../EDSDK/Header/EDSDKTypes.h:468-469).
+# ANOM-CAM-04: faltaban por completo — el fallback NonAF de take_photo() las usaba sin
+# definirlas, produciendo un NameError silenciado por un "except Exception: pass" que
+# dejaba el bracket UILock/UIUnLock del disparo manual sin ejecutarse nunca.
+kEdsCameraStatusCommand_UILock                      = 0x00000000
+kEdsCameraStatusCommand_UIUnLock                    = 0x00000001
 
 # Object Events
 kEdsObjectEvent_All                   = 0x00000200
@@ -510,7 +520,17 @@ class CanonCamera:
 
         with _edsdk_lock:
             stream = EdsStreamRef()
-            err = edsdk.EdsCreateMemoryStream(0, ctypes.byref(stream))
+            # Fase E: tamaño inicial fijo en vez de 0 — mismo valor (2 MiB) que usa el
+            # propio ejemplo oficial de Canon para este llamado
+            # (Sample/CSharp/.../DownloadEvfCommand.cs:41). Según el header EDSDK.h
+            # ("In the case of writing in excess of the allocated buffer size, the
+            # memory is automatically extended"), un frame JPEG Live View más grande que
+            # esto sigue funcionando (el stream crece solo) — esto sólo evita la
+            # reasignación repetida desde 0 en cada frame (25fps), candidata a la
+            # inestabilidad reportada por el usuario. Fix seguro elegido explícitamente
+            # (Ronda 1) por sobre intentar reutilizar el handle de stream entre frames,
+            # comportamiento del SDK no verificado.
+            err = edsdk.EdsCreateMemoryStream(2 * 1024 * 1024, ctypes.byref(stream))
             if err != EDS_ERR_OK: return None
 
             evf_image = EdsEvfImageRef()
@@ -545,13 +565,18 @@ class CanonCamera:
             hw_zoom = 1 if zoom_val <= 1 else (5 if zoom_val <= 5 else 10)
             val = EdsUInt32(hw_zoom)
             err = edsdk.EdsSetPropertyData(self._camera_ref, kEdsPropID_Evf_Zoom, 0, ctypes.sizeof(val), ctypes.byref(val))
-            if err == EDS_ERR_OK:
-                # Re-posicionar el encuadre al centro guardado
-                cx = getattr(self, '_zoom_center_x', 0.5)
-                cy = getattr(self, '_zoom_center_y', 0.5)
-                time.sleep(0.04)
-                self._apply_zoom_position_from_center(cx, cy)
-            return err == EDS_ERR_OK
+
+        # Re-posicionar el encuadre al centro guardado — llamado FUERA de _edsdk_lock:
+        # _apply_zoom_position_from_center()/set_live_view_zoom_position() adquieren su
+        # propio "with _edsdk_lock" (ANOM-CAM-01). _edsdk_lock ya es RLock, así que esto
+        # ya no colgaría, pero se mantiene la separación para no retener el lock durante
+        # el sleep de asentamiento ni bloquear otras operaciones de cámara mientras tanto.
+        if err == EDS_ERR_OK:
+            cx = getattr(self, '_zoom_center_x', 0.5)
+            cy = getattr(self, '_zoom_center_y', 0.5)
+            time.sleep(0.04)
+            self._apply_zoom_position_from_center(cx, cy)
+        return err == EDS_ERR_OK
 
     def set_zoom_center(self, cx: float, cy: float) -> bool:
         """Configura el centro de visualización desde coordenadas normalizadas de pantalla (0.0 a 1.0).
@@ -917,40 +942,58 @@ class CanonCamera:
         return False
 
     def _download_newest_photo_from_camera(self, save_dir: str):
-        """Descarga la última foto disponible explorando directamente la tarjeta/volumen de la réflex."""
+        """Descarga la última foto disponible explorando directamente la tarjeta/volumen de la réflex.
+
+        ANOM-CAM-05: los EdsRelease() de vol_ref/folder_ref/last_item estaban intercalados
+        inline en el camino feliz, no en try/finally — cualquier excepción a mitad del
+        recorrido (este es precisamente el camino de fallback que se ejecuta cuando algo
+        ya salió mal en la descarga normal) saltaba los releases pendientes, filtrando
+        handles EDSDK. Cada nivel ahora garantiza su propio release."""
         if not self._is_session_open or edsdk is None: return
         with _edsdk_lock:
             try:
                 vol_list_count = EdsUInt32(0)
                 err = edsdk.EdsGetChildCount(self._camera_ref, ctypes.byref(vol_list_count))
-                if err == EDS_ERR_OK and vol_list_count.value > 0:
-                    vol_ref = ctypes.c_void_p()
-                    err_v = edsdk.EdsGetChildAtIndex(self._camera_ref, 0, ctypes.byref(vol_ref))
-                    if err_v == EDS_ERR_OK and vol_ref:
-                        dir_count = EdsUInt32(0)
-                        edsdk.EdsGetChildCount(vol_ref, ctypes.byref(dir_count))
-                        for i in range(dir_count.value):
-                            folder_ref = ctypes.c_void_p()
-                            err_f = edsdk.EdsGetChildAtIndex(vol_ref, i, ctypes.byref(folder_ref))
-                            if err_f == EDS_ERR_OK and folder_ref:
-                                info = EdsDirectoryItemInfo()
-                                edsdk.EdsGetDirectoryItemInfo(folder_ref, ctypes.byref(info))
-                                fname_str = info.szFileName.decode("utf-8", errors="ignore")
-                                if info.isFolder and fname_str.upper() in ("DCIM", "100CANON", "101CANON", "MISC"):
-                                    item_count = EdsUInt32(0)
-                                    edsdk.EdsGetChildCount(folder_ref, ctypes.byref(item_count))
-                                    if item_count.value > 0:
-                                        last_item = ctypes.c_void_p()
-                                        err_l = edsdk.EdsGetChildAtIndex(folder_ref, item_count.value - 1, ctypes.byref(last_item))
-                                        if err_l == EDS_ERR_OK and last_item:
-                                            l_info = EdsDirectoryItemInfo()
-                                            edsdk.EdsGetDirectoryItemInfo(last_item, ctypes.byref(l_info))
-                                            out_name = l_info.szFileName.decode("utf-8", errors="ignore")
-                                            target_p = os.path.join(save_dir, out_name)
-                                            self._download_directory_item_to_file(last_item, target_p, l_info.size)
-                                            edsdk.EdsRelease(last_item)
-                                edsdk.EdsRelease(folder_ref)
-                        edsdk.EdsRelease(vol_ref)
+                if err != EDS_ERR_OK or vol_list_count.value <= 0:
+                    return
+                vol_ref = ctypes.c_void_p()
+                err_v = edsdk.EdsGetChildAtIndex(self._camera_ref, 0, ctypes.byref(vol_ref))
+                if err_v != EDS_ERR_OK or not vol_ref:
+                    return
+                try:
+                    dir_count = EdsUInt32(0)
+                    edsdk.EdsGetChildCount(vol_ref, ctypes.byref(dir_count))
+                    for i in range(dir_count.value):
+                        folder_ref = ctypes.c_void_p()
+                        err_f = edsdk.EdsGetChildAtIndex(vol_ref, i, ctypes.byref(folder_ref))
+                        if err_f != EDS_ERR_OK or not folder_ref:
+                            continue
+                        try:
+                            info = EdsDirectoryItemInfo()
+                            edsdk.EdsGetDirectoryItemInfo(folder_ref, ctypes.byref(info))
+                            fname_str = info.szFileName.decode("utf-8", errors="ignore")
+                            if not (info.isFolder and fname_str.upper() in ("DCIM", "100CANON", "101CANON", "MISC")):
+                                continue
+                            item_count = EdsUInt32(0)
+                            edsdk.EdsGetChildCount(folder_ref, ctypes.byref(item_count))
+                            if item_count.value <= 0:
+                                continue
+                            last_item = ctypes.c_void_p()
+                            err_l = edsdk.EdsGetChildAtIndex(folder_ref, item_count.value - 1, ctypes.byref(last_item))
+                            if err_l != EDS_ERR_OK or not last_item:
+                                continue
+                            try:
+                                l_info = EdsDirectoryItemInfo()
+                                edsdk.EdsGetDirectoryItemInfo(last_item, ctypes.byref(l_info))
+                                out_name = l_info.szFileName.decode("utf-8", errors="ignore")
+                                target_p = os.path.join(save_dir, out_name)
+                                self._download_directory_item_to_file(last_item, target_p, l_info.size)
+                            finally:
+                                edsdk.EdsRelease(last_item)
+                        finally:
+                            edsdk.EdsRelease(folder_ref)
+                finally:
+                    edsdk.EdsRelease(vol_ref)
             except Exception as _e:
                 self.log(f"Advertencia durante descarga manual de volumen: {_e}")
 

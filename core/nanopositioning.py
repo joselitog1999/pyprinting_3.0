@@ -745,7 +745,7 @@ class Backend(QObject):
         self.reference_signal.emit([x_pos, y_pos, z_pos])
 
     @pyqtSlot(str, float)
-    def move(self, axis: str, dist: float):
+    def move(self, axis: str, dist: float, timeout_s: float = 10.0):
         """Movimiento relativo en el eje indicado clampeado al rango físico de la platina (0 a 100 µm)."""
         from config import PI_STAGE_RANGE_UM
         x_pos, y_pos, z_pos = self.read_pos()
@@ -756,7 +756,14 @@ class Backend(QObject):
         ax_num, current = axis_map[axis]
         target = max(0.0, min(PI_STAGE_RANGE_UM, current + dist))
         pi.MOV(ax_num, target)
+        # Poll acotado en tiempo (antes sin límite — mismo patrón de ANOM-FOCUS-03,
+        # corregido en focus.py::_move_z, pero este archivo no estaba en el alcance de
+        # esa auditoría): un fallo real de servo/piezo colgaba este hilo para siempre.
+        t0 = time.time()
         while not all(pi.qONT(ax_num).values()):
+            if time.time() - t0 > timeout_s:
+                print(f"[Nano] ⚠️ Timeout ({timeout_s}s) esperando on-target en eje {axis} (Z={ax_num}).")
+                break
             time.sleep(0.01)
         self.read_pos()
 
@@ -771,9 +778,13 @@ class Backend(QObject):
         self._moveto(target)
         self.read_pos()
 
-    def _moveto(self, pos: list):
+    def _moveto(self, pos: list, timeout_s: float = 10.0):
         pi.MOV(PI_AXES, pos)
+        t0 = time.time()
         while not all(pi.qONT(PI_AXES).values()):
+            if time.time() - t0 > timeout_s:
+                print(f"[Nano] ⚠️ Timeout ({timeout_s}s) esperando on-target en ejes {PI_AXES}.")
+                break
             time.sleep(0.01)
 
     def make_connection(self, frontend: Frontend):

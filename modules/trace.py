@@ -38,6 +38,11 @@ except ImportError:
 
 SHUTTERS_LASER2 = ["None", "BS"] + list(SHUTTERS)
 
+# ANOM-TRACE-02: acota el payload emitido por tick a las últimas SEND_WINDOW muestras.
+# El historial completo permanece intacto en self.timeaxis/self.intensity_*/self.bs_*
+# para save_trace()/save_bs_trace() — solo se recorta lo que cruza el hilo por señal.
+SEND_WINDOW = 2000
+
 
 class TraceFFTWindow(QWidget):
     """Ventana independiente para el análisis espectral en tiempo real por Transformada de Fourier (FFT).
@@ -423,12 +428,17 @@ class Frontend(QFrame):
         if timeaxis is None or len(timeaxis) == 0:
             return
 
+        # El Backend ya acota su payload a SEND_WINDOW muestras (ANOM-TRACE-02); el
+        # slice final debe basarse en la longitud real recibida, no en `n` (el contador
+        # global de muestras, que sigue creciendo sin límite y ya no coincide con
+        # len(timeaxis) una vez que el historial supera SEND_WINDOW).
         SHOW = 1000
-        sl  = slice(max(0, n - SHOW), n)
-        t   = np.asarray(timeaxis[sl] if n >= SHOW else timeaxis, dtype=np.float64)
-        i1  = np.asarray(intensity_l1[sl] if n >= SHOW else intensity_l1, dtype=np.float64) if len(intensity_l1) else np.array([])
-        i2  = np.asarray(intensity_l2[sl] if n >= SHOW else intensity_l2, dtype=np.float64) if len(intensity_l2) else np.array([])
-        bs  = np.asarray(intensity_BS[sl] if n >= SHOW else intensity_BS, dtype=np.float64) if len(intensity_BS) else np.array([])
+        m   = len(timeaxis)
+        sl  = slice(max(0, m - SHOW), m)
+        t   = np.asarray(timeaxis[sl] if m >= SHOW else timeaxis, dtype=np.float64)
+        i1  = np.asarray(intensity_l1[sl] if m >= SHOW else intensity_l1, dtype=np.float64) if len(intensity_l1) else np.array([])
+        i2  = np.asarray(intensity_l2[sl] if m >= SHOW else intensity_l2, dtype=np.float64) if len(intensity_l2) else np.array([])
+        bs  = np.asarray(intensity_BS[sl] if m >= SHOW else intensity_BS, dtype=np.float64) if len(intensity_BS) else np.array([])
 
         if len(t) > 0 and len(i1) == len(t):
             self.curve_L1.setData(t, i1)
@@ -503,10 +513,27 @@ class Backend(QObject):
                 self.timer_bs_inicio = time.time()
                 self.bs_timeaxis = np.array([])
                 self.bs_intensity = np.array([])
+                # ANOM-TRACE-01: Task continua creada una sola vez, reutilizada en cada
+                # tick — en vez de crear/destruir una Task DAQmx nueva 30x/segundo.
+                self._bs_task = None
+                if not SAFE_MODE:
+                    try:
+                        self._bs_task = channels_photodiodos(self.rate, self.N, continuous=True)
+                        self._bs_task.start()
+                    except Exception as e:
+                        print(f"[PowerBS Error] No se pudo crear la Task continua ({e}); se usará modo por-tick.")
+                        self._bs_task = None
                 self.bs_timer.start(35) # ~30 FPS para actualización suave sin lag
         else:
             if self.bs_timer and self.bs_timer.isActive():
                 self.bs_timer.stop()
+            if getattr(self, "_bs_task", None) is not None:
+                try:
+                    self._bs_task.stop()
+                    self._bs_task.close()
+                except Exception:
+                    pass
+                self._bs_task = None
 
     def _bs_only_update(self):
         self._n_bs += 1
@@ -514,10 +541,13 @@ class Backend(QObject):
             val_bs = 0.5 + 0.1 * np.cos(self._n_bs * 0.1) + np.random.normal(0, 0.02)
         else:
             try:
-                task = channels_photodiodos(self.rate, self.N)
-                lectura_total = task.read(self.N)
-                task.wait_until_done()
-                task.close()
+                if getattr(self, "_bs_task", None) is None:
+                    task = channels_photodiodos(self.rate, self.N)
+                    lectura_total = task.read(self.N)
+                    task.wait_until_done()
+                    task.close()
+                else:
+                    lectura_total = self._bs_task.read(self.N)
                 ch_bs = PD_CHANNELS.get("BS", 6)
                 ch_bs_idx = PD_CHANS_LIST.index(ch_bs) if ch_bs in PD_CHANS_LIST else (len(PD_CHANS_LIST) - 1)
                 val_bs = float(np.mean(lectura_total[ch_bs_idx]))
@@ -530,9 +560,11 @@ class Backend(QObject):
         self.bs_intensity = np.append(self.bs_intensity, val_bs)
         mean_BS = float(np.mean(self.bs_intensity[-self.N:])) if len(self.bs_intensity) >= self.N else val_bs
 
-        # Emitir estructura sin sobreescribir con ceros el gráfico 1
-        data = [self._n_bs, self.bs_timeaxis, np.array([]), self.bs_intensity,
-                0.0, 0.0, self.bs_intensity, mean_BS]
+        # Emitir estructura sin sobreescribir con ceros el gráfico 1 — payload acotado
+        # a SEND_WINDOW muestras (ANOM-TRACE-02); el historial completo sigue en self.*.
+        sl = slice(max(0, len(self.bs_timeaxis) - SEND_WINDOW), len(self.bs_timeaxis))
+        data = [self._n_bs, self.bs_timeaxis[sl], np.array([]), self.bs_intensity[sl],
+                0.0, 0.0, self.bs_intensity[sl], mean_BS]
         self.dataSignal.emit(data)
 
     # ── Control de la traza principal ─────────────────────────────────────────
@@ -553,6 +585,13 @@ class Backend(QObject):
         if play:
             if self.bs_timer and self.bs_timer.isActive():
                 self.bs_timer.stop()
+                if getattr(self, "_bs_task", None) is not None:
+                    try:
+                        self._bs_task.stop()
+                        self._bs_task.close()
+                    except Exception:
+                        pass
+                    self._bs_task = None
             self._start()
         else:
             self._stop_and_save()
@@ -578,11 +617,31 @@ class Backend(QObject):
         self.intensity_l1 = np.array([])
         self.intensity_l2 = np.array([])
         self.intensity_BS = np.array([])
+
+        # ANOM-TRACE-01: Task continua creada una sola vez, reutilizada en cada tick —
+        # en vez de crear/destruir una Task DAQmx nueva 30x/segundo (cadencia entonces
+        # dependiente del scheduler y del overhead del driver, no clockeada por hardware).
+        self._task = None
+        if not SAFE_MODE:
+            try:
+                self._task = channels_photodiodos(self.rate, self.N, continuous=True)
+                self._task.start()
+            except Exception as e:
+                print(f"[Trace Error] No se pudo crear la Task continua ({e}); se usará modo por-tick.")
+                self._task = None
+
         self.pointtimer.start(35) # ~30 FPS para fluidez óptima
 
     def _stop_and_save(self):
         if self.pointtimer and self.pointtimer.isActive():
             self.pointtimer.stop()
+        if getattr(self, "_task", None) is not None:
+            try:
+                self._task.stop()
+                self._task.close()
+            except Exception:
+                pass
+            self._task = None
         if hasattr(self, 'laser1') and self.laser1 != "None":
             close_shutter(self.laser1)
         if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
@@ -635,10 +694,13 @@ class Backend(QObject):
                 val_l2 = (0.8 + 0.2 * np.sin(self._n * 0.15) + np.random.normal(0, 0.04))
         else:
             try:
-                task = channels_photodiodos(self.rate, self.N)
-                lectura_total = task.read(self.N)
-                task.wait_until_done()
-                task.close()
+                if getattr(self, "_task", None) is None:
+                    task = channels_photodiodos(self.rate, self.N)
+                    lectura_total = task.read(self.N)
+                    task.wait_until_done()
+                    task.close()
+                else:
+                    lectura_total = self._task.read(self.N)
 
                 def _get_pd_channel(laser_key, default_ch):
                     if laser_key in PD_CHANNELS:
@@ -701,7 +763,12 @@ class Backend(QObject):
         mean_BS = float(np.mean(self.intensity_BS[-self.N:])) if len(self.intensity_BS) >= self.N else val_bs
 
         # Estructura unificada: [n, timeaxis, intensity_l1, intensity_l2, I_old, I_new, intensity_BS, mean_BS]
-        data = [self._n, self.timeaxis, self.intensity_l1, self.intensity_l2, I_old, I_new, self.intensity_BS, mean_BS]
+        # Payload acotado a SEND_WINDOW muestras (ANOM-TRACE-02) — el historial completo
+        # sigue intacto en self.timeaxis/self.intensity_* para save_trace(). `self._n` se
+        # emite sin recortar: es el contador global de muestras, no un índice de array.
+        sl = slice(max(0, n - SEND_WINDOW), n)
+        data = [self._n, self.timeaxis[sl], self.intensity_l1[sl], self.intensity_l2[sl],
+                I_old, I_new, self.intensity_BS[sl], mean_BS]
         self.dataSignal.emit(data)
 
         if self.mode_printing != "none":
