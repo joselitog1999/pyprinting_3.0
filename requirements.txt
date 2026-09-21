@@ -5,26 +5,41 @@
 #
 # RANGO DE VERSIONES DE PYTHON COMPATIBLES:
 #   Python >= 3.10, < 3.14  (Soportado y verificado en Python 3.10, 3.11, 3.12 y 3.13)
-#   Recomendación: Python 3.12 o 3.13 (64-bit) en Windows 10 / 11
+#   Recomendación:
+#     - Windows 10/11 (Lab PC): Python 3.11, 3.12 o 3.13 (64-bit)
+#     - macOS (Intel x86_64 / Apple Silicon): Python 3.11 (64-bit) [Máxima disponibilidad de wheels]
 #
 # INSTRUCCIONES DE INSTALACIÓN RÁPIDA (Luego de git pull / git clone):
 #
 # 1. Crear entorno virtual:
 #    python -m venv .venv
 #
-# 2. Activar entorno virtual (PowerShell en Windows):
-#    .\.venv\Scripts\Activate.ps1
+# 2. Activar entorno virtual:
+#    - Windows (PowerShell): .\.venv\Scripts\Activate.ps1
+#    - macOS / Linux (bash/zsh): source .venv/bin/activate
 #
 # 3. Actualizar pip e instalar dependencias:
 #    python -m pip install --upgrade pip
-#
-# 4. Instalar paquetes de PyPrinting 3.0:
 #    pip install -r requirements.txt
 #
-# 5. Ejecutar Lanzador Principal ("Bienvenidos al printing"):
+# NOTA IMPORTANTE SOBRE 'pyqt-tools':
+#   NO instale 'pyqt-tools', 'pyqt5-tools' ni 'pyqt6-tools'.
+#   PyPrinting 3.0 está programado íntegramente en Python puro con PyQt6 y NO utiliza
+#   archivos de interfaz (.ui) generados por Qt Designer en tiempo de ejecución.
+#   Instalar pyqt-tools/pyqt5-tools rompe el entorno al forzar versiones antiguas de
+#   PyQt5 que colisionan con PyQt6 en memoria. Si necesita Qt Designer, instálelo
+#   de forma externa e independiente (ej. en macOS: 'brew install qt').
+#
+# NOTA SOBRE EJECUCIÓN EN LAPTOPS O SIN HARDWARE (macOS / Linux):
+#   PyPrinting 3.0 cuenta con simulación nativa completa. En 'config.py', configure:
+#   SAFE_MODE = True
+#   Esto activa los mocks de hardware (DAQmx, platina PI, láseres y cámara) y permite
+#   utilizar todas las suites de análisis, visualización y procesamiento sin instrumentación física.
+#
+# 4. Ejecutar Lanzador Principal ("Bienvenidos al printing"):
 #    python main.py
 #
-# 6. Ejecutar Módulos Individuales:
+# 5. Ejecutar Módulos Individuales:
 #    python app.py               # Microscopio Derecho (Suite Completa)
 #    python contrapropagante.py  # Microscopio Contrapropagante (Excitación Dual)
 #    python camera.py            # Suite de Cámara Réflex Canon EOS (EDSDK) & Microfotónica
@@ -43,17 +58,26 @@ scikit-image>=0.22.0
 tifffile>=2024.1.0       # Manejo de imágenes TIFF de metrología
 trackpy>=0.6.0          # Motor de seguimiento y localización Crocker-Grier
 picassosr>=0.10.0       # Motor de localización sub-píxel Picasso (SMLM / DNA-PAINT)
-numba>=0.59.0           # Aceleración JIT para algoritmos MLE y LQ de Picasso
 pandas>=2.0.0
+markdown>=3.5.0          # Renderizado Markdown->HTML para ScientificWikiBrowserDialog (analysis/scientific_wiki_browser.py)
+
+# ── Aceleración JIT (Numba / LLVM) ───────────────────────────────────────────
+# En macOS Intel (x86_64), Numba > 0.62.1 y llvmlite > 0.45.1 ya no publican wheels
+# precompiladas y obligan a compilar C++/LLVM desde código fuente (lo cual suele fallar).
+# Los siguientes markers PEP 508 fijan versiones con binarios precompilados en Intel Mac:
+llvmlite<=0.45.1; sys_platform == "darwin" and platform_machine == "x86_64"
+numba>=0.59.0,<=0.62.1; sys_platform == "darwin" and platform_machine == "x86_64"
+numba>=0.59.0; sys_platform != "darwin" or platform_machine != "x86_64"
 
 # ── Análisis Numérico y Ajustes Espectroscópicos ─────────────────────────────
-numpy>=1.26.0
+numpy>=1.26.0,<2.3.0
 scipy>=1.12.0
 matplotlib>=3.8.0
 sif-parser>=0.3.6       # Decodificación y lectura nativa de espectros SIF (Andor Solis)
 
 # ── Abstracción de Hardware (HAL) ──────────────────────────────────────────────
-nidaqmx>=1.0.0          # API de NI-DAQmx para tarjetas National Instruments
+# nidaqmx solo es funcional en Windows con drivers NI-DAQmx instalados; en macOS/Linux opera en SAFE_MODE.
+nidaqmx>=1.0.0; sys_platform == "win32"
 pipython>=2.11.0         # API GCS para platinas piezoeléctricas Physik Instrumente
 pyserial>=3.5            # Comunicación Serie RS-232 / USB
 pyusb>=1.2.1             # Control USB de bajo nivel

@@ -8,6 +8,7 @@
 **Notas Relacionadas:**  
 - [[CAT-301_Algoritmos_Espacio_Real_KDTree_Asignacion_Monte_Carlo]]  
 - [[CAT-201_Deconvolucion_Optica_Richardson_Lucy_y_Tracking_Trackpy]]  
+- [[CAT-206_Pipeline_SMLM_Picasso_Algoritmos_y_Deconvolucion]]  
 - [[CAT-305_Derivacion_Matematica_Factor_Estructura_Debye_Waller]]  
 - [[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia]]  
 
@@ -91,6 +92,20 @@ $$y_{\text{center}} = \frac{1}{6 A_{\text{polygon}}} \sum_{m=0}^{K-1} (y_m + y_{
 
 Esta formulación proporciona una precisión de sub-píxel en la medición del área sin verse afectada por el efecto escalera (*aliasing*) de los píxeles discretos.
 
+### 4.2 Criterio de Binarización: del Umbral de Intensidad Plano al Laplaciano de Gaussiana (LoG)
+
+**Actualización (unificación de criterios):** la inspección de punto sospechoso (`inspect_single_spot_photometry()`) delimitaba originalmente el contorno de iso-intensidad mediante un corte biseccional de intensidad plano, $I_{\text{th}} = I_{\text{bg}} + \theta(I_{\max}-I_{\text{bg}})$ (§4, ecuación de $I_{\text{th}}$ arriba) — un criterio geométrico que ignora por completo la forma de la PSF calibrada. El detector de aglomerados multi-partícula (`detect_clusters_and_chains()`, método `'laplacian'`) ya usaba en cambio un criterio distinto y más robusto: el **operador Laplaciano de Gaussiana** ($-\nabla^2$, LoG),
+
+$$\Lambda(x,y) = -\nabla^2\big[G_\sigma * I\big](x,y) = -\,\text{gaussian\_laplace}\!\big(I(x,y);\,\sigma_{\text{psf}}\big)$$
+
+que actúa como filtro adaptado (*matched filter*) a la escala espacial de un emisor puntual difraccional: su respuesta es máxima exactamente sobre el centro de una mancha gaussiana de ancho $\sigma_{\text{psf}}$ y decae/cambia de signo hacia afuera, delimitando naturalmente la extensión física real del emisor en vez de un corte arbitrario de intensidad.
+
+**Ambos criterios están unificados desde esta revisión**: `inspect_single_spot_photometry()` ahora aplica el mismo operador LoG sobre el parche local, binarizando por cruce por cero ($\Lambda > 0$, equivalente a `threshold_pct<=0`) o por un umbral porcentual del pico del LoG — exactamente el mismo criterio, con los mismos parámetros de control, que `detect_clusters_and_chains()` ya usaba para cúmulos. El área de referencia del monómero se unificó en consecuencia:
+
+$$A_0 = 2\pi\,\sigma_{\text{psf}}^2$$
+
+la misma fórmula que `detect_clusters_and_chains()` usa internamente (`A_lap_0`), reemplazando la convención previa y distinta $A_0 = \pi(2\sigma_{\text{psf}})^2 = 4\pi\sigma_{\text{psf}}^2$ que sólo existía en la inspección de punto sospechoso. **Nota metrológica**: una derivación puramente analítica del cruce por cero del LoG aplicado a un blob gaussiano YA convolucionado (varianzas que se suman) da $r_0 = 2\sigma_{\text{psf}}$, distinto del cruce por cero del kernel LoG puro ($r_0=\sqrt{2}\sigma_{\text{psf}}$); se optó deliberadamente por mantener el criterio $A_0=2\pi\sigma_{\text{psf}}^2$ ya validado y en producción en el detector de cúmulos como referencia única del software, en vez de introducir una segunda convención "más pura" analíticamente pero divergente del resto del código — la trazabilidad de una única convención consistente en todo el módulo prevalece sobre la elección entre dos derivaciones igualmente defendibles.
+
 ---
 
 ## 5. Algoritmo de Desacople Multi-Gaussiano con Enmascaramiento Estricto y Cotas Físicas
@@ -141,7 +156,7 @@ La convergencia de la optimización no lineal depende fuertemente de los valores
 
 ---
 
-## 6. Métodos Alternativos y Creación Manual de Cúmulos
+## 6. Métodos Alternativos, Creación Manual y Actualización Unitaria de Cúmulos
 
 PyPrinting 3.0 proporciona estrategias integrales para la gestión y resolución de cúmulos:
 
@@ -154,27 +169,31 @@ PyPrinting 3.0 proporciona estrategias integrales para la gestión y resolución
          ┌───────────────────────────┼───────────────────────────┐
          ▼                           ▼                           ▼
 ┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
-│  Multi-Gaussiano │       │  Conservar Nodo  │       │   Fusión Baric.  │
-│  (Fit n-Gauss)   │       │  (Nearest Ideal) │       │      (COM)       │
+│  Multi-Gaussiano │       │ Marcar Resuelto  │       │   Fusión Baric.  │
+│  (Fit n-Gauss)   │       │    (Usuario)     │       │      (COM)       │
 ├──────────────────┤       ├──────────────────┤       ├──────────────────┤
-│ Resuelve n       │       │ Mantiene el emi- │       │ Condensa el      │
-│ emisores indivi- │       │ sor más cercano  │       │ cúmulo en su     │
-│ duales con pre-  │       │ al nodo ideal y  │       │ centro de masa   │
-│ cisión sub-px y  │       │ purga satélites. │       │ ponderado.       │
-│ cotas del 30%.   │       │ Óptimo para fil- │       │ Óptimo para es-  │
-│ Óptimo para re-  │       │ trar agregados   │       │ tudios globales  │
-│ cuperar vacan-   │       │ de fondo parásito│       │ conservadores.   │
+│ Resuelve n       │       │ Preserva las     │       │ Condensa el      │
+│ emisores indivi- │       │ partículas TAL   │       │ cúmulo en su     │
+│ duales con pre-  │       │ COMO ESTÁN, sin  │       │ centro de masa   │
+│ cisión sub-px y  │       │ modificar datos  │       │ ponderado.       │
+│ cotas del 30%.   │       │ — sólo confirma  │       │ Óptimo para es-  │
+│ Óptimo para re-  │       │ revisión visual. │       │ tudios globales  │
+│ cuperar vacan-   │       │                  │       │ conservadores.   │
 │ cias reales.     │       │                  │       │                  │
 └──────────────────┘       └──────────────────┘       └──────────────────┘
 ```
 
-1. **Desacople Multi-Gaussiano (`_on_resolve_selected_cluster_gaussian` / `_on_resolve_all_clusters_gaussian`):** Reemplaza el cúmulo por los $N$ emisores individuales desacoplados, ejecutando la cascada completa hacia KDTree y Espacio Recíproco.
-2. **Conservar Nodo de Red (`_on_resolve_selected_cluster_nearest`):** Identifica el nodo ideal $(X_u, Y_v)$ más cercano y conserva únicamente la partícula con menor residuo:
-   $$j^* = \arg\min_j \| \mathbf{r}_j - \mathbf{R}_{\text{ideal}} \|$$
-3. **Creación de Cúmulo Manual (`create_manual_cluster`):**
+1. **Desacople Multi-Gaussiano (`_on_resolve_selected_cluster_gaussian` / `_on_resolve_all_clusters_gaussian`):** Reemplaza el cúmulo por los $N$ emisores individuales desacoplados.
+2. **Marcar como Resuelto por Usuario (`_on_mark_cluster_resolved_manual`, menú contextual de la tabla de cúmulos):** Confirma la revisión visual de un cúmulo **sin modificar ninguna partícula** — reemplazó a la acción "Conservar Nodo de Red" de versiones anteriores (que dependía de un ajuste de grilla `kdtree_results` todavía inexistente en esta etapa temprana del flujo de trabajo, en la Pestaña 1: medir distancia a un nodo ideal en $(0,0)$ carecía de sentido físico antes de ajustar la red). El operador que quiera efectivamente filtrar satélites contra una red ya ajustada dispone de `resolve_clusters_dataframe(action='keep_nearest')` como función de `core/lattice_disorder.py` reutilizable desde otros flujos, aunque ya no está expuesta como acción de UI en esta pestaña.
+3. **Descartar Cúmulo (`_on_discard_cluster`, menú contextual):** Remueve el agrupamiento de la tabla sin tocar `locs_df` — las partículas siguen existiendo, sólo dejan de estar agrupadas (reaparecerán si se repite la detección).
+4. **Creación de Cúmulo Manual (`create_manual_cluster`):**
    Permite al usuario seleccionar arbitrariamente 2 o más partículas que no fueron agrupadas por el análisis de grafos y forzar su condensación en un cúmulo analítico con contorno fotométrico, cálculo de estequiometría $N \ge 2$ y representación en la tabla de aglomerados.
-4. **Superposición de Deconvolución Richardson-Lucy (RL):**
-   La imagen deconvolucionada se proyecta como una capa interactiva superpuesta en el visor de espacio real (`self.img_item_rl`, $z=2$) gobernada por la casilla `chk_overlay_rl`. Esto permite al usuario contrastar visualmente los centros atómicos resueltos frente a los picos de difracción re-enfocados antes y después del desacople.
+5. **Superposición de Deconvolución Richardson-Lucy (RL):**
+   La imagen deconvolucionada se proyecta como una capa interactiva superpuesta en el visor de espacio real (`self.img_item_rl`, $z=2$) gobernada por la casilla `chk_overlay_rl`. Esto permite al usuario contrastar visualmente los centros atómicos resueltos frente a los picos de difracción re-enfocados antes y después del desacople. **Nunca combinar con el motor de localización Picasso** — ver [[CAT-206_Pipeline_SMLM_Picasso_Algoritmos_y_Deconvolucion]] para la justificación estadística completa (la deconvolución rompe la independencia inter-píxel que la verosimilitud de Poisson de Picasso requiere).
+
+### 6.1 Actualización Unitaria: IDs de Partícula Estables
+
+Las acciones de resolución individual (ítems 1-3 arriba) **ya no anulan la tabla completa de cúmulos** al resolver uno solo. Cada partícula recibe un `particle_id` monótono asignado una única vez, al cargar/detectar el conjunto RAW completo — nunca reutilizado, ni siquiera tras eliminar una partícula o deshacer una acción (el ID queda reservado hasta que una restauración lo trae de vuelta con el mismo valor). Los cúmulos referencian sus miembros por `particle_id` en vez de por posición dentro del DataFrame, de modo que sobreviven correctamente a los reindexados de `resolve_clusters_dataframe()`/`resolve_single_spot_multi_gaussian()` (que siempre reconstruyen el DataFrame agregando las partículas nuevas al final). El cúmulo resuelto se marca visualmente en verde y se traslada al final de la tabla, dejando los pendientes al principio para permitir curación continua sin perder el resto del trabajo de detección ya realizado.
 
 ---
 

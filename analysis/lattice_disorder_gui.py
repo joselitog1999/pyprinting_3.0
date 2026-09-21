@@ -89,9 +89,11 @@ from core.lattice_disorder import (
     register_and_match_template,
     run_hexagonal_monte_carlo_calibration,
     extract_angular_profile,
-    compute_radial_azimuthal_profile
+    compute_radial_azimuthal_profile,
+    _ideal_voronoi_coordination_for_type
 )
 from analysis.figure_export_studio import FigureExportStudioDialog
+from analysis.scientific_wiki_browser import ScientificWikiBrowserDialog
 
 
 def get_pyqtgraph_colormap(name: str):
@@ -462,7 +464,9 @@ class MonteCarloWorker(QThread):
                     n_sigma_steps=self.n_sigma_steps,
                     iterations_per_step=self.iterations_per_step,
                     progress_callback=callback,
-                    n_bragg_pts=self.n_bragg_pts
+                    n_bragg_pts=self.n_bragg_pts,
+                    u2=self.hex_params.get('u2', 1.0 / 3.0),
+                    v2=self.hex_params.get('v2', 1.0 / 3.0)
                 )
             else:
                 results = run_monte_carlo_calibration(
@@ -542,6 +546,18 @@ class LatticeDisorderWindow(QMainWindow):
         self.monomer_signature: Optional[Dict[str, Any]] = None
         self.selection_mode: str = 'nav'  # 'nav', 'click', 'box'
         self.curation_history: List[pd.DataFrame] = []
+        # IDs de partícula estables y monótonos (Paquete 1, DEC pendiente): asignados
+        # una sola vez sobre el conjunto RAW completo (ver _assign_particle_ids_to_raw),
+        # nunca reutilizados aunque una partícula se elimine (queda reservado) — al
+        # deshacer una acción, locs_df restaurado trae consigo los mismos IDs
+        # (viajan como columna de DataFrame). Permiten que cluster_results['clusters']
+        # referencie partículas de forma persistente entre acciones de resolución,
+        # sin invalidarse por los reset_index(drop=True) que ocurren en curación.
+        self._next_particle_id: int = 0
+
+        # Paquete 9: instancia singleton de la Wiki Científica, reutilizada por
+        # todos los botones "📖 Ayuda" repartidos en la ventana (ver _open_wiki_note).
+        self._wiki_dialog: Optional[ScientificWikiBrowserDialog] = None
         self.raw_detected_df: Optional[pd.DataFrame] = None
         self.cluster_lines_items: List[pg.PlotDataItem] = []
         self.cluster_contour_items: List[pg.PlotDataItem] = []
@@ -594,6 +610,20 @@ class LatticeDisorderWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(12, 10, 12, 10)
         main_layout.setSpacing(8)
+
+        # Paquete 9: barra superior con acceso global a la Wiki Científica
+        # (instancia singleton gestionada por esta ventana — ver _open_wiki_note()).
+        h_top = QHBoxLayout()
+        h_top.addStretch()
+        self.btn_wiki_global = QPushButton("📖 Ayuda Científica")
+        self.btn_wiki_global.setToolTip(make_tooltip(
+            "Wiki Científica de PyPrinting 3.0",
+            "Abre el navegador de documentación con los compendios científicos (CAT), reportes de sistema (SYS) y manuales de módulo (MOD) del proyecto.",
+            "Ventana flotante no modal (ScientificWikiBrowserDialog) — permanece abierta junto a esta ventana."
+        ))
+        self.btn_wiki_global.clicked.connect(lambda: self._open_wiki_note(None))
+        h_top.addWidget(self.btn_wiki_global)
+        main_layout.addLayout(h_top)
 
         # Barra de navegación por pestañas (Workflow Wizard)
         self.tabs = QTabWidget()
@@ -1058,6 +1088,11 @@ class LatticeDisorderWindow(QMainWindow):
         ))
         self.combo_motor.currentIndexChanged.connect(self._on_motor_changed)
         h4.addWidget(self.combo_motor)
+        btn_wiki_motor = QPushButton("ℹ️")
+        btn_wiki_motor.setFixedWidth(28)
+        btn_wiki_motor.setToolTip("Ayuda Científica: Picasso vs. Trackpy+RL — por qué nunca combinar deconvolución con Picasso (CAT-206).")
+        btn_wiki_motor.clicked.connect(lambda: self._open_wiki_note("CAT-206"))
+        h4.addWidget(btn_wiki_motor)
         lay_loc.addLayout(h4)
 
         # Controles dinámicos según motor
@@ -1407,14 +1442,24 @@ class LatticeDisorderWindow(QMainWindow):
         self.table_clusters.setHorizontalHeaderLabels(["ID", "Tipo", "Det", "Est", "Vol/V₀", "Área/A₀", "Estado"])
         self.table_clusters.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table_clusters.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.table_clusters.setFixedHeight(130)
+        # Paquete 4: 130px sólo mostraba ~3 filas sin comprimir; 280px muestra
+        # ~10. El panel izquierdo de esta pestaña ya está dentro de un
+        # QScrollArea (scroll_area arriba), así que una pantalla de laptop
+        # pequeña sigue teniendo scroll disponible en vez de perder botones.
+        self.table_clusters.setFixedHeight(280)
         self.table_clusters.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_clusters.setToolTip(make_tooltip(
             "Registro Detallado de Aglomerados Detectados",
-            "Haga clic en una fila para centrar e inspeccionar el cúmulo en el visor del espacio real.",
+            "Haga clic en una fila, o navegue con las flechas del teclado, para centrar e inspeccionar el cúmulo en el visor del espacio real.",
             "Matriz de topología y fotometría: identificador, multiplicidad sugerida k = round(V/V₀), relación de áreas y estado de curación."
         ))
-        self.table_clusters.cellClicked.connect(self._on_cluster_table_clicked)
+        # Paquete 2: currentCellChanged (no cellClicked) responde tanto a clic
+        # como a navegación por teclado (Up/Down) en una sola conexión —
+        # apilar ambas señales dispararía _on_cluster_table_clicked dos veces
+        # por cada clic normal.
+        self.table_clusters.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_clusters.customContextMenuRequested.connect(self._on_table_clusters_context_menu)
+        self.table_clusters.currentCellChanged.connect(self._on_cluster_table_cell_changed)
         lay_cur.addWidget(self.table_clusters)
 
         # Herramienta Crear Cúmulo Manual
@@ -1513,18 +1558,19 @@ class LatticeDisorderWindow(QMainWindow):
             "Optimización no lineal por Levenberg-Marquardt ajustando n centros (x_i, y_i) con ancho de PSF fijo σ = σ_psf."
         ))
         self.btn_resolve_selected_gaussian.clicked.connect(self._on_resolve_selected_cluster_gaussian)
-        lay_cur.addWidget(self.btn_resolve_selected_gaussian)
+        h_resolve_gauss = QHBoxLayout()
+        h_resolve_gauss.addWidget(self.btn_resolve_selected_gaussian, stretch=1)
+        btn_wiki_curation = QPushButton("ℹ️")
+        btn_wiki_curation.setFixedWidth(28)
+        btn_wiki_curation.setToolTip("Ayuda Científica: firma del monómero, criterio LoG y desacople multi-gaussiano (CAT-204).")
+        btn_wiki_curation.clicked.connect(lambda: self._open_wiki_note("CAT-204"))
+        h_resolve_gauss.addWidget(btn_wiki_curation)
+        lay_cur.addLayout(h_resolve_gauss)
 
+        # Paquete 7: se eliminó "Conservar Nodo (Sel)" — en la Pestaña 1 la red
+        # periódica aún no fue ajustada (kdtree_results no existe en esta etapa),
+        # así que medir distancia a un nodo ideal en (0,0) carecía de sentido físico.
         h_sel_aux = QHBoxLayout()
-        self.btn_resolve_selected_nearest = QPushButton("⚡ Conservar Nodo (Sel)")
-        self.btn_resolve_selected_nearest.setToolTip(make_tooltip(
-            "Conservar Nodo de Red (Cúmulo Seleccionado)",
-            "Mantiene solo la partícula del grupo que esté mejor alineada con la cuadrícula periódica y descarta las demás.",
-            "Minimiza la distancia euclidiana al nodo ideal más próximo de la red ortogonal R_{u,v} y purga satélites espurios."
-        ))
-        self.btn_resolve_selected_nearest.clicked.connect(self._on_resolve_selected_cluster_nearest)
-        h_sel_aux.addWidget(self.btn_resolve_selected_nearest)
-
         self.btn_resolve_selected_com = QPushButton("⚡ Fusionar COM (Sel)")
         self.btn_resolve_selected_com.setToolTip(make_tooltip(
             "Fusión Baricéntrica (Cúmulo Seleccionado)",
@@ -1615,15 +1661,8 @@ class LatticeDisorderWindow(QMainWindow):
         self.btn_resolve_all_gaussian.clicked.connect(self._on_resolve_all_clusters_gaussian)
         h_res_btns.addWidget(self.btn_resolve_all_gaussian)
 
-        self.btn_resolve_nearest = QPushButton("⚡ Conservar Nodo")
-        self.btn_resolve_nearest.setToolTip(make_tooltip(
-            "Conservar Nodos de Red en Lote",
-            "En cada aglomerado, conserva la partícula más cercana a un nodo ideal de la red y descarta satélites.",
-            "Filtrado masivo por distancia euclidiana mínima a nodos teóricos sin reajuste fotométrico continuo."
-        ))
-        self.btn_resolve_nearest.clicked.connect(self._on_resolve_clusters_nearest)
-        h_res_btns.addWidget(self.btn_resolve_nearest)
-
+        # Paquete 7: se eliminó "Conservar Nodo" (lote) por la misma razón que su
+        # contraparte individual — sin red ajustada, no hay nodo ideal al que comparar.
         self.btn_resolve_com = QPushButton("⚡ Fusionar COM")
         self.btn_resolve_com.setToolTip(make_tooltip(
             "Fusión Baricéntrica en Lote",
@@ -2034,7 +2073,7 @@ class LatticeDisorderWindow(QMainWindow):
             "Forma del contorno usado para recortar la red ideal generada antes del registro rígido.",
             "Mapea a BoundingGeometry.is_inside('hexagon'/'circle'/'rectangle', ...) de core/lattice_generator.py."
         ))
-        self.combo_boundary_type.currentIndexChanged.connect(lambda _i: self._mark_results_stale())
+        self.combo_boundary_type.currentIndexChanged.connect(lambda _i: (self._mark_results_stale(), self._update_mc_hex_info_label()))
         h_boundary.addWidget(self.combo_boundary_type)
         lay_hex.addLayout(h_boundary)
 
@@ -2051,7 +2090,7 @@ class LatticeDisorderWindow(QMainWindow):
             "sean correctos.",
             "Se recomienda ~1.2-1.5x el radio real de la muestra impresa."
         ))
-        self.spin_boundary_size.valueChanged.connect(lambda _v: self._mark_results_stale())
+        self.spin_boundary_size.valueChanged.connect(lambda _v: (self._mark_results_stale(), self._update_mc_hex_info_label()))
         h_bsize.addWidget(self.spin_boundary_size)
         lay_hex.addLayout(h_bsize)
 
@@ -2082,6 +2121,57 @@ class LatticeDisorderWindow(QMainWindow):
         self.spin_rotation_manual.valueChanged.connect(lambda _v: self._mark_results_stale())
         h_rot.addWidget(self.spin_rotation_manual)
         lay_hex.addLayout(h_rot)
+
+        # Paquete 11: base honeycomb (u2, v2) — editable, sólo visible para
+        # honeycomb/grafeno (no para hexagonal/triangular, de base monoatómica).
+        # Por defecto (1/3, 1/3), convención de laboratorio confirmada por el
+        # usuario — NO (1/3, 2/3), el default histórico de
+        # core/lattice_generator.py::LatticeLayer (usado por grid_generator.py,
+        # el diseñador de redes; ver generate_ideal_lattice_template() en
+        # core/lattice_disorder.py para la nota completa de esta discrepancia).
+        self.grp_honeycomb_basis = QWidget()
+        lay_hc = QVBoxLayout(self.grp_honeycomb_basis)
+        lay_hc.setContentsMargins(0, 4, 0, 0)
+        h_u2 = QHBoxLayout()
+        h_u2.addWidget(QLabel("Base Subred B — u₂:"))
+        self.spin_honeycomb_u2 = QDoubleSpinBox()
+        self.spin_honeycomb_u2.setRange(0.0, 1.0)
+        self.spin_honeycomb_u2.setDecimals(4)
+        self.spin_honeycomb_u2.setSingleStep(0.01)
+        self.spin_honeycomb_u2.setValue(1.0 / 3.0)
+        self.spin_honeycomb_u2.setToolTip(make_tooltip(
+            "Coordenada Fraccional u₂ de la Subred B (Honeycomb)",
+            "Posición del segundo átomo de la base honeycomb a lo largo de a1, relativa a la celda unitaria.",
+            "BasisAtom(u=u2, v=v2) en generate_ideal_lattice_template() — debe coincidir con la geometría real impresa."
+        ))
+        self.spin_honeycomb_u2.valueChanged.connect(lambda _v: (self._mark_results_stale(), self._update_mc_hex_info_label()))
+        h_u2.addWidget(self.spin_honeycomb_u2)
+        lay_hc.addLayout(h_u2)
+
+        h_v2 = QHBoxLayout()
+        h_v2.addWidget(QLabel("Base Subred B — v₂:"))
+        self.spin_honeycomb_v2 = QDoubleSpinBox()
+        self.spin_honeycomb_v2.setRange(0.0, 1.0)
+        self.spin_honeycomb_v2.setDecimals(4)
+        self.spin_honeycomb_v2.setSingleStep(0.01)
+        self.spin_honeycomb_v2.setValue(1.0 / 3.0)
+        self.spin_honeycomb_v2.setToolTip(make_tooltip(
+            "Coordenada Fraccional v₂ de la Subred B (Honeycomb)",
+            "Posición del segundo átomo de la base honeycomb a lo largo de a2, relativa a la celda unitaria.",
+            "BasisAtom(u=u2, v=v2) en generate_ideal_lattice_template() — debe coincidir con la geometría real impresa."
+        ))
+        self.spin_honeycomb_v2.valueChanged.connect(lambda _v: (self._mark_results_stale(), self._update_mc_hex_info_label()))
+        h_v2.addWidget(self.spin_honeycomb_v2)
+        lay_hc.addLayout(h_v2)
+        h_hc_wiki = QHBoxLayout()
+        h_hc_wiki.addStretch()
+        btn_wiki_basis = QPushButton("ℹ️ Convención de Base")
+        btn_wiki_basis.setToolTip("Ayuda Científica: convención de vectores primitivos y base biatómica honeycomb (CAT-102).")
+        btn_wiki_basis.clicked.connect(lambda: self._open_wiki_note("CAT-102"))
+        h_hc_wiki.addWidget(btn_wiki_basis)
+        lay_hc.addLayout(h_hc_wiki)
+        lay_hex.addWidget(self.grp_honeycomb_basis)
+        self.grp_honeycomb_basis.setVisible(False)
 
         lay_ltype.addWidget(self.grp_hex_controls)
         self.grp_hex_controls.setVisible(False)
@@ -2539,6 +2629,11 @@ class LatticeDisorderWindow(QMainWindow):
         honeycomb/grafeno), habilitando/deshabilitando los controles correspondientes."""
         is_hex_family = idx in (1, 2)  # 1=Hexagonal/Triangular, 2=Honeycomb/Grafeno
         self.grp_hex_controls.setVisible(is_hex_family)
+        # Paquete 11: la base biatómica (u2, v2) sólo tiene sentido para
+        # honeycomb/grafeno — hexagonal/triangular tiene base monoatómica.
+        if hasattr(self, 'grp_honeycomb_basis'):
+            self.grp_honeycomb_basis.setVisible(idx == 2)
+        self._update_mc_hex_info_label()
 
         if is_hex_family:
             # b = a por definición para la celda unitaria hexagonal/honeycomb (gamma=60°)
@@ -2554,6 +2649,46 @@ class LatticeDisorderWindow(QMainWindow):
 
     def _on_auto_rotate_toggled(self, checked: bool):
         self._mark_results_stale()
+
+    def _open_wiki_note(self, note_id: Optional[str], anchor: Optional[str] = None) -> None:
+        """Paquete 9: abre (o reutiliza, patrón singleton) la Wiki Científica
+        navegando directamente a note_id. note_id=None abre la página de
+        aterrizaje por defecto (ScientificWikiBrowserDialog.DEFAULT_LANDING_NOTE)."""
+        if self._wiki_dialog is None:
+            self._wiki_dialog = ScientificWikiBrowserDialog(parent=self)
+        if note_id:
+            self._wiki_dialog.navigate_to(note_id, anchor)
+        self._wiki_dialog.show()
+        self._wiki_dialog.raise_()
+        self._wiki_dialog.activateWindow()
+
+    def _update_mc_hex_info_label(self) -> None:
+        """Paquete 11: mantiene sincronizado, en la Pestaña 4, el resumen en
+        vivo de los parámetros de frontera/base de la Pestaña 2 que
+        run_hexagonal_monte_carlo_calibration efectivamente usará, y
+        deshabilita (sin ocultar) los controles Nx/Ny/anisotropía/ay que esa
+        rama ignora — llamado tanto al cambiar el tipo de red como al editar
+        cualquiera de esos parámetros en la Pestaña 2."""
+        if not hasattr(self, 'lbl_mc_hex_info'):
+            return
+        is_hex_family = hasattr(self, 'combo_lattice_type') and self.combo_lattice_type.currentIndex() in (1, 2)
+        for w in (self.spin_mc_n, self.spin_mc_ny, self.chk_mc_anisotropy):
+            w.setEnabled(not is_hex_family)
+        if not is_hex_family:
+            self.spin_mc_ay.setEnabled(self.chk_mc_anisotropy.isChecked())
+            self.lbl_mc_hex_info.setVisible(False)
+            return
+        self.spin_mc_ay.setEnabled(False)
+        is_honeycomb = self.combo_lattice_type.currentIndex() == 2
+        boundary_txt = ["Hexagonal", "Circular", "Rectangular"][self.combo_boundary_type.currentIndex()]
+        basis_txt = (f" | Base (u₂,v₂)=({self.spin_honeycomb_u2.value():.3f}, {self.spin_honeycomb_v2.value():.3f})"
+                      if is_honeycomb and hasattr(self, 'spin_honeycomb_u2') else "")
+        self.lbl_mc_hex_info.setText(
+            f"ℹ️ Familia {'Honeycomb/Grafeno' if is_honeycomb else 'Hexagonal/Triangular'}: usa ax como "
+            f"período único a, frontera {boundary_txt} (tamaño {self.spin_boundary_size.value():.0f} nm) "
+            f"de la Pestaña 2{basis_txt}. Nx/Ny/anisotropía/ay no aplican."
+        )
+        self.lbl_mc_hex_info.setVisible(True)
 
     def _get_selected_lattice_type_key(self) -> str:
         """Traduce el índice del combo_lattice_type a la clave string que espera
@@ -2717,7 +2852,14 @@ class LatticeDisorderWindow(QMainWindow):
         self.plot_real_topology.addItem(self.quiver_heads_item)
 
     def _update_topology_histograms(self):
-        """Actualiza el Visor 3: histogramas de residuos Δx/Δy, coordinación Voronoi P(Z) y distribución ψ4."""
+        """Actualiza el Visor 3: histogramas de residuos Δx/Δy (Paquete 8: con
+        leyenda y σx/σy), coordinación Voronoi P(Z) (Paquete 8: barra nominal
+        resaltada según familia de red + fracción regular/defectuosa) y
+        distribución del orden orientacional |ψn| (Paquete 8: n conmuta
+        dinámicamente entre 4/6/3 según la red activa, en vez de quedar fijo
+        en |ψ4| — bug latente encontrado durante la auditoría de la Ronda 1:
+        el título era un string estático aunque el cálculo de psi_n_local ya
+        era genérico en core.lattice_disorder.compute_bond_orientational_order)."""
         if not hasattr(self, 'plot_topology_hist') or self.crystallography_results is None or self.kdtree_results is None:
             return
         self.plot_topology_hist.clear()
@@ -2729,10 +2871,22 @@ class LatticeDisorderWindow(QMainWindow):
         dx = kd.get('delta_x', np.array([]))
         dy = kd.get('delta_y', np.array([]))
         if len(dx) > 3:
+            sigma_x = float(np.std(dx))
+            sigma_y = float(np.std(dy))
             counts_x, edges_x = np.histogram(dx, bins=25)
             counts_y, edges_y = np.histogram(dy, bins=25)
-            p1.plot(edges_x, counts_x, stepMode='center', fillLevel=0, brush=(137, 180, 250, 90), pen=pg.mkPen('#89b4fa'))
-            p1.plot(edges_y, counts_y, stepMode='center', fillLevel=0, brush=(243, 139, 168, 90), pen=pg.mkPen('#f38ba8'))
+            legend1 = p1.addLegend(offset=(10, 10))
+            legend1.setBrush(pg.mkBrush(24, 24, 37, 200))
+            legend1.setPen(pg.mkPen('#45475a'))
+            curve_x = p1.plot(edges_x, counts_x, stepMode='center', fillLevel=0,
+                               brush=(137, 180, 250, 90), pen=pg.mkPen('#89b4fa'),
+                               name=f"Δx (σx={sigma_x:.2f} nm)")
+            curve_y = p1.plot(edges_y, counts_y, stepMode='center', fillLevel=0,
+                               brush=(243, 139, 168, 90), pen=pg.mkPen('#f38ba8'),
+                               name=f"Δy (σy={sigma_y:.2f} nm)")
+
+        lattice_type_key = self._get_selected_lattice_type_key() if hasattr(self, '_get_selected_lattice_type_key') else 'square'
+        z_nominal = _ideal_voronoi_coordination_for_type(lattice_type_key)
 
         p2 = self.plot_topology_hist.addPlot(row=0, col=1, title="Coordinación Voronoi P(Z)")
         p2.showGrid(x=True, y=True, alpha=0.25)
@@ -2740,14 +2894,35 @@ class LatticeDisorderWindow(QMainWindow):
         if voronoi_res is not None and voronoi_res.get('n_internal', 0) > 0:
             z_vals = voronoi_res['coordination'][voronoi_res['is_internal']]
             z_unique, z_counts = np.unique(z_vals, return_counts=True)
-            bar = pg.BarGraphItem(x=z_unique.astype(float), height=z_counts.astype(float), width=0.6, brush='#89b4fa')
+            n_total = int(np.sum(z_counts))
+            n_regular = int(np.sum(z_counts[z_unique == z_nominal])) if np.any(z_unique == z_nominal) else 0
+            frac_regular = (n_regular / n_total) if n_total > 0 else 0.0
+            # Resalta en verde/dorado la barra de coordinación nominal esperada
+            # (Paquete 8) — el resto en el color neutro previo, para que los
+            # defectos topológicos (Z != Z_nominal) salten a la vista.
+            brushes = [('#a6e3a1' if z == z_nominal else '#89b4fa') for z in z_unique]
+            bar = pg.BarGraphItem(x=z_unique.astype(float), height=z_counts.astype(float), width=0.6, brushes=brushes)
             p2.addItem(bar)
+            p2.setTitle(f"Coordinación Voronoi P(Z) — Z_nom={z_nominal} ({frac_regular*100:.1f}% regular)")
+            p2.setToolTip(
+                f"Z nominal esperado para esta familia de red: {z_nominal}. "
+                f"{n_regular}/{n_total} celdas internas ({frac_regular*100:.1f}%) tienen coordinación regular "
+                f"(barra verde); el resto ({n_total - n_regular}, {(1-frac_regular)*100:.1f}%) son defectos "
+                f"topológicos (vacancias, dislocaciones o borde mal excluido)."
+            )
 
-        p3 = self.plot_topology_hist.addPlot(row=0, col=2, title="Distribución |ψ4|")
-        p3.showGrid(x=True, y=True, alpha=0.25)
         bo_res = cryst.get('bond_order')
-        if bo_res is not None and len(bo_res['psi4_local']) > 3:
-            counts_p, edges_p = np.histogram(bo_res['psi4_local'], bins=20, range=(0.0, 1.0))
+        n_fold_active = bo_res.get('n_fold') if bo_res else None
+        if n_fold_active is not None and 'psi_n_local' in bo_res:
+            psi_key, psi_label = 'psi_n_local', f"|ψ{n_fold_active}|"
+        else:
+            n_fold_active = 4
+            psi_key, psi_label = 'psi4_local', "|ψ4|"
+
+        p3 = self.plot_topology_hist.addPlot(row=0, col=2, title=f"Distribución {psi_label}")
+        p3.showGrid(x=True, y=True, alpha=0.25)
+        if bo_res is not None and psi_key in bo_res and len(bo_res[psi_key]) > 3:
+            counts_p, edges_p = np.histogram(bo_res[psi_key], bins=20, range=(0.0, 1.0))
             p3.plot(edges_p, counts_p, stepMode='center', fillLevel=0, brush=(203, 166, 247, 110), pen=pg.mkPen('#cba6f7'))
 
     # ==========================================================================
@@ -3467,6 +3642,26 @@ class LatticeDisorderWindow(QMainWindow):
         h2.addWidget(self.spin_mc_ay)
         lay_sim.addLayout(h2)
 
+        # Paquete 11: para familia hexagonal/honeycomb, Nx/Ny/anisotropía/ay no
+        # se usan (_on_run_monte_carlo despacha a run_hexagonal_monte_carlo_calibration,
+        # que toma frontera+base de la Pestaña 2 en su lugar, ax como período único
+        # a — ver hex_params) — se deshabilitan (no se ocultan, mismo patrón ya
+        # usado para spin_mc_ny/spin_mc_ay con la anisotropía) y se muestra un
+        # resumen en vivo de qué parámetros de la Pestaña 2 se van a usar.
+        self.lbl_mc_hex_info = QLabel("")
+        self.lbl_mc_hex_info.setWordWrap(True)
+        self.lbl_mc_hex_info.setStyleSheet("color: #89dceb; font-size: 10px; font-style: italic;")
+        self.lbl_mc_hex_info.setVisible(False)
+        lay_sim.addWidget(self.lbl_mc_hex_info)
+
+        h_mc_wiki = QHBoxLayout()
+        h_mc_wiki.addStretch()
+        btn_wiki_mc = QPushButton("ℹ️ Metrología Analítica de Bragg")
+        btn_wiki_mc.setToolTip("Ayuda Científica: cociente H2/H1, Wilson Plot 2D, redes anisótropas y factor de Debye-Waller (CAT-308).")
+        btn_wiki_mc.clicked.connect(lambda: self._open_wiki_note("CAT-308"))
+        h_mc_wiki.addWidget(btn_wiki_mc)
+        lay_sim.addLayout(h_mc_wiki)
+
         # Alias para mantener retrocompatibilidad total
         self.spin_mc_a = self.spin_mc_ax
 
@@ -3768,6 +3963,11 @@ class LatticeDisorderWindow(QMainWindow):
         splitter.addWidget(right_widget)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
+
+        # Paquete 11: sincroniza el estado inicial (deshabilitado/resumen) de
+        # los controles Nx/Ny/anisotropía/ay contra el tipo de red ya
+        # seleccionado en la Pestaña 2 (construida antes que ésta).
+        self._update_mc_hex_info_label()
 
     # ==========================================================================
     # PESTAÑA 5: FICHA METROLÓGICA & EXPORTACIÓN
@@ -4236,6 +4436,22 @@ class LatticeDisorderWindow(QMainWindow):
         if self.locs_df is None or self.locs_df.empty:
             return
 
+        # Paquete 5: si el clic cae DENTRO del contorno fotométrico de un
+        # cúmulo (y no estamos en modo "agregar partícula a cúmulo activo",
+        # que ya tiene su propia semántica de clic), seleccionarlo en la tabla
+        # en vez de buscar la partícula puntual más cercana.
+        add_mode_active = (hasattr(self, 'btn_cluster_add_particles')
+                            and self.btn_cluster_add_particles.isChecked()
+                            and self.selected_cluster_id is not None)
+        if not add_mode_active:
+            row_i = self._find_cluster_row_at_point(cx, cy)
+            if row_i is not None:
+                self.table_clusters.blockSignals(True)
+                self.table_clusters.selectRow(row_i)
+                self.table_clusters.blockSignals(False)
+                self._on_cluster_table_clicked(row_i, 0)
+                return
+
         x_nm = self.locs_df['x_nm'].values
         y_nm = self.locs_df['y_nm'].values
         dists = np.hypot(x_nm - cx, y_nm - cy)
@@ -4246,8 +4462,11 @@ class LatticeDisorderWindow(QMainWindow):
                 if self.cluster_results:
                     for c in self.cluster_results.get('clusters', []):
                         if c.get('id') == self.selected_cluster_id:
-                            if nearest_idx not in c['indices']:
-                                c['indices'].append(nearest_idx)
+                            # c['indices'] está en espacio particle_id (Paquete 1) —
+                            # traducir nearest_idx (posicional) antes de comparar/agregar.
+                            nearest_pid = self._positions_to_particle_ids([nearest_idx])[0]
+                            if nearest_pid not in c['indices']:
+                                c['indices'].append(nearest_pid)
                             c['n_det'] = len(c['indices'])
                             self.selected_particle_indices.add(nearest_idx)
                             if hasattr(self, 'spin_cluster_n_gaussians'):
@@ -4418,7 +4637,7 @@ class LatticeDisorderWindow(QMainWindow):
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
-            self.cluster_results,
+            self._clusters_info_with_positional_indices(),
             action='multi_gaussian',
             a=a_nom,
             x0=x0,
@@ -4434,6 +4653,7 @@ class LatticeDisorderWindow(QMainWindow):
 
         n_rem = stats.get('particles_removed', 0)
         n_add = stats.get('particles_added', 0)
+        df_resolved, new_ids = self._assign_new_particle_ids(df_resolved, n_add)
         target_id_done = self.selected_cluster_id
         self.selected_cluster_id = None
         self.locs_df = df_resolved
@@ -4444,7 +4664,13 @@ class LatticeDisorderWindow(QMainWindow):
         self.selected_particle_indices.clear()
         self._on_clear_visual_seeds()
         self._update_selected_status()
-        self._update_real_space_analysis()
+        # Paquete 1: actualización unitaria — NO se anula cluster_results (los
+        # demás cúmulos pendientes siguen siendo válidos vía particle_id), el
+        # cúmulo resuelto se marca y se traslada al final de la tabla.
+        self._update_real_space_analysis(preserve_clusters=True)
+        self._apply_cluster_resolution_state(target_id_done, new_ids, 'RESOLVED_GAUSSIAN')
+        self._update_cluster_table()
+        self._select_first_pending_cluster_row()
 
         QMessageBox.information(
             self,
@@ -4453,53 +4679,6 @@ class LatticeDisorderWindow(QMainWindow):
             f"- Partículas originales descartadas: {n_rem}\n"
             f"- Emisores desacoplados añadidos: {n_add}\n"
             f"Total partículas en muestra: {len(self.locs_df)}."
-        )
-
-    def _on_resolve_selected_cluster_nearest(self):
-        if self.locs_df is None or self.locs_df.empty:
-            QMessageBox.warning(self, "Atención", "No hay detecciones disponibles.")
-            return
-
-        if self.selected_cluster_id is None:
-            QMessageBox.information(
-                self, "Seleccionar Cúmulo",
-                "Por favor, selecciona primero un cúmulo en la tabla o haciendo clic en el visor."
-            )
-            return
-
-        a_nom = self.spin_a_nominal.value()
-        scale_nm = self.spin_scale.value()
-        x0 = self.kdtree_results['x0'] if (self.kdtree_results and 'x0' in self.kdtree_results) else 0.0
-        y0 = self.kdtree_results['y0'] if (self.kdtree_results and 'y0' in self.kdtree_results) else 0.0
-
-        self.curation_history.append(self.locs_df.copy())
-
-        df_resolved, stats = resolve_clusters_dataframe(
-            self.locs_df,
-            self.cluster_results,
-            action='keep_nearest',
-            a=a_nom,
-            x0=x0,
-            y0=y0,
-            scale_nm=scale_nm,
-            target_cluster_id=self.selected_cluster_id
-        )
-
-        n_rem = stats.get('particles_removed', 0)
-        target_id_done = self.selected_cluster_id
-        self.selected_cluster_id = None
-        self.locs_df = df_resolved
-        self.unmarked_indices.clear()
-        self.selected_particle_indices.clear()
-        self._update_selected_status()
-        self._update_real_space_analysis()
-
-        QMessageBox.information(
-            self,
-            "Cúmulo Resuelto (Cercano a Red)",
-            f"Cúmulo #{target_id_done} resuelto:\n"
-            f"- Satélites descartados: {n_rem}\n"
-            f"Total partículas conservadas: {len(self.locs_df)}."
         )
 
     def _on_resolve_selected_cluster_com(self):
@@ -4523,7 +4702,7 @@ class LatticeDisorderWindow(QMainWindow):
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
-            self.cluster_results,
+            self._clusters_info_with_positional_indices(),
             action='merge_com',
             a=a_nom,
             x0=x0,
@@ -4532,13 +4711,20 @@ class LatticeDisorderWindow(QMainWindow):
             target_cluster_id=self.selected_cluster_id
         )
 
+        n_add = stats.get('particles_added', 0)
+        df_resolved, new_ids = self._assign_new_particle_ids(df_resolved, n_add)
         target_id_done = self.selected_cluster_id
         self.selected_cluster_id = None
         self.locs_df = df_resolved
         self.unmarked_indices.clear()
         self.selected_particle_indices.clear()
         self._update_selected_status()
-        self._update_real_space_analysis()
+        # Paquete 1/6: misma actualización unitaria que el desacople gaussiano —
+        # fusionar en COM también resuelve el cúmulo sin descartar los demás.
+        self._update_real_space_analysis(preserve_clusters=True)
+        self._apply_cluster_resolution_state(target_id_done, new_ids, 'RESOLVED_GAUSSIAN')
+        self._update_cluster_table()
+        self._select_first_pending_cluster_row()
 
         QMessageBox.information(
             self,
@@ -4566,7 +4752,7 @@ class LatticeDisorderWindow(QMainWindow):
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
-            self.cluster_results,
+            self._clusters_info_with_positional_indices(),
             action='multi_gaussian',
             a=a_nom,
             x0=x0,
@@ -4579,6 +4765,12 @@ class LatticeDisorderWindow(QMainWindow):
         )
 
         n_add_batch = stats.get('particles_added', 0)
+        # Asigna IDs frescos a las filas nuevas ANTES de descartar cluster_results
+        # (batch = nada queda pendiente, por eso sigue anulando como antes) — de
+        # lo contrario las filas nuevas quedarían con particle_id=0.0 (relleno
+        # por defecto de resolve_clusters_dataframe), colisionando con la
+        # partícula #0 real y corrompiendo toda traducción futura.
+        df_resolved, _new_ids = self._assign_new_particle_ids(df_resolved, n_add_batch)
         self.selected_cluster_id = None
         self.locs_df = df_resolved
         self.unmarked_indices = set(range(len(self.locs_df) - n_add_batch, len(self.locs_df))) if n_add_batch > 0 else set()
@@ -4593,49 +4785,6 @@ class LatticeDisorderWindow(QMainWindow):
             f"- Partículas originales descartadas: {stats.get('particles_removed', 0)}\n"
             f"- Emisores desacoplados añadidos: {stats.get('particles_added', 0)}\n"
             f"Total partículas resultantes: {len(self.locs_df)}."
-        )
-
-    def _on_resolve_clusters_nearest(self):
-        if self.locs_df is None or self.locs_df.empty:
-            QMessageBox.warning(self, "Atención", "No hay detecciones disponibles.")
-            return
-
-        if not self.cluster_results or self.cluster_results.get('n_clusters', 0) == 0:
-            QMessageBox.information(self, "Sin Aglomerados", "No hay aglomerados detectados para resolver.")
-            return
-
-        a_nom = self.spin_a_nominal.value()
-        scale_nm = self.spin_scale.value()
-        x0 = self.kdtree_results['x0'] if (self.kdtree_results and 'x0' in self.kdtree_results) else 0.0
-        y0 = self.kdtree_results['y0'] if (self.kdtree_results and 'y0' in self.kdtree_results) else 0.0
-
-        self.curation_history.append(self.locs_df.copy())
-
-        df_resolved, stats = resolve_clusters_dataframe(
-            self.locs_df,
-            self.cluster_results,
-            action='keep_nearest',
-            a=a_nom,
-            x0=x0,
-            y0=y0,
-            scale_nm=scale_nm,
-            target_cluster_id=None
-        )
-
-        n_removed = stats.get('particles_removed', 0)
-        self.selected_cluster_id = None
-        self.locs_df = df_resolved
-        self.unmarked_indices.clear()
-        self.selected_particle_indices.clear()
-        self._update_selected_status()
-        self._update_real_space_analysis()
-
-        QMessageBox.information(
-            self,
-            "Aglomerados Resueltos (Cercano a Nodo)",
-            f"Se procesaron {stats.get('clusters_resolved', 0)} aglomerados.\n"
-            f"Se descartaron {n_removed} partículas satélites/espurias.\n"
-            f"Partículas conservadas: {len(self.locs_df)}."
         )
 
     def _on_resolve_clusters_com(self):
@@ -4656,7 +4805,7 @@ class LatticeDisorderWindow(QMainWindow):
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
-            self.cluster_results,
+            self._clusters_info_with_positional_indices(),
             action='merge_com',
             a=a_nom,
             x0=x0,
@@ -4665,6 +4814,8 @@ class LatticeDisorderWindow(QMainWindow):
             target_cluster_id=None
         )
 
+        n_add_batch = stats.get('particles_added', 0)
+        df_resolved, _new_ids = self._assign_new_particle_ids(df_resolved, n_add_batch)
         self.selected_cluster_id = None
         self.locs_df = df_resolved
         self.unmarked_indices.clear()
@@ -4794,8 +4945,9 @@ class LatticeDisorderWindow(QMainWindow):
         )
 
         if stats.get('status') == 'ok':
-            self.locs_df = df_resolved
             n_fitted = stats.get('n_fitted', 0)
+            df_resolved, _new_ids = self._assign_new_particle_ids(df_resolved, n_fitted)
+            self.locs_df = df_resolved
             self.unmarked_indices = set(range(len(self.locs_df) - n_fitted, len(self.locs_df))) if n_fitted > 0 else set()
             self.selected_particle_indices.clear()
             self._on_clear_visual_seeds()
@@ -4804,7 +4956,12 @@ class LatticeDisorderWindow(QMainWindow):
             self.current_spot_info = None
 
             self._update_selected_status()
-            self._update_real_space_analysis()
+            # Paquete 1: preserva cluster_results — un spot puntual sospechoso no
+            # es necesariamente miembro de ningún cúmulo detectado; si lo era, su
+            # ID desaparece del cúmulo en silencio la próxima vez que se traduzca
+            # (ver _particle_ids_to_positions), sin invalidar el resto.
+            self._update_real_space_analysis(preserve_clusters=True)
+            self._update_cluster_table()
 
             fitted = stats.get('fitted_emitters', [])
             if fitted:
@@ -4872,7 +5029,13 @@ class LatticeDisorderWindow(QMainWindow):
             item_ra.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             status = cl.get('status', 'OK')
-            if status == 'UNDER_RESOLVED':
+            if status == 'RESOLVED_GAUSSIAN':
+                status_str = "Resuelto (Multi-Gauss)"
+                color_str = "#a6e3a1"
+            elif status == 'RESOLVED_MANUAL':
+                status_str = "Resuelto (Usuario)"
+                color_str = "#a6e3a1"
+            elif status == 'UNDER_RESOLVED':
                 status_str = "⚠️ Desacoplar"
                 color_str = "#fab387"
             elif status == 'OVER_DETECTED':
@@ -4898,6 +5061,37 @@ class LatticeDisorderWindow(QMainWindow):
         """Alias para _update_cluster_table para compatibilidad robusta."""
         self._update_cluster_table()
 
+    def _find_cluster_row_at_point(self, cx: float, cy: float) -> Optional[int]:
+        """Paquete 5: devuelve el índice de fila del primer cúmulo cuyo
+        contorno fotométrico (contour_polygon_nm) contiene (cx, cy) en nm, o
+        None si el punto no cae dentro de ningún contorno. Extraído como
+        método propio (en vez de inline en _on_real_space_clicked) para poder
+        probarlo sin depender del mapeo de coordenadas de escena de pyqtgraph."""
+        if self.cluster_results is None:
+            return None
+        clusters = self.cluster_results.get('clusters', [])
+        for row_i, c in enumerate(clusters):
+            poly = c.get('contour_polygon_nm', [])
+            if len(poly) <= 2:
+                continue
+            try:
+                import cv2
+                poly_arr = np.array(poly, dtype=np.float32)
+                inside = cv2.pointPolygonTest(poly_arr, (float(cx), float(cy)), False) >= 0
+            except Exception:
+                inside = False
+            if inside:
+                return row_i
+        return None
+
+    def _on_cluster_table_cell_changed(self, current_row: int, current_col: int,
+                                         previous_row: int, previous_col: int) -> None:
+        """Paquete 2: adaptador de currentCellChanged (clic Y flechas de
+        teclado ↑/↓) hacia _on_cluster_table_clicked, que sólo necesita la fila
+        actual. current_row == -1 cuando la selección se limpia (p.ej.
+        setRowCount(0)); el guard de _on_cluster_table_clicked ya lo maneja."""
+        self._on_cluster_table_clicked(current_row, current_col)
+
     def _on_cluster_table_clicked(self, row: int, col: int):
         if self.cluster_results is None or 'clusters' not in self.cluster_results:
             return
@@ -4908,7 +5102,9 @@ class LatticeDisorderWindow(QMainWindow):
         target_cluster = clusters[row]
         self.selected_cluster_id = target_cluster.get('id')
         indices = target_cluster['indices']
-        self.selected_particle_indices = set(int(i) for i in indices)
+        # indices está en espacio particle_id (Paquete 1) — traducir a posiciones
+        # actuales en locs_df antes de usarlo como selección (semántica posicional).
+        self.selected_particle_indices = set(self._particle_ids_to_positions(indices))
         self._update_selected_status()
         self._redraw_selection_overlay()
 
@@ -4941,6 +5137,103 @@ class LatticeDisorderWindow(QMainWindow):
         span = self.spin_a_nominal.value() * 3.0
         self.plot_real_space.setXRange(com_x - span, com_x + span, padding=0.1)
         self.plot_real_space.setYRange(com_y - span, com_y + span, padding=0.1)
+
+    # ── Menú Contextual de la Tabla de Cúmulos (Paquete 6) ───────────────────
+
+    def _on_table_clusters_context_menu(self, pos) -> None:
+        """Menú contextual de clic derecho sobre una fila de table_clusters.
+        Las 4 acciones reutilizan los mismos slots que sus botones equivalentes
+        (nunca duplican la lógica de resolución — ver software-architect.md),
+        salvo 'Marcar Resuelto Usuario' y 'Descartar Cúmulo', nuevas en este
+        paquete."""
+        row = self.table_clusters.rowAt(pos.y())
+        if row < 0 or self.cluster_results is None:
+            return
+        clusters = self.cluster_results.get('clusters', [])
+        if row >= len(clusters):
+            return
+        target_cluster = clusters[row]
+        cluster_id = target_cluster.get('id')
+
+        # Selecciona la fila clickeada antes de ofrecer acciones sobre ella —
+        # mismo comportamiento que un clic izquierdo normal.
+        self.table_clusters.blockSignals(True)
+        self.table_clusters.selectRow(row)
+        self.table_clusters.blockSignals(False)
+        self._on_cluster_table_clicked(row, 0)
+
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; font-size: 11px; } "
+            "QMenu::item { padding: 5px 18px; } "
+            "QMenu::item:selected { background-color: #313244; color: #89b4fa; }"
+        )
+        act_gauss = menu.addAction("🎯 Desacoplar (Fit Multi-Gauss)")
+        act_gauss.setToolTip("Ajusta n Gaussianas independientes con ancho σ_psf fijo — desacopla emisores realmente superpuestos.")
+        act_com = menu.addAction("⚡ Fusionar Nodo / Baricéntrico (COM)")
+        act_com.setToolTip("Colapsa el grupo en un único punto (centro de masa fotométrico) — irreversible sobre el dataset derivado, pide confirmación.")
+        act_manual = menu.addAction("✅ Marcar como Resuelto por Usuario")
+        act_manual.setToolTip("Preserva las partículas actuales sin modificarlas — sólo confirma visualmente que ya fueron revisadas.")
+        act_discard = menu.addAction("🗑️ Descartar Cúmulo")
+        act_discard.setToolTip("Quita este agrupamiento de la tabla (no elimina partículas) — pide confirmación.")
+
+        chosen = menu.exec(self.table_clusters.mapToGlobal(pos))
+        if chosen is None:
+            return
+        if chosen is act_gauss:
+            self._on_resolve_selected_cluster_gaussian()
+        elif chosen is act_com:
+            reply = QMessageBox.question(
+                self, "Confirmar Fusión Baricéntrica",
+                f"¿Fusionar el cúmulo #{cluster_id} en su centro de masa fotométrico?\n\n"
+                "Las partículas originales del grupo se reemplazan por un único punto "
+                "(operación irreversible sobre este dataset — use '↺ Deshacer' para revertir).",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._on_resolve_selected_cluster_com()
+        elif chosen is act_manual:
+            self._on_mark_cluster_resolved_manual(cluster_id)
+        elif chosen is act_discard:
+            reply = QMessageBox.question(
+                self, "Confirmar Descarte de Cúmulo",
+                f"¿Descartar el cúmulo #{cluster_id} de la tabla?\n\n"
+                "Esto NO elimina las partículas — sólo el agrupamiento detectado "
+                "(puede volver a aparecer si se repite la detección).",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._on_discard_cluster(cluster_id)
+
+    def _on_mark_cluster_resolved_manual(self, cluster_id: Optional[int]) -> None:
+        """Paquete 6, 'Marcar como Resuelto por Usuario': preserva las
+        partículas del cúmulo TAL COMO ESTÁN (sin fit, sin fusión) — sólo
+        confirma la revisión visual y lo traslada al final de la tabla."""
+        if self.cluster_results is None:
+            return
+        clusters = self.cluster_results.get('clusters', [])
+        target = next((c for c in clusters if c.get('id') == cluster_id), None)
+        if target is None:
+            return
+        current_ids = list(target.get('indices', []))
+        self._apply_cluster_resolution_state(cluster_id, current_ids, 'RESOLVED_MANUAL')
+        self._update_cluster_table()
+        self._select_first_pending_cluster_row()
+        self.statusBar().showMessage(f"Cúmulo #{cluster_id} marcado como resuelto por el usuario.", 3000)
+
+    def _on_discard_cluster(self, cluster_id: Optional[int]) -> None:
+        """Paquete 6, 'Descartar Cúmulo': quita el agrupamiento de
+        cluster_results (no toca locs_df ni particle_id — las partículas
+        siguen existiendo, sólo dejan de estar agrupadas)."""
+        if self.cluster_results is None:
+            return
+        clusters = self.cluster_results.get('clusters', [])
+        self.cluster_results['clusters'] = [c for c in clusters if c.get('id') != cluster_id]
+        self.cluster_results['n_clusters'] = len(self.cluster_results['clusters'])
+        if self.selected_cluster_id == cluster_id:
+            self.selected_cluster_id = None
+        self._update_cluster_table()
+        self.statusBar().showMessage(f"Cúmulo #{cluster_id} descartado de la tabla.", 3000)
 
     def _on_create_manual_cluster(self):
         if self.locs_df is None or self.locs_df.empty:
@@ -4979,6 +5272,11 @@ class LatticeDisorderWindow(QMainWindow):
             tolerance_pct=tol,
             cluster_id=next_id
         )
+        # Paquete 1: create_manual_cluster() devuelve 'indices' posicional (pasado
+        # tal cual desde self.selected_particle_indices) — traducir a particle_id
+        # estable para que este cúmulo manual también sobreviva a resoluciones
+        # individuales posteriores, igual que los detectados automáticamente.
+        new_c['indices'] = self._positions_to_particle_ids(new_c.get('indices', []))
 
         clusters.append(new_c)
         self.cluster_results['n_clusters'] = len(clusters)
@@ -5010,11 +5308,14 @@ class LatticeDisorderWindow(QMainWindow):
         self._update_cluster_table()
         self.selected_cluster_id = next_id
 
-        # Seleccionar la fila en table_clusters
+        # Seleccionar la fila en table_clusters (blockSignals evita el doble
+        # disparo de _on_cluster_table_cell_changed — ver Paquete 2).
         for r in range(self.table_clusters.rowCount()):
             item = self.table_clusters.item(r, 0)
             if item and item.text() == str(next_id):
+                self.table_clusters.blockSignals(True)
                 self.table_clusters.selectRow(r)
+                self.table_clusters.blockSignals(False)
                 self._on_cluster_table_clicked(r, 0)
                 break
 
@@ -5121,17 +5422,20 @@ class LatticeDisorderWindow(QMainWindow):
                 if self.cluster_results is not None and 'clusters' in self.cluster_results:
                     for cl in self.cluster_results['clusters']:
                         if cl.get('id') == self.selected_cluster_id:
-                            cur_indices = list(cl.get('indices', []))
-                            if idx_min in cur_indices:
-                                cur_indices.remove(idx_min)
+                            # cl['indices'] está en espacio particle_id (Paquete 1);
+                            # el toggle y el recómputo de COM son posicionales —
+                            # traducir a posiciones, operar, y traducir de vuelta.
+                            cur_positions = self._particle_ids_to_positions(cl.get('indices', []))
+                            if idx_min in cur_positions:
+                                cur_positions.remove(idx_min)
                             else:
-                                cur_indices.append(idx_min)
-                            cl['indices'] = cur_indices
-                            cl['n_det'] = len(cur_indices)
-                            if len(cur_indices) > 0:
-                                cl['com_x'] = float(np.mean(x[cur_indices]))
-                                cl['com_y'] = float(np.mean(y[cur_indices]))
-                            self.selected_particle_indices = set(int(i) for i in cur_indices)
+                                cur_positions.append(idx_min)
+                            cl['indices'] = self._positions_to_particle_ids(cur_positions)
+                            cl['n_det'] = len(cur_positions)
+                            if len(cur_positions) > 0:
+                                cl['com_x'] = float(np.mean(x[cur_positions]))
+                                cl['com_y'] = float(np.mean(y[cur_positions]))
+                            self.selected_particle_indices = set(int(i) for i in cur_positions)
                             self._update_selected_status()
                             self._redraw_selection_overlay()
                             self._on_cluster_contour_thresh_changed()
@@ -5237,35 +5541,45 @@ class LatticeDisorderWindow(QMainWindow):
         if self.image_2d is None:
             QMessageBox.warning(self, "Atención", "Primero debe cargar una imagen TIFF.")
             return
-        sigma_val = self.spin_rl_sigma.value() if hasattr(self, 'spin_rl_sigma') else 1.5
-        self.statusBar().showMessage(f"Generando capa Laplaciano de Gaussiana (LoG, σ={sigma_val} px)...")
-        QApplication.processEvents()
         try:
-            from scipy.ndimage import gaussian_laplace
-            img_base = self.image_rl if (self.image_rl is not None and hasattr(self, 'chk_layer_rl') and self.chk_layer_rl.isChecked()) else self.image_2d
-            log_img = -gaussian_laplace(img_base.astype(np.float64), sigma=sigma_val)
-            self.image_laplacian = np.clip(log_img, 0, None)
-            scale_nm = self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0
-            if self.img_item_laplacian is None:
-                self.img_item_laplacian = pg.ImageItem(self.image_laplacian.T)
-                self.img_item_laplacian.setRect(pg.QtCore.QRectF(
-                    0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
-                ))
-                self.img_item_laplacian.setZValue(3)
-                cmap_name = self.combo_colormap.currentText()
-                self.img_item_laplacian.setColorMap(get_pyqtgraph_colormap(cmap_name))
-                self.plot_real_space.addItem(self.img_item_laplacian)
-            else:
-                self.img_item_laplacian.setImage(self.image_laplacian.T)
+            self._compute_and_render_laplacian_layer(force_visible=True)
+            self.statusBar().showMessage("✅ Capa de Manchones LoG generada y superpuesta.", 5000)
+        except Exception as e:
+            QMessageBox.critical(self, "Error en Generación de Capa LoG", str(e))
 
+    def _compute_and_render_laplacian_layer(self, force_visible: bool) -> None:
+        """Calcula/actualiza la capa de Manchones LoG (self.image_laplacian +
+        self.img_item_laplacian). Extraído de _on_generate_laplacian_layer
+        (botón manual, force_visible=True: siempre la muestra y marca la
+        casilla) para reutilizarlo también desde _on_detect_clusters (Paquete
+        10, force_visible=False: calcula en silencio y respeta el estado
+        ACTUAL de chk_layer_laplacian en vez de forzarlo)."""
+        sigma_val = self.spin_rl_sigma.value() if hasattr(self, 'spin_rl_sigma') else 1.5
+        from scipy.ndimage import gaussian_laplace
+        img_base = self.image_rl if (self.image_rl is not None and hasattr(self, 'chk_layer_rl') and self.chk_layer_rl.isChecked()) else self.image_2d
+        log_img = -gaussian_laplace(img_base.astype(np.float64), sigma=sigma_val)
+        self.image_laplacian = np.clip(log_img, 0, None)
+        scale_nm = self.spin_scale.value() if hasattr(self, 'spin_scale') else 50.0
+        if self.img_item_laplacian is None:
+            self.img_item_laplacian = pg.ImageItem(self.image_laplacian.T)
+            self.img_item_laplacian.setRect(pg.QtCore.QRectF(
+                0, 0, self.image_2d.shape[1] * scale_nm, self.image_2d.shape[0] * scale_nm
+            ))
+            self.img_item_laplacian.setZValue(3)
+            cmap_name = self.combo_colormap.currentText()
+            self.img_item_laplacian.setColorMap(get_pyqtgraph_colormap(cmap_name))
+            self.plot_real_space.addItem(self.img_item_laplacian)
+        else:
+            self.img_item_laplacian.setImage(self.image_laplacian.T)
+
+        if force_visible:
             if hasattr(self, 'chk_layer_laplacian'):
                 self.chk_layer_laplacian.blockSignals(True)
                 self.chk_layer_laplacian.setChecked(True)
                 self.chk_layer_laplacian.blockSignals(False)
             self.img_item_laplacian.setVisible(True)
-            self.statusBar().showMessage("✅ Capa de Manchones LoG generada y superpuesta.", 5000)
-        except Exception as e:
-            QMessageBox.critical(self, "Error en Generación de Capa LoG", str(e))
+        elif hasattr(self, 'chk_layer_laplacian'):
+            self.img_item_laplacian.setVisible(self.chk_layer_laplacian.isChecked())
 
     def _render_detected_particles_only(self):
         scale_nm = self.spin_scale.value()
@@ -5439,6 +5753,14 @@ class LatticeDisorderWindow(QMainWindow):
         if self.monomer_signature is None and self.cluster_results and 'signature' in self.cluster_results and self.cluster_results['signature']:
             self.monomer_signature = self.cluster_results['signature']
 
+        # Paquete 1: traduce 'indices' de posicional (válido solo en este instante,
+        # contra las x_nm/y_nm recién leídas de self.locs_df) a particle_id estable
+        # — de ahí en más cada cúmulo sobrevive a resoluciones individuales
+        # posteriores sin necesitar una nueva detección completa.
+        if self.cluster_results and self.cluster_results.get('clusters'):
+            for c in self.cluster_results['clusters']:
+                c['indices'] = self._positions_to_particle_ids(c.get('indices', []))
+
         # Limpiar elementos anteriores de cúmulos en el visor
         for item in self.cluster_lines_items:
             if item in self.plot_real_space.items():
@@ -5501,6 +5823,20 @@ class LatticeDisorderWindow(QMainWindow):
                 self.plot_real_space.addItem(self.scatter_clusters)
 
         self._update_cluster_table()
+
+        # Paquete 10: calcula (o actualiza) la capa de Manchones LoG al detectar
+        # — en silencio, sin forzar la casilla chk_layer_laplacian, respetando
+        # su estado actual (visible sólo si ya estaba marcada). No es un
+        # cálculo redundante: detect_clusters_and_chains() usa su propio LoG
+        # interno sobre el método 'laplacian' de clustering, independiente de
+        # esta capa de visualización (que además admite reutilizar la imagen
+        # post-Richardson-Lucy si chk_layer_rl está activa).
+        if self.image_2d is not None:
+            try:
+                self._compute_and_render_laplacian_layer(force_visible=False)
+            except Exception:
+                pass  # ayuda visual best-effort — nunca debe interrumpir la detección de cúmulos
+
         n_cl = self.cluster_results.get('n_clusters', 0) if self.cluster_results else 0
         n_ov = self.cluster_results.get('n_overlapping_spots', 0) if self.cluster_results else 0
         self.statusBar().showMessage(f"Detección de cúmulos completada: {n_cl} aglomerados, {n_ov} sobrepuestas.", 5000)
@@ -5608,9 +5944,14 @@ class LatticeDisorderWindow(QMainWindow):
             # entera adentro/afuera del recorte y produciendo una plantilla asimétrica con un
             # centroide real muy distinto del solicitado (confirmado numéricamente: cambia el
             # conteo de nodos y desplaza el centroide en cientos de nm) -- ver DEC-012.
+            # Paquete 11: base honeycomb (u2, v2) editable — sin efecto para
+            # hexagonal/triangular (base monoatómica, generate_ideal_lattice_template
+            # la ignora fuera de la familia honeycomb).
+            u2 = self.spin_honeycomb_u2.value() if hasattr(self, 'spin_honeycomb_u2') else 1.0 / 3.0
+            v2 = self.spin_honeycomb_v2.value() if hasattr(self, 'spin_honeycomb_v2') else 1.0 / 3.0
             template = generate_ideal_lattice_template(
                 lattice_type=lattice_type_key, a=a_nom, boundary_type=boundary_key,
-                boundary_size_nm=boundary_size_nm
+                boundary_size_nm=boundary_size_nm, u2=u2, v2=v2
             )
             match = register_and_match_template(
                 x_nm, y_nm, template['x'], template['y'], template['sublattice_id'],
@@ -6322,6 +6663,9 @@ class LatticeDisorderWindow(QMainWindow):
             if 'x_nm' not in df.columns:
                 df = convert_pixels_to_nm(df, pixel_size_nm=scale_nm)
 
+            # Paquete 1: IDs de partícula estables asignados sobre el RAW completo,
+            # antes de cualquier filtro de ROI (ver _assign_particle_ids_to_raw).
+            df = self._assign_particle_ids_to_raw(df)
             self.locs_df_raw = df.copy()
             self.locs_df = df.copy()
             self.current_image_path = file_path
@@ -6425,7 +6769,9 @@ class LatticeDisorderWindow(QMainWindow):
                 )
                 return
 
-            self.locs_df_raw = convert_pixels_to_nm(locs, pixel_size_nm=scale_nm)
+            # Paquete 1: IDs de partícula estables asignados sobre el RAW completo,
+            # antes de cualquier filtro de ROI (ver _assign_particle_ids_to_raw).
+            self.locs_df_raw = self._assign_particle_ids_to_raw(convert_pixels_to_nm(locs, pixel_size_nm=scale_nm))
 
             # Filtrar por ROI si está habilitado
             if self.chk_roi_enable.isChecked():
@@ -6476,14 +6822,24 @@ class LatticeDisorderWindow(QMainWindow):
         if hasattr(self, 'lbl_stale_badge'):
             self.lbl_stale_badge.setVisible(False)
 
-    def _update_real_space_analysis(self):
+    def _update_real_space_analysis(self, preserve_clusters: bool = False):
         """Refresco liviano tras cualquier mutación de locs_df (curación, ROI,
         invertir imagen, desacople de cúmulos). Re-renderiza las partículas y
-        descarta resultados derivados obsoletos (cúmulos, grilla, recíproco)
-        SIN recalcularlos: Bloque 5, Bloque 6 y Fourier sólo se disparan con su
-        propio botón, nunca como efecto colateral de otro bloque."""
+        descarta resultados derivados obsoletos (grilla, recíproco) SIN
+        recalcularlos: Bloque 6 y Fourier sólo se disparan con su propio botón,
+        nunca como efecto colateral de otro bloque.
+
+        preserve_clusters=True (Paquete 1): usado exclusivamente por las
+        acciones de resolución de UN cúmulo/spot puntual — cluster_results NO
+        se anula, porque los IDs de partícula estables (_next_particle_id)
+        garantizan que el resto de los cúmulos pendientes en la lista siguen
+        siendo válidos aunque locs_df se haya reindexado. Cualquier otra
+        mutación (eliminar, deshacer, restaurar, nueva detección) sigue
+        anulando cluster_results como antes: no hay garantía de que IDs de
+        cúmulos arbitrarios sigan siendo coherentes tras esas acciones."""
         self._render_detected_particles_only()
-        self.cluster_results = None
+        if not preserve_clusters:
+            self.cluster_results = None
         self.kdtree_results = None
         self.rdf_results = None
         self.reciprocal_results = None
@@ -6491,6 +6847,111 @@ class LatticeDisorderWindow(QMainWindow):
             self._mark_results_stale()
         else:
             self._clear_results_stale()
+
+    # ── IDs de partícula estables (Paquete 1) ────────────────────────────────
+
+    def _assign_particle_ids_to_raw(self, df_raw: pd.DataFrame) -> pd.DataFrame:
+        """Asigna particle_id de forma monótona sobre el conjunto RAW COMPLETO
+        (antes de cualquier filtro de ROI) — así el mismo punto físico conserva
+        siempre el mismo id sin importar cuántas veces se reaplique el ROI o se
+        restaure desde locs_df_raw (_on_revert_curation). Llamar únicamente en
+        los dos puntos donde se puebla locs_df_raw desde cero (carga de
+        coordenadas / detección de partículas)."""
+        df_raw = df_raw.reset_index(drop=True).copy()
+        n = len(df_raw)
+        df_raw['particle_id'] = np.arange(n, dtype=np.int64)
+        self._next_particle_id = n
+        return df_raw
+
+    def _assign_new_particle_ids(self, df: pd.DataFrame, n_new: int) -> Tuple[pd.DataFrame, List[int]]:
+        """Asigna IDs frescos y monótonos (nunca reciclados, ni siquiera tras
+        eliminar/deshacer) a las n_new filas agregadas al final de df por
+        resolve_clusters_dataframe()/resolve_single_spot_multi_gaussian() —
+        ambas SIEMPRE adjuntan las partículas nuevas al final del DataFrame
+        reindexado. Devuelve (df con la columna corregida, lista de los nuevos
+        IDs asignados, en el mismo orden)."""
+        if n_new <= 0:
+            if 'particle_id' in df.columns:
+                df = df.copy()
+                df['particle_id'] = df['particle_id'].astype(np.int64)
+            return df, []
+        new_ids = list(range(self._next_particle_id, self._next_particle_id + n_new))
+        df = df.copy()
+        df.loc[df.index[-n_new:], 'particle_id'] = new_ids
+        df['particle_id'] = df['particle_id'].astype(np.int64)
+        self._next_particle_id += n_new
+        return df, new_ids
+
+    def _positions_to_particle_ids(self, positions) -> List[int]:
+        """Traduce posiciones actuales en self.locs_df a particle_id estables."""
+        if self.locs_df is None or 'particle_id' not in self.locs_df.columns:
+            return [int(p) for p in positions]
+        pid_arr = self.locs_df['particle_id'].values
+        return [int(pid_arr[int(p)]) for p in positions if 0 <= int(p) < len(pid_arr)]
+
+    def _particle_ids_to_positions(self, particle_ids) -> List[int]:
+        """Traduce particle_id estables a posiciones ACTUALES en self.locs_df.
+        IDs que ya no están presentes (partícula eliminada) se descartan en
+        silencio — es el comportamiento correcto: ese miembro del cúmulo dejó
+        de existir, no es un error de traducción."""
+        if self.locs_df is None or 'particle_id' not in self.locs_df.columns:
+            return [int(i) for i in particle_ids]
+        pid_to_pos = {int(pid): pos for pos, pid in enumerate(self.locs_df['particle_id'].values)}
+        return [pid_to_pos[int(pid)] for pid in particle_ids if int(pid) in pid_to_pos]
+
+    def _clusters_info_with_positional_indices(self) -> Optional[Dict[str, Any]]:
+        """Vista EFÍMERA de self.cluster_results con 'indices' traducidos de
+        particle_id (forma persistente, ver __init__) a posiciones actuales en
+        self.locs_df — para pasar a resolve_clusters_dataframe()/resolve_clusters()
+        de core/lattice_disorder.py, que operan posicionalmente sobre arrays
+        crudos y no conocen particle_id. No muta self.cluster_results."""
+        if self.cluster_results is None:
+            return self.cluster_results
+        translated = dict(self.cluster_results)
+        translated['clusters'] = [
+            {**c, 'indices': self._particle_ids_to_positions(c.get('indices', []))}
+            for c in self.cluster_results.get('clusters', [])
+        ]
+        return translated
+
+    def _apply_cluster_resolution_state(self, target_cluster_id: Optional[int],
+                                          new_particle_ids: List[int], status: str) -> None:
+        """Paquete 1: actualiza el cúmulo resuelto IN PLACE (self.cluster_results
+        nunca se anula para esta acción — ver _update_real_space_analysis) y lo
+        traslada al final de la lista, dejando los cúmulos pendientes al
+        principio para permitir curación continua sin perder el resto del
+        trabajo de detección."""
+        if self.cluster_results is None or 'clusters' not in self.cluster_results:
+            return
+        clusters = self.cluster_results['clusters']
+        idx_found = next((i for i, c in enumerate(clusters) if c.get('id') == target_cluster_id), None)
+        if idx_found is None:
+            return
+        resolved = dict(clusters[idx_found])
+        resolved['indices'] = list(new_particle_ids)
+        resolved['n_det'] = len(new_particle_ids)
+        resolved['n_est'] = len(new_particle_ids)
+        resolved['status'] = status
+        del clusters[idx_found]
+        clusters.append(resolved)
+
+    def _select_first_pending_cluster_row(self) -> None:
+        """Paquete 1 (punto 5): auto-selecciona el primer cúmulo pendiente tras
+        una resolución, para permitir curación continua sin que el operador
+        tenga que volver a ubicarlo manualmente en la tabla."""
+        if self.cluster_results is None:
+            return
+        clusters = self.cluster_results.get('clusters', [])
+        for i, c in enumerate(clusters):
+            if c.get('status') not in ('RESOLVED_GAUSSIAN', 'RESOLVED_MANUAL'):
+                # blockSignals evita el doble disparo de
+                # _on_cluster_table_cell_changed (Paquete 2: ahora conectada a
+                # currentCellChanged, que selectRow() también puede emitir).
+                self.table_clusters.blockSignals(True)
+                self.table_clusters.selectRow(i)
+                self.table_clusters.blockSignals(False)
+                self._on_cluster_table_clicked(i, 0)
+                return
 
     def _on_recalculate_reciprocal(self):
         if self.locs_df is None or len(self.locs_df) == 0:
@@ -7282,7 +7743,12 @@ class LatticeDisorderWindow(QMainWindow):
             hex_params = {
                 'lattice_type': lattice_type_key_mc,
                 'boundary_type': boundary_key_mc,
-                'boundary_size_nm': self.spin_boundary_size.value()
+                'boundary_size_nm': self.spin_boundary_size.value(),
+                # Paquete 11: misma base (u2, v2) que Tab 2 usó para el template
+                # matching real — ver docstring de run_hexagonal_monte_carlo_calibration
+                # sobre por qué una base inconsistente invalidaría la calibración.
+                'u2': self.spin_honeycomb_u2.value() if hasattr(self, 'spin_honeycomb_u2') else 1.0 / 3.0,
+                'v2': self.spin_honeycomb_v2.value() if hasattr(self, 'spin_honeycomb_v2') else 1.0 / 3.0,
             }
 
         self.mc_worker = MonteCarloWorker(
@@ -8018,7 +8484,9 @@ class LatticeDisorderWindow(QMainWindow):
         cx_px = com_x / scale_nm
         cy_px = com_y / scale_nm
 
-        indices = target_cluster.get('indices', [])
+        # target_cluster['indices'] está en espacio particle_id (Paquete 1) —
+        # traducir a posiciones actuales antes de indexar locs_df.
+        indices = self._particle_ids_to_positions(target_cluster.get('indices', []))
         if len(indices) > 0 and self.locs_df is not None:
             x_pts = self.locs_df['x_nm'].values[indices]
             y_pts = self.locs_df['y_nm'].values[indices]

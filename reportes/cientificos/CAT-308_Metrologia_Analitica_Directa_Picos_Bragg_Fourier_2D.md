@@ -11,7 +11,9 @@
 - [[CAT-305_Derivacion_Matematica_Factor_Estructura_Debye_Waller]] (Derivación fundamental de $S(\mathbf{q})$ y atenuación exponencial)  
 - [[CAT-307_Computacion_NUFFT_Factor_Estructura_Optimizacion_BLAS]] (Cálculo no equiespaciado de alto rendimiento $O(M \log M)$)  
 - [[CAT-309_Teoria_Paracristal_Hosemann_Perdida_Orden_2D]] (Desorden acumulativo Tipo II vs Tipo I)  
+- [[CAT-310_Derivacion_Matematica_Paracristal_2D_Hosemann_Anisotropo]] (FWHM $\propto m^2$ vs. FWHM constante — Tipo I/II)  
 - [[CAT-304_Metrologia_Experimental_Conchas_Coordinacion_gr_Redes_2D]] (Contrapeso en espacio real: $g(r)$ y $\sigma_{\text{rdf}} = \sigma_{\text{pos}}\sqrt{2}$)  
+- [[CAT-102_Sintesis_Cristalografica_Redes_2D_y_Particula_Ancla]] (Convención de vectores primitivos $\mathbf{a}_1,\mathbf{a}_2$ y ángulo $\gamma$ por familia de red)  
 
 ---
 
@@ -318,7 +320,41 @@ def direct_analytical_fourier_metrology(H1: float, H2: float, H_diag: float, a: 
 
 ---
 
-## 8. Conclusiones y Guía Operativa
+## 8. Generalización: Redes Anisótropas ($a_x \ne a_y$), Ángulo de Red Arbitrario ($\gamma$), Relación Pico/Difuso y Vínculo con el Paracristal de Hosemann
+
+Las Secciones 1-7 desarrollan el caso de una red de Bravais cuadrada ($a=b$, $\gamma=90°$) por claridad expositiva. Esta sección generaliza las relaciones a la familia completa de redes soportadas por PyPrinting 3.0 (rectangular anisótropa, hexagonal/triangular, honeycomb — ver [[CAT-102_Sintesis_Cristalografica_Redes_2D_y_Particula_Ancla]]).
+
+### 8.1 Vectores Recíprocos para Red Oblicua de Ángulo $\gamma$
+
+Para vectores primitivos reales $\mathbf{a}_1 = a_x\,\hat{\mathbf{x}}$, $\mathbf{a}_2 = a_y(\cos\gamma\,\hat{\mathbf{x}} + \sin\gamma\,\hat{\mathbf{y}})$ (convención ya usada por `core/lattice_generator.py::LatticeLayer`, $\gamma=90°$ para redes rectangulares/cuadradas, $\gamma=60°$ para la celda unitaria hexagonal/honeycomb), los vectores recíprocos primitivos se obtienen de la condición estándar $\mathbf{a}_i \cdot \mathbf{b}_j = 2\pi\delta_{ij}$:
+
+$$\mathbf{b}_1 = \frac{2\pi}{a_x \sin\gamma}\left(\sin\gamma\,\hat{\mathbf{x}} - \cos\gamma\,\hat{\mathbf{y}}\right), \qquad \mathbf{b}_2 = \frac{2\pi}{a_y \sin\gamma}\,\hat{\mathbf{y}}$$
+
+Para el caso ortogonal ($\gamma=90°$) esto se reduce exactamente a $\mathbf{b}_1=(2\pi/a_x,0)$, $\mathbf{b}_2=(0,2\pi/a_y)$ — la generalización directa de §2 para $a_x \ne a_y$ (red rectangular). Un nodo de Bragg genérico es $\mathbf{G}_{hk} = h\mathbf{b}_1 + k\mathbf{b}_2$, y la atenuación de cada pico sigue dependiendo únicamente de $|\mathbf{G}_{hk}|^2\sigma_{\text{pos}}^2$ (Ec. de §1-2) — **la anisotropía de red ($a_x\ne a_y$) y la anisotropía de desorden ($\sigma_x\ne\sigma_y$, §4.1) son efectos físicamente independientes y ambos observables por separado**: la primera desplaza la POSICIÓN de los picos de Bragg en el espacio recíproco, la segunda modula su ALTURA relativa a lo largo de cada eje.
+
+### 8.2 Relación Pico/Difuso Explícita
+
+Es útil definir explícitamente la razón entre la componente coherente (Bragg) y la componente incoherente (difusa) del factor de estructura evaluada en cada nodo de Bragg, a partir de la descomposición de §1:
+
+$$R_{\text{pico/difuso}}(\mathbf{G}) \equiv \frac{S_{\text{Bragg}}(\mathbf{G})}{S_{\text{difuso}}(\mathbf{G})} = \frac{(1-p)\,e^{-|\mathbf{G}|^2\sigma_{\text{pos}}^2}}{1-(1-p)\,e^{-|\mathbf{G}|^2\sigma_{\text{pos}}^2}}$$
+
+Esta razón es la cantidad físicamente relevante para el criterio $\text{SNR}_2 > 3.0$ de la Sección 6 (Tabla de decisión): un $\text{SNR}$ de pico bajo frente al fondo difuso **es**, en esencia, $R_{\text{pico/difuso}} \to 0$ para el pico de orden más alto considerado. Expresar el criterio de validez del método analítico directamente en términos de $R_{\text{pico/difuso}}$ (en vez de sólo SNR instrumental) deja explícito que la degradación es un efecto físico del propio desorden creciente ($\sigma_{\text{pos}}^2$ en el exponente), no sólo de ruido de detección.
+
+### 8.3 Factor de Debye-Waller en Términos de $N_{\text{total}}$: la Convención $(1-p)^2$
+
+Las alturas de pico en §2 se expresaron en términos de $N_{\text{det}}$ (partículas efectivamente detectadas/curadas), con $N_{\text{det}}=(1-p)N_{\text{total}}$. Sustituyendo esta relación, la misma altura de pico en términos del número TOTAL de sitios nominales de la red es:
+
+$$H(\mathbf{G}) = N_{\text{det}}(1-p)\,e^{-|\mathbf{G}|^2\sigma_{\text{pos}}^2} = N_{\text{total}}\,(1-p)^2\,e^{-|\mathbf{G}|^2\sigma_{\text{pos}}^2}$$
+
+Esta es exactamente la forma $(1-p)^2 e^{-M}$ (con $M \equiv |\mathbf{G}|^2\sigma_{\text{pos}}^2$, el "factor de Debye-Waller" en la notación cristalográfica clásica) usada consistentemente en la calibración Monte Carlo de este proyecto ([[CAT-305_Derivacion_Matematica_Factor_Estructura_Debye_Waller]], `core/lattice_disorder.py::run_monte_carlo_calibration`/`run_hexagonal_monte_carlo_calibration`) — **no hay contradicción entre la potencia $(1-p)^1$ de §2 y la potencia $(1-p)^2$ de la calibración Monte Carlo**: la diferencia es puramente de normalización (respecto a $N_{\text{det}}$ vs. respecto a $N_{\text{total}}$), no una discrepancia física. Al comparar alturas de pico medidas (naturalmente normalizadas por partículas curadas, $N_{\text{det}}$) contra una curva de calibración generada por Monte Carlo (naturalmente normalizada por sitios nominales de la red, $N_{\text{total}}$), es indispensable aplicar la conversión anterior explícitamente para no introducir un sesgo sistemático de un factor $(1-p)$ entre ambas.
+
+### 8.4 Vínculo con Scherrer (Tipo I) vs. Hosemann (Tipo II Paracristal)
+
+El modelo de esta nota asume desorden de Debye-Waller puro (Tipo I): fluctuaciones posicionales de varianza fija $\sigma_{\text{pos}}^2$, no acumulativas con la distancia entre sitios — por eso el FWHM de un pico de Bragg (determinado por el tamaño finito del cristal, $L=Na$) permanece **constante** con el orden de reflexión $m$ (curva "Tipo I" plana en el diagnóstico de §4 de [[CAT-309_Teoria_Paracristal_Hosemann_Perdida_Orden_2D]]), mientras que sólo la ALTURA del pico decae con $m$ vía $e^{-m^2 q_1^2\sigma_{\text{pos}}^2}$. El paracristal de Hosemann (Tipo II, [[CAT-309_Teoria_Paracristal_Hosemann_Perdida_Orden_2D]], [[CAT-310_Derivacion_Matematica_Paracristal_2D_Hosemann_Anisotropo]]) modela en cambio desorden ACUMULATIVO (cada sitio hereda el error posicional de sus vecinos), cuya firma distintiva es que el FWHM radial de los picos **crece cuadráticamente con el orden**, $\text{FWHM}(m) \propto m^2$, en vez de permanecer constante. Las Secciones 1-7 de esta nota (inversión $H_2/H_1$, Wilson 2D) son estrictamente válidas sólo en régimen Tipo I puro — si el diagnóstico FWHM vs. orden de `_plot_fwhm_paracrystal` (Pestaña 4) muestra crecimiento cuadrático en vez de una meseta plana, el método analítico de esta nota subestimará sistemáticamente $\sigma_{\text{pos}}$ y se debe recurrir a la calibración Monte Carlo con modelo paracristalino, no al cociente $H_2/H_1$.
+
+---
+
+## 9. Conclusiones y Guía Operativa
 
 1. **Autonomía Analítica Inmediata:**  
    El cociente $H_2 / H_1$ y el Gráfico de Wilson 2D otorgan a PyPrinting 3.0 un canal metrológico ultra-rápido ($< 1\,\text{ms}$) para estimar $\sigma_{\text{pos}}$ y descartar muestras inviables durante la adquisición experimental sin sobrecargar la CPU/GPU con simulaciones numéricas.

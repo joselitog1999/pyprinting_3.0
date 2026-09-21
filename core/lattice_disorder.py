@@ -2971,7 +2971,13 @@ def inspect_single_spot_photometry(
     def_sigma_nm = 139.0
     def_sigma_px = def_sigma_nm / max(scale_nm, 1.0)
     V0 = 1000.0
-    A0 = float(np.pi * (2.0 * def_sigma_px) ** 2)
+    # A0 unificado con A_lap_0 de detect_clusters_and_chains() (2*pi*sigma^2) —
+    # decisión explícita del usuario: "el criterio usado en cúmulos está
+    # perfecto, unificar con ese", en vez de la derivación analítica pura del
+    # cruce por cero del LoG (que daría pi*(2*sigma)^2 = 4*pi*sigma^2 si se
+    # tratara al parche como un blob gaussiano ya convolucionado). Ambos
+    # métodos deben compartir la misma convención de área de referencia.
+    A0 = float(2.0 * np.pi * def_sigma_px ** 2)
     sigma_psf_px = float(def_sigma_px)
 
     if signature_dict is not None:
@@ -3022,14 +3028,24 @@ def inspect_single_spot_photometry(
     if patch.size < 9:
         return res_default
 
-    # Estimación del fondo perimetral
+    # Estimación del fondo perimetral (para el peso fotométrico v_omega, igual que antes)
     border_px = np.concatenate([patch[0, :], patch[-1, :], patch[:, 0], patch[:, -1]])
     bg = float(np.median(border_px))
     peak = float(np.max(patch))
-    contrast = max(peak - bg, 1e-6)
-    threshold_val = bg + (float(threshold_pct) / 100.0) * contrast
 
-    mask_binary = (patch > threshold_val).astype(np.uint8)
+    # Segmentación por Laplaciano de Gaussiana (-∇²(G*I)), unificada con el
+    # mismo criterio ya usado y validado en detect_clusters_and_chains() —
+    # cruce por cero (threshold_pct<=0) o umbral porcentual del pico del LoG,
+    # en vez del corte biseccional de intensidad plana anterior, que ignoraba
+    # por completo la forma de la PSF calibrada.
+    log_patch = -ndimage.gaussian_laplace(patch, sigma=sigma_psf_px)
+    if threshold_pct <= 0.0:
+        threshold_val = 0.0
+        mask_binary = (log_patch > 0.0).astype(np.uint8)
+    else:
+        max_log = float(np.max(log_patch))
+        threshold_val = (float(threshold_pct) / 100.0) * max_log if max_log > 0 else 0.0
+        mask_binary = (log_patch > threshold_val).astype(np.uint8)
 
     contour_poly_nm: List[Tuple[float, float]] = []
     a_omega = float(np.sum(mask_binary))
@@ -4180,7 +4196,9 @@ def generate_ideal_lattice_template(
     boundary_size_nm: float = 5000.0,
     rotation_deg: float = 0.0,
     center_x_nm: float = 0.0,
-    center_y_nm: float = 0.0
+    center_y_nm: float = 0.0,
+    u2: float = 1.0 / 3.0,
+    v2: float = 1.0 / 3.0
 ) -> Dict[str, Any]:
     """
     Genera una plantilla de red ideal en espacio real [nm] usando el motor
@@ -4207,6 +4225,16 @@ def generate_ideal_lattice_template(
         Radio (hexágono/círculo) o lado (rectángulo) de la geometría envolvente [nm].
     rotation_deg, center_x_nm, center_y_nm : float
         Rotación global y desplazamiento del centro de la plantilla ideal.
+    u2, v2 : float, opcional
+        Coordenada fraccional del segundo átomo de la base honeycomb/grafeno
+        (Subred B), relativa a los vectores primitivos a1/a2. Por defecto
+        (1/3, 1/3) — convención de laboratorio confirmada por el usuario (no
+        (1/3, 2/3), que es el valor histórico de
+        `core/lattice_generator.py::LatticeLayer._default_basis_for_type`,
+        usado por el diseñador `grid_generator.py` — ambos archivos quedan
+        deliberadamente desacoplados por ahora: este puente siempre construye
+        su propia base explícita en vez de heredar el default de esa clase).
+        Sin efecto para familias no-honeycomb (monoatómicas).
 
         ADVERTENCIA (ver DEC-012): `BoundingGeometry.is_inside()` (core/lattice_generator.py)
         evalúa el contorno envolvente SIEMPRE centrado en el origen (0,0), incluso cuando la
@@ -4245,10 +4273,11 @@ def generate_ideal_lattice_template(
         offset_x=float(center_x_nm) / 1000.0, offset_y=float(center_y_nm) / 1000.0
     )
     if ltype_key in _HONEYCOMB_LATTICE_TYPES:
-        # Base corregida (ver nota de hallazgo arriba): u=1/3, v=1/3 (no 1/3, 2/3)
+        # Base parametrizada por u2/v2 (ver docstring) — convención de
+        # laboratorio por defecto (1/3, 1/3), editable desde la GUI (Paquete 11).
         layer_kwargs['atoms'] = [
             BasisAtom(u=0.0, v=0.0, material_id=1, label='Subred A'),
-            BasisAtom(u=1.0 / 3.0, v=1.0 / 3.0, material_id=2, label='Subred B')
+            BasisAtom(u=float(u2), v=float(v2), material_id=2, label='Subred B')
         ]
     layer = LatticeLayer(**layer_kwargs)
 
@@ -5094,12 +5123,23 @@ def run_hexagonal_monte_carlo_calibration(
     iterations_per_step: int = 40,
     progress_callback: Optional[Callable[[int, int, float], None]] = None,
     n_bragg_pts: int = 81,
-    seed: Optional[int] = None
+    seed: Optional[int] = None,
+    u2: float = 1.0 / 3.0,
+    v2: float = 1.0 / 3.0
 ) -> Dict[str, Any]:
     """
     Calibración estocástica Monte Carlo de la atenuación de Debye-Waller para redes
     hexagonales/triangulares (Z=6) y honeycomb/grafeno (Z=3, base biatómica), acotadas
     dentro de una geometría poligonal (hexágono, círculo o rectángulo).
+
+    u2, v2 : float, opcional
+        Base de la subred B para honeycomb/grafeno (ver generate_ideal_lattice_template).
+        Debe coincidir con la misma base usada para el ajuste de grilla/template
+        matching de la Pestaña 2 (_on_propagate_to_mc la transfiere automáticamente)
+        — el factor de estructura F(G) de la base depende de tau=(u2,v2), así que
+        una base inconsistente entre el template matching real y esta calibración
+        produciría una curva de atenuación Debye-Waller calculada para un tau
+        distinto del que realmente tienen los datos experimentales.
 
     Reutiliza `generate_ideal_lattice_template` (puente a core/lattice_generator.py)
     para la grilla ideal base, e inyecta vacancias + desorden gaussiano con el mismo
@@ -5115,7 +5155,8 @@ def run_hexagonal_monte_carlo_calibration(
     """
     ltype_key = lattice_type.lower().strip()
     template = generate_ideal_lattice_template(
-        lattice_type=ltype_key, a=a, boundary_type=boundary_type, boundary_size_nm=boundary_size_nm
+        lattice_type=ltype_key, a=a, boundary_type=boundary_type, boundary_size_nm=boundary_size_nm,
+        u2=u2, v2=v2
     )
     x0_flat = template['x']
     y0_flat = template['y']
