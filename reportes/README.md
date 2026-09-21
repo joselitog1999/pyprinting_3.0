@@ -19,7 +19,7 @@ reportes/
 │   ├── [Cluster SYS-200] Instrumentación Óptica, Actuadores y Seguridad Hardware (SYS-201 a SYS-204)
 │   ├── [Cluster SYS-300] Espectrometría, Bancos Ópticos y Procesamiento Instrumental (SYS-301 a SYS-306)
 │   └── [Cluster SYS-400] Auditorías de Código, Verificación y Diagnóstico Integral (SYS-401 a SYS-403)
-└── 🔬 cientificos/       # Biblioteca Científica, Cristalografía 2D, Óptica y Modelos Analíticos (33 documentos)
+└── 🔬 cientificos/       # Biblioteca Científica, Cristalografía 2D, Óptica y Modelos Analíticos (46 documentos)
     ├── 📘 CAT-001 [MET] Documento Rector, Compendio Metrológico e Instructivo Maestro
     ├── [Pilar I]   Nanofabricación Óptica, Control de Posición y Termoplasmónica (CAT-101 a CAT-113)
     ├── [Pilar II]  Super-Resolución Óptica, Detección Sub-píxel y Espectrometría (CAT-201 a CAT-205)
@@ -45,6 +45,7 @@ Esta vertiente compendia las deducciones formales desde primeros principios, cot
 
 | Signatura | Eje | Documento / Reporte | Enfoque Físico-Matemático y Metrología | Enlace Directo |
 |:---:|:---:|---|---|---|
+| `CAT-100` | `[FIS]` | **Marco Unificado de Nanofabricación Óptica y Termoplasmónica** | Tratado Rector: Cadena causal multifísica, DLVO, convección de Marangoni y lazo cerrado. | [[CAT-100_Marco_Unificado_Nanofabricacion_Optica_y_Termoplasmonica]] |
 | `CAT-101` | `[PRT]` | **Protocolo Operativo de Impresión de Grillas** | Protocolo experimental "DO PRINTING", alineación óptica, calibración de potencias y recetas. | [[CAT-101_Protocolo_Operativo_Impresion_Fototermica_Grillas_2D]] |
 | `CAT-102` | `[MAT]` | **Síntesis Cristalográfica de Redes 2D y Ancla $P_0$** | Formalización matemática de las 15 familias 2D, coordenadas $(u,v)$, parámetro $\gamma$ y exclusión $d_{\text{min}}$. | [[CAT-102_Sintesis_Cristalografica_Redes_2D_y_Particula_Ancla]] |
 | `CAT-103` | `[FIS]` | **Control en Lazo Cerrado y Síntesis de Dímeros** | Ecuaciones de parada en lazo cerrado (Modos 0-4), filtro $N_{\text{hold}}$ y nanodímeros plasmónicos. | [[CAT-103_Control_Lazo_Cerrado_Fototermico_y_Sintesis_Dimeros]] |
@@ -58,6 +59,7 @@ Esta vertiente compendia las deducciones formales desde primeros principios, cot
 | `CAT-111` | `[FIS]` | **Nanotermometría por Variaciones DLS y Fluctuaciones Brownianas** | Fluctuaciones brownianas locales $D(T) = \frac{k_B T}{6\pi\eta(T)R_h}$, modelo VFT del agua e inversión de temperatura local $T_{\text{nano}}$. | [[CAT-111_Nanotermometria_DLS_y_Dinamica_Fluctuaciones_Brownianas]] |
 | `CAT-112` | `[FIS]` | **Teoría de Lente Térmica Fototérmica y Convección de Marangoni** | Gradiente termo-óptico $\nabla n = (dn/dT)\nabla T$, señal pinhole $\Delta I/I_0 \approx 2\theta$, convección termocapilar $\mathbf{\tau}_M = -\beta_T \nabla_\parallel T$. | [[CAT-112_Teoria_Lente_Termica_Gradientes_Indice_y_Marangoni]] |
 | `CAT-113` | `[CMP]` | **Lazo Cerrado Metrológico In-Situ y Control Predictivo** | Control predictivo RLS con factor de olvido, compensación feedforward $\mathbf{r}_{\text{cmd}} = \hat{\mathbf{A}}^{-1}(\mathbf{r}_{\text{ideal}} - \hat{\mathbf{b}})$, reducción RMS $< 4\ \text{nm}$. | [[CAT-113_Lazo_Cerrado_Metrologico_InSitu_y_Control_Predictivo]] |
+| `CAT-114` | `[FIS]` | **Pinzas Ópticas Contrapropagantes y Microscopía iSCAT** | Anulación axial de fuerzas de dispersión, trampas de onda estacionaria y microscopía iSCAT ($d^3$). | [[CAT-114_Pinzas_Opticas_Contrapropagantes_y_Microscopia_iSCAT]] |
 
 ---
 
@@ -65,11 +67,17 @@ Esta vertiente compendia las deducciones formales desde primeros principios, cot
 
 | Signatura | Eje | Documento / Reporte | Enfoque Físico-Matemático y Metrología | Enlace Directo |
 |:---:|:---:|---|---|---|
+| `CAT-200` | `[FIS]` | **Fundamentos de Microscopía Óptica Avanzada y Super-Resolución** | Tratado Rector: Límites de difracción (Abbe/Rayleigh), confocal, SMLM y cota CRLB. | [[CAT-200_Fundamentos_Microscopia_Optica_Avanzada_y_Super_Resolucion]] |
+| `CAT-250` | `[FIS]` | **Marco Unificado de Espectroscopía Óptica, SERS y Quimiometría** | Tratado Rector: Dispersión Raman, resonancias SERS/SLR, AsLS/AirPLS y desmezclado MCR-ALS. | [[CAT-250_Marco_Unificado_Espectroscopia_Optica_SERS_y_Quimiometria]] |
 | `CAT-201` | `[CMP]` | **Deconvolución Óptica y Tracking Trackpy** | Restauración por máxima verosimilitud (Richardson-Lucy Poissoniano) y localización centroidal sub-píxel. | [[CAT-201_Deconvolucion_Optica_Richardson_Lucy_y_Tracking_Trackpy]] |
 | `CAT-202` | `[MAT]` | **Derivación Matemática de la Cota Cramér-Rao** | Deducción analítica de matrices de Fisher, cota CRLB para perfiles Gaussiano y Donut $LG_{01}$, y varianza $\Delta x^2/12$. | [[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica]] |
 | `CAT-203` | `[FIS]` | **Presupuesto de Incertidumbre Metrológica ISO/GUM** | Balances de incertidumbre experimental Tipo A/B, cadena de 5 objetivos, pinholes super-confocales ($0.46\,AU$) y $u_c = 6.55\,\text{nm}$. | [[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia]] |
 | `CAT-204` | `[CMP]` | **Curación Fotométrica y Desacople Multi-Gaussiano** | Huella monomérica $(V_0, A_0, \sigma_{\text{psf}})$, ajuste Levenberg-Marquardt y verificación húngara ($M + n_{\text{vac}} \le N_{\text{total}}$). | [[CAT-204_Curacion_Fotometrica_Desacople_MultiGaussiano_Consistencia]] |
 | `CAT-205` | `[FIS]` | **Mapeo Hiperespectral SERS Confocal Automatizado** | Factor de realce de campo cercano $EF \approx |E_{\text{loc}}/E_0|^4$, trayectoria meandro TSP, hipercubo 3D $\mathcal{H}(X,Y,\lambda)$ y desmezclado MCR-ALS. | [[CAT-205_Mapeo_Hiperespectral_SERS_Confocal_Automatizado]] |
+| `CAT-206` | `[CMP]` | **Pipeline SMLM: Picasso vs Trackpy+RL y Ruido Poisson** | Estimación MLE Poisson de Picasso vs Trackpy+RL, ruptura de independencia estadística y cota CRLB. | [[CAT-206_Pipeline_SMLM_Picasso_Algoritmos_y_Deconvolucion]] |
+| `CAT-207` | `[CMP]` | **Quimiometría Espectral, AsLS y Perfiles Voigt/BWF** | Corrección de línea de base AsLS/AirPLS, perfiles Pseudo-Voigt/BWF y termometría Anti-Stokes/Stokes. | [[CAT-207_Quimiometria_Procesamiento_Espectral_AsLS_Voigt_Calibracion]] |
+| `CAT-208` | `[FIS]` | **Electrodinámica de Nanocavidades Plasmónicas y SLR** | Hot-spots en nanogaps sub-5 nm, resonancias de red superficial SLR y factor de realce $|E/E_0|^4$. | [[CAT-208_Electrodinamica_Nanocavidades_Plasmicas_SLR_y_SERS]] |
+| `CAT-209` | `[CMP]` | **Morfología Matemática, Watershed y Fotometría Apertura** | Cruce por cero LoG ($r_0=\sqrt{2}\sigma$), Watershed con marcadores, inclusión `pointPolygonTest` y fondo perimetral. | [[CAT-209_Morfologia_Matematica_Watershed_y_Fotometria_Apertura]] |
 
 ---
 
@@ -77,6 +85,7 @@ Esta vertiente compendia las deducciones formales desde primeros principios, cot
 
 | Signatura | Eje | Documento / Reporte | Enfoque Físico-Matemático y Metrología | Enlace Directo |
 |:---:|:---:|---|---|---|
+| `CAT-300` | `[MAT]` | **Fundamentos de Cristalografía Bidimensional y Redes de Bravais** | Tratado Rector: 5 redes planas de Bravais, Teorema de Mermin-Wagner y dualidad Tipo I vs II. | [[CAT-300_Fundamentos_Cristalografia_Bidimensional_y_Fisica_Desorden_2D]] |
 | `CAT-301` | `[CMP]` | **Algoritmos en Espacio Real: KDTree y Monte Carlo** | Bounded KDTree ($r_{\text{cut}} = a/2$), eliminación del sesgo histórico del $35\%$, asignación Húngara y ensamble estocástico. | [[CAT-301_Algoritmos_Espacio_Real_KDTree_Asignacion_Monte_Carlo]] |
 | `CAT-302` | `[FIS]` | **Caracterización Física de Defectos en Redes SMLM** | Física de vacancias, pares 5-7 de Voronoi, parámetros de orden orientacional $\psi_4, \psi_6$ e impacto en modos plasmónicos SLR. | [[CAT-302_Caracterizacion_Fisica_Desorden_Defectos_Redes_SMLM]] |
 | `CAT-303` | `[MAT]` | **Derivación Matemática de la Función Radial $g(r)$** | Prueba analítica de $\sigma_{\text{rdf}} = \sigma_{\text{peak}}/\sqrt{2}$ (error del $+41.4\%$ por omisión), cuadratura 2D y corrección de Green. | [[CAT-303_Derivacion_Matematica_Distribucion_Radial_gr_Correccion_Borde]] |
@@ -89,6 +98,8 @@ Esta vertiente compendia las deducciones formales desde primeros principios, cot
 | `CAT-310` | `[MAT]` | **Deducción Matemática del Paracristal 2D Anisótropo** | Factor analítico cerrado $S(\mathbf{q}) = \text{Re}\{\frac{1+\mathbf{\Phi}_{10}}{1-\mathbf{\Phi}_{10}}\}\text{Re}\{\frac{1+\mathbf{\Phi}_{01}}{1-\mathbf{\Phi}_{01}}\}$ y función de verosimilitud exacta. | [[CAT-310_Derivacion_Matematica_Paracristal_2D_Hosemann_Anisotropo]] |
 | `CAT-311` | `[CMP]` | **Inferencia Bayesiana y MCMC para Paracristal 2D** | Parametrización de Cholesky $\mathbf{\Sigma} = \mathbf{L}\mathbf{L}^T$, muestreo ensemble `emcee`, corner plots y desacople anisotrópico. | [[CAT-311_Inferencia_Bayesiana_MCMC_Desorden_Paracristal]] |
 | `CAT-312` | `[CMP]` | **Aceleración Tensorial GPU/CUDA para NUFFT 2D y SMLM** | Kernel de spreading en memoria compartida GPU, cuFFT 2D batched $<12\ \text{ms}$ a $>60\ \text{fps}$ y fallback automático a BLAS CPU. | [[CAT-312_Computacion_Tensorial_GPU_CUDA_NUFFT_y_Deconvolucion]] |
+| `CAT-313` | `[FIS]` | **Transiciones de Fase 2D, Teoría KTHNY y Orden $\psi_n$** | Fusión KTHNY en 2D, disociación de dipolos 5-7, fase hexática y parámetros de orden $\psi_4, \psi_6, \psi_3$. | [[CAT-313_Transiciones_Fase_2D_Teoria_KTHNY_y_Orden_Orientacional]] |
+| `CAT-314` | `[MAT]` | **Cristalografía Computacional 2D y Fronteras Poligonales** | Álgebra tensorial de redes, bases honeycomb $(1/3, 1/3)$, polígonos por Winding Number y filtro $d_{\text{min}}$. | [[CAT-314_Cristalografia_Computacional_2D_Bases_Poliatomicas_y_Fronteras]] |
 
 ---
 
@@ -96,8 +107,10 @@ Esta vertiente compendia las deducciones formales desde primeros principios, cot
 
 | Signatura | Eje | Documento / Reporte | Enfoque Físico-Matemático y Metrología | Enlace Directo |
 |:---:|:---:|---|---|---|
+| `CAT-400` | `[CMP]` | **Gobernanza de Datos Científicos, Trazabilidad y Principios FAIR** | Tratado Rector: Principios FAIR, jerarquía HDF5/NeXus, procedencia SHA-256 y metrología gráfica. | [[CAT-400_Gobernanza_Datos_Cientificos_Metrologia_y_Ecosistema_FAIR]] |
 | `CAT-401` | `[CMP]` | **Estándar de Serialización Jerárquica HDF5 (.h5)** | Esquema jerárquico de grupos (`/raw`, `/curated`, `/reciprocal`), compresión sin pérdidas `shuffle+gzip` y preservación metrológica. | [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5]] |
 | `CAT-402` | `[CMP]` | **Estandarización NeXus / HDF5 y Principios FAIR** | Ontología formal `NXdata`, `NXsample`, `NXinstrument`, trazabilidad criptográfica SHA-256 e interoperabilidad para repositorios abiertos. | [[CAT-402_Estandar_Datos_FAIR_y_Serializacion_NeXus_HDF5]] |
+| `CAT-403` | `[MET]` | **Estándares de Visualización Científica y Gráficos Vectoriales** | Principios de Edward Tufte, colormaps Cividis/Viridis accesibles, SVG editable `<text>` y PDF Type 42. | [[CAT-403_Estandares_Visualizacion_Cientifica_y_Graficos_Vectoriales]] |
 
 ---
 

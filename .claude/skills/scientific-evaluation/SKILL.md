@@ -1,6 +1,6 @@
 ---
 name: scientific-evaluation
-description: Evaluates scientific concepts, physical models, algorithms, or experimental implementations by cross-referencing local repository knowledge, external peer-reviewed literature, and formal inferences. Use whenever the user asks to evaluate, validate, review, or justify a scientific claim or technique in PyPrinting.
+description: Executes macro-level tripartite evaluation (Local Knowledge vs External Literature vs Inferences) to assess scientific validity, identify hidden methodological gaps, and justify model choices. Coordinates physics-model-review, literature-crosscheck, and metrology-review.
 ---
 
 # Scientific Evaluation Skill

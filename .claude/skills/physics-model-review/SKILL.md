@@ -1,6 +1,6 @@
 ---
 name: physics-model-review
-description: Audits physical equations, analytical approximations, and mathematical models for dimensional correctness, asymptotic limits, conservation laws, and physical validity regimes. Use when auditing physical derivations or translating mathematical equations into code.
+description: Audits physical equations, analytical derivations, and mathematical formulas strictly for dimensional homogeneity, asymptotic boundary limits (r->0, inf), conservation laws, and numerical singularities. Do NOT use for empirical constant lookups (use literature-crosscheck) or uncertainty budgets (use metrology-review).
 ---
 
 # Physics Model Review Skill

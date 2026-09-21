@@ -1,6 +1,6 @@
 ---
 name: literature-crosscheck
-description: Cross-references scientific claims, equations, physical constants, and empirical parameters against primary peer-reviewed literature. Use when an empirical statement appears in code or docs without a citation, or when verifying parameter accuracy against international standards.
+description: Audits empirical numerical parameters, physical constants (Hamaker, dielectric permittivity, thermal conductivity, zeta-potential), and factual claims against primary literature via Zotero MCP and academic databases. Do NOT use for dimensional equation analysis (use physics-model-review) or macro-level methodology synthesis (use scientific-evaluation).
 ---
 
 # Literature Crosscheck Skill

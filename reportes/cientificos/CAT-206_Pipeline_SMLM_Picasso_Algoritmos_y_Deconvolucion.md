@@ -3,6 +3,7 @@
 **Proyecto:** PyPrinting 3.0 — Nanofotónica y Fabricación Óptica
 **Laboratorio:** Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)
 **Autor:** José Luis González Peñafiel (*Becario Doctoral CONICET*)
+**Fecha de Publicación:** Septiembre 2026
 **Módulos Asociados:** `modules/camera.py` (`TrackpyDialog`), `analysis/lattice_disorder_gui.py`, `core/localization_pipeline.py`
 **Pilares Wiki:**
 - [[CAT-201_Deconvolucion_Optica_Richardson_Lucy_y_Tracking_Trackpy]] — formulación completa de Richardson-Lucy y Trackpy en `analysis/image_analyzer.py`

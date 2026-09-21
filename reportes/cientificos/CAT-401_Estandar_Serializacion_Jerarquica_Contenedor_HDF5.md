@@ -3,6 +3,13 @@
 
 ---
 
+**Signatura Bibliotecaria:** CAT-401  
+**Clasificación Temática:** [CMP] Arquitectura de Datos, Serialización HDF5 y FAIR  
+**Pilar:** Pilar IV — Arquitectura de Datos y Serialización  
+**Autoría:** José Luis González Peñafiel (*Becario Doctoral CONICET*), Comité Científico PyPrinting 3.0  
+**Fecha de Publicación:** Septiembre 2026  
+**Estado:** Producción / Consolidado  
+
 ## 1. Resumen Ejecutivo y Motivación
 
 Durante las campañas de nanofabricación óptica y espectroscopía de super-resolución en PyPrinting 3.0, un lote típico de impresión ($N = 100$ nanopartículas) genera:

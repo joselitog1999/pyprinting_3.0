@@ -61,28 +61,60 @@ Blind recursive text searches (`grep -r` across 200 files) are strictly prohibit
 
 ## 5. Multi-Round Deliberative Implementation Protocol
 
-For any non-trivial implementation, new tool, module, experiment, or architectural modification, NEVER jump directly into coding. Strictly follow the phased deliberation lifecycle:
+For any non-trivial implementation, new tool, module, experiment, or architectural modification, NEVER jump directly into coding. Strictly follow the 4-Round deliberation protocol:
 
 ### 🔄 Round 1: Conceptual & Theoretical Exploration (The "Think First" Round)
-1. **Deep Conceptual Understanding**: Paraphrase and analyze the request from first principles (physics, metrology, chemistry). Explain *why* it matters and what physical/data mechanisms are involved.
-2. **Theoretical Subagents Panel**: Dynamically convene domain agents based on task archetype (`physicist`, `computational-physicist`, `colloidal-chemist`, `metrology`, `experimentalist`).
-3. **Non-Obvious Angles & Critical Trade-Offs**: Identify latent physical edge cases, thermal drift, optical noise, or parameter precedence conflicts.
-4. **Devil's Advocate & Falsification Probe (`devil-advocate`)**: Probe unstated assumptions and design failure modes.
-5. **Proactive Suggestions & Key Questions**: Offer concrete architectural options (Option A vs B) and solicit user feedback.
+1. **User Request Understanding & Paraphrase**: State explicitly and precisely what was understood from the user's prompt, establishing the physical, mathematical, and operational scope.
+2. **Conceptual & Physical Inquiries**: Proactively ask targeted conceptual questions to probe physical assumptions, parameter regimes, and scientific intents before making any technical commitment.
+3. **Theoretical Subagents Panel**: Dynamically convene domain agents based on task archetype (`physicist`, `computational-physicist`, `colloidal-chemist`, `metrology`, `experimentalist`).
+4. **Non-Obvious Angles & Critical Trade-Offs**: Identify latent physical edge cases, thermal drift, optical noise, or parameter precedence conflicts.
+5. **Devil's Advocate & Falsification Probe (`devil-advocate`)**: Probe unstated assumptions and design failure modes.
 *⛔ STOP & WAIT: Await explicit user answers, selection of suggestions, and conceptual approval.*
 
-### 📐 Round 2: Technical Architecture & Engineering Blueprint (The "Design" Round)
-1. **Executive Synthesis**: Comprehensive summary of the agreed concept, integrating user decisions and accepted suggestions.
+### 📐 Round 2: Technical Architecture & Core Engine Blueprint (The "Engine" Round)
+1. **Executive Synthesis**: Comprehensive summary of the agreed concept, integrating user decisions and physical boundary conditions.
 2. **Engineering Subagents Panel**:
-   - `software-architect`: Thread topology (`QThread`), signal routing, AST impact (Graphify), and **Mandatory Dual-Track Flowchart (Mermaid)** contrasting *User Journey* vs *Data/Hardware Pipeline*.
+   - `software-architect`: Thread topology (`QThread`), signal routing, data structures, AST impact (Graphify), memory isolation, and **Mandatory Dual-Track Flowchart (Mermaid)** contrasting *User Journey* vs *Data/Hardware Pipeline*.
+   - `computational-physicist` / `metrology`: Numerical algorithms, BLAS vectorization, parameter models, covariance matrices.
    - `instrumentation`: DAQmx lines, timing margins, watchdog heartbeat, piezo travel limits, driver collision prevention.
-   - `qa-ux-auditor`: Ergonomic layout, 4-rule ROIs (`blockSignals`), `FigureExportStudioDialog`, Click-to-Seed modes.
-   - `interactive-tool-design` skill: DoF Inventory & Automation Ladder (Layers 0-3).
-3. **Verification & Testing Strategy**: Unit tests (`pytest`), simulation validation (`SAFE_MODE = True`), and rollback safeguards.
-*⛔ STOP & WAIT (or Optional Round 3): Await user review. If ambiguities remain, execute a brief Hybrid Round 3.*
+3. **Core Engine Parameter Inventory**: Exhaustive catalog of function signatures, backend parameters, types, defaults, and mathematical contracts required in `core/` (explicitly stating what arguments the backend engine accepts).
+4. **Verification & Testing Strategy**: Unit tests (`pytest`), simulation validation (`SAFE_MODE = True`), and rollback safeguards.
+*⛔ STOP & WAIT: Await user approval and agreement on the technical engine.*
 
-### ⚙️ Phase 4: Hard Implementation (The "Execution" Phase)
-Once approved, execute changes with atomic precision: write clean code, add tests, verify 0 regressions, execute `graphify update .`, and update user manuals.
+### 🎨 Round 3: Interactive GUI & Cognitive Ergonomics Blueprint (The "Human-in-the-Loop" Round)
+*(Mandatory whenever changes involve GUIs, visual tools, parameter panels, or user interactions)*
+1. **Interaction Subagents Panel**:
+   - `scientific-gui-designer` (Lead): Information architecture, direct manipulation, visual metrology, and in-app documentation.
+   - `qa-ux-auditor`: Ergonomic layout, defensive handling, accessibility, and manual testing checklists.
+2. **Parameter Versatility & DoF Inventory**:
+   - Explicitly define which engine parameters are exposed to the user and which are computed automatically.
+   - Widget selection ergonomics (spinbox vs slider vs checkbox, step sizes, physical SI units).
+   - Linked controls (e.g., $a_x = a_y$ coupling, boundary sizing, nominal presets).
+3. **Direct Plot Manipulation & Micro-Interactions**:
+   - Direct in-plot interaction (e.g. clicking inside contour polygons via `cv2.pointPolygonTest`, visual click-to-seed markers, draggable ROIs).
+   - Table interaction (keyboard arrow navigation `currentCellChanged`, right-click context menus: Resolve, Merge COM, Discard).
+   - Defensive bidirectional signal blocking: all widget updates from plot events wrapped strictly in `widget.blockSignals(True)`.
+4. **State Resilience & Unitary Mutation Policy**:
+   - Strict prohibition of global state invalidation upon local edits (never wipe `cluster_results` or clear user tables after a single edit).
+   - Work queue reordering: pending items remain at top; resolved items are marked green (`#a6e3a1`) and moved to the bottom.
+5. **Scientific Pedagogy & Contextual Wiki Integration**:
+   - Rich tooltips with explicit formulas, legends, and canonical physical reference values (e.g., $Z=4$ for square, $Z=6$ for hex, $Z=3$ for honeycomb; $|\psi_n|$ order parameter interpretation).
+   - Deep-linked `[📖 Help]` buttons connecting each panel directly to the relevant section of `CAT-xxx` monographs in `ScientificWikiBrowserDialog`.
+*⛔ STOP & WAIT: Await explicit user review and approval of the interactive GUI design.*
+
+### ⚙️ Round 4: Contract Reconciliation, Atomic Implementation & Quality Gates (The "Execution & Integration" Round)
+1. **Mandatory Contract Reconciliation**:
+   - Before writing code, cross-verify the Engine Contract (Round 2) against the GUI Contract (Round 3) in a formal verification matrix:
+     * Verify parameter count (prevent e.g. Round 2 expecting 3 arguments while GUI provides 4).
+     * Verify argument names, types, default values, and physical units ($\mu\text{m}$ vs $\text{nm}$).
+     * Ensure 0 parameter discrepancies between frontend widgets and backend signatures.
+2. **Atomic Implementation**:
+   - Write clean, modular, typed, and defensive code adhering to the Catppuccin palette and PyQt6 standards.
+3. **Quality Gates & Regression Testing**:
+   - Execute test suites (`pytest tests/`) ensuring 0 regressions and verifying `SAFE_MODE = True` simulation compatibility.
+4. **Closing the Loop**:
+   - Synchronize AST graph (`graphify update .`).
+   - Update user manuals (`docs/MANUAL_USUARIO.md`) and relevant scientific monographs.
 
 ---
 
@@ -98,6 +130,7 @@ When facing complex tasks, delegate to the specialized subagents in `.claude/age
 | **`instrumentation`** | Real-time HAL & DAQmx | Drivers, timing, buffer overruns, watchdog, TTL polarities |
 | **`metrology`** | Measurement validity & statistics | ISO/GUM, Cramér-Rao lower bound, NUFFT, Hosemann paracrystal |
 | **`software-architect`** | PyQt6 & clean architecture | `QThread`, `pyqtSignal`, DAQmx error `-200088` prevention, Pytest |
+| **`scientific-gui-designer`** | Human-in-the-loop scientific UX & visual metrology | Interactive tools, click-to-seed, ROI handles, context menus, tooltips, Wiki browser dialogs |
 | **`qa-ux-auditor`** | Laboratory UX, ergonomics & manual QA | Usability, presets, physical units, panic controls, MANUAL_USUARIO |
 | **`scientific-reviewer`** | Methodological peer review | Scientific defensibility, validity regimes, citation verification |
 | **`devil-advocate`** | Anti-sycophancy & falsification | Unstated assumptions, confirmation bias, experimental edge cases |
@@ -118,7 +151,8 @@ Execute procedural routines defined in `.claude/skills/*/SKILL.md`:
 * **`knowledge-integrator`**: Atomic updates across `CAT`, `SYS`, Ledgers, and Graphify.
 * **`scientific-documentation`**: Automated generation of SOPs, manuals, and technical reports.
 * **`interactive-tool-design`**: DoF inventories, customization ladders (Layers 0-3), and dual-track user/pipeline flowcharts.
-* **`deliberative-implementation`**: Multi-round deliberation protocol, dynamic agent panels, and engineering blueprints.
+* **`scientific-gui-implementation`**: Procedural PyQt6 standards, sacred session state, defensive signal blocking, and Catppuccin styling.
+* **`deliberative-implementation`**: 4-Round deliberation protocol, Contract Reconciliation Table, and atomic quality gates.
 
 ---
 

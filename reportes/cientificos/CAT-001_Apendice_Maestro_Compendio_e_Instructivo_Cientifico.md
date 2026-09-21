@@ -25,7 +25,7 @@ Para asegurar la máxima agilidad de consulta, modularidad y legibilidad (impidi
 
 ---
 
-## 2. Compendio Metrológico General de las 33 Notas Canónicas
+## 2. Compendio Metrológico General de las 46 Notas Canónicas
 
 ```
                                 SISTEMA BIBLIOTECARIO PYPRINTING 3.0
@@ -86,6 +86,7 @@ Para asegurar la máxima agilidad de consulta, modularidad y legibilidad (impidi
 | **`CAT-111`** | [[CAT-111_Nanotermometria_DLS_y_Dinamica_Fluctuaciones_Brownianas]] | `[FIS]` | Nanotermometría local $D(T) = \frac{k_B T}{6\pi \eta(T) R_h}$, modelo VFT del agua e inversión analítica de $T_{\text{nano}}$. | `analysis/time_volt_analyzer.py` |
 | **`CAT-112`** | [[CAT-112_Teoria_Lente_Termica_Gradientes_Indice_y_Marangoni]] | `[FIS]` | Gradiente termo-óptico $\Delta n = (dn/dT)\Delta T$, señal pinhole $\Delta I/I_0 \approx 2\theta$, convección de Marangoni $\mathbf{\tau}_M = -\beta_T \nabla_\parallel T$. | `modules/measurements.py` |
 | **`CAT-113`** | [[CAT-113_Lazo_Cerrado_Metrologico_InSitu_y_Control_Predictivo]] | `[CMP]` | Control predictivo RLS $\mathbf{r}_{\text{cmd}} = \hat{\mathbf{A}}^{-1}(\mathbf{r}_{\text{ideal}} - \hat{\mathbf{b}})$, reducción RMS de red a $<4\ \text{nm}$. | `core/nanopositioning.py` |
+| **`CAT-114`** | [[CAT-114_Pinzas_Opticas_Contrapropagantes_y_Microscopia_iSCAT]] | `[FIS]` | Pinzas ópticas contrapropagantes, anulación de fuerza de dispersión y microscopía iSCAT ($d^3$). | `contrapropagante.py` |
 
 ---
 
@@ -98,6 +99,11 @@ Para asegurar la máxima agilidad de consulta, modularidad y legibilidad (impidi
 | **`CAT-203`** | [[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia]] | `[FIS]` | $u_c(x_0) = \sqrt{u_{\text{piezo}}^2 + u_{\text{pix}}^2 + u_{\text{fit}}^2 + u_{\text{drift}}^2 + u_{\text{ph}}^2} = \mathbf{6.55\,nm}$ (60xW). | `analysis/uncertainty_model.py` |
 | **`CAT-204`** | [[CAT-204_Curacion_Fotometrica_Desacople_MultiGaussiano_Consistencia]] | `[CMP]` | Huella monómero $(V_0, A_0, \sigma_{\text{psf}})$, $M_{\text{curado}} + n_{\text{vac}} \le N_{\text{total}}(1 + \text{margen}/100)$. | `analysis/photometric_curation.py` |
 | **`CAT-205`** | [[CAT-205_Mapeo_Hiperespectral_SERS_Confocal_Automatizado]] | `[FIS]` | Realce $EF \approx |E_{\text{loc}}/E_0|^4$, trayectoria meandro TSP, hipercubo $\mathcal{H}(X, Y, \lambda)$ y MCR-ALS. | `pyspectrum.py` / `raman_analyzer.py` |
+| **`CAT-250`** | [[CAT-250_Marco_Unificado_Espectroscopia_Optica_SERS_y_Quimiometria]] | `[FIS]` | Tratado Rector de Espectrometría: Dispersión Raman, resonancias SERS/SLR, AsLS y MCR-ALS. | `core/raman_engine.py` |
+| **`CAT-206`** | [[CAT-206_Pipeline_SMLM_Picasso_Algoritmos_y_Deconvolucion]] | `[CMP]` | SMLM Picasso (GaussLQ/GaussMLE Poisson) vs Trackpy+RL y ruptura de independencia estadística. | `analysis/lattice_disorder_gui.py` |
+| **`CAT-207`** | [[CAT-207_Quimiometria_Procesamiento_Espectral_AsLS_Voigt_Calibracion]] | `[CMP]` | Corrección de línea de base AsLS/AirPLS, perfiles Pseudo-Voigt/BWF y termometría Anti-Stokes. | `core/raman_engine.py` |
+| **`CAT-208`** | [[CAT-208_Electrodinamica_Nanocavidades_Plasmicas_SLR_y_SERS]] | `[FIS]` | Hot-spots en nanogaps, resonancias de red superficial (SLR) y factor de realce $|E/E_0|^4$. | `raman_analyzer.py` |
+| **`CAT-209`** | [[CAT-209_Morfologia_Matematica_Watershed_y_Fotometria_Apertura]] | `[CMP]` | Morfología matemática, cruce por cero LoG ($r_0=\sqrt{2}\sigma$), Watershed y fotometría perimetral. | `core/lattice_disorder.py` |
 
 ---
 
@@ -117,6 +123,8 @@ Para asegurar la máxima agilidad de consulta, modularidad y legibilidad (impidi
 | **`CAT-310`** | [[CAT-310_Derivacion_Matematica_Paracristal_2D_Hosemann_Anisotropo]] | `[MAT]` | $S(\mathbf{q}) = \text{Re}\{\frac{1+\mathbf{\Phi}_{10}}{1-\mathbf{\Phi}_{10}}\}\text{Re}\{\frac{1+\mathbf{\Phi}_{01}}{1-\mathbf{\Phi}_{01}}\}$, log-verosimilitud analítica. | `core/lattice_disorder.py` |
 | **`CAT-311`** | [[CAT-311_Inferencia_Bayesiana_MCMC_Desorden_Paracristal]] | `[CMP]` | Cholesky $\mathbf{\Sigma} = \mathbf{L}\mathbf{L}^T$, ensamble `emcee`, corner plots y elipses de covarianza. | `core/lattice_disorder.py` |
 | **`CAT-312`** | [[CAT-312_Computacion_Tensorial_GPU_CUDA_NUFFT_y_Deconvolucion]] | `[CMP]` | Spreading en shared memory GPU, cuFFT 2D batched $<12\ \text{ms}$ a $>60\ \text{fps}$ y fallback CPU. | `core/lattice_disorder.py` |
+| **`CAT-313`** | [[CAT-313_Transiciones_Fase_2D_Teoria_KTHNY_y_Orden_Orientacional]] | `[FIS]` | Fusión KTHNY en 2D, dipolos 5-7, fase hexática y parámetros de orden $\psi_4, \psi_6, \psi_3$. | `analysis/lattice_disorder_gui.py` |
+| **`CAT-314`** | [[CAT-314_Cristalografia_Computacional_2D_Bases_Poliatomicas_y_Fronteras]] | `[MAT]` | Álgebra tensorial de redes, bases honeycomb $(1/3, 1/3)$, polígonos de frontera y filtro $d_{\text{min}}$. | `core/lattice_generator.py` |
 
 ---
 
@@ -126,6 +134,7 @@ Para asegurar la máxima agilidad de consulta, modularidad y legibilidad (impidi
 |---|---|:---:|---|---|
 | **`CAT-401`** | [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5]] | `[CMP]` | Serialización jerárquica HDF5 (`/raw`, `/curated`, `/reciprocal`), compresión `shuffle+gzip`. | `io/hdf5_exporter.py` |
 | **`CAT-402`** | [[CAT-402_Estandar_Datos_FAIR_y_Serializacion_NeXus_HDF5]] | `[CMP]` | Ontología NeXus (`NXdata`, `NXsample`, `NXinstrument`), procedencia criptográfica SHA-256 y datos FAIR. | `core/hdf5_container.py` |
+| **`CAT-403`** | [[CAT-403_Estandares_Visualizacion_Cientifica_y_Graficos_Vectoriales]] | `[MET]` | Metrología visual de Edward Tufte, colormaps Cividis/Viridis, SVG con texto editable y PDF Type 42. | `analysis/figure_export_studio.py` |
 
 ---
 
