@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "graphify": {
+      "command": "C:/Users/josel/anaconda3/envs/printing3/Scripts/graphify.EXE",
+      "args": ["mcp"],
+      "description": "Local structural knowledge graph and AST navigator"
+    },
+    "zotero": {
+      "command": "npx",
+      "args": ["-y", "zotero-mcp"],
+      "env": {
+        "ZOTERO_LOCAL": "true"
+      },
+      "description": "Local-first scientific literature, annotations, and PDF library access"
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "description": "Live up-to-date documentation for scientific Python libraries (PyQt6, NumPy, SciPy, h5py)"
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "description": "GitHub repository history, issues, commits, and PR tracking"
+    }
+  }
+}
