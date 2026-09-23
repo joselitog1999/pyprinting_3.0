@@ -13,9 +13,9 @@ En concordancia con el **Estándar 5 de Diseño (Conservación de la Informació
 
 ```
 reportes/
-├── ⚙️ sistema/          # Biblioteca de Sistema, Hardware e Ingeniería (20 documentos, SYS-001 a SYS-403)
+├── ⚙️ sistema/          # Biblioteca de Sistema, Hardware e Ingeniería (22 documentos, SYS-001 a SYS-403)
 │   ├── [Cluster SYS-000] Arquitectura Rectoral y Gobernanza de Software (SYS-001 y SYS-002)
-│   ├── [Cluster SYS-100] Concurrencia, Señales y Cinemática de Hardware (SYS-101 a SYS-105)
+│   ├── [Cluster SYS-100] Concurrencia, Señales y Cinemática de Hardware (SYS-101 a SYS-106)
 │   ├── [Cluster SYS-200] Instrumentación Óptica, Actuadores y Seguridad Hardware (SYS-201 a SYS-204)
 │   ├── [Cluster SYS-300] Espectrometría, Bancos Ópticos y Procesamiento Instrumental (SYS-301 a SYS-306)
 │   └── [Cluster SYS-400] Auditorías de Código, Verificación y Diagnóstico Integral (SYS-401 a SYS-403)
@@ -100,6 +100,8 @@ Esta vertiente compendia las deducciones formales desde primeros principios, cot
 | `CAT-312` | `[CMP]` | **Aceleración Tensorial GPU/CUDA para NUFFT 2D y SMLM** | Kernel de spreading en memoria compartida GPU, cuFFT 2D batched $<12\ \text{ms}$ a $>60\ \text{fps}$ y fallback automático a BLAS CPU. | [[CAT-312_Computacion_Tensorial_GPU_CUDA_NUFFT_y_Deconvolucion]] |
 | `CAT-313` | `[FIS]` | **Transiciones de Fase 2D, Teoría KTHNY y Orden $\psi_n$** | Fusión KTHNY en 2D, disociación de dipolos 5-7, fase hexática y parámetros de orden $\psi_4, \psi_6, \psi_3$. | [[CAT-313_Transiciones_Fase_2D_Teoria_KTHNY_y_Orden_Orientacional]] |
 | `CAT-314` | `[MAT]` | **Cristalografía Computacional 2D y Fronteras Poligonales** | Álgebra tensorial de redes, bases honeycomb $(1/3, 1/3)$, polígonos por Winding Number y filtro $d_{\text{min}}$. | [[CAT-314_Cristalografia_Computacional_2D_Bases_Poliatomicas_y_Fronteras]] |
+| `CAT-315` | `[FIS]` | **Espacio Recíproco de Redes Hexagonales y Honeycomb** | Factor de estructura diatómico, interferencia constructiva/destructiva, vacancias $A/B$, tensor $\mathbf{\Sigma}_{\text{pos}}$ y metrología. | [[CAT-315_Espacio_Reciproco_Redes_Hexagonales_Honeycomb_y_Factor_Estructura]] |
+
 
 ---
 
@@ -136,6 +138,7 @@ Esta vertiente documenta la ingeniería de software, arquitectura de hilos, gest
 | `SYS-103` | `[ARQ]` | **Regímenes de Coordenadas e Invariancia Cinemática** | Arquitectura reactiva tri-régimen (`Legacy`, `Laser Ref`, `Sample Ref`), diccionario canónico e invariancia sobre platina PI E-517. | [[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica]] |
 | `SYS-104` | `[DAT]` | **Matriz de Intercambio de Archivos y Formatos I/O** | Mapa exhaustivo de lectura/escritura (.tiff, .npy, .csv, .json, .sif, presets, last_position) y compatibilidad hacia atrás. | [[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO]] |
 | `SYS-105` | `[DAT]` | **Pipeline Unificado de Localización Super-Resolución (SMLM)** | Arquitectura de `core/localization_pipeline.py`, integración GaussMLE/Trackpy, desconvolución Richardson-Lucy y reescalado uint16. | [[SYS-105_Pipeline_Unificado_Localizacion_Super_Resolucion]] |
+| `SYS-106` | `[ARQ]` | **Extensión a Procesamiento GPU y Descongestión de Hilos** | Aceleración en GPU (Fase 2) para NUFFT 2D, Monte Carlo Debye-Waller, AsLS hiperespectral y ajustes PSF, con perspectivas de OpenGL (Fase 1.2) y Numba JIT (Fase 1.3). | [[SYS-106_Extension_Procesamiento_GPU_Operaciones_Matematicas_y_Descongestion_Hilos]] |
 
 ---
 
@@ -191,6 +194,7 @@ La siguiente matriz conecta los módulos y reportes del sistema con los fundamen
 | **`analysis/lattice_disorder_gui.py`** | `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO]]` | `[[CAT-301_Algoritmos_Espacio_Real_KDTree_Asignacion_Monte_Carlo]]` a `[[CAT-309_Teoria_Paracristal_Hosemann_Perdida_Orden_2D]]` | Cuantificación completa de desorden cristalográfico 2D en espacio real ($g(r)$) y recíproco ($S(\mathbf{q})$). |
 | **`core/localization_pipeline.py`** | `[[SYS-105_Pipeline_Unificado_Localizacion_Super_Resolucion]]` | `[[CAT-201_Deconvolucion_Optica_Richardson_Lucy_y_Tracking_Trackpy]]`<br>`[[CAT-202_Derivacion_Matematica_Cota_Cramer_Rao_Localizacion_Optica]]` | Pipeline unificado de super-resolución SMLM (GaussMLE / Trackpy) y deconvolución RL. |
 | **`core/raman_engine.py` / `MultiSpectrumWidget`** | `[[SYS-306_Arquitectura_Motor_Raman_y_Quimiometria_Multiespectral]]` | `[[CAT-203_Presupuesto_Incertidumbre_Metrologica_ISOGUM_Microscopia]]` | Quimiometría Raman multiespectral, sustracción adaptativa de línea base y PCA por SVD. |
+| **`core/accelerators.py`** | `[[SYS-106_Extension_Procesamiento_GPU_Operaciones_Matematicas_y_Descongestion_Hilos|SYS-106]]` | `[[CAT-301_Factor_Estructura_Estatico_y_NUFFT_2D]]`<br>`[[CAT-207_Quimiometria_Procesamiento_Espectral_AsLS_Voigt_Calibracion]]` | Despachador híbrido CPU/GPU, NUFFT 2D masiva, Monte Carlo y AsLS pentadiagonal por lotes. |
 | **Preparación de Muestra & Termoplasmónica** | `[[SYS-101_Arquitectura_Hilos_Concurrencia_QThread]]` | `[[CAT-109_Electrodinamica_Fuerzas_Opticas_y_Termoplasmonica_Printing]]`<br>`[[CAT-110_Fisicoquimica_Coloides_DLVO_y_Funcionalizacion_Superficies]]` | Fuerzas ópticas de gradiente, conversión fototérmica y ensamblado por potencial DLVO / APTES. |
 
 ---
