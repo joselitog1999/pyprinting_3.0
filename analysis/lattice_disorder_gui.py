@@ -90,6 +90,7 @@ from core.lattice_disorder import (
     register_and_match_template,
     run_hexagonal_monte_carlo_calibration,
     extract_angular_profile,
+    extract_honeycomb_peak_profile_metrics,
     compute_radial_azimuthal_profile,
     find_hexagonal_reciprocal_rotation,
     compute_hexagonal_bragg_indexing,
@@ -734,6 +735,39 @@ class LatticeDisorderWindow(QMainWindow):
             act_reset.triggered.connect(plot_widget.enableAutoRange)
             menu.exec(plot_widget.mapToGlobal(pos))
         plot_widget.customContextMenuRequested.connect(_show_context_menu)
+
+    def _create_hex_cut_panel(
+        self, plot_title: str, tooltip_title: str, tooltip_basic: str, tooltip_expert: str
+    ) -> Tuple[QWidget, pg.PlotWidget, QLabel]:
+        """Construye un panel (Corte 1D + Box de Metrología Unitaria) para la
+        misión Honeycomb (Paquete B, CAT-315 §8.2): un PlotWidget con exportación
+        estándar y, debajo, un QFrame/QLabel compacto que _update_hex_cut_metrology_boxes
+        actualiza en tiempo real (f_obs, H, FWHM, ξ, SNR, insignia constructivo/
+        destructivo)."""
+        container = QWidget()
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        plot = pg.PlotWidget(title=plot_title)
+        plot.showGrid(x=True, y=True, alpha=0.3)
+        plot.setLabel('bottom', 'r (radio recíproco)', units='nm^-1')
+        plot.setLabel('left', 'Intensidad')
+        plot.setMinimumHeight(200)
+        plot.setToolTip(make_tooltip(tooltip_title, tooltip_basic, tooltip_expert))
+        slug = tooltip_title.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('°', 'deg').replace('θ_rot', 'theta_rot')
+        self._setup_plot_export_menu(plot, f"fig_corte_{slug}", tooltip_title)
+        lay.addWidget(plot)
+
+        box = QLabel("Métrica: pendiente de cálculo")
+        box.setWordWrap(True)
+        box.setStyleSheet(
+            "background-color: #181825; border: 1px solid #45475a; border-radius: 4px; "
+            "padding: 8px; font-family: monospace; font-size: 10px; color: #cdd6f4;"
+        )
+        lay.addWidget(box)
+
+        return container, plot, box
 
     def _on_export_active_cut(self):
         """Exporta el perfil 1D actualmente visible o seleccionado."""
@@ -3414,28 +3448,48 @@ class LatticeDisorderWindow(QMainWindow):
         w_cuts_cartesian.setLayout(self.lay_cuts)
         self.tabs_1d_cuts.addTab(w_cuts_cartesian, "📐 Cortes Cartesianos / Principales (Fx, Fy)")
 
-        self.lay_cuts_hex = QHBoxLayout()
-        self.plot_cut_hex60 = pg.PlotWidget(title="Corte θ_rot+60° (Eje Cristalográfico 2)")
-        self.plot_cut_hex120 = pg.PlotWidget(title="Corte θ_rot+120° (Eje Cristalográfico 3)")
-        self.plot_cut_hex150 = pg.PlotWidget(title="Corte θ_rot+150° (Gemelo Ortogonal)")
-        for _p, _lbl in (
-            (self.plot_cut_hex60, "θ_rot+60°"), (self.plot_cut_hex120, "θ_rot+120°"), (self.plot_cut_hex150, "θ_rot+150°")
-        ):
-            _p.showGrid(x=True, y=True, alpha=0.3)
-            _p.setLabel('bottom', 'r (radio recíproco)', units='nm^-1')
-            _p.setLabel('left', 'Intensidad')
-            _p.setMinimumHeight(220)
-            _p.setToolTip(make_tooltip(
-                f"Corte Cristalográfico {_lbl}",
-                "Perfil radial de S(fx,fy) a lo largo de una dirección hexagonal equivalente por simetría, "
-                "útil para contrastar la altura de picos de Bragg entre orientaciones nominalmente idénticas.",
-                "extract_angular_profile(S, fx, fy, angle_deg, band_width_bins) integrado en banda transversal."
-            ))
-            self.lay_cuts_hex.addWidget(_p)
-        w_cuts_hex = QWidget()
-        w_cuts_hex.setLayout(self.lay_cuts_hex)
-        self.tabs_1d_cuts.addTab(w_cuts_hex, "⬡ Cortes Cristalográficos Hexagonales (60°, 120°, 150°)")
+        # Misión Honeycomb (Paquete B): dos sub-pestañas dedicadas a familias
+        # cristalográficas físicamente distintas -- 1er shell (destructivo
+        # parcial en honeycomb, |F|^2=1) vs 2do shell (constructivo total,
+        # |F|^2=4) -- cada corte con su propio Box de Metrología Unitaria
+        # (CAT-315 §8.2).
+        self.hex_cut_panels: Dict[float, Tuple[pg.PlotWidget, QLabel]] = {}
+
+        lay_cuts_principal = QHBoxLayout()
+        for angle_off, label in ((0.0, "Eje 1"), (60.0, "Eje 2"), (120.0, "Eje 3")):
+            container, plot, box = self._create_hex_cut_panel(
+                f"Corte θ_rot+{angle_off:.0f}° ({label}, 1er shell)",
+                f"Corte Cristalográfico Principal {label} (θ_rot+{angle_off:.0f}°)",
+                "Corte radial de difracción a lo largo de una dirección principal de la red. En redes "
+                "honeycomb, el 1er shell sufre interferencia destructiva parcial entre subredes A/B "
+                "(intensidad atenuada a 1/4 del máximo posible).",
+                "extract_angular_profile(S,fx,fy,θ) + extract_honeycomb_peak_profile_metrics: f_obs, H, "
+                "FWHM, ξ=2π/FWHM, SNR sobre la ventana [0.85,1.15]×f1."
+            )
+            lay_cuts_principal.addWidget(container)
+            self.hex_cut_panels[angle_off] = (plot, box)
+        w_cuts_principal = QWidget()
+        w_cuts_principal.setLayout(lay_cuts_principal)
+        self.tabs_1d_cuts.addTab(w_cuts_principal, "⬡ Ejes Cristalográficos Principales (θ_rot, +60°, +120°)")
+
+        lay_cuts_ortho = QHBoxLayout()
+        for angle_off, label in ((90.0, "Ortho 1"), (30.0, "Ortho 2"), (150.0, "Ortho 3")):
+            container, plot, box = self._create_hex_cut_panel(
+                f"Corte θ_rot+{angle_off:.0f}° ({label}, 2do shell)",
+                f"Corte Cristalográfico Ortogonal {label} (θ_rot+{angle_off:.0f}°)",
+                "Corte radial a lo largo de una dirección ortogonal/constructiva. En redes honeycomb, el "
+                "2do shell recíproco es 100% constructivo entre subredes A/B (4x más brillante que el 1er shell).",
+                "extract_angular_profile(S,fx,fy,θ) + extract_honeycomb_peak_profile_metrics evaluado en "
+                "q_ortho=√3·f1=2/a; ver compute_hexagonal_bragg_indexing / CAT-315 §4.3B."
+            )
+            lay_cuts_ortho.addWidget(container)
+            self.hex_cut_panels[angle_off] = (plot, box)
+        w_cuts_ortho = QWidget()
+        w_cuts_ortho.setLayout(lay_cuts_ortho)
+        self.tabs_1d_cuts.addTab(w_cuts_ortho, "✦ Ejes Ortogonales / Constructivos (θ_rot+30°, +90°, +150°)")
+
         self.tabs_1d_cuts.setTabVisible(1, False)
+        self.tabs_1d_cuts.setTabVisible(2, False)
 
         right_layout.addWidget(self.tabs_1d_cuts)
 
@@ -7225,7 +7279,9 @@ class LatticeDisorderWindow(QMainWindow):
             # correctas + el perfil radial azimutal integrado S(q).
             for _w in (self.lbl_fourier_rotation, self.spin_fourier_rotation, self.btn_auto_rotate_fourier):
                 _w.setVisible(True)
+            self.tabs_1d_cuts.setTabVisible(0, False)
             self.tabs_1d_cuts.setTabVisible(1, True)
+            self.tabs_1d_cuts.setTabVisible(2, True)
 
             if not self._fourier_rotation_seeded:
                 seed = 0.0
@@ -7239,7 +7295,13 @@ class LatticeDisorderWindow(QMainWindow):
 
             a_nom_fourier = self.spin_a_nominal.value()
             f0_hex = 2.0 / (np.sqrt(3.0) * a_nom_fourier)
-            angles_hex_deg = np.array([-30.0, 30.0, 90.0, 150.0, 210.0, 270.0]) + theta_rot
+            # theta_rot (seeded/auto-detected) ya ES la azimut de un pico de Bragg real
+            # (ver compute_hexagonal_bragg_indexing, que evalúa H_axis1 en theta_rot+0°),
+            # por lo que los 6 picos de 1er orden caen en theta_rot + {0,60,...,300}°, NO
+            # en la base histórica [-30,30,90,...] (válida sólo cuando theta_rot=-30°,
+            # i.e. rotación real-espacio = 0) -- verificado numéricamente que sumar esa
+            # base a theta_rot desplaza los marcadores 30° fuera de los picos reales.
+            angles_hex_deg = theta_rot + np.array([0.0, 60.0, 120.0, 180.0, 240.0, 300.0])
             hex_peaks_x = (f0_hex * np.cos(np.radians(angles_hex_deg))).tolist()
             hex_peaks_y = (f0_hex * np.sin(np.radians(angles_hex_deg))).tolist()
             scatter_hex = pg.ScatterPlotItem(
@@ -7266,9 +7328,15 @@ class LatticeDisorderWindow(QMainWindow):
             else:
                 r_peak = f0_hex
 
-            # Paquete D.3: indexación de picos de Bragg hexagonales (alturas H_axis1/H_axis2,
-            # 2do armónico radial, punto ortogonal de 2do shell) usando theta_rot.
-            hex_bragg = compute_hexagonal_bragg_indexing(res['S'], fx, fy, a=a_nom_fourier, rotation_deg=theta_rot)
+            # Paquete D.3 / misión Honeycomb Paquete A: indexación de picos de Bragg
+            # (1er shell axis1/axis2/axis3, 2do armónico radial, 2do shell
+            # ortho1/ortho2/ortho3) usando theta_rot y la base (u2,v2) activa.
+            u2_bragg = self.spin_honeycomb_u2.value() if hasattr(self, 'spin_honeycomb_u2') else 1.0 / 3.0
+            v2_bragg = self.spin_honeycomb_v2.value() if hasattr(self, 'spin_honeycomb_v2') else 1.0 / 3.0
+            hex_bragg = compute_hexagonal_bragg_indexing(
+                res['S'], fx, fy, a=a_nom_fourier, rotation_deg=theta_rot,
+                lattice_type=lattice_type_key_fourier, u2=u2_bragg, v2=v2_bragg
+            )
             self.reciprocal_results['hex_bragg'] = hex_bragg
 
             self.lbl_recip_metrics.setText(
@@ -7291,12 +7359,15 @@ class LatticeDisorderWindow(QMainWindow):
                 f"H_ortho={hex_bragg['H_ortho']:.3f} (2do shell, radio q_ortho=√3·f1={hex_bragg['q_ortho']:.5f} nm⁻¹)<br>"
                 f"R_2/1 axis1={hex_bragg['ratio_21_axis1']:.4f} | R_2/1 axis2={hex_bragg['ratio_21_axis2']:.4f} | "
                 f"R_ortho={hex_bragg['ratio_ortho']:.4f}<br><br>"
-                f"Nota: los cortes de la sub-pestaña 'Cortes Cartesianos/Principales' muestran, para esta familia, "
-                f"los ejes cristalográficos axis1 (θ_rot) y ortogonal (θ_rot+90°), no fx/fy crudos; la jerarquía "
-                f"de Bragg cartesiana (diagonal, 2do orden) asume una red cuadrada/rectangular y no aplica aquí."
+                f"Nota: ver sub-pestañas 'Ejes Cristalográficos Principales' (1er shell, destructivo) y "
+                f"'Ejes Ortogonales/Constructivos' (2do shell) más abajo, cada una con su Box de Metrología "
+                f"Unitaria; la jerarquía de Bragg cartesiana (diagonal, 2do orden) asume una red "
+                f"cuadrada/rectangular y no aplica aquí."
             ))
         else:
+            self.tabs_1d_cuts.setTabVisible(0, True)
             self.tabs_1d_cuts.setTabVisible(1, False)
+            self.tabs_1d_cuts.setTabVisible(2, False)
             for _w in (self.lbl_fourier_rotation, self.spin_fourier_rotation, self.btn_auto_rotate_fourier):
                 _w.setVisible(False)
             # 1. Picos Fundamentales de 1er Orden (cruz verde/cyan)
@@ -7423,39 +7494,16 @@ class LatticeDisorderWindow(QMainWindow):
                     if 'baseline_curve' in fit_diag and fit_diag['baseline_curve'] is not None:
                         self.plot_cut_diag.plot(fit_diag['fit_f'], fit_diag['baseline_curve'], pen=pg.mkPen('#6c7086', width=1.0, style=Qt.PenStyle.DotLine), name='Línea Base (Diag)')
 
-        # Paquete D.2: para familia hexagonal/honeycomb, los cortes Cartesianos fx/fy
-        # con ajuste gaussiano cuadrado/rectangular recién graficados arriba NO son
-        # válidos (ver nota DEC-012) -- se sobrescriben aquí con los cortes
-        # cristalográficos reales: Sub-pestaña 1 = eje 1 (theta_rot, 1er+2do orden
-        # radial) y eje ortogonal (theta_rot+90°, 2do shell recíproco); Sub-pestaña 2
-        # = los 3 cortes hexagonales dedicados a theta_rot+60°/120°/150°.
-        if is_hex_family_fourier:
-            self.plot_cut_x.clear()
-            self.plot_cut_x.setTitle(f"Corte Eje 1 (θ_rot={theta_rot:+.1f}°, 1er+2do orden)")
-            r1, prof1 = extract_angular_profile(res['S'], fx, fy, theta_rot)
-            self.plot_cut_x.plot(r1, prof1, pen=pg.mkPen('#89dceb', width=2), name='Eje 1')
-
-            self.plot_cut_y.clear()
-            self.plot_cut_y.setTitle(f"Corte Ortogonal (θ_rot+90°={theta_rot + 90.0:+.1f}°, 2do shell)")
-            r2, prof2 = extract_angular_profile(res['S'], fx, fy, theta_rot + 90.0)
-            self.plot_cut_y.plot(r2, prof2, pen=pg.mkPen('#cba6f7', width=2), name='Ortogonal')
-
-            if hasattr(self, 'plot_cut_diag'):
-                self.plot_cut_diag.clear()
-                self.plot_cut_diag.setTitle("No aplica a redes hexagonales/honeycomb")
-
-            for _plot, _angle_offset, _label in (
-                (self.plot_cut_hex60, 60.0, 'Eje Cristalográfico 2'),
-                (self.plot_cut_hex120, 120.0, 'Eje Cristalográfico 3'),
-                (self.plot_cut_hex150, 150.0, 'Gemelo Ortogonal'),
-            ):
-                _plot.clear()
-                _ang = theta_rot + _angle_offset
-                _r, _prof = extract_angular_profile(res['S'], fx, fy, _ang)
-                _plot.setTitle(f"Corte θ_rot+{_angle_offset:.0f}° ({_label})")
-                _plot.plot(_r, _prof, pen=pg.mkPen('#f9e2af', width=2), name=_label)
-        elif hasattr(self, 'plot_cut_hex60'):
-            for _plot in (self.plot_cut_hex60, self.plot_cut_hex120, self.plot_cut_hex150):
+        # Misión Honeycomb (Paquete B): para familia hexagonal/honeycomb, los cortes
+        # Cartesianos fx/fy con ajuste gaussiano cuadrado/rectangular recién
+        # graficados arriba NO son válidos (ver nota DEC-012) -- la sub-pestaña
+        # Cartesiana queda oculta y se pueblan en su lugar los 6 paneles de
+        # self.hex_cut_panels (1er shell: 0°/60°/120°; 2do shell: 30°/90°/150°),
+        # cada uno con su Box de Metrología Unitaria (CAT-315 §8.2).
+        if is_hex_family_fourier and hasattr(self, 'hex_cut_panels'):
+            self._update_hex_cut_panels(res, theta_rot, hex_bragg, is_honeycomb=(lattice_type_key_fourier == 'honeycomb'))
+        elif hasattr(self, 'hex_cut_panels'):
+            for _plot, _box in self.hex_cut_panels.values():
                 _plot.clear()
 
         # Restaurar reglas visuales del pico seleccionado si están activas
@@ -7467,6 +7515,68 @@ class LatticeDisorderWindow(QMainWindow):
 
         self._update_analytical_panels_and_plots(res)
         self._update_metrics_table()
+
+    def _update_hex_cut_panels(
+        self, res: Dict[str, Any], theta_rot: float, hex_bragg: Dict[str, Any], is_honeycomb: bool
+    ) -> None:
+        """Misión Honeycomb (Paquete B): puebla los 6 paneles de self.hex_cut_panels
+        (3 del 1er shell -- 0°/60°/120°, destructivo parcial en honeycomb -- y 3
+        del 2do shell -- 30°/90°/150°, constructivo total) con su corte radial
+        1D y su Box de Metrología Unitaria (f_obs, insignia |F|^2, H, FWHM,
+        ξ=2π/FWHM, SNR, y para el 1er shell además H(2f1)/H1 y H1/H0)."""
+        fx, fy = res['fx'], res['fy']
+        f1 = hex_bragg['f1']
+        q_ortho = hex_bragg['q_ortho']
+
+        # Referencia DC (r=0), idéntica para las 6 direcciones angulares (todas
+        # parten del mismo origen fx=fy=0) -- usada para el ratio H1/H0.
+        _, profile_dc = extract_angular_profile(res['S'], fx, fy, 0.0)
+        H0 = float(profile_dc[0]) if len(profile_dc) > 0 else 1e-6
+
+        first_shell = {
+            0.0: ('Eje 1', hex_bragg['F2_axis1']),
+            60.0: ('Eje 2', hex_bragg['F2_axis2']),
+            120.0: ('Eje 3', hex_bragg['F2_axis3']),
+        }
+        second_shell = {
+            90.0: ('Ortho 1', hex_bragg['F2_ortho1']),
+            30.0: ('Ortho 2', hex_bragg['F2_ortho2']),
+            150.0: ('Ortho 3', hex_bragg['F2_ortho3']),
+        }
+
+        for angle_off, (label, f2_val) in {**first_shell, **second_shell}.items():
+            if angle_off not in self.hex_cut_panels:
+                continue
+            plot, box = self.hex_cut_panels[angle_off]
+            is_first_shell = angle_off in first_shell
+            f_nominal = f1 if is_first_shell else q_ortho
+            angle_abs = theta_rot + angle_off
+
+            r_vals, profile = extract_angular_profile(res['S'], fx, fy, angle_abs)
+            m = extract_honeycomb_peak_profile_metrics(r_vals, profile, f_nominal)
+
+            plot.clear()
+            plot.plot(r_vals, profile, pen=pg.mkPen('#89dceb' if is_first_shell else '#f9e2af', width=2), name=label)
+
+            if is_honeycomb:
+                badge = "🟡 Destructivo Parcial (|F|²=1)" if is_first_shell else "🟢 Constructivo Total (|F|²=4)"
+            else:
+                badge = "⚪ Fundamental (|F|²=1)" if is_first_shell else "⚪ Concha 2 (|F|²=1)"
+
+            lines = [
+                f"<b>{badge}</b> (teórico |F|²={f2_val:.2f})",
+                f"f_obs={m['f_obs']:.5f} nm⁻¹ vs nominal={m['f_nominal']:.5f} nm⁻¹ (Δ={m['strain_pct']:+.2f}%)",
+                f"H={m['H']:.2f} | B={m['B']:.3f} | SNR={m['SNR']:.1f}",
+                f"FWHM={m['FWHM']:.5f} nm⁻¹ | ξ={m['xi_um']:.2f} µm",
+            ]
+            if is_first_shell:
+                _, profile_2f = extract_angular_profile(res['S'], fx, fy, angle_abs)
+                m2f = extract_honeycomb_peak_profile_metrics(r_vals, profile_2f, 2.0 * f1)
+                h2_h1 = (m2f['H'] / m['H']) if m['H'] > 1e-9 else 0.0
+                h1_h0 = (m['H'] / H0) if H0 > 1e-9 else 0.0
+                lines.append(f"H(2f1)/H1={h2_h1:.3f} | H1/H0={h1_h0:.3f} <span style='color:#a6adc8;'>[sensible a fondo DC]</span>")
+
+            box.setText("<br>".join(lines))
 
     def _on_anchor_wilson_toggled(self, checked: bool):
         """Alterna el anclaje del intercepto de Wilson a ln(H0) y actualiza al vuelo los paneles."""
@@ -7483,12 +7593,109 @@ class LatticeDisorderWindow(QMainWindow):
             self._update_analytical_panels_and_plots(self.reciprocal_results)
             self._update_metrics_table()
 
+    def _update_hex_analytical_cards(self, hb: Dict[str, Any]) -> None:
+        """Misión Honeycomb (Paquete B): sobrescribe las 4 tarjetas analíticas
+        (diseñadas originalmente para redes cuadradas) con el contenido
+        hexagonal/honeycomb correspondiente, usando compute_hexagonal_bragg_indexing
+        (hex_bragg). No hay gráficos de diagnóstico Cartesianos equivalentes para
+        esta familia -- las 4 tarjetas concentran toda la metrología."""
+        is_honeycomb = hb.get('lattice_type') == 'honeycomb'
+        a_nom = self.spin_a_nominal.value()
+        f1 = hb['f1']
+        q1 = 2.0 * np.pi * f1
+        sigma_pos = hb['sigma_pos_analytic']
+        valid = hb['honeycomb_inversion_valid']
+        valid_txt = "✅ Válido" if valid else "⚠️ H_ortho &gt; 4·H_axis1 (anomalía: desbalance de subred o dimerización)"
+
+        # Card 1: inversión cerrada de sigma_pos.
+        formula_txt = "σ = (√3a/4π)·√(½·ln(4H₁/H_ortho))" if is_honeycomb else "σ = (√3a/4π)·√(½·ln(H₁/H_ortho))"
+        self.lbl_card_h2h1.setText(
+            f"<b>σ_pos (Inversión Cerrada Honeycomb): {sigma_pos:.2f} nm</b><br>"
+            f"<span style='color: #a6adc8; font-size: 10px;'>"
+            f"H_axis1={hb['H_axis1']:.2f} | H_ortho={hb['H_ortho']:.2f} | Criterio: {valid_txt}<br>"
+            f"El cociente H_ortho/H_axis1 cancela vacancias globales (1-p)² y población N.<br>"
+            f"Fórmula: {formula_txt}</span>"
+        )
+
+        # Card 2: anisotropía direccional entre los 3 ejes principales.
+        a60 = hb['ratio_60_0']
+        a120 = hb['ratio_120_0']
+        dev60 = abs(a60 - 1.0) * 100.0
+        dev120 = abs(a120 - 1.0) * 100.0
+        flag_aniso = (dev60 > 5.0) or (dev120 > 5.0)
+        aniso_txt = (
+            "⚠️ Anisotropía uniaxial o ruido de impresión no independiente detectado"
+            if flag_aniso else "✅ Ejes principales estadísticamente equivalentes"
+        )
+        self.lbl_card_diag.setText(
+            f"<b>Anisotropía Direccional (1er shell): A₆₀/₀={a60:.3f} | A₁₂₀/₀={a120:.3f}</b><br>"
+            f"<span style='color: #a6adc8; font-size: 10px;'>"
+            f"H_axis1={hb['H_axis1']:.2f} | H_axis2={hb['H_axis2']:.2f} | H_axis3={hb['H_axis3']:.2f}<br>"
+            f"Desviación: {dev60:.1f}% (60°) | {dev120:.1f}% (120°) frente a 1.000 ideal<br>"
+            f"{aniso_txt}</span>"
+        )
+
+        # Card 3: razón cruzada de shells vs valor ideal.
+        r_cross = hb['ratio_ortho']
+        f2_ratio = 4.0 if is_honeycomb else 1.0
+        ideal_ratio = f2_ratio * float(np.exp(-2.0 * (q1 ** 2) * (sigma_pos ** 2)))
+        self.lbl_card_h1h0.setText(
+            f"<b>Razón Cruzada de Shells: R_cross = {r_cross:.3f}</b><br>"
+            f"<span style='color: #a6adc8; font-size: 10px;'>"
+            f"R_cross = H_ortho / √(H_axis1·H_axis2) (ideal: {f2_ratio:.2f}·exp(-2q₁²σ²) = {ideal_ratio:.3f} "
+            f"con σ={sigma_pos:.1f} nm)<br>"
+            f"H_ortho1={hb['H_ortho1']:.2f} | H_ortho2={hb['H_ortho2']:.2f} | H_ortho3={hb['H_ortho3']:.2f}<br>"
+            f"Ratio 2do armónico radial: H₂/H₁ eje1={hb['ratio_21_axis1']:.3f} | eje2={hb['ratio_21_axis2']:.3f}</span>"
+        )
+
+        # Card 4: balance de subred y diagnóstico de base (u2, v2).
+        u2 = hb.get('u2', 1.0 / 3.0)
+        v2 = hb.get('v2', 1.0 / 3.0)
+        is_canonical_basis = (abs(u2 - 1.0 / 3.0) < 1e-4) and (abs(v2 - 1.0 / 3.0) < 1e-4)
+        f2_spread = max(hb['F2_axis1'], hb['F2_axis2'], hb['F2_axis3']) - min(hb['F2_axis1'], hb['F2_axis2'], hb['F2_axis3'])
+        if not is_honeycomb:
+            basis_txt = "N/A — red hexagonal monoatómica (sin base biatómica, |F|²≡1 en todo G)."
+        elif is_canonical_basis:
+            basis_txt = (
+                "Base canónica (1/3, 1/3): la anisotropía observada entre ejes principales (Card 2), si "
+                "significativa, NO es atribuible a un corrimiento de base -- sugiere desbalance de vacancias "
+                "de subred (p_A ≠ p_B) o desorden de impresión no independiente."
+            )
+        else:
+            basis_txt = (
+                f"Base desplazada de la canónica: (u₂,v₂)=({u2:.3f},{v2:.3f}). Factor de forma teórico ya "
+                f"predice ruptura de simetría entre ejes (Δ|F|²={f2_spread:.2f}); comparar con Card 2 para "
+                f"aislar anisotropía adicional no explicada por la base."
+            )
+        self.lbl_card_wilson.setText(
+            f"<b>Balance de Subred y Diagnóstico de Base: (u₂,v₂)=({u2:.3f}, {v2:.3f})</b><br>"
+            f"<span style='color: #a6adc8; font-size: 10px;'>"
+            f"F²_axis1={hb['F2_axis1']:.2f} | F²_axis2={hb['F2_axis2']:.2f} | F²_axis3={hb['F2_axis3']:.2f} "
+            f"(teórico, canónico=1.00 c/u)<br>"
+            f"{basis_txt}</span>"
+        )
+
+        if hasattr(self, 'lbl_card_paracrystal'):
+            self.lbl_card_paracrystal.setText(
+                "<b>Diagnóstico Paracristalino: N/A</b><br>"
+                "<span style='color: #a6adc8; font-size: 10px;'>Reservado para redes cuadradas/rectangulares "
+                "(ver Cortes Cristalográficos + Boxes de Metrología Unitaria más arriba para FWHM/ξ por eje).</span>"
+            )
+        for plot_name in ('plot_wilson', 'plot_dw_decay', 'plot_ratio_stability', 'plot_fwhm_paracrystal'):
+            if hasattr(self, plot_name):
+                getattr(self, plot_name).clear()
+
     def _update_analytical_panels_and_plots(self, res: Dict[str, Any]):
         """
         Actualiza las tarjetas de resultados analíticos preliminares y la batería
         de 4 gráficos de diagnóstico (Wilson Plot, Decaimiento Debye-Waller,
         Comparativa de Estabilidad y Diagnóstico Paracristalino).
         """
+        hex_bragg = res.get('hex_bragg')
+        if hex_bragg is not None:
+            self._update_hex_analytical_cards(hex_bragg)
+            return
+
         ana = res.get('analytical_relations')
         if not ana:
             return
@@ -7933,6 +8140,43 @@ class LatticeDisorderWindow(QMainWindow):
             return
 
         res = self.reciprocal_results
+        lattice_type_key_prop = self._get_selected_lattice_type_key() if hasattr(self, 'combo_lattice_type') else 'square'
+        is_hex_family_prop = lattice_type_key_prop in ('hexagonal', 'honeycomb')
+
+        if is_hex_family_prop:
+            # Misión Honeycomb (Paquete C): para familia hexagonal, a_x/a_y de
+            # analyze_reciprocal_space_2d son ajustes Cartesianos físicamente sin
+            # sentido para esta simetría (ver DEC-012) -- el período real es
+            # spin_a_nominal (el mismo 'a' que compute_hexagonal_bragg_indexing y
+            # el registro rígido de Espacio Real ya usan). u2/v2/boundary/
+            # theta_rot son leídos en vivo desde sus propios widgets por
+            # _on_run_monte_carlo, no requieren copia aquí.
+            a_nom_prop = self.spin_a_nominal.value()
+            self.spin_mc_ax.setValue(a_nom_prop)
+            self.chk_mc_anisotropy.setChecked(False)
+            self.spin_mc_ay.setEnabled(False)
+            self.spin_mc_ny.setEnabled(False)
+
+            if self.kdtree_results is not None:
+                self.spin_mc_vac.setValue(self.kdtree_results.get('f_vac_percent', 0.0))
+
+            self.tabs.setCurrentIndex(3)
+            self._update_mc_hex_info_label()
+            hb = res.get('hex_bragg')
+            hb_str = (
+                f"- H_axis1={hb['H_axis1']:.2f} | H_axis2={hb['H_axis2']:.2f} | H_ortho={hb['H_ortho']:.2f}\n"
+                if hb is not None else ""
+            )
+            QMessageBox.information(
+                self, "Parámetros Propagados",
+                f"Parámetros transferidos a Monte Carlo (familia hexagonal):\n"
+                f"- Período a = {a_nom_prop:.2f} nm\n"
+                f"- Vacancias = {self.spin_mc_vac.value():.1f}%\n"
+                f"- θ_rot = {self.spin_fourier_rotation.value():+.1f}° (leído en vivo desde Pestaña 3)\n"
+                f"{hb_str}"
+            )
+            return
+
         a_mean = res['a_mean']
         a_x = res.get('a_x', a_mean)
         a_y = res.get('a_y', a_mean)
@@ -8335,6 +8579,22 @@ class LatticeDisorderWindow(QMainWindow):
                             pen=pg.mkPen('#cba6f7', width=2, style=Qt.PenStyle.DashLine), name='Fit DW Eje 2'
                         )
 
+                # Misión Honeycomb (Paquete C): curva de calibración del 2do shell
+                # ortogonal (constructivo en honeycomb), graficada junto a las de
+                # eje 1/eje 2 -- provee un tercer chequeo cruzado independiente
+                # frente a la inversión analítica cerrada de compute_hexagonal_bragg_indexing.
+                has_ortho_curve = 'H_mean_ortho' in mc and hb.get('H_ortho') is not None
+                if has_ortho_curve and show_order1:
+                    self.plot_dw.plot(
+                        s_vals, mc['H_mean_ortho'], pen=None, symbol='t', symbolSize=7,
+                        symbolBrush=pg.mkBrush('#a6e3a1'), symbolPen=pg.mkPen('#cdd6f4'), name='MC 2do Shell (Ortho)'
+                    )
+                    if mc.get('fit_ortho', {}).get('success'):
+                        self.plot_dw.plot(
+                            mc['fit_ortho']['s_dense'], mc['fit_ortho']['H_fit_dense'],
+                            pen=pg.mkPen('#a6e3a1', width=1.8, style=Qt.PenStyle.DotLine), name='Fit DW Ortho'
+                        )
+
                 s1, ds1 = interpolate_disorder(hb['H_axis1'], s_vals, mc['H_mean_axis1'], mc['H_std_axis1'])
                 s2, ds2 = interpolate_disorder(hb['H_axis2'], s_vals, mc['H_mean_axis2'], mc['H_std_axis2'])
                 if show_order1:
@@ -8355,6 +8615,19 @@ class LatticeDisorderWindow(QMainWindow):
                      'brush': pg.mkBrush('#cba6f7'), 'symbol': 's',
                      'data': {'name': 'Pico Eje 2 (1er orden)', 's': s2, 'ds': ds2, 'H': hb['H_axis2'], 'color': '#cba6f7', 'sym': 's'}},
                 ]
+                ortho_line = ""
+                if has_ortho_curve:
+                    s_ortho, ds_ortho = interpolate_disorder(hb['H_ortho'], s_vals, mc['H_mean_ortho'], mc['H_std_ortho'])
+                    if show_order1:
+                        self.plot_dw.plot([0, s_ortho, s_ortho], [hb['H_ortho'], hb['H_ortho'], 0], pen=pg.mkPen('#a6e3a1', width=1.5, style=Qt.PenStyle.DashLine))
+                    spots_list.append({
+                        'pos': (s_ortho, hb['H_ortho']), 'size': 14, 'pen': pg.mkPen('#ffffff', width=2),
+                        'brush': pg.mkBrush('#a6e3a1'), 'symbol': 't',
+                        'data': {'name': '2do Shell Ortho', 's': s_ortho, 'ds': ds_ortho, 'H': hb['H_ortho'], 'color': '#a6e3a1', 'sym': 't'}
+                    })
+                    mc['s_ortho_interp'] = s_ortho
+                    ortho_line = f"• 2do Shell (Ortho, MC): σ_ortho = {s_ortho:.2f} ± {ds_ortho:.2f} nm (cruce contra Card 1 analítico)\n"
+
                 self.scatter_match_dw = pg.ScatterPlotItem(spots=spots_list)
                 self.scatter_match_dw.sigClicked.connect(self._on_dw_match_point_clicked)
                 self.plot_dw.addItem(self.scatter_match_dw)
@@ -8364,8 +8637,10 @@ class LatticeDisorderWindow(QMainWindow):
                     "═══ INVERSIÓN DEBYE-WALLER DIRECCIONAL (HEXAGONAL) ═══",
                     f"• Eje 1: σ_1 = {s1:.2f} ± {ds1:.2f} nm (H_axis1={hb['H_axis1']:.3f})",
                     f"• Eje 2: σ_2 = {s2:.2f} ± {ds2:.2f} nm (H_axis2={hb['H_axis2']:.3f})",
+                    f"{ortho_line}"
                     f"• Desorden Medio: σ̄ = {s_bar:.2f} nm",
                     f"• Anisotropía de Desorden: Δσ = {delta_s:.2f} nm",
+                    f"• Inversión Analítica Cerrada (Card 1, Pestaña 3): σ_pos = {hb.get('sigma_pos_analytic', 0.0):.2f} nm",
                     f"Bondad de Calibración: {r2_txt}"
                 ]
                 self.lbl_mc_results.setText("\n".join(res_lines))

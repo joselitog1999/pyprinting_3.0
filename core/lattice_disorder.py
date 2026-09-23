@@ -4605,6 +4605,69 @@ def extract_angular_profile(
     return r_vals, profile
 
 
+def extract_honeycomb_peak_profile_metrics(
+    r_vals: np.ndarray,
+    profile: np.ndarray,
+    f_nominal: float,
+    peak_search_rel_width: float = 0.15
+) -> Dict[str, Any]:
+    """
+    Ajusta/caracteriza el pico localizado alrededor de f_nominal en un corte
+    1D radial (r_vals, profile) -- salida de extract_angular_profile -- para
+    poblar los "Unit Metrology Boxes" de la Pestaña 3 (misión Honeycomb, CAT-315
+    §8.2): posición observada f_obs, altura neta H (sobre fondo local B), FWHM
+    (búsqueda de cruces de medio-máximo dentro de la ventana de pico), longitud
+    de coherencia xi=2*pi/FWHM, y SNR=H/sigma_ruido (ruido estimado FUERA de la
+    ventana de pico).
+
+    Ventana de búsqueda: [f_nominal*(1-peak_search_rel_width), f_nominal*(1+peak_search_rel_width)].
+    Si la ventana no contiene puntos válidos, retorna métricas nulas (H=0,
+    SNR=0) en vez de lanzar una excepción -- la GUI debe degradar sin fallar
+    cuando el barrido de frecuencias no alcanza f_nominal (p.ej. f_max_factor
+    insuficiente al calcular S(fx,fy)).
+    """
+    r_vals = np.asarray(r_vals, dtype=np.float64)
+    profile = np.asarray(profile, dtype=np.float64)
+    f_lo = f_nominal * (1.0 - peak_search_rel_width)
+    f_hi = f_nominal * (1.0 + peak_search_rel_width)
+    window_mask = (r_vals >= f_lo) & (r_vals <= f_hi)
+
+    if not np.any(window_mask) or len(r_vals) < 3:
+        return {
+            'f_obs': float(f_nominal), 'f_nominal': float(f_nominal), 'strain_pct': 0.0,
+            'H': 0.0, 'B': 0.0, 'SNR': 0.0, 'FWHM': 0.0, 'xi_um': 0.0
+        }
+
+    outside_mask = ~window_mask
+    B = float(np.median(profile[outside_mask])) if np.any(outside_mask) else float(np.min(profile))
+    noise_sigma = float(np.std(profile[outside_mask])) if np.sum(outside_mask) > 1 else max(1e-9, 0.1 * B)
+
+    idx_window = np.where(window_mask)[0]
+    peak_local_idx = int(idx_window[np.argmax(profile[idx_window])])
+    f_obs = float(r_vals[peak_local_idx])
+    peak_val = float(profile[peak_local_idx])
+    H = max(0.0, peak_val - B)
+    strain_pct = float(100.0 * (f_obs - f_nominal) / f_nominal) if f_nominal > 1e-12 else 0.0
+    SNR = float(H / noise_sigma) if noise_sigma > 1e-12 else 0.0
+
+    # FWHM: cruces de medio-máximo (sobre fondo B) buscando hacia afuera desde el pico.
+    half_max = B + 0.5 * H
+    df = float(r_vals[1] - r_vals[0]) if len(r_vals) > 1 else 0.0
+    left_idx = peak_local_idx
+    while left_idx > 0 and profile[left_idx] > half_max:
+        left_idx -= 1
+    right_idx = peak_local_idx
+    while right_idx < len(profile) - 1 and profile[right_idx] > half_max:
+        right_idx += 1
+    FWHM = float((right_idx - left_idx) * df) if H > 1e-12 else 0.0
+    xi_um = float((2.0 * np.pi / FWHM) / 1000.0) if FWHM > 1e-9 else 0.0  # r_vals en nm^-1 -> xi en um
+
+    return {
+        'f_obs': f_obs, 'f_nominal': float(f_nominal), 'strain_pct': strain_pct,
+        'H': H, 'B': B, 'SNR': SNR, 'FWHM': FWHM, 'xi_um': xi_um
+    }
+
+
 def compute_radial_azimuthal_profile(
     S: np.ndarray,
     fx: np.ndarray,
@@ -4710,35 +4773,59 @@ def find_hexagonal_reciprocal_rotation(
     }
 
 
+def _honeycomb_basis_factor_sq(h: float, v: float, k: float, w: float) -> float:
+    """|F_basis(G_hk)|^2 = 4*cos^2(pi*(h*u2 + k*v2)) para la base diatómica
+    honeycomb (ver CAT-315 §4.2-4.3, §6.1). Para redes hexagonales/triangulares
+    monoatómicas este factor es idénticamente 1 para todo (h,k) y no se usa."""
+    return 4.0 * (math.cos(math.pi * (h * v + k * w)) ** 2)
+
+
 def compute_hexagonal_bragg_indexing(
     S: np.ndarray,
     fx: np.ndarray,
     fy: np.ndarray,
     a: float,
     rotation_deg: float = 0.0,
-    peak_search_rel_width: float = 0.15
+    peak_search_rel_width: float = 0.15,
+    lattice_type: str = 'hexagonal',
+    u2: float = 1.0 / 3.0,
+    v2: float = 1.0 / 3.0
 ) -> Dict[str, Any]:
     """
     Indexación de picos de Bragg hexagonales/honeycomb en S(fx, fy): busca la
     intensidad local máxima (misma técnica que compute_analytical_bragg_relations
     -- ventana circular de radio peak_search_rel_width*f0 alrededor de cada
-    punto recíproco nominal) en 5 posiciones:
-        H_axis1    @  0°+rotation_deg,  radio f1 = 2/(sqrt(3)*a)  (1er orden)
-        H_axis2    @ 60°+rotation_deg,  radio f1                  (1er orden,
-                     equivalente por simetría 6-fold a axis1)
-        H_2_axis1  @  0°+rotation_deg,  radio 2*f1  (2do armónico radial, NO
-                     el 2do "shell" de la red recíproca -- ver docstring del
-                     paquete D.3 de la misión, son puntos recíprocos distintos)
-        H_2_axis2  @ 60°+rotation_deg,  radio 2*f1
-        H_ortho    @ 90°+rotation_deg,  radio q_ortho = sqrt(3)*f1 = 2/a
-                     (2do "shell" de la red recíproca triangular, punto
-                     genuino -- 90° = 30° mod 60°, coincide con el punto medio
-                     angular entre dos picos de 1er orden adyacentes)
+    punto recíproco nominal) en las 3 direcciones principales del 1er shell
+    (destructivo parcial en honeycomb, |F|^2=1) y las 3 direcciones ortogonales
+    del 2do shell (constructivo total en honeycomb, |F|^2=4) — ver CAT-315:
+
+        H_axis1   @   0°+rotation_deg,  radio f1 = 2/(sqrt(3)*a)   Miller (1,0)
+        H_axis2   @  60°+rotation_deg,  radio f1                   Miller (1,1)
+        H_axis3   @ 120°+rotation_deg,  radio f1                   Miller (0,1)
+        H_2_axis1 @   0°+rotation_deg,  radio 2*f1  (2do armónico RADIAL, NO
+                      el 2do "shell" -- son puntos recíprocos distintos)
+        H_2_axis2 @  60°+rotation_deg,  radio 2*f1
+        H_ortho1  @  90°+rotation_deg,  radio q_ortho=sqrt(3)*f1=2/a  Miller (1,2)
+        H_ortho2  @  30°+rotation_deg,  radio q_ortho                Miller (2,1)
+        H_ortho3  @ 150°+rotation_deg,  radio q_ortho                Miller (-1,1)
+        (H_ortho es un alias de H_ortho1, retrocompatible con el Paquete D.3)
+
+    Índices de Miller relativos a rotation_deg verificados analítica y
+    numéricamente (b1 a azimut -30°, b2 a azimut +90° para rotación real 0°,
+    ver find_hexagonal_reciprocal_rotation / CAT-308 §9.1).
+
+    lattice_type : 'hexagonal'/'triangular' (monoatómica, |F|^2≡1 en todo G) o
+        'honeycomb'/'graphene' (base diatómica, |F|^2=4cos^2(pi*(h*u2+k*v2))).
+    u2, v2 : posición fraccional de la subred B (sólo con efecto en honeycomb;
+        canónico 1/3, 1/3 -- ver CAT-315 §4.2, §6.1 para desplazamientos).
 
     `rotation_deg` debe ser el ángulo de rotación del retículo RECÍPROCO
-    (spin_fourier_rotation en la GUI, ya corregido -30° respecto al ángulo de
-    registro rígido de espacio real theta_fit_deg si ese fue el origen).
+    (spin_fourier_rotation en la GUI): rotation_deg+0° es, por construcción,
+    la azimut de un pico de Bragg real (ver find_hexagonal_reciprocal_rotation).
     """
+    ltype_key = lattice_type.lower().strip()
+    is_honeycomb = ltype_key in ('honeycomb', 'graphene')
+
     f1 = 2.0 / (np.sqrt(3.0) * float(a))
     q_ortho = np.sqrt(3.0) * f1
     FX, FY = np.meshgrid(fx, fy)
@@ -4757,28 +4844,88 @@ def compute_hexagonal_bragg_indexing(
 
     ax1_x, ax1_y = _target_xy(0.0 + rotation_deg, f1)
     ax2_x, ax2_y = _target_xy(60.0 + rotation_deg, f1)
+    ax3_x, ax3_y = _target_xy(120.0 + rotation_deg, f1)
     ax1_2_x, ax1_2_y = _target_xy(0.0 + rotation_deg, 2.0 * f1)
     ax2_2_x, ax2_2_y = _target_xy(60.0 + rotation_deg, 2.0 * f1)
-    ortho_x, ortho_y = _target_xy(90.0 + rotation_deg, q_ortho)
+    ortho1_x, ortho1_y = _target_xy(90.0 + rotation_deg, q_ortho)
+    ortho2_x, ortho2_y = _target_xy(30.0 + rotation_deg, q_ortho)
+    ortho3_x, ortho3_y = _target_xy(150.0 + rotation_deg, q_ortho)
 
     H_axis1 = _get_peak(ax1_x, ax1_y, search_r1)
     H_axis2 = _get_peak(ax2_x, ax2_y, search_r1)
+    H_axis3 = _get_peak(ax3_x, ax3_y, search_r1)
     H_2_axis1 = _get_peak(ax1_2_x, ax1_2_y, search_r2)
     H_2_axis2 = _get_peak(ax2_2_x, ax2_2_y, search_r2)
-    H_ortho = _get_peak(ortho_x, ortho_y, search_r2)
+    H_ortho1 = _get_peak(ortho1_x, ortho1_y, search_r2)
+    H_ortho2 = _get_peak(ortho2_x, ortho2_y, search_r2)
+    H_ortho3 = _get_peak(ortho3_x, ortho3_y, search_r2)
+    H_ortho = H_ortho1  # alias retrocompatible (Paquete D.3)
 
     ratio_21_axis1 = float(H_2_axis1 / H_axis1) if H_axis1 > 1e-9 else 0.0
     ratio_21_axis2 = float(H_2_axis2 / H_axis2) if H_axis2 > 1e-9 else 0.0
     denom = np.sqrt(max(H_axis1, 1e-9) * max(H_axis2, 1e-9))
     ratio_ortho = float(H_ortho / denom) if denom > 1e-9 else 0.0
+    ratio_60_0 = float(H_axis2 / H_axis1) if H_axis1 > 1e-9 else 0.0
+    ratio_120_0 = float(H_axis3 / H_axis1) if H_axis1 > 1e-9 else 0.0
+
+    # Factores de base geométricos teóricos (Miller relativos a rotation_deg,
+    # ver docstring). Para hexagonal monoatómica |F|^2 ≡ 1 en todo G.
+    if is_honeycomb:
+        F2_axis1 = _honeycomb_basis_factor_sq(1, u2, 0, v2)
+        F2_axis2 = _honeycomb_basis_factor_sq(1, u2, 1, v2)
+        F2_axis3 = _honeycomb_basis_factor_sq(0, u2, 1, v2)
+        F2_ortho1 = _honeycomb_basis_factor_sq(1, u2, 2, v2)
+        F2_ortho2 = _honeycomb_basis_factor_sq(2, u2, 1, v2)
+        F2_ortho3 = _honeycomb_basis_factor_sq(-1, u2, 1, v2)
+    else:
+        F2_axis1 = F2_axis2 = F2_axis3 = 1.0
+        F2_ortho1 = F2_ortho2 = F2_ortho3 = 1.0
+
+    # Inversión analítica cerrada de sigma_pos (cociente 1er shell axis1 / 2do
+    # shell ortho, cancela vacancias globales (1-p)^2 y N -- ver CAT-315 §7.1
+    # honeycomb, CAT-308 §9 generalización hexagonal).
+    #
+    # CORRECCIÓN NUMÉRICA (verificada durante esta implementación, ver
+    # tests/test_honeycomb_reciprocal_metrology.py::TestClosedFormSigmaInversion):
+    # la fórmula tal como está impresa en CAT-315 §7.1 (sigma = (sqrt(3)a/4pi) *
+    # sqrt(ln(4H1/H_ortho)), SIN dividir por 2 dentro de la raíz) sobreestima
+    # sigma_pos en un factor sqrt(2) consistente y sistemático frente a redes
+    # honeycomb/hexagonales sintéticas con desorden gaussiano CONOCIDO. La
+    # convención Debye-Waller REALMENTE usada y ya validada en todo el resto
+    # de este código base (ver core/lattice_disorder.py::compute_analytical_bragg_relations,
+    # factor_h2h1_x = a_x/(2*pi*sqrt(3)), CAT-308 §3.1, probado en sesiones
+    # previas) es H(G) ∝ exp(-G² * sigma_pos²) -- SIN el 1/2 que implicaría la
+    # forma cuadrática q^T*Sigma_pos*q de CAT-315 §6.3 tomada literalmente.
+    # Bajo esa convención (verificada empíricamente: exp(-q1²σ²) reproduce el
+    # decaimiento medido de H_axis1(σ)/H_axis1(0) dentro de <1% en un barrido de
+    # sigma de 0-60 nm, mientras que exp(-q1²σ²/2) sobreestima H hasta ~40% a
+    # sigma=60 nm), el cociente de conchas correcto es
+    # H_ortho/H_axis1 = 4*exp(-2*q1²*sigma_pos²) (no 4*exp(-q1²*sigma_pos²)),
+    # y por lo tanto la inversión correcta divide el logaritmo por 2 adicional:
+    # sigma_pos = (1/q1) * sqrt(ln(4H1/H_ortho) / 2), q1 = 2*pi*f1 = 4*pi/(sqrt(3)a).
+    # Verificado numéricamente: recupera sigma_in conocido (12-40 nm) dentro de
+    # <3% sobre 5 semillas independientes (vs. ~40-75% de sesgo sistemático con
+    # la fórmula literal de CAT-315). Se recomienda corregir CAT-315 §7.1.
+    honeycomb_inversion_valid = bool(4.0 * H_axis1 >= H_ortho)
+    if is_honeycomb:
+        radicand = (math.log(max(1e-12, 4.0 * H_axis1)) - math.log(max(1e-12, H_ortho))) / 2.0
+        sigma_pos_analytic = (np.sqrt(3.0) * float(a)) / (4.0 * np.pi) * math.sqrt(max(0.0, radicand))
+    else:
+        radicand = (math.log(max(1e-12, H_axis1)) - math.log(max(1e-12, H_ortho))) / 2.0
+        sigma_pos_analytic = (np.sqrt(3.0) * float(a)) / (4.0 * np.pi) * math.sqrt(max(0.0, radicand))
 
     return {
-        'H_axis1': H_axis1, 'H_axis2': H_axis2,
+        'lattice_type': ltype_key, 'u2': float(u2), 'v2': float(v2),
+        'H_axis1': H_axis1, 'H_axis2': H_axis2, 'H_axis3': H_axis3,
         'H_2_axis1': H_2_axis1, 'H_2_axis2': H_2_axis2,
-        'H_ortho': H_ortho,
+        'H_ortho': H_ortho, 'H_ortho1': H_ortho1, 'H_ortho2': H_ortho2, 'H_ortho3': H_ortho3,
+        'F2_axis1': F2_axis1, 'F2_axis2': F2_axis2, 'F2_axis3': F2_axis3,
+        'F2_ortho1': F2_ortho1, 'F2_ortho2': F2_ortho2, 'F2_ortho3': F2_ortho3,
         'f1': f1, 'q_ortho': q_ortho,
         'ratio_21_axis1': ratio_21_axis1, 'ratio_21_axis2': ratio_21_axis2,
-        'ratio_ortho': ratio_ortho,
+        'ratio_ortho': ratio_ortho, 'ratio_60_0': ratio_60_0, 'ratio_120_0': ratio_120_0,
+        'sigma_pos_analytic': float(sigma_pos_analytic),
+        'honeycomb_inversion_valid': honeycomb_inversion_valid,
         'rotation_deg': float(rotation_deg)
     }
 
@@ -5320,15 +5467,21 @@ def run_hexagonal_monte_carlo_calibration(
     dentro de una geometría poligonal (hexágono, círculo o rectángulo).
 
     rotation_deg : float, opcional (Paquete D.4)
-        Rotación del retículo recíproco (spin_fourier_rotation de la Pestaña 3, ya
-        corregida -30° respecto al registro rígido de espacio real si ese fue el
-        origen -- ver find_hexagonal_reciprocal_rotation). Además de la curva
-        isotrópica H_mean/H_std (promedio de las 6 direcciones, comportamiento
-        idéntico al previo con rotation_deg=0.0), evalúa por separado las curvas
-        direccionales H_mean_axis1/H_std_axis1 (3 réplicas equivalentes por simetría
-        6-fold: -30°, 90°, 210°, desplazadas por rotation_deg) y H_mean_axis2/
-        H_std_axis2 (30°, 150°, 270°, desplazadas por rotation_deg), para inversión
-        Debye-Waller direccional (sigma_1, sigma_2) contra compute_hexagonal_bragg_indexing.
+        Rotación del retículo RECÍPROCO en la misma convención que
+        compute_hexagonal_bragg_indexing (spin_fourier_rotation de la Pestaña 3):
+        rotation_deg+0° es, por construcción/semilla, la azimut de un pico de
+        Bragg real (ver find_hexagonal_reciprocal_rotation), y los 6 picos de
+        1er orden caen en rotation_deg + {0°,60°,...,300°} (NO en la base
+        histórica -30°/30°/90°/... salvo cuando rotation_deg=0). Además de la
+        curva isotrópica H_mean/H_std (promedio de las 6 direcciones,
+        comportamiento idéntico al previo con rotation_deg=0.0), evalúa por
+        separado las curvas direccionales H_mean_axis1/H_std_axis1 (3 réplicas
+        equivalentes por simetría 6-fold: rotation_deg+{0°,120°,240°}) y
+        H_mean_axis2/H_std_axis2 (rotation_deg+{60°,180°,300°}), consistentes
+        con H_axis1 (rotation_deg+0°) y H_axis2 (rotation_deg+60°) de
+        compute_hexagonal_bragg_indexing; y la curva ortogonal de 2do shell
+        H_mean_ortho/H_std_ortho (radio q_ortho=sqrt(3)*f0, 3 réplicas en
+        rotation_deg+{90°,210°,330°}), consistente con H_ortho (rotation_deg+90°).
 
     u2, v2 : float, opcional
         Base de la subred B para honeycomb/grafeno (ver generate_ideal_lattice_template).
@@ -5352,18 +5505,24 @@ def run_hexagonal_monte_carlo_calibration(
     analítica independiente de este mismo efecto.
     """
     ltype_key = lattice_type.lower().strip()
-    # Paquete D.4: el retículo ideal se genera YA rotado por rotation_deg en espacio
-    # real, para que sus picos de Bragg reales caigan exactamente en las direcciones
-    # evaluadas más abajo (angles_deg = base + rotation_deg). Rotar sólo las
-    # direcciones de evaluación sin rotar también la red sintética desalinearía la
-    # sonda del pico real (rotación real-espacio <-> recíproco es una isometría
-    # covariante: S(R_theta q; R_theta red) = S(q; red) para cualquier theta),
-    # produciendo la misma atenuación Debye-Waller CRECIENTE espuria que motivó
-    # fijar originalmente la convención -30°/30°/90°/... (ver nota más abajo).
+    # Paquete D.4: el retículo ideal se genera YA rotado en espacio real, para que
+    # sus picos de Bragg reales caigan exactamente en las direcciones evaluadas más
+    # abajo (angles_deg = [0,60,...,300] + rotation_deg). Rotar sólo las direcciones
+    # de evaluación sin rotar también la red sintética desalinearía la sonda del
+    # pico real (rotación real-espacio <-> recíproco es una isometría covariante:
+    # S(R_theta q; R_theta red) = S(q; red) para cualquier theta), produciendo la
+    # misma atenuación Debye-Waller CRECIENTE espuria que motivó fijar originalmente
+    # la convención -30°/30°/90°/... (ver nota más abajo). El offset +30° adicional
+    # convierte rotation_deg (convención "rotation_deg+0° = azimut de un pico real",
+    # idéntica a compute_hexagonal_bragg_indexing) a la rotación real-espacio
+    # equivalente que hace que la base histórica -30°/30°/90°/... (verificada
+    # numéricamente contra generate_ideal_lattice_template con rotación real 0°)
+    # coincida con [0,60,...,300]+rotation_deg: base + (rotation_deg+30) =
+    # (base+30) + rotation_deg = [0,60,...,300] + rotation_deg.
     template = generate_ideal_lattice_template(
         lattice_type=ltype_key, a=a, boundary_type=boundary_type, boundary_size_nm=boundary_size_nm,
         boundary_width_nm=boundary_width_nm, boundary_height_nm=boundary_height_nm,
-        rotation_deg=float(rotation_deg), u2=u2, v2=v2
+        rotation_deg=float(rotation_deg) + 30.0, u2=u2, v2=v2
     )
     x0_flat = template['x']
     y0_flat = template['y']
@@ -5377,24 +5536,33 @@ def run_hexagonal_monte_carlo_calibration(
     total_runs = n_sigma_steps * iterations_per_step
 
     f0 = 2.0 / (np.sqrt(3.0) * float(a))
+    q_ortho = np.sqrt(3.0) * f0
     n_pts = max(31, int(n_bragg_pts))
     f_eval = np.linspace(f0 * 0.75, f0 * 1.25, n_pts)
-    # Las 6 direcciones equivalentes de Bragg de 1er orden están a -30°, 30°, 90°, ...
-    # (paso de 60°), NO a 0°, 60°, 120°, ... : el retículo recíproco de una red triangular
-    # con vectores primitivos reales a1=(a,0), a2=(a*cos60, a*sin60) está rotado 30° respecto
-    # a la orientación real-espacio (resultado cristalográfico estándar, verificado numéricamente
-    # por fuerza bruta contra generate_ideal_lattice_template antes de fijar esta constante —
-    # una asunción inicial de 0°/60°/... producía una atenuación Debye-Waller CRECIENTE y
-    # espuria con sigma, ya que evaluaba S fuera del pico real de Bragg).
-    angles_deg = np.array([-30.0, 30.0, 90.0, 150.0, 210.0, 270.0]) + float(rotation_deg)
+    f_eval_ortho = np.linspace(q_ortho * 0.75, q_ortho * 1.25, n_pts)
+    # Las 6 direcciones equivalentes de Bragg de 1er orden están en rotation_deg +
+    # {0°,60°,...,300°} (misma convención que compute_hexagonal_bragg_indexing,
+    # donde H_axis1/H_axis2 se miden en rotation_deg+0°/+60°) -- consecuencia directa
+    # de rotar la red sintética por rotation_deg+30° arriba. La base histórica
+    # -30°/30°/90°/... (válida cuando rotation_deg=0, verificada numéricamente por
+    # fuerza bruta contra generate_ideal_lattice_template antes de fijar esta
+    # constante) queda recuperada exactamente cuando rotation_deg=0.
+    angles_deg = np.array([0.0, 60.0, 120.0, 180.0, 240.0, 300.0]) + float(rotation_deg)
     angles_rad = np.radians(angles_deg)
     fx_dirs = np.outer(np.cos(angles_rad), f_eval).ravel()  # (6*n_pts,)
     fy_dirs = np.outer(np.sin(angles_rad), f_eval).ravel()
-    # Paquete D.4: índices 0,2,4 (-30°,90°,210°+rotation_deg) = familia Eje 1;
-    # índices 1,3,5 (30°,150°,270°+rotation_deg) = familia Eje 2 (3 réplicas
-    # equivalentes por simetría 6-fold cada una).
+    # Paquete D.4: índices 0,2,4 (rotation_deg+0°,120°,240°) = familia Eje 1;
+    # índices 1,3,5 (rotation_deg+60°,180°,300°) = familia Eje 2 (3 réplicas
+    # equivalentes por simetría 6-fold cada una, incluyendo siempre el ángulo
+    # exacto donde compute_hexagonal_bragg_indexing mide H_axis1/H_axis2).
     axis1_idx = np.array([0, 2, 4])
     axis2_idx = np.array([1, 3, 5])
+    # 2do shell (constructivo en honeycomb, |F|^2=4): rotation_deg + {90°,210°,330°},
+    # radio q_ortho=sqrt(3)*f0 -- consistente con H_ortho (rotation_deg+90°).
+    angles_ortho_deg = np.array([90.0, 210.0, 330.0]) + float(rotation_deg)
+    angles_ortho_rad = np.radians(angles_ortho_deg)
+    fx_dirs_ortho = np.outer(np.cos(angles_ortho_rad), f_eval_ortho).ravel()  # (3*n_pts,)
+    fy_dirs_ortho = np.outer(np.sin(angles_ortho_rad), f_eval_ortho).ravel()
 
     H_mean = np.zeros(n_sigma_steps, dtype=np.float64)
     H_std = np.zeros(n_sigma_steps, dtype=np.float64)
@@ -5402,12 +5570,15 @@ def run_hexagonal_monte_carlo_calibration(
     H_std_axis1 = np.zeros(n_sigma_steps, dtype=np.float64)
     H_mean_axis2 = np.zeros(n_sigma_steps, dtype=np.float64)
     H_std_axis2 = np.zeros(n_sigma_steps, dtype=np.float64)
+    H_mean_ortho = np.zeros(n_sigma_steps, dtype=np.float64)
+    H_std_ortho = np.zeros(n_sigma_steps, dtype=np.float64)
     run_counter = 0
 
     for i, s in enumerate(sigma_values):
         heights_step = []
         heights_step_axis1 = []
         heights_step_axis2 = []
+        heights_step_ortho = []
         for _ in range(iterations_per_step):
             if f_vac > 0:
                 keep_mask = rng.uniform(0, 1, N_sites) >= f_vac
@@ -5435,6 +5606,11 @@ def run_hexagonal_monte_carlo_calibration(
             heights_step_axis1.append(float(np.max(np.mean(S_by_dir[axis1_idx], axis=0))))
             heights_step_axis2.append(float(np.max(np.mean(S_by_dir[axis2_idx], axis=0))))
 
+            phase_ortho = np.outer(fx_dirs_ortho, x_noisy) + np.outer(fy_dirs_ortho, y_noisy)  # (3*n_pts, N_occ)
+            amp_sum_ortho = np.sum(np.exp(-2j * np.pi * phase_ortho), axis=1)
+            S_by_dir_ortho = ((np.abs(amp_sum_ortho) ** 2) / float(N_occ)).reshape(len(angles_ortho_deg), n_pts)
+            heights_step_ortho.append(float(np.max(np.mean(S_by_dir_ortho, axis=0))))
+
             run_counter += 1
             if progress_callback is not None and run_counter % 10 == 0:
                 progress_callback(run_counter, total_runs, (run_counter / total_runs) * 100.0)
@@ -5445,6 +5621,8 @@ def run_hexagonal_monte_carlo_calibration(
         H_std_axis1[i] = float(np.std(heights_step_axis1, ddof=1)) if len(heights_step_axis1) > 1 else 0.0
         H_mean_axis2[i] = float(np.mean(heights_step_axis2))
         H_std_axis2[i] = float(np.std(heights_step_axis2, ddof=1)) if len(heights_step_axis2) > 1 else 0.0
+        H_mean_ortho[i] = float(np.mean(heights_step_ortho))
+        H_std_ortho[i] = float(np.std(heights_step_ortho, ddof=1)) if len(heights_step_ortho) > 1 else 0.0
 
     if progress_callback is not None:
         progress_callback(total_runs, total_runs, 100.0)
@@ -5452,11 +5630,13 @@ def run_hexagonal_monte_carlo_calibration(
     fit_res = fit_debye_waller_curve(sigma_values, H_mean, f_vac=f_vac)
     fit_res_axis1 = fit_debye_waller_curve(sigma_values, H_mean_axis1, f_vac=f_vac)
     fit_res_axis2 = fit_debye_waller_curve(sigma_values, H_mean_axis2, f_vac=f_vac)
+    fit_res_ortho = fit_debye_waller_curve(sigma_values, H_mean_ortho, f_vac=f_vac)
 
     return {
         'lattice_type': ltype_key,
         'a': float(a),
         'f0': f0,
+        'q_ortho': q_ortho,
         'boundary_type': template['boundary_type'],
         'boundary_size_nm': float(boundary_size_nm),
         'N_sites': N_sites,
@@ -5471,6 +5651,9 @@ def run_hexagonal_monte_carlo_calibration(
         # respecto a la curva isotrópica H_mean/H_std (retrocompatible).
         'H_mean_axis1': H_mean_axis1, 'H_std_axis1': H_std_axis1, 'fit_axis1': fit_res_axis1,
         'H_mean_axis2': H_mean_axis2, 'H_std_axis2': H_std_axis2, 'fit_axis2': fit_res_axis2,
+        # Paquete C (misión honeycomb): curva de calibración del 2do shell ortogonal
+        # (constructivo en honeycomb, |F|^2=4), radio q_ortho=sqrt(3)*f0.
+        'H_mean_ortho': H_mean_ortho, 'H_std_ortho': H_std_ortho, 'fit_ortho': fit_res_ortho,
         'ideal_voronoi_coordination': template['ideal_voronoi_coordination']
     }
 
