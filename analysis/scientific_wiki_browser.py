@@ -12,24 +12,23 @@ proyecto:
     - docs/modulos/MOD-xxx_*.md          (Manuales de Módulo)
 
 Soporta enlaces cruzados estilo Obsidian (``[[CAT-105]]``, ``[[CAT-105|Alias]]``,
-``[[CAT-105#Seccion]]``, ``[[CAT-105#Seccion|Alias]]``) y navegación directa a
-anclas de sección (``#seccion``) generadas automáticamente por la extensión
-``toc`` de la librería ``markdown``.
+``[[CAT-105#Seccion]]``, ``[[CAT-105#Seccion|Alias]]``), bloques de advertencia
+nativos de Obsidian/GitHub (``> [!NOTE]``, ``> [!TIP]``, ``> [!IMPORTANT]``,
+``> [!WARNING]``, ``> [!CAUTION]``), renderizado matemático vectorial completo
+(matrices, tensores, multilínea) vía MathJax 3 SVG offline sobre motor
+Chromium moderno (``QWebEngineView``), navegación directa a anclas de sección
+(``#seccion``) y botón de integración directa para abrir la nota en la aplicación
+Obsidian nativa.
 
-Sigue las convenciones de construcción/estilo de
-``analysis/figure_export_studio.py::FigureExportStudioDialog`` (docstrings,
-paleta Catppuccin Mocha, estructura de ``QDialog``) con una diferencia
-arquitectónica deliberada: mientras ``FigureExportStudioDialog`` se lanza de
-forma MODAL vía ``.exec()``, este diálogo se lanza con ``.show()`` (no modal),
-ya que está pensado para permanecer abierto junto a la ventana principal
-mientras el usuario de laboratorio sigue trabajando (patrón singleton
-gestionado por el llamador, ver ``navigate_to()``).
+Incluye arquitectura de fallback transparente a ``QTextBrowser`` en entornos
+donde QtWebEngine no esté disponible.
 """
 
 import base64
 import functools
 import io
 import re
+import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -43,6 +42,17 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DETECCIÓN DE MOTOR WEBENGINE (Chromium Embebido)
+# ──────────────────────────────────────────────────────────────────────────────
+HAS_WEBENGINE: bool = False
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEnginePage
+    HAS_WEBENGINE = True
+except (ImportError, Exception):
+    HAS_WEBENGINE = False
 
 
 # ==============================================================================
@@ -62,19 +72,23 @@ CATEGORY_LABELS: Dict[str, str] = {
     'MOD': 'Manuales de Módulo',
 }
 
+# Recursos de renderizado matemático offline
+MATHJAX_PATH = BASE_DIR / 'resources' / 'vendor' / 'tex-svg.js'
+KATEX_DIR = BASE_DIR / 'resources' / 'vendor' / 'katex'
+
 # Prefijo-Numero al inicio del nombre de archivo, ej. "CAT-105_Algo.md" -> "CAT-105"
 _NOTE_ID_RE = re.compile(r'^([A-Z]{2,4}-\d+)_')
 
-# Enlaces estilo Obsidian: [[CAT-105]], [[CAT-105|Alias]], [[CAT-105#Seccion]],
-# [[CAT-105#Seccion|Alias]], y ahora también con título descriptivo completo y/o
-# extensión .md: [[CAT-105_Titulo_Descriptivo.md]]. El grupo 2 conserva el '#'
-# inicial cuando existe.
+# Enlaces estilo Obsidian: [[CAT-105]], [[CAT-105|Alias]], [[CAT-105#Seccion]], etc.
 WIKILINK_RE = re.compile(r'\[\[([A-Z]{2,4}-\d+[^\]|#]*)(#[^\]|]+)?(?:\|([^\]]+))?\]\]')
+
+# Bloques y expresiones matemáticas estándar
+_BLOCK_MATH_RE = re.compile(r'\$\$(.+?)\$\$', re.DOTALL)
+_INLINE_MATH_RE = re.compile(r'(?<!\$)\$(?!\s)([^\$\n]+?)(?<!\s)\$(?!\$)')
 
 
 def _sort_key(note_id: str) -> int:
-    """Extrae la parte numérica de un note_id (ej. 'CAT-001' -> 1) para poder
-    ordenar numéricamente en vez de lexicográficamente (CAT-9 antes que CAT-10)."""
+    """Extrae la parte numérica de un note_id para ordenar numéricamente."""
     m = re.search(r'-(\d+)$', note_id)
     return int(m.group(1)) if m else 0
 
@@ -96,11 +110,6 @@ def discover_notes(base_dir: Optional[Path] = None) -> Tuple[Dict[str, Path], Di
     """
     Escanea reportes/cientificos, reportes/sistema y docs/modulos en busca de
     notas CAT-xxx / SYS-xxx / MOD-xxx.
-
-    Retorna una tupla (índice, títulos, categorías):
-        índice:     note_id -> Path absoluto del archivo .md
-        títulos:    note_id -> título (primera línea '# ...' del archivo)
-        categorías: note_id -> prefijo de categoría ('CAT' / 'SYS' / 'MOD')
     """
     root = base_dir if base_dir is not None else BASE_DIR
     index: Dict[str, Path] = {}
@@ -150,45 +159,123 @@ def _wikilink_repl(match: 're.Match') -> str:
 
 
 def preprocess_wikilinks(text: str) -> str:
-    """
-    Pre-procesa enlaces estilo Obsidian ``[[CAT-105]]`` (y variantes con alias
-    ``|`` y/o ancla ``#seccion``) en enlaces Markdown reales resolubles por la
-    librería ``markdown`` estándar, ANTES de invocar ``markdown.markdown()``.
-
-    La sintaxis ``[[...]]`` no es Markdown estándar y la librería ``markdown``
-    la deja intacta como texto plano; este preprocesamiento es el único punto
-    donde se traduce a un esquema de URL propio ``wiki://<NOTE_ID>[#ancla]``
-    que luego se resuelve en ``ScientificWikiBrowserDialog._on_anchor_clicked``.
-
-    Ejemplos:
-        [[CAT-105]]                      -> [CAT-105](wiki://CAT-105)
-        [[CAT-105|Deriva Térmica]]       -> [Deriva Térmica](wiki://CAT-105)
-        [[CAT-105#Metodologia]]          -> [CAT-105#Metodologia](wiki://CAT-105#Metodologia)
-        [[CAT-105#Metodologia|Ver más]]  -> [Ver más](wiki://CAT-105#Metodologia)
-    """
+    """Pre-procesa enlaces estilo Obsidian [[CAT-105]] en enlaces Markdown reales."""
     return WIKILINK_RE.sub(_wikilink_repl, text)
 
 
 # ==============================================================================
-# RENDERIZADO OFFLINE DE LATEX (MATHTEXT) — QTextBrowser es un motor HTML4/CSS2.1
-# sin JavaScript (no puede ejecutar MathJax/KaTeX). Se compila cada expresión a
-# una imagen PNG embebida como data-URI base64 usando el motor mathtext interno
-# de Matplotlib (subconjunto de LaTeX, NO un motor TeX completo).
+# CALLOUTS DE OBSIDIAN Y GITHUB (> [!NOTE], > [!TIP], etc.)
 # ==============================================================================
-_BLOCK_MATH_RE = re.compile(r'\$\$(.+?)\$\$', re.DOTALL)
-_INLINE_MATH_RE = re.compile(r'(?<!\$)\$(?!\s)([^\$\n]+?)(?<!\s)\$(?!\$)')
+CALLOUT_CONFIG = {
+    'NOTE': {
+        'icon': 'ℹ️',
+        'title': 'Nota',
+        'border': '#89b4fa',  # Blue
+        'bg': 'rgba(137, 180, 250, 0.08)',
+        'title_color': '#89b4fa'
+    },
+    'TIP': {
+        'icon': '💡',
+        'title': 'Consejo / Sugerencia',
+        'border': '#a6e3a1',  # Green
+        'bg': 'rgba(166, 227, 161, 0.08)',
+        'title_color': '#a6e3a1'
+    },
+    'IMPORTANT': {
+        'icon': '❗',
+        'title': 'Importante',
+        'border': '#cba6f7',  # Mauve
+        'bg': 'rgba(203, 166, 247, 0.08)',
+        'title_color': '#cba6f7'
+    },
+    'WARNING': {
+        'icon': '⚠️',
+        'title': 'Advertencia',
+        'border': '#fab387',  # Peach
+        'bg': 'rgba(250, 179, 135, 0.08)',
+        'title_color': '#fab387'
+    },
+    'CAUTION': {
+        'icon': '🛑',
+        'title': 'Precaución',
+        'border': '#f38ba8',  # Red
+        'bg': 'rgba(243, 139, 168, 0.08)',
+        'title_color': '#f38ba8'
+    },
+}
 
 
+def preprocess_obsidian_callouts(text: str) -> str:
+    """
+    Transforma bloques de advertencia estilo Obsidian/GitHub:
+        > [!NOTE] Título Opcional
+        > Contenido del callout...
+    en contenedores HTML estructurados con clases de Catppuccin Mocha y markdown='1'.
+    """
+    lines = text.split('\n')
+    out_lines: List[str] = []
+    in_callout = False
+    callout_type = ""
+    callout_custom_title = ""
+    callout_lines: List[str] = []
+
+    header_re = re.compile(r'^>\s*\[!([A-Z]+)\](?:[+-])?\s*(.*)$')
+
+    def _flush_callout():
+        nonlocal in_callout, callout_type, callout_custom_title, callout_lines
+        if not in_callout:
+            return
+        cfg = CALLOUT_CONFIG.get(callout_type.upper(), CALLOUT_CONFIG['NOTE'])
+        title = callout_custom_title.strip() if callout_custom_title.strip() else cfg['title']
+        icon = cfg['icon']
+        body_text = '\n'.join(callout_lines).strip()
+
+        html_block = (
+            f'\n<div class="callout callout-{callout_type.lower()}" markdown="1">\n'
+            f'<div class="callout-title">{icon} {title}</div>\n'
+            f'<div class="callout-body" markdown="1">\n\n'
+            f'{body_text}\n\n'
+            f'</div>\n'
+            f'</div>\n'
+        )
+        out_lines.append(html_block)
+        in_callout = False
+        callout_lines = []
+        callout_type = ""
+        callout_custom_title = ""
+
+    for line in lines:
+        if not in_callout:
+            m = header_re.match(line)
+            if m:
+                in_callout = True
+                callout_type = m.group(1).upper()
+                callout_custom_title = m.group(2)
+                callout_lines = []
+            else:
+                out_lines.append(line)
+        else:
+            if line.startswith('>'):
+                content = line[1:].lstrip(' ') if len(line) > 1 and line[1] == ' ' else line[1:]
+                callout_lines.append(content)
+            elif line.strip() == '':
+                callout_lines.append('')
+            else:
+                _flush_callout()
+                out_lines.append(line)
+
+    if in_callout:
+        _flush_callout()
+
+    return '\n'.join(out_lines)
+
+
+# ==============================================================================
+# RENDERIZADO OFFLINE DE LATEX (MATHTEXT DE FALLBACK PARA QTEXTBROWSER)
+# ==============================================================================
 @functools.lru_cache(maxsize=1024)
 def _render_latex_data_uri(latex: str, fontsize: int = 14, color: str = '#cdd6f4', dpi: int = 150) -> str:
-    """Renderiza una expresión mathtext (subconjunto de LaTeX soportado por
-    Matplotlib) a una imagen PNG en memoria, fondo transparente, y la codifica
-    como data-URI base64 lista para insertar en un tag <img>. Se usa
-    ``Figure`` + ``FigureCanvasAgg`` directamente (NO ``matplotlib.pyplot``)
-    para evitar que el registro global de figuras de pyplot retenga objetos
-    indefinidamente junto con el cacheo LRU. Propaga excepción si el mathtext
-    es inválido; el llamador (``_render_math_img_tag``) es responsable del
-    fallback visual."""
+    """Renderiza una expresión mathtext a una imagen PNG en memoria (fallback para QTextBrowser)."""
     fig = Figure(figsize=(0.01, 0.01))
     canvas = FigureCanvasAgg(fig)
     fig.text(0, 0, f"${latex}$", fontsize=fontsize, color=color)
@@ -201,9 +288,7 @@ def _render_latex_data_uri(latex: str, fontsize: int = 14, color: str = '#cdd6f4
 
 
 def _render_math_img_tag(latex: str) -> str:
-    """Envuelve ``_render_latex_data_uri`` con manejo defensivo: si el
-    mathtext es inválido, muestra el LaTeX crudo en un <code> rojo en vez de
-    interrumpir el renderizado del resto de la nota."""
+    """Envuelve _render_latex_data_uri con manejo defensivo ante mathtext inválido."""
     try:
         uri = _render_latex_data_uri(latex)
         return f'<img src="{uri}" style="vertical-align: middle;"/>'
@@ -214,14 +299,7 @@ def _render_math_img_tag(latex: str) -> str:
 
 
 def preprocess_latex_math(text: str) -> str:
-    """
-    Pre-procesa expresiones LaTeX/mathtext ``$$...$$`` (bloque, centrado) y
-    ``$...$`` (inline) en tags <img> con imágenes PNG embebidas en base64,
-    ANTES de invocar ``markdown.markdown()``. El orden es obligatorio: los
-    bloques ``$$...$$`` se procesan primero, porque si se procesara primero
-    la expresión inline, los delimitadores dobles se interpretarían como dos
-    coincidencias inline vacías adyacentes.
-    """
+    """Pre-procesa expresiones LaTeX en imágenes PNG embebidas para QTextBrowser."""
     def _block_repl(m: 're.Match') -> str:
         img_tag = _render_math_img_tag(m.group(1).strip())
         return f'<div align="center" style="margin: 8px 0;">{img_tag}</div>'
@@ -235,8 +313,193 @@ def preprocess_latex_math(text: str) -> str:
 
 
 # ==============================================================================
-# PLANTILLA HTML — PALETA CATPPUCCIN MOCHA (subset CSS soportado por QTextBrowser)
+# PLANTILLAS HTML: MODERNA WEBENGINE (MATHJAX 3 SVG) vs CLÁSICA QTEXTBROWSER
 # ==============================================================================
+_WEBENGINE_HTML_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* {{
+    box-sizing: border-box;
+}}
+body {{
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Inter', Roboto, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.68;
+    margin: 0;
+    padding: 24px 32px;
+}}
+h1, h2 {{
+    color: #cba6f7;
+    font-weight: 700;
+    border-bottom: 1px solid #313244;
+    padding-bottom: 8px;
+    margin-top: 26px;
+    margin-bottom: 14px;
+}}
+h1 {{ font-size: 22px; }}
+h2 {{ font-size: 18px; }}
+h3 {{
+    color: #89b4fa;
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 20px;
+    margin-bottom: 10px;
+}}
+h4, h5, h6 {{
+    color: #89dceb;
+    font-size: 13.5px;
+    font-weight: 600;
+}}
+a {{
+    color: #89b4fa;
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(137, 180, 250, 0.6);
+    transition: color 0.15s ease, border-color 0.15s ease;
+}}
+a:hover {{
+    color: #b4befe;
+    border-bottom: 1px solid #b4befe;
+}}
+code {{
+    background-color: #313244;
+    color: #f9e2af;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+    font-size: 12px;
+}}
+pre {{
+    background-color: #181825;
+    border: 1px solid #313244;
+    color: #cdd6f4;
+    padding: 12px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    line-height: 1.5;
+}}
+pre code {{
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    border-radius: 0;
+}}
+table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0;
+    font-size: 13px;
+}}
+th, td {{
+    border: 1px solid #45475a;
+    padding: 7px 12px;
+    text-align: left;
+}}
+th {{
+    background-color: #313244;
+    color: #cba6f7;
+    font-weight: 600;
+}}
+tr:nth-child(even) {{
+    background-color: rgba(205, 214, 244, 0.02);
+}}
+tr:hover {{
+    background-color: rgba(205, 214, 244, 0.05);
+}}
+blockquote {{
+    border-left: 3px solid #6c7086;
+    color: #a6adc8;
+    padding-left: 14px;
+    margin: 14px 0;
+}}
+hr {{
+    border: none;
+    border-top: 1px solid #45475a;
+    margin: 22px 0;
+}}
+/* Callouts estilizados */
+.callout {{
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-left: 4px solid #89b4fa;
+}}
+.callout-note {{ border-color: #89b4fa; background-color: rgba(137, 180, 250, 0.08); }}
+.callout-tip {{ border-color: #a6e3a1; background-color: rgba(166, 227, 161, 0.08); }}
+.callout-important {{ border-color: #cba6f7; background-color: rgba(203, 166, 247, 0.08); }}
+.callout-warning {{ border-color: #fab387; background-color: rgba(250, 179, 135, 0.08); }}
+.callout-caution {{ border-color: #f38ba8; background-color: rgba(243, 139, 168, 0.08); }}
+
+.callout-title {{
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 6px;
+}}
+.callout-note .callout-title {{ color: #89b4fa; }}
+.callout-tip .callout-title {{ color: #a6e3a1; }}
+.callout-important .callout-title {{ color: #cba6f7; }}
+.callout-warning .callout-title {{ color: #fab387; }}
+.callout-caution .callout-title {{ color: #f38ba8; }}
+
+.callout-body > p:first-child {{ margin-top: 0; }}
+.callout-body > p:last-child {{ margin-bottom: 0; }}
+
+/* MathJax SVG Integrado */
+mjx-container[jax="SVG"][display="true"] {{
+    margin: 14px 0 !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    text-align: center;
+}}
+svg {{
+    color: #cdd6f4 !important;
+}}
+mjx-container {{
+    color: #cdd6f4 !important;
+}}
+/* Scrollbar Catppuccin */
+::-webkit-scrollbar {{
+    width: 8px;
+    height: 8px;
+}}
+::-webkit-scrollbar-track {{
+    background: #181825;
+}}
+::-webkit-scrollbar-thumb {{
+    background: #45475a;
+    border-radius: 4px;
+}}
+::-webkit-scrollbar-thumb:hover {{
+    background: #585b70;
+}}
+</style>
+<script>
+window.MathJax = {{
+  tex: {{
+    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+    processEscapes: true,
+    processEnvironments: true
+  }},
+  options: {{
+    skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+  }},
+  svg: {{
+    fontCache: 'global'
+  }}
+}};
+</script>
+<script id="MathJax-script" async src="{mathjax_url}"></script>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
+
 _WRAP_TEMPLATE = """<html>
 <head>
 <style>
@@ -283,6 +546,17 @@ hr {{
     border: none;
     border-top: 1px solid #45475a;
 }}
+.callout {{
+    border-left: 3px solid #89b4fa;
+    background-color: #181825;
+    padding: 8px 12px;
+    margin: 8px 0;
+}}
+.callout-title {{
+    font-weight: bold;
+    color: #89b4fa;
+    margin-bottom: 4px;
+}}
 </style>
 </head>
 <body>
@@ -292,27 +566,42 @@ hr {{
 """
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# PÁGINA WEBENGINE PERSONALIZADA PARA INTERCEPTAR ENLACES
+# ──────────────────────────────────────────────────────────────────────────────
+if HAS_WEBENGINE:
+    class WikiWebEnginePage(QWebEnginePage):
+        """Página especializada de Chromium que intercepta esquemas wiki:// y obsidian://."""
+
+        def __init__(self, parent_dialog):
+            super().__init__(parent_dialog)
+            self.dialog = parent_dialog
+
+        def acceptNavigationRequest(self, url: QUrl, nav_type, is_main_frame: bool) -> bool:
+            if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+                scheme = url.scheme().lower()
+                if scheme == 'wiki':
+                    self.dialog._on_anchor_clicked(url)
+                    return False
+                elif scheme in ('http', 'https', 'obsidian'):
+                    QDesktopServices.openUrl(url)
+                    return False
+                elif not scheme and url.hasFragment():
+                    # Ancla local (#seccion)
+                    return True
+            return super().acceptNavigationRequest(url, nav_type, is_main_frame)
+
+
+# ==============================================================================
+# DIÁLOGO PRINCIPAL DEL NAVEGADOR
+# ==============================================================================
 class ScientificWikiBrowserDialog(QDialog):
     """
     Navegador flotante NO MODAL de la Wiki Científica de PyPrinting 3.0.
-
-    A diferencia de ``FigureExportStudioDialog`` (modal, ``.exec()``), este
-    diálogo se invoca con ``.show()`` para permanecer abierto en paralelo a la
-    ventana principal mientras el investigador consulta la fundamentación
-    física/metrológica de la herramienta que está utilizando.
-
-    Patrón de uso recomendado (singleton gestionado por el llamador, ej. desde
-    múltiples botones "[📖 Ayuda]" repartidos en ``lattice_disorder_gui.py``)::
-
-        if self._wiki_dialog is None:
-            self._wiki_dialog = ScientificWikiBrowserDialog(parent=self)
-        self._wiki_dialog.navigate_to("CAT-206")
-        self._wiki_dialog.show()
-        self._wiki_dialog.raise_()
-        self._wiki_dialog.activateWindow()
+    Permite consultar la fundamentación física/metrológica con renderizado
+    matemático vectorial y navegación de compendios interactiva.
     """
 
-    #: Nota de aterrizaje por defecto si no se especifica initial_note_id.
     DEFAULT_LANDING_NOTE = "CAT-001"
 
     def __init__(
@@ -323,9 +612,8 @@ class ScientificWikiBrowserDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("📖 Wiki Científica — PyPrinting 3.0")
-        self.resize(1150, 760)
-        self.setMinimumSize(820, 520)
-        # Ventana flotante independiente (no modal): coexiste con la app principal.
+        self.resize(1180, 780)
+        self.setMinimumSize(850, 540)
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)
 
         self._note_index: Dict[str, Path] = {}
@@ -336,6 +624,10 @@ class ScientificWikiBrowserDialog(QDialog):
         self._history: List[str] = []
         self._history_pos: int = -1
         self._current_note_id: Optional[str] = None
+        self._current_note_path: Optional[Path] = None
+
+        self.web_view: Optional['QWebEngineView'] = None
+        self.text_browser: Optional[QTextBrowser] = None
 
         self._init_ui()
         self._refresh_index()
@@ -420,6 +712,16 @@ class ScientificWikiBrowserDialog(QDialog):
         self.btn_forward.clicked.connect(self._go_forward)
         toolbar.addWidget(self.btn_forward)
 
+        # Botón para abrir la nota actual directamente en Obsidian
+        self.btn_open_obsidian = QPushButton("🟣 Abrir en Obsidian ↗")
+        self.btn_open_obsidian.setEnabled(False)
+        self.btn_open_obsidian.setToolTip(
+            "Abre esta nota directamente en la aplicación de escritorio Obsidian con "
+            "acceso al grafo de conocimiento y edición en vivo."
+        )
+        self.btn_open_obsidian.clicked.connect(self._on_open_obsidian_clicked)
+        toolbar.addWidget(self.btn_open_obsidian)
+
         toolbar.addStretch()
 
         self.status_label = QLabel("")
@@ -427,12 +729,20 @@ class ScientificWikiBrowserDialog(QDialog):
 
         right_layout.addLayout(toolbar)
 
-        self.text_browser = QTextBrowser()
-        self.text_browser.setReadOnly(True)
-        self.text_browser.setOpenLinks(False)
-        self.text_browser.setOpenExternalLinks(False)
-        self.text_browser.anchorClicked.connect(self._on_anchor_clicked)
-        right_layout.addWidget(self.text_browser, stretch=1)
+        # Configuración del visor: WebEngine (Chromium) con fallback a QTextBrowser
+        if HAS_WEBENGINE:
+            self.web_view = QWebEngineView()
+            self.web_page = WikiWebEnginePage(self)
+            self.web_view.setPage(self.web_page)
+            self.web_view.setStyleSheet("background-color: #1e1e2e; border: 1px solid #313244;")
+            right_layout.addWidget(self.web_view, stretch=1)
+        else:
+            self.text_browser = QTextBrowser()
+            self.text_browser.setReadOnly(True)
+            self.text_browser.setOpenLinks(False)
+            self.text_browser.setOpenExternalLinks(False)
+            self.text_browser.anchorClicked.connect(self._on_anchor_clicked)
+            right_layout.addWidget(self.text_browser, stretch=1)
 
         splitter.addWidget(right_widget)
         splitter.setStretchFactor(0, 1)
@@ -453,8 +763,6 @@ class ScientificWikiBrowserDialog(QDialog):
         self._show_status("Índice de la Wiki Científica actualizado.")
 
     def _populate_tree(self) -> None:
-        # Defensa de señales: evita disparar _on_tree_current_item_changed
-        # (y por lo tanto navigate_to) mientras reconstruimos el árbol.
         self.tree.blockSignals(True)
         try:
             self.tree.clear()
@@ -520,10 +828,83 @@ class ScientificWikiBrowserDialog(QDialog):
     # Renderizado Markdown -> HTML
     # ------------------------------------------------------------------
     def _render_markdown(self, raw_text: str) -> str:
-        processed = preprocess_latex_math(raw_text)
-        processed = preprocess_wikilinks(processed)
-        body_html = markdown.markdown(processed, extensions=['tables', 'fenced_code', 'toc'])
-        return _WRAP_TEMPLATE.format(body=body_html)
+        # 1. Preprocesar Callouts de Obsidian (> [!NOTE], etc.)
+        text = preprocess_obsidian_callouts(raw_text)
+        # 2. Preprocesar Wikilinks ([[CAT-105]] -> [CAT-105](wiki://CAT-105))
+        text = preprocess_wikilinks(text)
+
+        if HAS_WEBENGINE and self.web_view is not None:
+            # Modo WebEngine con MathJax 3 SVG:
+            # Proteger expresiones matemáticas para evitar que Python-Markdown escape '\\' o '_'
+            math_store: Dict[str, str] = {}
+            counter = 0
+
+            def _save_block(m: 're.Match') -> str:
+                nonlocal counter
+                key = f"XXMATHBLOCK{counter}XX"
+                math_store[key] = m.group(0)
+                counter += 1
+                return key
+
+            def _save_inline(m: 're.Match') -> str:
+                nonlocal counter
+                key = f"XXMATHINLINE{counter}XX"
+                math_store[key] = m.group(0)
+                counter += 1
+                return key
+
+            protected = _BLOCK_MATH_RE.sub(_save_block, text)
+            protected = _INLINE_MATH_RE.sub(_save_inline, protected)
+
+            body_html = markdown.markdown(
+                protected,
+                extensions=['tables', 'fenced_code', 'toc', 'md_in_html']
+            )
+
+            # Restaurar bloques y expresiones matemáticas intactas
+            for key, original in math_store.items():
+                body_html = body_html.replace(key, original)
+
+            mathjax_url = QUrl.fromLocalFile(str(MATHJAX_PATH)).toString()
+            return _WEBENGINE_HTML_TEMPLATE.format(body=body_html, mathjax_url=mathjax_url)
+        else:
+            # Fallback QTextBrowser clásico
+            processed = preprocess_latex_math(text)
+            body_html = markdown.markdown(
+                processed,
+                extensions=['tables', 'fenced_code', 'toc', 'md_in_html']
+            )
+            return _WRAP_TEMPLATE.format(body=body_html)
+
+    def _set_view_html(self, html: str, anchor: Optional[str] = None) -> None:
+        """Asigna HTML al visor activo (WebEngine o QTextBrowser) con soporte de anclas."""
+        if self.web_view is not None:
+            base_url = QUrl.fromLocalFile(str(BASE_DIR) + "/")
+            self.web_view.setHtml(html, base_url)
+            if anchor:
+                self.scroll_to_anchor(anchor)
+        elif self.text_browser is not None:
+            self.text_browser.setHtml(html)
+            if anchor:
+                self.text_browser.scrollToAnchor(anchor)
+
+    def scroll_to_anchor(self, anchor: str) -> None:
+        """Desplaza el visor hasta el ancla especificada."""
+        if not anchor:
+            return
+        clean_anchor = anchor.lstrip('#')
+        if self.web_view is not None:
+            js = f"""
+            (function() {{
+                var el = document.getElementById('{clean_anchor}') || document.querySelector('a[name="{clean_anchor}"]');
+                if (el) {{
+                    el.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+                }}
+            }})();
+            """
+            self.web_view.page().runJavaScript(js)
+        elif self.text_browser is not None:
+            self.text_browser.scrollToAnchor(clean_anchor)
 
     def _render_error(self, note_id: str, detail: str = "") -> str:
         detail_html = f"<p style='color:#f38ba8;'>{detail}</p>" if detail else ""
@@ -535,6 +916,9 @@ class ScientificWikiBrowserDialog(QDialog):
             f"<code>docs/modulos/</code>, y que su nombre comience con el ID correcto "
             f"(ej. <code>{note_id}_Titulo_Descriptivo.md</code>).</p>{detail_html}"
         )
+        if HAS_WEBENGINE and self.web_view is not None:
+            mathjax_url = QUrl.fromLocalFile(str(MATHJAX_PATH)).toString()
+            return _WEBENGINE_HTML_TEMPLATE.format(body=body, mathjax_url=mathjax_url)
         return _WRAP_TEMPLATE.format(body=body)
 
     def _show_landing_page(self) -> None:
@@ -544,7 +928,14 @@ class ScientificWikiBrowserDialog(QDialog):
             "buscador, para navegar por los Compendios Científicos (<b>CAT</b>), los Reportes de "
             "Sistema (<b>SYS</b>) y los Manuales de Módulo (<b>MOD</b>) de PyPrinting 3.0.</p>"
         )
-        self.text_browser.setHtml(_WRAP_TEMPLATE.format(body=body))
+        self._current_note_path = None
+        self.btn_open_obsidian.setEnabled(False)
+        if HAS_WEBENGINE and self.web_view is not None:
+            mathjax_url = QUrl.fromLocalFile(str(MATHJAX_PATH)).toString()
+            html = _WEBENGINE_HTML_TEMPLATE.format(body=body, mathjax_url=mathjax_url)
+        else:
+            html = _WRAP_TEMPLATE.format(body=body)
+        self._set_view_html(html)
         self.setWindowTitle("📖 Wiki Científica — PyPrinting 3.0")
         self._show_status("Seleccione una nota para comenzar.")
 
@@ -555,16 +946,7 @@ class ScientificWikiBrowserDialog(QDialog):
     # Navegación pública y gestión de historial
     # ------------------------------------------------------------------
     def navigate_to(self, note_id: str, anchor: Optional[str] = None) -> None:
-        """
-        Punto de entrada público único: muestra ``note_id`` (con ancla
-        opcional) en el visor y empuja una nueva entrada de historial.
-
-        Si el diálogo ya está visible cuando el llamador invoca este método
-        (patrón singleton, ej. desde múltiples botones "[📖 Ayuda]"), el
-        llamador es responsable de además hacer ``.show()``, ``.raise_()`` y
-        ``.activateWindow()`` — este método únicamente cambia el contenido
-        mostrado y la historia de navegación interna.
-        """
+        """Muestra ``note_id`` (con ancla opcional) en el visor y actualiza el historial."""
         if not note_id:
             return
         self._display_note(note_id, anchor=anchor, push_history=True)
@@ -572,29 +954,29 @@ class ScientificWikiBrowserDialog(QDialog):
     def _display_note(self, note_id: str, anchor: Optional[str] = None, push_history: bool = True) -> None:
         note_id = note_id.upper()
         path = self._note_index.get(note_id)
+        self._current_note_path = path
 
         if path is None or not path.is_file():
+            self.btn_open_obsidian.setEnabled(False)
             html = self._render_error(note_id)
-            self.text_browser.setHtml(html)
+            self._set_view_html(html)
             self.setWindowTitle(f"📖 Wiki Científica — Nota no encontrada ({note_id})")
             self._show_status(f"No se encontró la nota '{note_id}' en el índice.")
         else:
+            self.btn_open_obsidian.setEnabled(True)
             try:
                 raw_text = path.read_text(encoding='utf-8')
             except Exception as exc:
                 html = self._render_error(note_id, detail=str(exc))
-                self.text_browser.setHtml(html)
+                self._set_view_html(html)
                 self.setWindowTitle(f"📖 Wiki Científica — Error de Lectura ({note_id})")
                 self._show_status(f"Error al leer '{note_id}': {exc}")
-                raw_text = None
             else:
                 html = self._render_markdown(raw_text)
-                self.text_browser.setHtml(html)
+                self._set_view_html(html, anchor=anchor)
                 title = self._note_titles.get(note_id, note_id)
                 self.setWindowTitle(f"📖 Wiki Científica — {note_id}: {title}")
                 self._show_status(f"Mostrando {note_id}.")
-                if anchor:
-                    self.text_browser.scrollToAnchor(anchor)
 
         self._current_note_id = note_id
 
@@ -610,9 +992,7 @@ class ScientificWikiBrowserDialog(QDialog):
             and 0 <= self._history_pos < len(self._history)
             and self._history[self._history_pos] == note_id
         ):
-            return  # Evita entradas consecutivas duplicadas.
-        # Navegar a una nota nueva tras haber retrocedido descarta el "futuro"
-        # previo (comportamiento estándar de historial de navegador).
+            return
         self._history = self._history[: self._history_pos + 1]
         self._history.append(note_id)
         self._history_pos = len(self._history) - 1
@@ -632,22 +1012,28 @@ class ScientificWikiBrowserDialog(QDialog):
         self.btn_forward.setEnabled(self._history_pos < len(self._history) - 1)
 
     # ------------------------------------------------------------------
+    # Integración con Obsidian
+    # ------------------------------------------------------------------
+    def _on_open_obsidian_clicked(self) -> None:
+        """Abre la nota activa directamente en la aplicación de escritorio Obsidian."""
+        if self._current_note_path is None or not self._current_note_path.is_file():
+            return
+        try:
+            rel_path = self._current_note_path.relative_to(BASE_DIR).as_posix()
+            vault_name = urllib.parse.quote(BASE_DIR.name)
+            file_param = urllib.parse.quote(rel_path)
+            obsidian_url = QUrl(f"obsidian://open?vault={vault_name}&file={file_param}")
+            QDesktopServices.openUrl(obsidian_url)
+            self._show_status(f"Abriendo {self._current_note_id} en Obsidian...")
+        except Exception as exc:
+            self._show_status(f"Error al abrir en Obsidian: {exc}")
+
+    # ------------------------------------------------------------------
     # Resolución de enlaces (wikilinks, anclas locales, http/https externos)
     # ------------------------------------------------------------------
     @staticmethod
     def resolve_wiki_url(url: QUrl) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Resuelve una QUrl de esquema ``wiki://`` a ``(note_id, anchor)``.
-
-        Comportamiento empírico verificado en este entorno PyQt6: para una URL
-        con autoridad tipo ``wiki://CAT-105``, Qt coloca el identificador en
-        ``QUrl.host()`` (normalizado a minúsculas por las reglas de autoridad
-        de URL — de ahí el ``.upper()``), NO en ``QUrl.path()`` (que queda
-        vacío). ``QUrl.fragment()`` extrae correctamente el ``#seccion`` en
-        ``wiki://CAT-105#seccion`` de forma independiente del host. Se
-        conserva un fallback a ``path()`` (despojado de '/') por robustez
-        ante variaciones de formato de URL (ej. ``wiki:CAT-105`` sin '//').
-        """
+        """Resuelve una QUrl de esquema wiki:// a (note_id, anchor)."""
         if url.scheme() != 'wiki':
             return None, None
         raw_id = url.host()
@@ -658,6 +1044,7 @@ class ScientificWikiBrowserDialog(QDialog):
         return note_id, anchor
 
     def _on_anchor_clicked(self, url: QUrl) -> None:
+        """Gestiona el clic en un hipervínculo dentro del documento."""
         note_id, anchor = self.resolve_wiki_url(url)
         if note_id is not None:
             if note_id in self._note_index:
@@ -667,14 +1054,12 @@ class ScientificWikiBrowserDialog(QDialog):
             return
 
         scheme = url.scheme()
-        if scheme in ('http', 'https'):
+        if scheme in ('http', 'https', 'obsidian'):
             QDesktopServices.openUrl(url)
             return
 
         if not scheme and url.hasFragment():
-            # Ancla local dentro del mismo documento (ej. generada por la
-            # extensión 'toc' sobre los encabezados del propio archivo).
-            self.text_browser.scrollToAnchor(url.fragment())
+            self.scroll_to_anchor(url.fragment())
             return
 
         self._show_status(f"Enlace no soportado: {url.toString()}")
