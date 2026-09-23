@@ -26,11 +26,16 @@ mientras el usuario de laboratorio sigue trabajando (patrón singleton
 gestionado por el llamador, ver ``navigate_to()``).
 """
 
+import base64
+import functools
+import io
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import markdown
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget,
@@ -61,8 +66,10 @@ CATEGORY_LABELS: Dict[str, str] = {
 _NOTE_ID_RE = re.compile(r'^([A-Z]{2,4}-\d+)_')
 
 # Enlaces estilo Obsidian: [[CAT-105]], [[CAT-105|Alias]], [[CAT-105#Seccion]],
-# [[CAT-105#Seccion|Alias]]. El grupo 2 conserva el '#' inicial cuando existe.
-WIKILINK_RE = re.compile(r'\[\[([A-Z]{2,4}-\d+)(#[^\]|]+)?(?:\|([^\]]+))?\]\]')
+# [[CAT-105#Seccion|Alias]], y ahora también con título descriptivo completo y/o
+# extensión .md: [[CAT-105_Titulo_Descriptivo.md]]. El grupo 2 conserva el '#'
+# inicial cuando existe.
+WIKILINK_RE = re.compile(r'\[\[([A-Z]{2,4}-\d+[^\]|#]*)(#[^\]|]+)?(?:\|([^\]]+))?\]\]')
 
 
 def _sort_key(note_id: str) -> int:
@@ -117,9 +124,12 @@ def discover_notes(base_dir: Optional[Path] = None) -> Tuple[Dict[str, Path], Di
 
 
 def _wikilink_repl(match: 're.Match') -> str:
-    note_id = match.group(1)
+    raw_id = match.group(1)   # "CAT-105" o "CAT-105_Titulo_Descriptivo.md"
     anchor = match.group(2)   # ej. "#Seccion" o None (ya incluye el '#')
     alias = match.group(3)
+
+    id_match = re.match(r'^([A-Z]{2,4}-\d+)', raw_id)
+    note_id = id_match.group(1) if id_match else raw_id
 
     target = f"wiki://{note_id}{anchor or ''}"
     if alias:
@@ -127,7 +137,15 @@ def _wikilink_repl(match: 're.Match') -> str:
     elif anchor:
         display = f"{note_id}{anchor}"
     else:
-        display = note_id
+        suffix = raw_id[len(note_id):]
+        if suffix:
+            title_part = suffix[1:] if suffix.startswith('_') else suffix
+            if title_part.lower().endswith('.md'):
+                title_part = title_part[:-3]
+            title_part = title_part.replace('_', ' ').strip()
+            display = title_part if title_part else note_id
+        else:
+            display = note_id
     return f"[{display}]({target})"
 
 
@@ -149,6 +167,71 @@ def preprocess_wikilinks(text: str) -> str:
         [[CAT-105#Metodologia|Ver más]]  -> [Ver más](wiki://CAT-105#Metodologia)
     """
     return WIKILINK_RE.sub(_wikilink_repl, text)
+
+
+# ==============================================================================
+# RENDERIZADO OFFLINE DE LATEX (MATHTEXT) — QTextBrowser es un motor HTML4/CSS2.1
+# sin JavaScript (no puede ejecutar MathJax/KaTeX). Se compila cada expresión a
+# una imagen PNG embebida como data-URI base64 usando el motor mathtext interno
+# de Matplotlib (subconjunto de LaTeX, NO un motor TeX completo).
+# ==============================================================================
+_BLOCK_MATH_RE = re.compile(r'\$\$(.+?)\$\$', re.DOTALL)
+_INLINE_MATH_RE = re.compile(r'(?<!\$)\$(?!\s)([^\$\n]+?)(?<!\s)\$(?!\$)')
+
+
+@functools.lru_cache(maxsize=1024)
+def _render_latex_data_uri(latex: str, fontsize: int = 14, color: str = '#cdd6f4', dpi: int = 150) -> str:
+    """Renderiza una expresión mathtext (subconjunto de LaTeX soportado por
+    Matplotlib) a una imagen PNG en memoria, fondo transparente, y la codifica
+    como data-URI base64 lista para insertar en un tag <img>. Se usa
+    ``Figure`` + ``FigureCanvasAgg`` directamente (NO ``matplotlib.pyplot``)
+    para evitar que el registro global de figuras de pyplot retenga objetos
+    indefinidamente junto con el cacheo LRU. Propaga excepción si el mathtext
+    es inválido; el llamador (``_render_math_img_tag``) es responsable del
+    fallback visual."""
+    fig = Figure(figsize=(0.01, 0.01))
+    canvas = FigureCanvasAgg(fig)
+    fig.text(0, 0, f"${latex}$", fontsize=fontsize, color=color)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=dpi, transparent=True,
+                bbox_inches='tight', pad_inches=0.03)
+    buf.seek(0)
+    encoded = base64.b64encode(buf.read()).decode('ascii')
+    return f"data:image/png;base64,{encoded}"
+
+
+def _render_math_img_tag(latex: str) -> str:
+    """Envuelve ``_render_latex_data_uri`` con manejo defensivo: si el
+    mathtext es inválido, muestra el LaTeX crudo en un <code> rojo en vez de
+    interrumpir el renderizado del resto de la nota."""
+    try:
+        uri = _render_latex_data_uri(latex)
+        return f'<img src="{uri}" style="vertical-align: middle;"/>'
+    except Exception as exc:
+        escaped = latex.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return (f'<code style="color:#f38ba8;" title="Error de renderizado LaTeX: {exc}">'
+                f'{escaped}</code>')
+
+
+def preprocess_latex_math(text: str) -> str:
+    """
+    Pre-procesa expresiones LaTeX/mathtext ``$$...$$`` (bloque, centrado) y
+    ``$...$`` (inline) en tags <img> con imágenes PNG embebidas en base64,
+    ANTES de invocar ``markdown.markdown()``. El orden es obligatorio: los
+    bloques ``$$...$$`` se procesan primero, porque si se procesara primero
+    la expresión inline, los delimitadores dobles se interpretarían como dos
+    coincidencias inline vacías adyacentes.
+    """
+    def _block_repl(m: 're.Match') -> str:
+        img_tag = _render_math_img_tag(m.group(1).strip())
+        return f'<div align="center" style="margin: 8px 0;">{img_tag}</div>'
+
+    def _inline_repl(m: 're.Match') -> str:
+        return _render_math_img_tag(m.group(1).strip())
+
+    text = _BLOCK_MATH_RE.sub(_block_repl, text)
+    text = _INLINE_MATH_RE.sub(_inline_repl, text)
+    return text
 
 
 # ==============================================================================
@@ -437,7 +520,8 @@ class ScientificWikiBrowserDialog(QDialog):
     # Renderizado Markdown -> HTML
     # ------------------------------------------------------------------
     def _render_markdown(self, raw_text: str) -> str:
-        processed = preprocess_wikilinks(raw_text)
+        processed = preprocess_latex_math(raw_text)
+        processed = preprocess_wikilinks(processed)
         body_html = markdown.markdown(processed, extensions=['tables', 'fenced_code', 'toc'])
         return _WRAP_TEMPLATE.format(body=body_html)
 

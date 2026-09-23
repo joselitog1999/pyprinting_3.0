@@ -26,6 +26,7 @@ while _curr != _curr.parent:
         break
     _curr = _curr.parent
 
+import copy
 import time
 import json
 import numpy as np
@@ -90,6 +91,8 @@ from core.lattice_disorder import (
     run_hexagonal_monte_carlo_calibration,
     extract_angular_profile,
     compute_radial_azimuthal_profile,
+    find_hexagonal_reciprocal_rotation,
+    compute_hexagonal_bragg_indexing,
     _ideal_voronoi_coordination_for_type
 )
 from analysis.figure_export_studio import FigureExportStudioDialog
@@ -458,6 +461,8 @@ class MonteCarloWorker(QThread):
                     a=self.a,
                     boundary_type=self.hex_params.get('boundary_type', 'hexagon'),
                     boundary_size_nm=self.hex_params.get('boundary_size_nm', 4000.0),
+                    boundary_width_nm=self.hex_params.get('boundary_width_nm', None),
+                    boundary_height_nm=self.hex_params.get('boundary_height_nm', None),
                     f_vac=self.f_vac,
                     sigma_min=self.sigma_min,
                     sigma_max=self.sigma_max,
@@ -466,7 +471,8 @@ class MonteCarloWorker(QThread):
                     progress_callback=callback,
                     n_bragg_pts=self.n_bragg_pts,
                     u2=self.hex_params.get('u2', 1.0 / 3.0),
-                    v2=self.hex_params.get('v2', 1.0 / 3.0)
+                    v2=self.hex_params.get('v2', 1.0 / 3.0),
+                    rotation_deg=self.hex_params.get('rotation_deg', 0.0)
                 )
             else:
                 results = run_monte_carlo_calibration(
@@ -545,7 +551,8 @@ class LatticeDisorderWindow(QMainWindow):
         self.unmarked_indices: Set[int] = set()
         self.monomer_signature: Optional[Dict[str, Any]] = None
         self.selection_mode: str = 'nav'  # 'nav', 'click', 'box'
-        self.curation_history: List[pd.DataFrame] = []
+        self.curation_history: List[Tuple[pd.DataFrame, Optional[dict]]] = []
+        self._fourier_rotation_seeded: bool = False
         # IDs de partícula estables y monótonos (Paquete 1, DEC pendiente): asignados
         # una sola vez sobre el conjunto RAW completo (ver _assign_particle_ids_to_raw),
         # nunca reutilizados aunque una partícula se elimine (queda reservado) — al
@@ -2073,19 +2080,20 @@ class LatticeDisorderWindow(QMainWindow):
             "Forma del contorno usado para recortar la red ideal generada antes del registro rígido.",
             "Mapea a BoundingGeometry.is_inside('hexagon'/'circle'/'rectangle', ...) de core/lattice_generator.py."
         ))
-        self.combo_boundary_type.currentIndexChanged.connect(lambda _i: (self._mark_results_stale(), self._update_mc_hex_info_label()))
+        self.combo_boundary_type.currentIndexChanged.connect(self._on_boundary_type_changed)
         h_boundary.addWidget(self.combo_boundary_type)
         lay_hex.addLayout(h_boundary)
 
         h_bsize = QHBoxLayout()
-        h_bsize.addWidget(QLabel("Tamaño Envolvente (radio/lado, nm):"))
+        self.lbl_boundary_size = QLabel("Tamaño Envolvente (radio, nm):")
+        h_bsize.addWidget(self.lbl_boundary_size)
         self.spin_boundary_size = QDoubleSpinBox()
         self.spin_boundary_size.setRange(200.0, 100000.0)
         self.spin_boundary_size.setValue(5000.0)
         self.spin_boundary_size.setSingleStep(100.0)
         self.spin_boundary_size.setToolTip(make_tooltip(
             "Tamaño de la Geometría Envolvente",
-            "Radio (hexágono/círculo) o semi-lado (rectángulo) de la plantilla ideal, en nm. Debe cubrir "
+            "Radio (hexágono/círculo) de la plantilla ideal, en nm. Debe cubrir "
             "holgadamente la nube de partículas detectadas para que el registro y las vacancias de borde "
             "sean correctos.",
             "Se recomienda ~1.2-1.5x el radio real de la muestra impresa."
@@ -2093,6 +2101,37 @@ class LatticeDisorderWindow(QMainWindow):
         self.spin_boundary_size.valueChanged.connect(lambda _v: (self._mark_results_stale(), self._update_mc_hex_info_label()))
         h_bsize.addWidget(self.spin_boundary_size)
         lay_hex.addLayout(h_bsize)
+
+        self.h_bsize_rect = QHBoxLayout()
+        self.lbl_boundary_width = QLabel("Ancho Envolvente (Lx, nm):")
+        self.h_bsize_rect.addWidget(self.lbl_boundary_width)
+        self.spin_boundary_width = QDoubleSpinBox()
+        self.spin_boundary_width.setRange(200.0, 200000.0)
+        self.spin_boundary_width.setValue(5000.0)
+        self.spin_boundary_width.setSingleStep(100.0)
+        self.spin_boundary_width.setToolTip(make_tooltip(
+            "Ancho de la Envolvente Rectangular (Lx)",
+            "Ancho total (no semi-lado) de la envolvente rectangular usada para recortar la plantilla ideal.",
+            "boundary_width_nm pasado a generate_ideal_lattice_template(); independiente de Ly."
+        ))
+        self.spin_boundary_width.valueChanged.connect(lambda _v: (self._mark_results_stale(), self._update_mc_hex_info_label()))
+        self.h_bsize_rect.addWidget(self.spin_boundary_width)
+        self.lbl_boundary_height = QLabel("Alto Envolvente (Ly, nm):")
+        self.h_bsize_rect.addWidget(self.lbl_boundary_height)
+        self.spin_boundary_height = QDoubleSpinBox()
+        self.spin_boundary_height.setRange(200.0, 200000.0)
+        self.spin_boundary_height.setValue(5000.0)
+        self.spin_boundary_height.setSingleStep(100.0)
+        self.spin_boundary_height.setToolTip(make_tooltip(
+            "Alto de la Envolvente Rectangular (Ly)",
+            "Alto total (no semi-lado) de la envolvente rectangular usada para recortar la plantilla ideal.",
+            "boundary_height_nm pasado a generate_ideal_lattice_template(); independiente de Lx."
+        ))
+        self.spin_boundary_height.valueChanged.connect(lambda _v: (self._mark_results_stale(), self._update_mc_hex_info_label()))
+        self.h_bsize_rect.addWidget(self.spin_boundary_height)
+        lay_hex.addLayout(self.h_bsize_rect)
+        for _w in (self.lbl_boundary_width, self.spin_boundary_width, self.lbl_boundary_height, self.spin_boundary_height):
+            _w.setVisible(False)
 
         self.chk_auto_rotate = QCheckBox("Rotación Automática (registro rígido)")
         self.chk_auto_rotate.setChecked(True)
@@ -2650,6 +2689,17 @@ class LatticeDisorderWindow(QMainWindow):
     def _on_auto_rotate_toggled(self, checked: bool):
         self._mark_results_stale()
 
+    def _on_boundary_type_changed(self, idx: int) -> None:
+        """Alterna entre el spinbox único (radio, hexagonal/circular) y el par
+        Lx/Ly (rectangular) de la geometría envolvente de la plantilla ideal."""
+        is_rect = (idx == 2)
+        self.lbl_boundary_size.setVisible(not is_rect)
+        self.spin_boundary_size.setVisible(not is_rect)
+        for w in (self.lbl_boundary_width, self.spin_boundary_width, self.lbl_boundary_height, self.spin_boundary_height):
+            w.setVisible(is_rect)
+        self._mark_results_stale()
+        self._update_mc_hex_info_label()
+
     def _open_wiki_note(self, note_id: Optional[str], anchor: Optional[str] = None) -> None:
         """Paquete 9: abre (o reutiliza, patrón singleton) la Wiki Científica
         navegando directamente a note_id. note_id=None abre la página de
@@ -2680,12 +2730,17 @@ class LatticeDisorderWindow(QMainWindow):
             return
         self.spin_mc_ay.setEnabled(False)
         is_honeycomb = self.combo_lattice_type.currentIndex() == 2
-        boundary_txt = ["Hexagonal", "Circular", "Rectangular"][self.combo_boundary_type.currentIndex()]
+        boundary_idx = self.combo_boundary_type.currentIndex()
+        boundary_txt = ["Hexagonal", "Circular", "Rectangular"][boundary_idx]
+        if boundary_idx == 2:
+            size_txt = f"Lx={self.spin_boundary_width.value():.0f} nm, Ly={self.spin_boundary_height.value():.0f} nm"
+        else:
+            size_txt = f"tamaño {self.spin_boundary_size.value():.0f} nm"
         basis_txt = (f" | Base (u₂,v₂)=({self.spin_honeycomb_u2.value():.3f}, {self.spin_honeycomb_v2.value():.3f})"
                       if is_honeycomb and hasattr(self, 'spin_honeycomb_u2') else "")
         self.lbl_mc_hex_info.setText(
             f"ℹ️ Familia {'Honeycomb/Grafeno' if is_honeycomb else 'Hexagonal/Triangular'}: usa ax como "
-            f"período único a, frontera {boundary_txt} (tamaño {self.spin_boundary_size.value():.0f} nm) "
+            f"período único a, frontera {boundary_txt} ({size_txt}) "
             f"de la Pestaña 2{basis_txt}. Nx/Ny/anisotropía/ay no aplican."
         )
         self.lbl_mc_hex_info.setVisible(True)
@@ -3178,6 +3233,7 @@ class LatticeDisorderWindow(QMainWindow):
             "FWHM_y: - nm^-1 (ξ_y: - nm)"
         )
         self.lbl_recip_metrics.setStyleSheet("font-family: monospace; font-size: 11px; color: #89b4fa;")
+        self.lbl_recip_metrics.setWordWrap(True)
         self.lbl_recip_metrics.setToolTip(make_tooltip(
             "Métricas Cristalográficas y Espectrales",
             "Muestra los períodos de red a_x y a_y en nanómetros, la anisotropía y las longitudes de coherencia espacial.",
@@ -3279,6 +3335,39 @@ class LatticeDisorderWindow(QMainWindow):
         h_cuts_hdr.addWidget(btn_exp_cuts)
         right_layout.addLayout(h_cuts_hdr)
 
+        # --- Control de orientación recíproca (Paquete D.1, sólo familia hexagonal) ---
+        self.h_fourier_rotation = QHBoxLayout()
+        self.lbl_fourier_rotation = QLabel("Orientación Recíproca θ_rot:")
+        self.h_fourier_rotation.addWidget(self.lbl_fourier_rotation)
+        self.spin_fourier_rotation = QDoubleSpinBox()
+        self.spin_fourier_rotation.setRange(-180.0, 180.0)
+        self.spin_fourier_rotation.setSingleStep(0.5)
+        self.spin_fourier_rotation.setSuffix("°")
+        self.spin_fourier_rotation.setToolTip(make_tooltip(
+            "Orientación del Retículo Recíproco",
+            "Ángulo donde caen los picos de Bragg de 1er orden hexagonales (base 0°/60°/.../300° + este offset). "
+            "Se inicializa desde el registro rígido de Espacio Real (Pestaña 2) y puede refinarse con "
+            "'🎯 Auto-detectar' o editarse manualmente.",
+            "El retículo recíproco de una red triangular con vectores reales a1=(a,0), a2=(a·cos60°,a·sin60°) "
+            "está rotado -30° respecto al real: θ_rot = θ_fit_deg(registro rígido) - 30°, plegado a [-30°,30°)."
+        ))
+        self.spin_fourier_rotation.valueChanged.connect(lambda _v: self._on_recalculate_reciprocal())
+        self.h_fourier_rotation.addWidget(self.spin_fourier_rotation)
+        self.btn_auto_rotate_fourier = QPushButton("🎯 Auto-detectar Orientación")
+        self.btn_auto_rotate_fourier.setToolTip(make_tooltip(
+            "Auto-detección de Orientación Recíproca",
+            "Localiza automáticamente el ángulo del pico de Bragg de 1er orden plegando la intensidad angular "
+            "con simetría 6-fold (find_hexagonal_reciprocal_rotation).",
+            "Muestrea S(fx,fy) en un anillo r∈[0.85f0,1.15f0] a paso 0.5°, pliega I_fold(θ)=Σ_k I(θ+k·60°) "
+            "para θ∈[-30°,30°) y toma θ_peak=argmax I_fold(θ)."
+        ))
+        self.btn_auto_rotate_fourier.clicked.connect(self._on_auto_rotate_fourier)
+        self.h_fourier_rotation.addWidget(self.btn_auto_rotate_fourier)
+        self.h_fourier_rotation.addStretch()
+        right_layout.addLayout(self.h_fourier_rotation)
+        for _w in (self.lbl_fourier_rotation, self.spin_fourier_rotation, self.btn_auto_rotate_fourier):
+            _w.setVisible(False)
+
         self.lay_cuts = QHBoxLayout()
         self.plot_cut_x = pg.PlotWidget(title="Perfil fx (Horizontal: Orden 1 + 2)")
         self.plot_cut_x.showGrid(x=True, y=True, alpha=0.3)
@@ -3319,7 +3408,36 @@ class LatticeDisorderWindow(QMainWindow):
         self.lay_cuts.addWidget(self.plot_cut_x)
         self.lay_cuts.addWidget(self.plot_cut_y)
         self.lay_cuts.addWidget(self.plot_cut_diag)
-        right_layout.addLayout(self.lay_cuts)
+
+        self.tabs_1d_cuts = QTabWidget()
+        w_cuts_cartesian = QWidget()
+        w_cuts_cartesian.setLayout(self.lay_cuts)
+        self.tabs_1d_cuts.addTab(w_cuts_cartesian, "📐 Cortes Cartesianos / Principales (Fx, Fy)")
+
+        self.lay_cuts_hex = QHBoxLayout()
+        self.plot_cut_hex60 = pg.PlotWidget(title="Corte θ_rot+60° (Eje Cristalográfico 2)")
+        self.plot_cut_hex120 = pg.PlotWidget(title="Corte θ_rot+120° (Eje Cristalográfico 3)")
+        self.plot_cut_hex150 = pg.PlotWidget(title="Corte θ_rot+150° (Gemelo Ortogonal)")
+        for _p, _lbl in (
+            (self.plot_cut_hex60, "θ_rot+60°"), (self.plot_cut_hex120, "θ_rot+120°"), (self.plot_cut_hex150, "θ_rot+150°")
+        ):
+            _p.showGrid(x=True, y=True, alpha=0.3)
+            _p.setLabel('bottom', 'r (radio recíproco)', units='nm^-1')
+            _p.setLabel('left', 'Intensidad')
+            _p.setMinimumHeight(220)
+            _p.setToolTip(make_tooltip(
+                f"Corte Cristalográfico {_lbl}",
+                "Perfil radial de S(fx,fy) a lo largo de una dirección hexagonal equivalente por simetría, "
+                "útil para contrastar la altura de picos de Bragg entre orientaciones nominalmente idénticas.",
+                "extract_angular_profile(S, fx, fy, angle_deg, band_width_bins) integrado en banda transversal."
+            ))
+            self.lay_cuts_hex.addWidget(_p)
+        w_cuts_hex = QWidget()
+        w_cuts_hex.setLayout(self.lay_cuts_hex)
+        self.tabs_1d_cuts.addTab(w_cuts_hex, "⬡ Cortes Cristalográficos Hexagonales (60°, 120°, 150°)")
+        self.tabs_1d_cuts.setTabVisible(1, False)
+
+        right_layout.addWidget(self.tabs_1d_cuts)
 
         # ──────────────────────────────────────────────────────────────────────
         # SECTOR ANALÍTICO Y RELACIONES ENTRE PICOS (RESULTADOS PRELIMINARES)
@@ -4543,7 +4661,7 @@ class LatticeDisorderWindow(QMainWindow):
             return
 
         # Guardar historial para Deshacer
-        self.curation_history.append(self.locs_df.copy())
+        self.curation_history.append((self.locs_df.copy(), copy.deepcopy(self.cluster_results)))
 
         # Descartar partículas seleccionadas
         keep_mask = np.ones(len(self.locs_df), dtype=bool)
@@ -4569,11 +4687,15 @@ class LatticeDisorderWindow(QMainWindow):
             QMessageBox.information(self, "Historial Vacío", "No hay acciones de curación previas para deshacer.")
             return
 
-        self.locs_df = self.curation_history.pop()
+        self.locs_df, restored_clusters = self.curation_history.pop()
+        self.cluster_results = restored_clusters
+        self.selected_cluster_id = None
         self.selected_particle_indices.clear()
         self.unmarked_indices.clear()
         self._update_selected_status()
-        self._update_real_space_analysis()
+        self._update_real_space_analysis(preserve_clusters=True)
+        self._update_cluster_table()
+        self._redraw_cluster_contours()
         QMessageBox.information(self, "Deshacer", f"Se restauró el estado anterior con {len(self.locs_df)} partículas.")
 
     def _on_revert_curation(self):
@@ -4630,7 +4752,7 @@ class LatticeDisorderWindow(QMainWindow):
         y0 = self.kdtree_results['y0'] if (self.kdtree_results and 'y0' in self.kdtree_results) else 0.0
         tol = self.spin_cluster_tolerance.value() if hasattr(self, 'spin_cluster_tolerance') else 20.0
 
-        self.curation_history.append(self.locs_df.copy())
+        self.curation_history.append((self.locs_df.copy(), copy.deepcopy(self.cluster_results)))
 
         n_gauss = self.spin_cluster_n_gaussians.value() if hasattr(self, 'spin_cluster_n_gaussians') else None
         init_seeds = self.manual_visual_seeds_nm if len(self.manual_visual_seeds_nm) >= 2 else None
@@ -4644,7 +4766,7 @@ class LatticeDisorderWindow(QMainWindow):
             y0=y0,
             scale_nm=scale_nm,
             target_cluster_id=self.selected_cluster_id,
-            image_2d=self.image_2d,
+            image_2d=self._get_active_image(),
             signature_dict=self.monomer_signature,
             tolerance_pct=tol,
             n_gaussians=n_gauss,
@@ -4698,7 +4820,7 @@ class LatticeDisorderWindow(QMainWindow):
         x0 = self.kdtree_results['x0'] if (self.kdtree_results and 'x0' in self.kdtree_results) else 0.0
         y0 = self.kdtree_results['y0'] if (self.kdtree_results and 'y0' in self.kdtree_results) else 0.0
 
-        self.curation_history.append(self.locs_df.copy())
+        self.curation_history.append((self.locs_df.copy(), copy.deepcopy(self.cluster_results)))
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
@@ -4748,7 +4870,7 @@ class LatticeDisorderWindow(QMainWindow):
         y0 = self.kdtree_results['y0'] if (self.kdtree_results and 'y0' in self.kdtree_results) else 0.0
         tol = self.spin_cluster_tolerance.value() if hasattr(self, 'spin_cluster_tolerance') else 20.0
 
-        self.curation_history.append(self.locs_df.copy())
+        self.curation_history.append((self.locs_df.copy(), copy.deepcopy(self.cluster_results)))
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
@@ -4759,7 +4881,7 @@ class LatticeDisorderWindow(QMainWindow):
             y0=y0,
             scale_nm=scale_nm,
             target_cluster_id=None,
-            image_2d=self.image_2d,
+            image_2d=self._get_active_image(),
             signature_dict=self.monomer_signature,
             tolerance_pct=tol
         )
@@ -4801,7 +4923,7 @@ class LatticeDisorderWindow(QMainWindow):
         x0 = self.kdtree_results['x0'] if (self.kdtree_results and 'x0' in self.kdtree_results) else 0.0
         y0 = self.kdtree_results['y0'] if (self.kdtree_results and 'y0' in self.kdtree_results) else 0.0
 
-        self.curation_history.append(self.locs_df.copy())
+        self.curation_history.append((self.locs_df.copy(), copy.deepcopy(self.cluster_results)))
 
         df_resolved, stats = resolve_clusters_dataframe(
             self.locs_df,
@@ -4888,7 +5010,7 @@ class LatticeDisorderWindow(QMainWindow):
         thr_pct = self.spin_suspicious_thresh.value()
 
         spot_info = inspect_single_spot_photometry(
-            image_2d=self.image_2d,
+            image_2d=self._get_active_image(),
             x_nm=x_nm,
             y_nm=y_nm,
             signature_dict=self.monomer_signature,
@@ -4925,7 +5047,7 @@ class LatticeDisorderWindow(QMainWindow):
         n_fit = self.spin_suspicious_n.value()
 
         # Guardar en historial para Deshacer
-        self.curation_history.append(self.locs_df.copy())
+        self.curation_history.append((self.locs_df.copy(), copy.deepcopy(self.cluster_results)))
         if len(self.curation_history) > 20:
             self.curation_history.pop(0)
 
@@ -4937,7 +5059,7 @@ class LatticeDisorderWindow(QMainWindow):
             df=self.locs_df,
             spot_index=spot_idx,
             n_particles=n_fit,
-            image_2d=self.image_2d,
+            image_2d=self._get_active_image(),
             signature_dict=self.monomer_signature,
             scale_nm=scale_nm,
             a_nominal=a_nom,
@@ -4982,7 +5104,11 @@ class LatticeDisorderWindow(QMainWindow):
 
     def _update_cluster_table(self):
         if self.cluster_results is None:
-            self.table_clusters.setRowCount(0)
+            self.table_clusters.blockSignals(True)
+            try:
+                self.table_clusters.setRowCount(0)
+            finally:
+                self.table_clusters.blockSignals(False)
             self.lbl_cluster_summary.setText("Aglomerados: 0 | Sobrepuestas: 0")
             if hasattr(self, 'lbl_monomer_signature'):
                 self.lbl_monomer_signature.setText("Firma Monómero: V₀=- | A₀=- | σ_psf=-")
@@ -5006,6 +5132,13 @@ class LatticeDisorderWindow(QMainWindow):
         )
 
         clusters = res.get('clusters', [])
+        self.table_clusters.blockSignals(True)
+        try:
+            self._populate_cluster_table_rows(clusters)
+        finally:
+            self.table_clusters.blockSignals(False)
+
+    def _populate_cluster_table_rows(self, clusters: list) -> None:
         self.table_clusters.setRowCount(len(clusters))
         for i, cl in enumerate(clusters):
             item_id = QTableWidgetItem(f"#{cl.get('id', i + 1)}")
@@ -5092,6 +5225,45 @@ class LatticeDisorderWindow(QMainWindow):
         setRowCount(0)); el guard de _on_cluster_table_clicked ya lo maneja."""
         self._on_cluster_table_clicked(current_row, current_col)
 
+    def _redraw_cluster_contours(self) -> None:
+        """Limpia y redibuja TODOS los contornos de cúmulos desde
+        self.cluster_results: tenue/punteado para los no seleccionados,
+        prominente para el actualmente seleccionado (self.selected_cluster_id).
+        Llamar tras cualquier mutación de cluster_results['clusters'] o de
+        selected_cluster_id (detección, creación manual, descarte, marcar
+        resuelto, deshacer, selección en tabla) para que el contexto global
+        de cúmulos permanezca siempre visible mientras el activo se destaca."""
+        for item in self.cluster_contour_items:
+            if item in self.plot_real_space.items():
+                self.plot_real_space.removeItem(item)
+        self.cluster_contour_items = []
+        if self.highlight_contour_item is not None:
+            if self.highlight_contour_item in self.plot_real_space.items():
+                self.plot_real_space.removeItem(self.highlight_contour_item)
+            self.highlight_contour_item = None
+
+        if not self.cluster_results:
+            return
+        for c in self.cluster_results.get('clusters', []):
+            poly = c.get('contour_polygon_nm', [])
+            if len(poly) <= 2:
+                continue
+            poly_arr = np.array(poly)
+            poly_closed = np.vstack([poly_arr, poly_arr[0]])
+            is_selected = (c.get('id') == self.selected_cluster_id)
+            if is_selected:
+                pen = pg.mkPen('#f9e2af', width=2.5)
+            else:
+                pen = pg.mkPen(color=(249, 226, 175, 70), width=1.0, style=Qt.PenStyle.DashLine)
+            item = pg.PlotDataItem(poly_closed[:, 0], poly_closed[:, 1], pen=pen)
+            item.setZValue(16 if is_selected else 15)
+            item.setVisible(self.chk_layer_contours.isChecked())
+            self.plot_real_space.addItem(item)
+            if is_selected:
+                self.highlight_contour_item = item
+            else:
+                self.cluster_contour_items.append(item)
+
     def _on_cluster_table_clicked(self, row: int, col: int):
         if self.cluster_results is None or 'clusters' not in self.cluster_results:
             return
@@ -5115,21 +5287,8 @@ class LatticeDisorderWindow(QMainWindow):
             self.spin_cluster_n_gaussians.setValue(n_comp)
             self.spin_cluster_n_gaussians.blockSignals(False)
 
-        # Resaltar contorno fotométrico seleccionado
-        if self.highlight_contour_item is not None:
-            self.plot_real_space.removeItem(self.highlight_contour_item)
-            self.highlight_contour_item = None
-
-        poly = target_cluster.get('contour_polygon_nm', [])
-        if len(poly) > 2:
-            poly_arr = np.array(poly)
-            poly_closed = np.vstack([poly_arr, poly_arr[0]])
-            self.highlight_contour_item = pg.PlotDataItem(
-                poly_closed[:, 0], poly_closed[:, 1],
-                pen=pg.mkPen('#f9e2af', width=3.0)
-            )
-            self.highlight_contour_item.setVisible(self.chk_layer_contours.isChecked())
-            self.plot_real_space.addItem(self.highlight_contour_item)
+        # Resaltar contorno fotométrico seleccionado (y atenuar el resto)
+        self._redraw_cluster_contours()
 
         # Centrar la vista en el aglomerado
         com_x = target_cluster.get('com_x', target_cluster.get('center_x', 0.0))
@@ -5218,6 +5377,7 @@ class LatticeDisorderWindow(QMainWindow):
         current_ids = list(target.get('indices', []))
         self._apply_cluster_resolution_state(cluster_id, current_ids, 'RESOLVED_MANUAL')
         self._update_cluster_table()
+        self._redraw_cluster_contours()
         self._select_first_pending_cluster_row()
         self.statusBar().showMessage(f"Cúmulo #{cluster_id} marcado como resuelto por el usuario.", 3000)
 
@@ -5233,6 +5393,7 @@ class LatticeDisorderWindow(QMainWindow):
         if self.selected_cluster_id == cluster_id:
             self.selected_cluster_id = None
         self._update_cluster_table()
+        self._redraw_cluster_contours()
         self.statusBar().showMessage(f"Cúmulo #{cluster_id} descartado de la tabla.", 3000)
 
     def _on_create_manual_cluster(self):
@@ -5265,7 +5426,7 @@ class LatticeDisorderWindow(QMainWindow):
         new_c = create_manual_cluster(
             locs_df=self.locs_df,
             particle_indices=list(self.selected_particle_indices),
-            image_2d=self.image_2d,
+            image_2d=self._get_active_image(),
             scale_nm=scale_nm,
             a_nominal=a_nom,
             signature_dict=self.monomer_signature,
@@ -5291,25 +5452,13 @@ class LatticeDisorderWindow(QMainWindow):
             for i in range(len(pts) - 1):
                 self.cluster_results.setdefault('pair_lines', []).append((pts[i, 0], pts[i, 1], pts[i+1, 0], pts[i+1, 1]))
 
-        # Renderizar contorno del cúmulo manual
-        poly = new_c.get('contour_polygon_nm', [])
-        if len(poly) > 2:
-            poly_arr = np.array(poly)
-            poly_closed = np.vstack([poly_arr, poly_arr[0]])
-            c_item = pg.PlotDataItem(
-                poly_closed[:, 0], poly_closed[:, 1],
-                pen=pg.mkPen('#a6e3a1', width=1.5, style=Qt.PenStyle.DashLine)
-            )
-            c_item.setZValue(15)
-            c_item.setVisible(self.chk_layer_contours.isChecked())
-            self.plot_real_space.addItem(c_item)
-            self.cluster_contour_items.append(c_item)
-
         self._update_cluster_table()
         self.selected_cluster_id = next_id
 
         # Seleccionar la fila en table_clusters (blockSignals evita el doble
-        # disparo de _on_cluster_table_cell_changed — ver Paquete 2).
+        # disparo de _on_cluster_table_cell_changed — ver Paquete 2). El
+        # contorno del cúmulo manual (y el resto, atenuados) se redibuja
+        # dentro de _on_cluster_table_clicked -> _redraw_cluster_contours().
         for r in range(self.table_clusters.rowCount()):
             item = self.table_clusters.item(r, 0)
             if item and item.text() == str(next_id):
@@ -5740,7 +5889,7 @@ class LatticeDisorderWindow(QMainWindow):
             a_nominal=a_nom,
             r_cluster_factor=0.60,
             photons=photons_arr,
-            image_2d=self.image_2d,
+            image_2d=self._get_active_image(),
             locs_df=self.locs_df,
             scale_nm=scale_nm,
             signature_dict=self.monomer_signature,
@@ -5788,21 +5937,8 @@ class LatticeDisorderWindow(QMainWindow):
                 self.plot_real_space.addItem(line_item)
                 self.cluster_lines_items.append(line_item)
 
-        # Dibujar contornos fotométricos segmentados
-        if self.cluster_results and len(self.cluster_results.get('clusters', [])) > 0:
-            for c in self.cluster_results['clusters']:
-                poly = c.get('contour_polygon_nm', [])
-                if len(poly) > 2:
-                    poly_arr = np.array(poly)
-                    poly_closed = np.vstack([poly_arr, poly_arr[0]])
-                    c_item = pg.PlotDataItem(
-                        poly_closed[:, 0], poly_closed[:, 1],
-                        pen=pg.mkPen('#f9e2af', width=1.5, style=Qt.PenStyle.DashLine)
-                    )
-                    c_item.setZValue(15)
-                    c_item.setVisible(self.chk_layer_contours.isChecked())
-                    self.plot_real_space.addItem(c_item)
-                    self.cluster_contour_items.append(c_item)
+        # Dibujar contornos fotométricos segmentados (tenue/prominente según selección)
+        self._redraw_cluster_contours()
 
         # Superponer partículas pertenecientes a aglomerados
         if self.cluster_results and self.cluster_results.get('n_clusters', 0) > 0:
@@ -5897,6 +6033,7 @@ class LatticeDisorderWindow(QMainWindow):
             'min_ix': 0, 'max_ix': 0, 'min_iy': 0, 'max_iy': 0,
             'x0': 0.0, 'y0': 0.0,
             'sigma_x': match['sigma_x'], 'sigma_y': match['sigma_y'], 'sigma_pos': match['sigma_pos'],
+            'ellipticity': match.get('ellipticity', 0.0),
             'delta_x': match['delta_x'][valid_mask], 'delta_y': match['delta_y'][valid_mask],
             'grid_points': grid_points, 'vacant_points': match['vacant_points'],
             'matched_grid_points': np.column_stack([match['x_ideal'][valid_mask], match['y_ideal'][valid_mask]]),
@@ -5932,6 +6069,8 @@ class LatticeDisorderWindow(QMainWindow):
             # --- Motor Fase 2: Template Matching Universal (hexagonal / honeycomb) ---
             boundary_key = ['hexagon', 'circle', 'rectangle'][self.combo_boundary_type.currentIndex()]
             boundary_size_nm = self.spin_boundary_size.value()
+            boundary_width_nm = self.spin_boundary_width.value() if boundary_key == 'rectangle' else None
+            boundary_height_nm = self.spin_boundary_height.value() if boundary_key == 'rectangle' else None
             initial_rot = self.spin_rotation_manual.value()
             auto_rotate = self.chk_auto_rotate.isChecked()
 
@@ -5951,7 +6090,8 @@ class LatticeDisorderWindow(QMainWindow):
             v2 = self.spin_honeycomb_v2.value() if hasattr(self, 'spin_honeycomb_v2') else 1.0 / 3.0
             template = generate_ideal_lattice_template(
                 lattice_type=lattice_type_key, a=a_nom, boundary_type=boundary_key,
-                boundary_size_nm=boundary_size_nm, u2=u2, v2=v2
+                boundary_size_nm=boundary_size_nm, boundary_width_nm=boundary_width_nm,
+                boundary_height_nm=boundary_height_nm, u2=u2, v2=v2
             )
             match = register_and_match_template(
                 x_nm, y_nm, template['x'], template['y'], template['sublattice_id'],
@@ -5966,6 +6106,10 @@ class LatticeDisorderWindow(QMainWindow):
                 match, x_nm, a_nom, margin_pct
             )
             self.template_match_results = {'template': template, 'match': match}
+            # Paquete D.1: un nuevo registro rígido produce un theta_fit_deg fresco;
+            # forzar re-siembra de spin_fourier_rotation en el próximo recálculo de
+            # Espacio Recíproco (Pestaña 3) en vez de conservar un ángulo obsoleto.
+            self._fourier_rotation_seeded = False
 
             # RDF: para honeycomb el primer pico de vecinos está en d = a/sqrt(3) (enlace A-B),
             # no en a (que es el 2do pico, misma subred) -- ver DEC-012
@@ -6064,10 +6208,16 @@ class LatticeDisorderWindow(QMainWindow):
                 "background: #181825; border: 1px solid #313244; border-radius: 4px; padding: 6px;"
             )
 
+        if is_hex_family:
+            disorder_line = f"Desorden σ_pos: {kd['sigma_pos']:.2f} nm | Elipticidad ε: {kd.get('ellipticity', 0.0):.3f}\n"
+        else:
+            disorder_line = (
+                f"Desorden σ_x: {kd['sigma_x']:.2f} nm | σ_y: {kd['sigma_y']:.2f} nm\n"
+                f"Desorden Medio σ_pos: {kd['sigma_pos']:.2f} nm\n"
+            )
         self.lbl_real_metrics.setText(
             f"{det_info}\n"
-            f"Desorden σ_x: {kd['sigma_x']:.2f} nm | σ_y: {kd['sigma_y']:.2f} nm\n"
-            f"Desorden Medio σ_pos: {kd['sigma_pos']:.2f} nm\n"
+            f"{disorder_line}"
             f"Ancho g(r) σ_rdf: {rdf['sigma_rdf']:.2f} nm"
             f"{alert_block}"
         )
@@ -6109,10 +6259,14 @@ class LatticeDisorderWindow(QMainWindow):
                 if 'theta_fit_deg' in kd:
                     sublattice_txt += f"\nÁngulo de Registro Rígido θ: {kd['theta_fit_deg']:.2f}°"
 
+            if is_hex_family:
+                lindemann_line = f"Lindemann γ_L (isotrópico): {gamma_l:.4f}  |  Elipticidad ε: {kd.get('ellipticity', 0.0):.3f}\n"
+            else:
+                lindemann_line = f"Lindemann γ_L: {gamma_l:.4f}  (γ_L,x: {gamma_lx:.4f}  |  γ_L,y: {gamma_ly:.4f})\n"
             self.lbl_topology_metrics.setText(
                 f"Orden Orientacional: {psi4_txt}\n"
                 f"Orden Traslacional Ψ_T,x: {psi_tx:.3f}  |  Ψ_T,y: {psi_ty:.3f}\n"
-                f"Lindemann γ_L: {gamma_l:.4f}  (γ_L,x: {gamma_lx:.4f}  |  γ_L,y: {gamma_ly:.4f})\n"
+                f"{lindemann_line}"
                 f"{voronoi_txt}"
                 f"{sublattice_txt}"
             )
@@ -6692,6 +6846,17 @@ class LatticeDisorderWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error al Cargar Coordenadas", f"Detalle: {str(e)}")
 
+    def _get_active_image(self) -> Optional[np.ndarray]:
+        """Retorna la imagen que deben usar los motores de localización y
+        fotometría: la versión deconvolucionada (Richardson-Lucy) si el
+        pre-filtrado está activo y ya fue calculada, o la imagen 2D cruda en
+        caso contrario. Punto único de verdad para evitar que un motor
+        (ej. Picasso) ignore silenciosamente el pre-filtrado RL mientras
+        otro (Trackpy) sí lo aplica."""
+        if getattr(self, 'chk_rl', None) is not None and self.chk_rl.isChecked() and self.image_rl is not None:
+            return self.image_rl
+        return self.image_2d
+
     def _on_detect_particles(self):
         if self.image_2d is None:
             QMessageBox.warning(self, "Atención", "Primero debe cargar una imagen confocal.")
@@ -6703,6 +6868,17 @@ class LatticeDisorderWindow(QMainWindow):
         invert_flag = self.chk_invert_img.isChecked()
 
         img_to_process = self.image_2d.copy()
+        if self.chk_rl.isChecked():
+            self.image_rl = apply_richardson_lucy(
+                img_to_process,
+                psf_sigma=self.spin_rl_sigma.value(),
+                num_iter=self.spin_rl_iter.value()
+            )
+            if hasattr(self, 'chk_layer_rl'):
+                self.chk_layer_rl.blockSignals(True)
+                self.chk_layer_rl.setChecked(True)
+                self.chk_layer_rl.blockSignals(False)
+        img_to_process = self._get_active_image()
 
         try:
             if motor_idx == 0:
@@ -6736,18 +6912,6 @@ class LatticeDisorderWindow(QMainWindow):
                 sep = self.spin_separation.value()
                 perc = self.spin_percentile.value()
                 noise_sz = self.spin_noise_size.value()
-
-                if self.chk_rl.isChecked():
-                    self.image_rl = apply_richardson_lucy(
-                        img_to_process,
-                        psf_sigma=self.spin_rl_sigma.value(),
-                        num_iter=self.spin_rl_iter.value()
-                    )
-                    img_to_process = self.image_rl
-                    if hasattr(self, 'chk_layer_rl'):
-                        self.chk_layer_rl.blockSignals(True)
-                        self.chk_layer_rl.setChecked(True)
-                        self.chk_layer_rl.blockSignals(False)
 
                 locs = localize_trackpy(
                     img_to_process,
@@ -6953,6 +7117,18 @@ class LatticeDisorderWindow(QMainWindow):
                 self._on_cluster_table_clicked(i, 0)
                 return
 
+    def _on_auto_rotate_fourier(self):
+        """Paquete D.1: refina theta_rot ejecutando el solver azimutal automático
+        (find_hexagonal_reciprocal_rotation) sobre el S(fx,fy) ya calculado."""
+        if self.reciprocal_results is None or 'S' not in self.reciprocal_results:
+            QMessageBox.information(self, "Sin Datos", "Primero calcule el Espacio Recíproco.")
+            return
+        a_nom = self.spin_a_nominal.value()
+        res = self.reciprocal_results
+        solved = find_hexagonal_reciprocal_rotation(res['S'], res['fx'], res['fy'], a=a_nom)
+        self.spin_fourier_rotation.setValue(solved['theta_peak_deg'])
+        self.statusBar().showMessage(f"Orientación recíproca auto-detectada: θ_rot = {solved['theta_peak_deg']:+.1f}°", 4000)
+
     def _on_recalculate_reciprocal(self):
         if self.locs_df is None or len(self.locs_df) == 0:
             return
@@ -6991,25 +7167,37 @@ class LatticeDisorderWindow(QMainWindow):
         res = self.reciprocal_results
 
         # Actualizar tarjeta de métricas de red con Jerarquía de Bragg Multi-Orden
+        # (resumen compacto; la metodología completa vive en el tooltip, ver abajo)
         self.lbl_recip_metrics.setText(
-            f"═══ ORDEN 1 FUNDAMENTAL ═══\n"
-            f"Período: ax={res['a_x']:.2f} nm | ay={res['a_y']:.2f} nm (Δa: {res['anisotropy']:+.2f} nm)\n"
-            f"Alturas: Hx={res['Hx']:.2f} | Hy={res['Hy']:.2f}\n"
-            f"Coherencia ξ: X={res['xi_x']:.1f} nm | Y={res['xi_y']:.1f} nm\n"
-            f"Mosaico Angular Δθ: X={res.get('delta_theta_x_deg', 0.0):.2f}° | Y={res.get('delta_theta_y_deg', 0.0):.2f}°\n\n"
-            f"═══ ORDEN CRUZADO (1, 1) DIAGONAL 45° ═══\n"
-            f"Período: a_diag={res.get('a_diag', 0.0):.2f} nm | H_diag={res.get('H_diag', 0.0):.2f}\n"
-            f"Ratio H_diag / H1: {res.get('ratio_diag', 0.0):.4f}\n"
-            f"Cizallamiento (Shear): {res.get('shear_strain_deg', 0.0):.2f}°\n\n"
-            f"═══ ORDEN 2 ARMÓNICO (2, 0) / (0, 2) ═══\n"
-            f"Período: ax2={res.get('a_x_2nd', 0.0):.2f} nm | ay2={res.get('a_y_2nd', 0.0):.2f} nm\n"
-            f"Alturas: H2x={res.get('H_x_2nd', 0.0):.2f} | H2y={res.get('H_y_2nd', 0.0):.2f}\n"
-            f"Ratio H2 / H1: {res.get('ratio_order2_x', 0.0):.4f}\n"
-            f"Paracristal (FWHM2 / FWHM1): {res.get('paracrystal_ratio_x', 0.0):.2f}\n\n"
-            f"═══ FONDO DIFUSO Y SBR ═══\n"
-            f"Fondo Incoherente: {res.get('I_diffuse', 0.0):.3f}\n"
-            f"Señal / Fondo (SBR): {res.get('sbr_mean', 0.0):.1f}"
+            f"Período: ax={res['a_x']:.2f} nm | ay={res['a_y']:.2f} nm (Δa: {res['anisotropy']:+.2f} nm) | "
+            f"a_diag={res.get('a_diag', 0.0):.2f} nm\n"
+            f"Alturas: Hx={res['Hx']:.2f} | Hy={res['Hy']:.2f} | H_diag={res.get('H_diag', 0.0):.2f}\n"
+            f"Ratios: H2/H1={res.get('ratio_order2_x', 0.0):.4f} | H_diag/H1={res.get('ratio_diag', 0.0):.4f} | "
+            f"Paracristal={res.get('paracrystal_ratio_x', 0.0):.2f}\n"
+            f"Coherencia ξ: X={res['xi_x']:.1f} nm | Y={res['xi_y']:.1f} nm | SBR={res.get('sbr_mean', 0.0):.1f}"
         )
+        self.lbl_recip_metrics.setToolTip(make_tooltip(
+            "Jerarquía de Bragg — Red Cuadrada/Rectangular",
+            "Períodos, alturas y ratios de los picos de Bragg de orden 1, orden cruzado diagonal y 2° armónico, "
+            "más coherencia espacial y relación señal/fondo.",
+            "═══ ORDEN 1 FUNDAMENTAL ═══<br>"
+            f"Período: ax={res['a_x']:.2f} nm | ay={res['a_y']:.2f} nm (Δa: {res['anisotropy']:+.2f} nm)<br>"
+            f"Alturas: Hx={res['Hx']:.2f} | Hy={res['Hy']:.2f}<br>"
+            f"Coherencia ξ: X={res['xi_x']:.1f} nm | Y={res['xi_y']:.1f} nm<br>"
+            f"Mosaico Angular Δθ: X={res.get('delta_theta_x_deg', 0.0):.2f}° | Y={res.get('delta_theta_y_deg', 0.0):.2f}°<br><br>"
+            "═══ ORDEN CRUZADO (1, 1) DIAGONAL 45° ═══<br>"
+            f"Período: a_diag={res.get('a_diag', 0.0):.2f} nm | H_diag={res.get('H_diag', 0.0):.2f}<br>"
+            f"Ratio H_diag / H1: {res.get('ratio_diag', 0.0):.4f}<br>"
+            f"Cizallamiento (Shear): {res.get('shear_strain_deg', 0.0):.2f}°<br><br>"
+            "═══ ORDEN 2 ARMÓNICO (2, 0) / (0, 2) ═══<br>"
+            f"Período: ax2={res.get('a_x_2nd', 0.0):.2f} nm | ay2={res.get('a_y_2nd', 0.0):.2f} nm<br>"
+            f"Alturas: H2x={res.get('H_x_2nd', 0.0):.2f} | H2y={res.get('H_y_2nd', 0.0):.2f}<br>"
+            f"Ratio H2 / H1: {res.get('ratio_order2_x', 0.0):.4f}<br>"
+            f"Paracristal (FWHM2 / FWHM1): {res.get('paracrystal_ratio_x', 0.0):.2f}<br><br>"
+            "═══ FONDO DIFUSO Y SBR ═══<br>"
+            f"Fondo Incoherente: {res.get('I_diffuse', 0.0):.3f}<br>"
+            f"Señal / Fondo (SBR): {res.get('sbr_mean', 0.0):.1f}"
+        ))
 
         # Visualizar mapa 2D log10(1 + S)
         self.plot_fourier_2d.clear()
@@ -7030,13 +7218,28 @@ class LatticeDisorderWindow(QMainWindow):
 
         if is_hex_family_fourier:
             # Cortes/marcadores cartesianos (±f0_x, ±f0_y, diagonal, 2do orden) NO aplican a
-            # redes hexagonales/honeycomb: el retículo recíproco está rotado 30° respecto al
-            # real (ver DEC-012) y los picos de Bragg de 1er orden caen en -30°,30°,90°,...,
-            # no sobre los ejes cartesianos fx/fy. Se dibujan en su lugar las 6 direcciones
-            # hexagonales correctas + el perfil radial azimutal integrado S(q).
+            # redes hexagonales/honeycomb: el retículo recíproco está rotado respecto al
+            # real (ver DEC-012) y los picos de Bragg de 1er orden caen en el ángulo
+            # theta_rot (Paquete D.1, editable/auto-detectable), no sobre los ejes
+            # cartesianos fx/fy. Se dibujan en su lugar las 6 direcciones hexagonales
+            # correctas + el perfil radial azimutal integrado S(q).
+            for _w in (self.lbl_fourier_rotation, self.spin_fourier_rotation, self.btn_auto_rotate_fourier):
+                _w.setVisible(True)
+            self.tabs_1d_cuts.setTabVisible(1, True)
+
+            if not self._fourier_rotation_seeded:
+                seed = 0.0
+                if self.kdtree_results is not None and 'theta_fit_deg' in self.kdtree_results:
+                    seed = ((self.kdtree_results['theta_fit_deg'] - 30.0 + 30.0) % 60.0) - 30.0
+                self.spin_fourier_rotation.blockSignals(True)
+                self.spin_fourier_rotation.setValue(seed)
+                self.spin_fourier_rotation.blockSignals(False)
+                self._fourier_rotation_seeded = True
+            theta_rot = self.spin_fourier_rotation.value()
+
             a_nom_fourier = self.spin_a_nominal.value()
             f0_hex = 2.0 / (np.sqrt(3.0) * a_nom_fourier)
-            angles_hex_deg = np.array([-30.0, 30.0, 90.0, 150.0, 210.0, 270.0])
+            angles_hex_deg = np.array([-30.0, 30.0, 90.0, 150.0, 210.0, 270.0]) + theta_rot
             hex_peaks_x = (f0_hex * np.cos(np.radians(angles_hex_deg))).tolist()
             hex_peaks_y = (f0_hex * np.sin(np.radians(angles_hex_deg))).tolist()
             scatter_hex = pg.ScatterPlotItem(
@@ -7063,19 +7266,39 @@ class LatticeDisorderWindow(QMainWindow):
             else:
                 r_peak = f0_hex
 
+            # Paquete D.3: indexación de picos de Bragg hexagonales (alturas H_axis1/H_axis2,
+            # 2do armónico radial, punto ortogonal de 2do shell) usando theta_rot.
+            hex_bragg = compute_hexagonal_bragg_indexing(res['S'], fx, fy, a=a_nom_fourier, rotation_deg=theta_rot)
+            self.reciprocal_results['hex_bragg'] = hex_bragg
+
             self.lbl_recip_metrics.setText(
-                f"═══ RED HEXAGONAL / HONEYCOMB (DEC-012) ═══\n"
-                f"f0 esperado = 2/(√3·a) = {f0_hex:.6f} nm⁻¹ (a = {a_nom_fourier:.1f} nm)\n"
-                f"Radio de anillo detectado (perfil radial S(q)): {r_peak:.6f} nm⁻¹ "
-                f"(Δ = {(r_peak - f0_hex):+.6f}, {100.0*(r_peak-f0_hex)/f0_hex:+.2f}%)\n"
-                f"Direcciones de Bragg de 1er orden: -30°, 30°, 90°, 150°, 210°, 270° "
-                f"(retículo recíproco rotado 30° respecto al real)\n\n"
-                f"Nota: los cortes cartesianos fx/fy de abajo siguen siendo el perfil NUFFT "
-                f"crudo (válido para cualquier geometría); el ajuste automático de picos y "
-                f"la jerarquía de Bragg multi-orden cartesiana (diagonal, 2do orden) asumen "
-                f"una red cuadrada/rectangular y no se muestran en este modo."
+                f"Red Hexagonal/Honeycomb — f0={f0_hex:.5f} nm⁻¹ (a={a_nom_fourier:.1f} nm) | θ_rot={theta_rot:+.1f}°\n"
+                f"H_axis1={hex_bragg['H_axis1']:.2f} | H_axis2={hex_bragg['H_axis2']:.2f} | H_ortho={hex_bragg['H_ortho']:.2f} | "
+                f"R_ortho={hex_bragg['ratio_ortho']:.3f}"
             )
+            self.lbl_recip_metrics.setToolTip(make_tooltip(
+                "Red Hexagonal/Honeycomb — Metodología DEC-012",
+                "El retículo recíproco de una red hexagonal está rotado respecto al real: los picos de Bragg de "
+                "1er orden caen en θ_rot+{0°,60°,...,300°}, no sobre los ejes fx/fy cartesianos.",
+                "═══ RED HEXAGONAL / HONEYCOMB (DEC-012) ═══<br>"
+                f"f0 esperado = 2/(√3·a) = {f0_hex:.6f} nm⁻¹ (a = {a_nom_fourier:.1f} nm)<br>"
+                f"Radio de anillo detectado (perfil radial S(q)): {r_peak:.6f} nm⁻¹ "
+                f"(Δ = {(r_peak - f0_hex):+.6f}, {100.0*(r_peak-f0_hex)/f0_hex:+.2f}%)<br>"
+                f"Direcciones de Bragg de 1er orden: θ_rot+0°, 60°, 120°, 180°, 240°, 300° (θ_rot={theta_rot:+.2f}°)<br><br>"
+                "═══ JERARQUÍA DE BRAGG HEXAGONAL (Paquete D.3) ═══<br>"
+                f"H_axis1={hex_bragg['H_axis1']:.3f} | H_axis2={hex_bragg['H_axis2']:.3f}<br>"
+                f"H_2_axis1={hex_bragg['H_2_axis1']:.3f} | H_2_axis2={hex_bragg['H_2_axis2']:.3f}<br>"
+                f"H_ortho={hex_bragg['H_ortho']:.3f} (2do shell, radio q_ortho=√3·f1={hex_bragg['q_ortho']:.5f} nm⁻¹)<br>"
+                f"R_2/1 axis1={hex_bragg['ratio_21_axis1']:.4f} | R_2/1 axis2={hex_bragg['ratio_21_axis2']:.4f} | "
+                f"R_ortho={hex_bragg['ratio_ortho']:.4f}<br><br>"
+                f"Nota: los cortes de la sub-pestaña 'Cortes Cartesianos/Principales' muestran, para esta familia, "
+                f"los ejes cristalográficos axis1 (θ_rot) y ortogonal (θ_rot+90°), no fx/fy crudos; la jerarquía "
+                f"de Bragg cartesiana (diagonal, 2do orden) asume una red cuadrada/rectangular y no aplica aquí."
+            ))
         else:
+            self.tabs_1d_cuts.setTabVisible(1, False)
+            for _w in (self.lbl_fourier_rotation, self.spin_fourier_rotation, self.btn_auto_rotate_fourier):
+                _w.setVisible(False)
             # 1. Picos Fundamentales de 1er Orden (cruz verde/cyan)
             peaks_1_x = [f0_x, -f0_x, 0.0, 0.0]
             peaks_1_y = [0.0, 0.0, f0_y, -f0_y]
@@ -7199,6 +7422,41 @@ class LatticeDisorderWindow(QMainWindow):
                         self.plot_cut_diag.plot(fit_diag['fit_f'], fit_diag['comp2_curve'], pen=pg.mkPen('#fab387', width=1.3, style=Qt.PenStyle.DotLine), name='Pico 2 (Diag)')
                     if 'baseline_curve' in fit_diag and fit_diag['baseline_curve'] is not None:
                         self.plot_cut_diag.plot(fit_diag['fit_f'], fit_diag['baseline_curve'], pen=pg.mkPen('#6c7086', width=1.0, style=Qt.PenStyle.DotLine), name='Línea Base (Diag)')
+
+        # Paquete D.2: para familia hexagonal/honeycomb, los cortes Cartesianos fx/fy
+        # con ajuste gaussiano cuadrado/rectangular recién graficados arriba NO son
+        # válidos (ver nota DEC-012) -- se sobrescriben aquí con los cortes
+        # cristalográficos reales: Sub-pestaña 1 = eje 1 (theta_rot, 1er+2do orden
+        # radial) y eje ortogonal (theta_rot+90°, 2do shell recíproco); Sub-pestaña 2
+        # = los 3 cortes hexagonales dedicados a theta_rot+60°/120°/150°.
+        if is_hex_family_fourier:
+            self.plot_cut_x.clear()
+            self.plot_cut_x.setTitle(f"Corte Eje 1 (θ_rot={theta_rot:+.1f}°, 1er+2do orden)")
+            r1, prof1 = extract_angular_profile(res['S'], fx, fy, theta_rot)
+            self.plot_cut_x.plot(r1, prof1, pen=pg.mkPen('#89dceb', width=2), name='Eje 1')
+
+            self.plot_cut_y.clear()
+            self.plot_cut_y.setTitle(f"Corte Ortogonal (θ_rot+90°={theta_rot + 90.0:+.1f}°, 2do shell)")
+            r2, prof2 = extract_angular_profile(res['S'], fx, fy, theta_rot + 90.0)
+            self.plot_cut_y.plot(r2, prof2, pen=pg.mkPen('#cba6f7', width=2), name='Ortogonal')
+
+            if hasattr(self, 'plot_cut_diag'):
+                self.plot_cut_diag.clear()
+                self.plot_cut_diag.setTitle("No aplica a redes hexagonales/honeycomb")
+
+            for _plot, _angle_offset, _label in (
+                (self.plot_cut_hex60, 60.0, 'Eje Cristalográfico 2'),
+                (self.plot_cut_hex120, 120.0, 'Eje Cristalográfico 3'),
+                (self.plot_cut_hex150, 150.0, 'Gemelo Ortogonal'),
+            ):
+                _plot.clear()
+                _ang = theta_rot + _angle_offset
+                _r, _prof = extract_angular_profile(res['S'], fx, fy, _ang)
+                _plot.setTitle(f"Corte θ_rot+{_angle_offset:.0f}° ({_label})")
+                _plot.plot(_r, _prof, pen=pg.mkPen('#f9e2af', width=2), name=_label)
+        elif hasattr(self, 'plot_cut_hex60'):
+            for _plot in (self.plot_cut_hex60, self.plot_cut_hex120, self.plot_cut_hex150):
+                _plot.clear()
 
         # Restaurar reglas visuales del pico seleccionado si están activas
         if hasattr(self, 'chk_peak_manual_roi') and self.chk_peak_manual_roi.isChecked():
@@ -7744,11 +8002,18 @@ class LatticeDisorderWindow(QMainWindow):
                 'lattice_type': lattice_type_key_mc,
                 'boundary_type': boundary_key_mc,
                 'boundary_size_nm': self.spin_boundary_size.value(),
+                'boundary_width_nm': self.spin_boundary_width.value() if boundary_key_mc == 'rectangle' else None,
+                'boundary_height_nm': self.spin_boundary_height.value() if boundary_key_mc == 'rectangle' else None,
                 # Paquete 11: misma base (u2, v2) que Tab 2 usó para el template
                 # matching real — ver docstring de run_hexagonal_monte_carlo_calibration
                 # sobre por qué una base inconsistente invalidaría la calibración.
                 'u2': self.spin_honeycomb_u2.value() if hasattr(self, 'spin_honeycomb_u2') else 1.0 / 3.0,
                 'v2': self.spin_honeycomb_v2.value() if hasattr(self, 'spin_honeycomb_v2') else 1.0 / 3.0,
+                # Paquete D.4: misma orientación recíproca (theta_rot) que la Pestaña 3
+                # usó para indexar H_axis1/H_axis2 -- necesaria para que la inversión
+                # Debye-Waller direccional compare curvas MC y picos experimentales
+                # evaluados en los mismos ángulos.
+                'rotation_deg': self.spin_fourier_rotation.value() if hasattr(self, 'spin_fourier_rotation') else 0.0,
             }
 
         self.mc_worker = MonteCarloWorker(
@@ -8042,6 +8307,69 @@ class LatticeDisorderWindow(QMainWindow):
 
             self.lbl_mc_results.setText("\n".join(res_lines))
 
+        elif self.reciprocal_results is not None and is_hex_mc:
+            # Paquete D.4: inversión Debye-Waller direccional (sigma_1, sigma_2) para
+            # redes hexagonales/honeycomb, usando H_axis1/H_axis2 (Paquete D.3,
+            # compute_hexagonal_bragg_indexing) contra las curvas de calibración MC
+            # direccionales H_mean_axis1/H_mean_axis2 (mismo theta_rot en ambos).
+            r = self.reciprocal_results
+            hb = r.get('hex_bragg')
+            if hb is not None and 'H_mean_axis1' in mc and 'H_mean_axis2' in mc:
+                if show_order1:
+                    self.plot_dw.plot(
+                        s_vals, mc['H_mean_axis1'], pen=None, symbol='o', symbolSize=7,
+                        symbolBrush=pg.mkBrush('#89b4fa'), symbolPen=pg.mkPen('#cdd6f4'), name='MC Eje 1'
+                    )
+                    if mc['fit_axis1']['success']:
+                        self.plot_dw.plot(
+                            mc['fit_axis1']['s_dense'], mc['fit_axis1']['H_fit_dense'],
+                            pen=pg.mkPen('#89b4fa', width=2), name='Fit DW Eje 1'
+                        )
+                    self.plot_dw.plot(
+                        s_vals, mc['H_mean_axis2'], pen=None, symbol='s', symbolSize=7,
+                        symbolBrush=pg.mkBrush('#cba6f7'), symbolPen=pg.mkPen('#cdd6f4'), name='MC Eje 2'
+                    )
+                    if mc['fit_axis2']['success']:
+                        self.plot_dw.plot(
+                            mc['fit_axis2']['s_dense'], mc['fit_axis2']['H_fit_dense'],
+                            pen=pg.mkPen('#cba6f7', width=2, style=Qt.PenStyle.DashLine), name='Fit DW Eje 2'
+                        )
+
+                s1, ds1 = interpolate_disorder(hb['H_axis1'], s_vals, mc['H_mean_axis1'], mc['H_std_axis1'])
+                s2, ds2 = interpolate_disorder(hb['H_axis2'], s_vals, mc['H_mean_axis2'], mc['H_std_axis2'])
+                if show_order1:
+                    self.plot_dw.plot([0, s1, s1], [hb['H_axis1'], hb['H_axis1'], 0], pen=pg.mkPen('#89b4fa', width=1.5, style=Qt.PenStyle.DashLine))
+                    self.plot_dw.plot([0, s2, s2], [hb['H_axis2'], hb['H_axis2'], 0], pen=pg.mkPen('#cba6f7', width=1.5, style=Qt.PenStyle.DashLine))
+
+                s_bar = (s1 + s2) / 2.0
+                delta_s = abs(s1 - s2)
+                mc['sx_interp'] = s1
+                mc['sy_interp'] = s2
+                mc['s_prom'] = s_bar
+
+                spots_list = [
+                    {'pos': (s1, hb['H_axis1']), 'size': 14, 'pen': pg.mkPen('#ffffff', width=2),
+                     'brush': pg.mkBrush('#89b4fa'), 'symbol': 'o',
+                     'data': {'name': 'Pico Eje 1 (1er orden)', 's': s1, 'ds': ds1, 'H': hb['H_axis1'], 'color': '#89b4fa', 'sym': 'o'}},
+                    {'pos': (s2, hb['H_axis2']), 'size': 14, 'pen': pg.mkPen('#ffffff', width=2),
+                     'brush': pg.mkBrush('#cba6f7'), 'symbol': 's',
+                     'data': {'name': 'Pico Eje 2 (1er orden)', 's': s2, 'ds': ds2, 'H': hb['H_axis2'], 'color': '#cba6f7', 'sym': 's'}},
+                ]
+                self.scatter_match_dw = pg.ScatterPlotItem(spots=spots_list)
+                self.scatter_match_dw.sigClicked.connect(self._on_dw_match_point_clicked)
+                self.plot_dw.addItem(self.scatter_match_dw)
+
+                r2_txt = f"R²_1={mc['fit_axis1']['r_squared']:.4f} | R²_2={mc['fit_axis2']['r_squared']:.4f}"
+                res_lines = [
+                    "═══ INVERSIÓN DEBYE-WALLER DIRECCIONAL (HEXAGONAL) ═══",
+                    f"• Eje 1: σ_1 = {s1:.2f} ± {ds1:.2f} nm (H_axis1={hb['H_axis1']:.3f})",
+                    f"• Eje 2: σ_2 = {s2:.2f} ± {ds2:.2f} nm (H_axis2={hb['H_axis2']:.3f})",
+                    f"• Desorden Medio: σ̄ = {s_bar:.2f} nm",
+                    f"• Anisotropía de Desorden: Δσ = {delta_s:.2f} nm",
+                    f"Bondad de Calibración: {r2_txt}"
+                ]
+                self.lbl_mc_results.setText("\n".join(res_lines))
+
     def _on_save_calibration_curve(self):
         if self.mc_results is None:
             QMessageBox.warning(self, "Atención", "No hay resultados de simulación para guardar.")
@@ -8089,8 +8417,12 @@ class LatticeDisorderWindow(QMainWindow):
     def _update_metrics_table(self):
         filename = os.path.basename(self.current_image_path) if self.current_image_path else "Muestra Sintética"
         self.table_metrics.item(0, 1).setText(filename)
-        n_y_val = self.spin_ny.value() if (hasattr(self, 'chk_link_nxny') and not self.chk_link_nxny.isChecked()) else self.spin_n_side.value()
-        self.table_metrics.item(1, 1).setText(f"{self.spin_n_side.value()} x {n_y_val}")
+        is_hex_family_table = self._get_selected_lattice_type_key() in ('hexagonal', 'honeycomb')
+        if is_hex_family_table and self.kdtree_results is not None:
+            self.table_metrics.item(1, 1).setText(f"{self.kdtree_results.get('N_total_sites', 0)} sitios (envolvente)")
+        else:
+            n_y_val = self.spin_ny.value() if (hasattr(self, 'chk_link_nxny') and not self.chk_link_nxny.isChecked()) else self.spin_n_side.value()
+            self.table_metrics.item(1, 1).setText(f"{self.spin_n_side.value()} x {n_y_val}")
 
         if self.reciprocal_results is not None:
             r = self.reciprocal_results
@@ -8136,7 +8468,10 @@ class LatticeDisorderWindow(QMainWindow):
             self.table_metrics.item(4, 1).setText(
                 f"Prácticas: {f_prac_pct:.1f}% ({v_prac} vac) | Teóricas: {f_teor_pct:.1f}% ({v_teor} vac)"
             )
-            self.table_metrics.item(5, 1).setText(f"σ_x={kd['sigma_x']:.2f} nm / σ_y={kd['sigma_y']:.2f} nm")
+            if is_hex_family_table:
+                self.table_metrics.item(5, 1).setText(f"σ_pos={kd['sigma_pos']:.2f} nm | ε={kd.get('ellipticity', 0.0):.3f}")
+            else:
+                self.table_metrics.item(5, 1).setText(f"σ_x={kd['sigma_x']:.2f} nm / σ_y={kd['sigma_y']:.2f} nm")
             self.table_metrics.item(6, 1).setText(f"{kd['sigma_pos']:.2f} nm")
 
         if self.rdf_results is not None:

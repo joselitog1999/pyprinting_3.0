@@ -354,7 +354,43 @@ El modelo de esta nota asume desorden de Debye-Waller puro (Tipo I): fluctuacion
 
 ---
 
-## 9. Conclusiones y Guía Operativa
+## 9. Familia Hexagonal/Honeycomb: Offset Recíproco, Indexación Direccional de Bragg y Calibración Monte Carlo Direccional
+
+Esta sección documenta la extensión implementada en la Misión "Critical Enhancements & Physical Modeling Corrections" (Paquete D): un solver de orientación automático, la indexación de picos hexagonales de 1er/2do orden y ortogonal, y la calibración Monte Carlo direccional (`core/lattice_disorder.py::find_hexagonal_reciprocal_rotation`, `compute_hexagonal_bragg_indexing`, `run_hexagonal_monte_carlo_calibration(rotation_deg=...)`).
+
+### 9.1 El Offset de -30° entre Espacio Real y Espacio Recíproco
+
+Para vectores primitivos reales $\mathbf{a}_1=(a,0)$, $\mathbf{a}_2=a(\cos 60°,\sin 60°)$ (convención de `core/lattice_generator.py::LatticeLayer` a `rotation_deg=0`), la Ec. de §8.1 con $\gamma=60°$ da $\mathbf{b}_1$ a azimut $-30°$ y $\mathbf{b}_2$ a azimut $+90°$, ambos de módulo $|\mathbf{b}_1|=|\mathbf{b}_2|=4\pi/(\sqrt{3}a)$ (frecuencia espacial $f_1=2/(\sqrt{3}a)$). Es decir: **el primer pico de Bragg de una red hexagonal sin rotación real-espacio cae en $-30°$ del espacio recíproco, no en $0°$** — verificado independientemente tres veces durante esta misión: (a) algebraicamente vía §8.1, (b) por la convención ya fijada empíricamente en el código desde antes de esta misión (`angles_hex_deg = [-30°,30°,90°,...]` en los marcadores de Pestaña 3 y en `run_hexagonal_monte_carlo_calibration`, con nota explicando que la asunción $0°/60°/...$ producía una atenuación Debye-Waller espuriamente CRECIENTE), y (c) numéricamente en esta misión, generando redes hexagonales rotadas a ángulos reales arbitrarios $\theta_{\text{real}}$ y confirmando que el solver azimutal automático recupera $\theta_{\text{peak}} = (\theta_{\text{real}} - 30°) \bmod 60°$ dentro del paso de muestreo angular (`tests/test_hexagonal_fourier_rotation.py`).
+
+Por convención de esta implementación, $\theta_{\text{rot}}$ (`spin_fourier_rotation` en la GUI) denota siempre el ángulo del retículo **recíproco** (ya con el offset de $-30°$ aplicado), sembrado por defecto desde el ángulo de registro rígido de Espacio Real $\theta_{\text{fit,deg}}$ (Pestaña 2) vía $\theta_{\text{rot}} = ((\theta_{\text{fit,deg}} - 30° + 30°) \bmod 60°) - 30°$, y refinable con el solver de §9.2 o edición manual.
+
+### 9.2 Solver Azimutal Automático (Plegado 6-fold)
+
+`find_hexagonal_reciprocal_rotation(S, fx, fy, a)` muestrea la intensidad angular de $S(f_x,f_y)$ en un anillo $r\in[0.85f_1,1.15f_1]$ a paso $0.5°$, pliega con simetría 6-fold $I_{\text{fold}}(\theta)=\sum_{k=0}^{5} I(\theta+k\cdot 60°)$ para $\theta\in[-30°,30°)$, y toma $\theta_{\text{peak}}=\arg\max I_{\text{fold}}(\theta)$. **Advertencia honeycomb**: para la base biatómica ($F(\mathbf{G})=1+e^{-i\mathbf{G}\cdot\boldsymbol{\tau}}$, [[CAT-102_Sintesis_Cristalografica_Redes_2D_y_Particula_Ancla]]), la POSICIÓN de los 6 picos de 1er orden es 6-fold simétrica (propiedad exclusiva de la red de Bravais subyacente, no de la base) por lo que el plegado sigue siendo válido para localizar $\theta_{\text{peak}}$; pero la INTENSIDAD relativa entre picos opuestos ($\mathbf{G}$ vs. $-\mathbf{G}$) puede diferir para $\boldsymbol{\tau}\ne(1/3,1/3)$-tipo alta-simetría, degradando la simetría de intensidad a 3-fold — la altura absoluta de $I_{\text{fold}}$ (no su posición de máximo) no debe usarse como métrica de calidad comparable entre hexagonal y honeycomb.
+
+### 9.3 Indexación de Bragg Hexagonal
+
+`compute_hexagonal_bragg_indexing(S, fx, fy, a, rotation_deg=θ_rot)` extrae, por búsqueda de máximo local en una ventana circular (mismo patrón que §7/`compute_analytical_bragg_relations`):
+
+| Cantidad | Ángulo | Radio | Naturaleza |
+|---|---|---|---|
+| $H_{\text{axis1}}$ | $\theta_{\text{rot}}$ | $f_1=2/(\sqrt{3}a)$ | 1er orden |
+| $H_{\text{axis2}}$ | $\theta_{\text{rot}}+60°$ | $f_1$ | 1er orden (equivalente por simetría 6-fold) |
+| $H_{2,\text{axis1}}$ | $\theta_{\text{rot}}$ | $2f_1$ | 2do armónico RADIAL (mismo azimut, no confundir con el 2do "shell") |
+| $H_{2,\text{axis2}}$ | $\theta_{\text{rot}}+60°$ | $2f_1$ | ídem, eje 2 |
+| $H_{\text{ortho}}$ | $\theta_{\text{rot}}+90°$ | $q_{\text{ortho}}=\sqrt{3}f_1=2/a$ | 2do "shell" recíproco genuino (secuencia de radios de red triangular $1,\sqrt{3},2,\sqrt{7},3,...$; $90°\equiv 30°\pmod{60°}$ coincide exactamente con el punto medio angular entre dos picos de 1er orden adyacentes) |
+
+con ratios $R_{2/1}^{(i)}=H_{2,\text{axis}i}/H_{\text{axis}i}$ y $R_{\text{ortho}}=H_{\text{ortho}}/\sqrt{H_{\text{axis1}}H_{\text{axis2}}}$, análogos estructurales de §3.1/§3.2 para simetría hexagonal.
+
+### 9.4 Calibración Monte Carlo Direccional e Inversión $(\sigma_1,\sigma_2)$
+
+`run_hexagonal_monte_carlo_calibration(..., rotation_deg=θ_rot)` genera la red ideal sintética **ya rotada** por $\theta_{\text{rot}}$ en espacio real (no sólo las direcciones de evaluación) — rotar únicamente las direcciones de muestreo sin corotar la red sintética desalinea la sonda del pico real (la covarianza real-recíproco es una isometría, $S(R_\theta\mathbf{q};R_\theta\,\text{red})=S(\mathbf{q};\text{red})$) y reproduce exactamente la misma atenuación Debye-Waller creciente espuria que motivó fijar la convención de §9.1; este acoplamiento fue un error real detectado y corregido durante la implementación (`tests/test_hexagonal_monte_carlo_directional.py::test_unrotated_lattice_with_offset_evaluation_reproduces_spurious_increase`). Evalúa por separado dos familias de 3 direcciones equivalentes por simetría 6-fold ($\{-30°,90°,210°\}+\theta_{\text{rot}}$ = Eje 1; $\{30°,150°,270°\}+\theta_{\text{rot}}$ = Eje 2), devolviendo `H_mean_axis1/H_std_axis1` y `H_mean_axis2/H_std_axis2` además de la curva isotrópica `H_mean/H_std` (retrocompatible a `rotation_deg=0.0`).
+
+**Nota física importante**: el modelo de desorden de esta simulación es ruido gaussiano 2D isotrópico (sin mecanismo de anisotropía direccional en la generación de ruido) — por construcción, `H_mean_axis1` y `H_mean_axis2` convergen estadísticamente al mismo valor esperado (verificado en `tests/test_hexagonal_monte_carlo_directional.py`), independientemente de $\theta_{\text{rot}}$. La anisotropía direccional observable ($\sigma_1\ne\sigma_2$) proviene enteramente de que los datos EXPERIMENTALES ($H_{\text{axis1}}$ vs. $H_{\text{axis2}}$ medidos, §9.3) pueden diferir por desorden de impresión real preferencial a lo largo de un eje cristalográfico — la inversión $\sigma_i=\text{interp}^{-1}(H_{\text{axis}i}; H_{\text{mean,axis}i}(\sigma))$ usa curvas de referencia estadísticamente equivalentes para invertir independientemente cada eje, exactamente como el Wilson Plot 2D de §4.1 usa un modelo común para X e Y con periodos $a_x\ne a_y$ potencialmente distintos. Se reportan $\sigma_1\pm\delta\sigma_1$, $\sigma_2\pm\delta\sigma_2$, $\bar\sigma=(\sigma_1+\sigma_2)/2$ y $\Delta\sigma=|\sigma_1-\sigma_2|$ (Pestaña 4, `_plot_debye_waller`).
+
+---
+
+## 10. Conclusiones y Guía Operativa
 
 1. **Autonomía Analítica Inmediata:**  
    El cociente $H_2 / H_1$ y el Gráfico de Wilson 2D otorgan a PyPrinting 3.0 un canal metrológico ultra-rápido ($< 1\,\text{ms}$) para estimar $\sigma_{\text{pos}}$ y descartar muestras inviables durante la adquisición experimental sin sobrecargar la CPU/GPU con simulaciones numéricas.
