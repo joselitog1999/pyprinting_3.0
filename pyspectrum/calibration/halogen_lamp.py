@@ -2,12 +2,27 @@
 """
 halogen_lamp.py — Calibración de Lámpara Halógena y Algoritmo de Cosido (Step & Glue)
 PySpectrum 3.0 — UNSAM Nanofotónica
+
+Fase 4 del Rework Arquitectónico (docs/decisions/DECISION_LOG.md#DEC-018): además de
+glue_steps() (blending sigmoideo logístico preexistente, usado sin cambios por
+linescan_spectroscopy.py y sus tests), agrega un segundo algoritmo de cosido con la
+ponderación raised-cosine (cos²/sin²) exacta especificada en la Fase 4, con solapamiento
+determinado directamente por la intersección real de los ejes de longitud de onda de pasos
+consecutivos (no por un ancho de píxeles fijo), más el cálculo de centros espectrales según la
+dispersión real de la red activa y la exportación HDF5 estructurada del cosido.
 """
 from __future__ import annotations
 import os
+import time
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
+
+try:
+    import h5py
+    H5PY_AVAILABLE = True
+except ImportError:
+    H5PY_AVAILABLE = False
 
 
 class HalogenLampCalibration:
@@ -136,3 +151,162 @@ def glue_steps(wave_py: np.ndarray, spec_py: np.ndarray, number_pixel: int = 100
     spec_unique = np.bincount(inverse_indices, weights=spec_sorted) / counts
 
     return unique_waves, spec_unique
+
+
+# ── Fase 4: Cosido Raised-Cosine (cos²/sin²) y Utilidades de Barrido ──────────
+
+# Dispersión lineal real del Shamrock 500i (f=500mm) por red, mismas constantes que
+# pyspectrum/drivers/shamrock_driver.py::_MockShamrock.ShamrockGetCalibration.
+GRATING_DISPERSION_NM_PER_PX = {1: 0.175, 2: 0.022}
+
+
+def raised_cosine_weights(wavelengths: np.ndarray, lambda_a: float, lambda_b: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Pesos raised-cosine w1(λ)=cos²(θ), w2(λ)=sin²(θ) con θ=(π/2)·(λ-λa)/(λb-λa), clampeado
+    a [0,1] fuera de [λa,λb]. w1+w2=1 exactamente en todo punto por identidad trigonométrica."""
+    span = float(lambda_b) - float(lambda_a)
+    if span <= 0:
+        t = np.zeros_like(np.asarray(wavelengths, dtype=np.float64))
+    else:
+        t = np.clip((np.asarray(wavelengths, dtype=np.float64) - lambda_a) / span, 0.0, 1.0)
+    theta = (np.pi / 2.0) * t
+    w1 = np.cos(theta) ** 2
+    w2 = np.sin(theta) ** 2
+    return w1, w2
+
+
+def glue_pair_sigmoidal(wave1: np.ndarray, spec1: np.ndarray, wave2: np.ndarray, spec2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Cose dos espectros 1D consecutivos con blending raised-cosine en la región de
+    solapamiento real [λa,λb] = intersección de los rangos de wave1/wave2. Fuera de la
+    intersección, cada espectro conserva sus valores originales sin modificar."""
+    wave1 = np.asarray(wave1, dtype=np.float64)
+    spec1 = np.asarray(spec1, dtype=np.float64)
+    wave2 = np.asarray(wave2, dtype=np.float64)
+    spec2 = np.asarray(spec2, dtype=np.float64)
+
+    if len(wave1) == 0:
+        return wave2, spec2
+    if len(wave2) == 0:
+        return wave1, spec1
+
+    lambda_a = max(float(wave1.min()), float(wave2.min()))
+    lambda_b = min(float(wave1.max()), float(wave2.max()))
+
+    if lambda_b <= lambda_a:
+        # Sin solapamiento real entre los dos pasos: concatenar y ordenar sin blending.
+        wave_out = np.concatenate([wave1, wave2])
+        spec_out = np.concatenate([spec1, spec2])
+        order = np.argsort(wave_out)
+        return wave_out[order], spec_out[order]
+
+    only1_mask = wave1 < lambda_a
+    only2_mask = wave2 > lambda_b
+    ov1_mask = (wave1 >= lambda_a) & (wave1 <= lambda_b)
+    ov2_mask = (wave2 >= lambda_a) & (wave2 <= lambda_b)
+
+    overlap_wave = np.unique(np.concatenate([wave1[ov1_mask], wave2[ov2_mask]]))
+    spec1_interp = np.interp(overlap_wave, wave1, spec1)
+    spec2_interp = np.interp(overlap_wave, wave2, spec2)
+
+    w1_weight, w2_weight = raised_cosine_weights(overlap_wave, lambda_a, lambda_b)
+    overlap_spec = w1_weight * spec1_interp + w2_weight * spec2_interp
+
+    wave_out = np.concatenate([wave1[only1_mask], overlap_wave, wave2[only2_mask]])
+    spec_out = np.concatenate([spec1[only1_mask], overlap_spec, spec2[only2_mask]])
+    order = np.argsort(wave_out)
+    return wave_out[order], spec_out[order]
+
+
+def sigmoidal_step_and_glue(wave_steps: List[np.ndarray], spec_steps: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+    """Cose N espectros 1D consecutivos encadenando glue_pair_sigmoidal() secuencialmente
+    (cada paso nuevo se funde contra el resultado acumulado). Resiliente a cancelación
+    anticipada: basta con pasar una lista parcial de pasos ya adquiridos."""
+    if not wave_steps:
+        return np.array([]), np.array([])
+    wave_acc, spec_acc = wave_steps[0], spec_steps[0]
+    for w, s in zip(wave_steps[1:], spec_steps[1:]):
+        wave_acc, spec_acc = glue_pair_sigmoidal(wave_acc, spec_acc, w, s)
+    return wave_acc, spec_acc
+
+
+def sigmoidal_step_and_glue_2d(wave_steps: List[np.ndarray], frame_steps: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+    """Cose N cuadros 2D (H, W_i) consecutivos fila por fila, reutilizando
+    glue_pair_sigmoidal() por cada fila del ROI vertical. Todos los cuadros deben compartir
+    la misma altura H (mismo ROI/modo de lectura durante todo el barrido)."""
+    if not wave_steps:
+        return np.array([]), np.zeros((0, 0))
+    if len(wave_steps) == 1:
+        return wave_steps[0], frame_steps[0]
+
+    h = frame_steps[0].shape[0]
+    wave_acc, row0_acc = wave_steps[0], frame_steps[0][0, :]
+    for w, f in zip(wave_steps[1:], frame_steps[1:]):
+        wave_acc, row0_acc = glue_pair_sigmoidal(wave_acc, row0_acc, w, f[0, :])
+
+    result = np.zeros((h, len(wave_acc)), dtype=np.float64)
+    result[0, :] = row0_acc
+    for row_idx in range(1, h):
+        wave_row, spec_row = wave_steps[0], frame_steps[0][row_idx, :]
+        for w, f in zip(wave_steps[1:], frame_steps[1:]):
+            wave_row, spec_row = glue_pair_sigmoidal(wave_row, spec_row, w, f[row_idx, :])
+        result[row_idx, :] = spec_row
+
+    return wave_acc, result
+
+
+def compute_step_centers(start_wl: float, end_wl: float, overlap_pct: float, grating: int = 1, num_pixels: int = 1004) -> List[float]:
+    """Calcula las N longitudes de onda centrales necesarias para cubrir [start_wl, end_wl]
+    con el % de solapamiento pedido, según la dispersión real de la red activa del Shamrock
+    500i (150 l/mm: 0.175 nm/px -> ~176 nm de ventana; 1200 l/mm: 0.022 nm/px -> ~22 nm)."""
+    dispersion = GRATING_DISPERSION_NM_PER_PX.get(int(grating), GRATING_DISPERSION_NM_PER_PX[1])
+    full_span = dispersion * num_pixels
+    overlap_pct = max(0.0, min(0.9, float(overlap_pct)))
+    step_span = full_span * (1.0 - overlap_pct)
+    if step_span <= 0.0:
+        step_span = full_span * 0.5
+
+    centers: List[float] = []
+    c = start_wl + full_span / 2.0
+    while (c - full_span / 2.0) <= end_wl:
+        centers.append(c)
+        c += step_span
+
+    if not centers:
+        centers = [0.5 * (start_wl + end_wl)]
+    return centers
+
+
+def export_step_and_glue_to_hdf5(
+    filepath: str, glued_wave: np.ndarray, glued_spec: np.ndarray,
+    raw_wave_steps: List[np.ndarray], raw_spec_steps: List[np.ndarray],
+    metadata: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Exporta el cosido Step & Glue a HDF5 estructurado: /glued_spectrum, /wavelengths y un
+    grupo /raw_steps/step_NN por cada paso crudo adquirido, con metadatos de red, ranura,
+    número de pasos y timestamp como atributos. Degradación segura si h5py no está disponible
+    (mismo patrón que core/sif_processor.py::export_sif_session_to_hdf5): no escribe nada y
+    retorna la ruta solicitada sin crear el archivo."""
+    if not H5PY_AVAILABLE:
+        print("[Step & Glue HDF5 Warning] h5py no está disponible. No se generará el archivo.")
+        return filepath
+
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)) or ".", exist_ok=True)
+    comp = dict(compression="gzip", compression_opts=4, shuffle=True)
+
+    with h5py.File(filepath, "w") as f:
+        f.attrs["NX_class"] = "NXentry"
+        f.attrs["n_steps"] = len(raw_wave_steps)
+        f.attrs["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        for k, v in (metadata or {}).items():
+            if v is not None:
+                f.attrs[k] = v
+
+        f.create_dataset("wavelengths", data=np.asarray(glued_wave, dtype=np.float64), **comp)
+        f.create_dataset("glued_spectrum", data=np.asarray(glued_spec, dtype=np.float64), **comp)
+
+        raw_group = f.create_group("raw_steps")
+        for i, (w, s) in enumerate(zip(raw_wave_steps, raw_spec_steps)):
+            step_grp = raw_group.create_group(f"step_{i:02d}")
+            step_grp.create_dataset("wavelength", data=np.asarray(w, dtype=np.float64), **comp)
+            step_grp.create_dataset("intensity", data=np.asarray(s, dtype=np.float64), **comp)
+
+    return filepath

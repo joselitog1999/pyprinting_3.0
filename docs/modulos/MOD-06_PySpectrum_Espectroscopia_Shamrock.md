@@ -302,6 +302,25 @@ La Pestaña 2 (`🔬 2. Static Raman`) ahora aloja `pyspectrum/ui/static_raman_c
 ### 12.11 Tests nuevos (Fase 3)
 `tests/test_pyspectrum_static_raman_modes.py` (14): selector de modo, herencia y sincronización en vivo del ROI en Single-Track, transición de los 4 modos vía backend, enrutamiento de adquisición por estado real de cámara, preservación de AsLS y termometría. `tests/test_pyspectrum_raman_2d_inspector.py` (17): inyección de matriz sintética $1002\times1004$, slider↔línea guía bidireccional, $\mu$/$\sigma$ verificados contra NumPy directo, exportación TXT/HDF5 (incl. degradación sin h5py). Full suite: 0 regresiones nuevas.
 
+### 12.12 Fase 4 — Step & Glue: Cosido Raised-Cosine, Multimodal 1D/2D y Referencia de Agua (`[[DECISION_LOG#DEC-018]]`)
+
+La Pestaña 3 (`🧩 3. Step & Glue`) mantiene su widget (`step_and_glue.py::Frontend`/`Backend`, sin cambios de incrustación en `window.py`), pero su motor de cosido fue renovado por completo.
+
+**Segundo algoritmo de cosido, no un reemplazo**: `pyspectrum/calibration/halogen_lamp.py::glue_steps()` (blending logístico preexistente, usado sin cambios por `linescan_spectroscopy.py`) convive con el nuevo **raised-cosine** ($w_1=\cos^2\theta$, $w_2=\sin^2\theta$, $\theta=\frac{\pi}{2}\frac{\lambda-\lambda_a}{\lambda_b-\lambda_a}$) en `raised_cosine_weights()`/`glue_pair_sigmoidal()`/`sigmoidal_step_and_glue()` (1D)/`sigmoidal_step_and_glue_2d()` (2D, fila por fila), con $w_1+w_2=1$ exacto en todo punto (verificado a precisión de punto flotante). La región de solapamiento $[\lambda_a,\lambda_b]$ se deriva de la intersección **real** de los ejes calibrados de dos pasos consecutivos, no de un ancho de píxeles fijo.
+
+**Cálculo de centros espectrales corregido para depender de la red activa**: `compute_step_centers(start_wl, end_wl, overlap_pct, grating, num_pixels)` usa la dispersión real del Shamrock 500i (150 l/mm: 0.175 nm/px; 1200 l/mm: 0.022 nm/px — mismas constantes que `shamrock_driver.py`) en vez del ancho fijo de 240 nm que usaba la implementación anterior sin distinguir red. SpinBox `Solapamiento (%): [20]` en el rango 10-50%, ligado a `compute_step_centers()`.
+
+**Soporte multimodal 1D/2D automático**: igual que en Static Raman (Fase 3), `Backend` lee `camera.get_read_mode()` real en cada barrido — `READ_MODE_IMAGE` activa el cosido 2D fila-por-fila (matriz $[H\times W_{total}]$, cacheada íntegra en `self._last_frame_2d` para exportación HDF5 completa, mientras el gráfico 1D muestra el promedio de filas); cualquier otro modo usa el cosido 1D estándar. La normalización por lámpara halógena (`HalogenLampCalibration.normalize_spectrum()`) funciona sin modificación en ambos casos gracias al *broadcasting* de NumPy.
+
+**Ciclo de adquisición seguro por paso**: por cada $\lambda_{c,i}$: abortar adquisición residual → mover Shamrock y esperar asentamiento real (`_settle_wavelength`, sin sleep fijo) → adquirir → emitir `stepProgressSignal(i, N, λc)` hacia la barra de progreso no bloqueante (`Paso [i/N] (λ_c = X nm)`). **Cancelación resiliente**: `⏹ Detener` marca `_abort_requested`; el bucle corta limpio y el cosido se ejecuta igual sobre los pasos ya adquiridos (nunca se descartan datos parciales).
+
+**Referencia Raman de Agua**: el checkbox `☑ Verificar Referencia Raman Agua (banda O-H, ~3400 cm⁻¹)` — presente en la UI desde antes de esta fase pero sin ninguna señal conectada — ahora dispara `_check_water_reference()`, que reutiliza `pyspectrum/calibration/fit_raman_water.py::fit_signal_raman()` sin modificarlo y reporta la amplitud de la banda O-H ajustada como diagnóstico textual (✅/⚠️) bajo la barra de progreso.
+
+**Exportación HDF5 estructurada** (`export_step_and_glue_to_hdf5()`): `/glued_spectrum` (matriz 2D completa si el barrido fue en modo Imagen, vector 1D en caso contrario), `/wavelengths`, grupo `/raw_steps/step_NN` por cada paso crudo, atributos `grating`, `grating_name`, `slit_width_um`, `n_steps`, `timestamp` — mismo patrón `H5PY_AVAILABLE` + `gzip`+`shuffle` establecido en fases anteriores.
+
+### 12.13 Tests nuevos (Fase 4)
+`tests/test_pyspectrum_step_and_glue.py` (26): suma de pesos raised-cosine y continuidad de la transición cosida, encadenamiento secuencial de N pasos, cálculo de centros para 20%/30%/red 1200 l/mm, ejecución completa con mocks y verificación de progreso, cosido 2D en modo Imagen, cancelación anticipada con entrega de cosido parcial, normalización halógena (incl. 2D), exportación TXT/NPZ/HDF5, SpinBox de solapamiento. Full suite: 0 regresiones nuevas.
+
 ---
 
 ## 13. 🔗 Referencias Cruzadas

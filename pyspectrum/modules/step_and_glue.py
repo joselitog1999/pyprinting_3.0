@@ -2,6 +2,14 @@
 """
 step_and_glue.py — Medición Espectral, Cosido Continuo (Step & Glue) y Cinéticas
 PySpectrum 3.0 — UNSAM Nanofotónica
+
+Fase 4 del Rework Arquitectónico (docs/decisions/DECISION_LOG.md#DEC-018): algoritmo de cosido
+raised-cosine (cos²/sin²) con solapamiento configurable 10-50% (default 20%), cálculo de
+centros espectrales según la dispersión real de la red activa, soporte multimodal 1D (FVB/
+Single-Track) y 2D (Imagen), verificación de referencia Raman de agua (banda O-H ~3400 cm⁻¹) y
+exportación HDF5 estructurada. Las funciones puras del algoritmo viven en
+pyspectrum/calibration/halogen_lamp.py (testeables sin GUI); glue_steps() (blending logístico
+preexistente) permanece sin cambios y sigue siendo usado por linescan_spectroscopy.py.
 """
 from __future__ import annotations
 import time
@@ -12,9 +20,15 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer
 import pyqtgraph as pg
 
-from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
-from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
-from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration, glue_steps
+from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock, NAME_GRATINGS
+from pyspectrum.drivers.andor_ccd_driver import (
+    get_andor_ccd, READ_MODE_FVB, READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE,
+)
+from pyspectrum.calibration.halogen_lamp import (
+    HalogenLampCalibration, glue_steps,
+    compute_step_centers, sigmoidal_step_and_glue, sigmoidal_step_and_glue_2d,
+    export_step_and_glue_to_hdf5,
+)
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
 from pyspectrum.calibration.fit_raman_water import fit_signal_raman
 from core.nidaq import heartbeat_shutter
@@ -26,9 +40,10 @@ class Frontend(QtWidgets.QFrame):
     """Interfaz para adquisición de espectros simples, cosido Step & Glue y cinéticas."""
 
     measureSingleSignal = pyqtSignal(float, float)  # (lambda_center, exp_time)
-    measureStepGlueSignal = pyqtSignal(float, float, float, float, bool)  # (start, end, overlap, exp_time, normalize)
+    measureStepGlueSignal = pyqtSignal(float, float, float, float, bool, bool)  # (start, end, overlap_pct, exp_time, normalize, check_water)
     stopMeasurementSignal = pyqtSignal()
     saveSpectrumSignal = pyqtSignal(str)
+    exportHDF5Signal = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -118,10 +133,17 @@ class Frontend(QtWidgets.QFrame):
         self.edit_end_wl.setToolTip("Longitud de onda final (nm) para el barrido multi-paso concatenado.")
         sandg_grid.addWidget(self.edit_end_wl, 1, 1)
 
-        sandg_grid.addWidget(QtWidgets.QLabel("Solapamiento:"), 2, 0)
-        self.edit_overlap = QtWidgets.QLineEdit("0.20")
-        self.edit_overlap.setToolTip("Fracción de solapamiento espacial/espectral entre ventanas consecutivas (ej. 0.20 = 20% de solape ponderado).")
-        sandg_grid.addWidget(self.edit_overlap, 2, 1)
+        sandg_grid.addWidget(QtWidgets.QLabel("Solapamiento (%):"), 2, 0)
+        self.spin_overlap_pct = QtWidgets.QSpinBox()
+        self.spin_overlap_pct.setRange(10, 50)
+        self.spin_overlap_pct.setValue(20)
+        self.spin_overlap_pct.setSuffix(" %")
+        self.spin_overlap_pct.setToolTip(
+            "Porcentaje de solapamiento espectral entre ventanas consecutivas de la red activa "
+            "(10% a 50%, 20% por defecto). El cosido raised-cosine funde suavemente cada región "
+            "de solapamiento real, garantizando continuidad sin escalones de intensidad."
+        )
+        sandg_grid.addWidget(self.spin_overlap_pct, 2, 1)
 
         controls_vlo.addWidget(box_sandg)
 
@@ -136,8 +158,8 @@ class Frontend(QtWidgets.QFrame):
         self.chk_fit_poly.setToolTip("Ajusta un modelo polinomial de 4to orden para estimar el pico máximo de resonancia plasmónica (SPR).")
         controls_vlo.addWidget(self.chk_fit_poly)
 
-        self.chk_fit_raman = QtWidgets.QCheckBox("Ajuste Raman Agua (3300 cm⁻¹)")
-        self.chk_fit_raman.setToolTip("Ajusta las bandas Raman de agua en el rango Stokes para calibración o referencia in-situ.")
+        self.chk_fit_raman = QtWidgets.QCheckBox("Verificar Referencia Raman Agua (banda O-H, ~3400 cm⁻¹)")
+        self.chk_fit_raman.setToolTip("Ajusta la banda O-H del agua (~650 nm a 532 nm de excitación) sobre el espectro cosido, para detectar distorsión espectral introducida por el cosido.")
         controls_vlo.addWidget(self.chk_fit_raman)
 
         # Botones de Acción Step & Glue y Detención
@@ -150,16 +172,35 @@ class Frontend(QtWidgets.QFrame):
 
         self.btn_stop = QtWidgets.QPushButton("⏹ Detener")
         self.btn_stop.setStyleSheet("background-color: #F38BA8; color: #11111B;")
-        self.btn_stop.setToolTip("Detiene de manera inmediata y segura la rutina de adquisición y movimiento en curso.")
+        self.btn_stop.setToolTip("Detiene de manera inmediata y segura la rutina de adquisición y movimiento en curso, entregando el cosido parcial obtenido hasta ese momento.")
         self.btn_stop.clicked.connect(self._on_stop_measure)
         btn_box.addWidget(self.btn_stop)
         controls_vlo.addLayout(btn_box)
 
-        self.btn_save = QtWidgets.QPushButton("💾 Guardar Espectro...")
+        # Barra de Progreso No Bloqueante
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setRange(0, 1)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("Paso %v / %m")
+        self.progress_bar.setToolTip("Progreso del barrido secuencial de longitudes de onda centrales.")
+        controls_vlo.addWidget(self.progress_bar)
+
+        self.lbl_water_ref = QtWidgets.QLabel("")
+        self.lbl_water_ref.setWordWrap(True)
+        self.lbl_water_ref.setStyleSheet("color: #F9E2AF; font-size: 8.5pt;")
+        controls_vlo.addWidget(self.lbl_water_ref)
+
+        self.btn_save = QtWidgets.QPushButton("💾 Guardar Espectro (.txt)...")
         self.btn_save.setStyleSheet("background-color: #313244; color: #CDD6F4;")
         self.btn_save.setToolTip("Guarda los datos espectrales procesados (longitud de onda e intensidad) en formato de texto (.txt).")
         self.btn_save.clicked.connect(self._on_save_spectrum)
         controls_vlo.addWidget(self.btn_save)
+
+        self.btn_export_hdf5 = QtWidgets.QPushButton("💾 Exportar HDF5 Estructurado...")
+        self.btn_export_hdf5.setStyleSheet("background-color: #313244; color: #CDD6F4;")
+        self.btn_export_hdf5.setToolTip("Exporta el cosido completo (/glued_spectrum, /wavelengths, /raw_steps por paso) con metadatos de red, ranura, pasos y timestamp a HDF5 estructurado.")
+        self.btn_export_hdf5.clicked.connect(self._on_export_hdf5)
+        controls_vlo.addWidget(self.btn_export_hdf5)
 
         # Barra de Estado / Info
         self.lbl_status = QtWidgets.QLabel("Listo para medir.")
@@ -194,11 +235,13 @@ class Frontend(QtWidgets.QFrame):
         try:
             start_wl = float(self.edit_start_wl.text())
             end_wl = float(self.edit_end_wl.text())
-            overlap = float(self.edit_overlap.text())
+            overlap_pct = float(self.spin_overlap_pct.value()) / 100.0
             exp = float(self.edit_exp.text())
             norm = self.chk_norm_lamp.isChecked()
-            self.lbl_status.setText(f"Ejecutando Step & Glue [{start_wl:.0f} - {end_wl:.0f} nm]...")
-            self.measureStepGlueSignal.emit(start_wl, end_wl, overlap, exp, norm)
+            check_water = self.chk_fit_raman.isChecked()
+            self.lbl_water_ref.setText("")
+            self.lbl_status.setText(f"Ejecutando Step & Glue [{start_wl:.0f} - {end_wl:.0f} nm], solapamiento {self.spin_overlap_pct.value()}%...")
+            self.measureStepGlueSignal.emit(start_wl, end_wl, overlap_pct, exp, norm, check_water)
         except ValueError:
             pass
 
@@ -211,6 +254,23 @@ class Frontend(QtWidgets.QFrame):
         if path:
             self.lbl_status.setText(f"Guardando espectro en {Path(path).name}...")
             self.saveSpectrumSignal.emit(path)
+
+    def _on_export_hdf5(self):
+        default_name = f"StepAndGlue_{time.strftime('%Y%m%d_%H%M%S')}.h5"
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Exportar HDF5 Estructurado", default_name, "HDF5 (*.h5 *.hdf5)")
+        if path:
+            self.lbl_status.setText(f"Exportando HDF5 estructurado a {Path(path).name}...")
+            self.exportHDF5Signal.emit(path)
+
+    @pyqtSlot(int, int, float)
+    def update_progress(self, step_idx: int, n_steps: int, wl_center: float):
+        self.progress_bar.setRange(0, max(1, n_steps))
+        self.progress_bar.setValue(step_idx)
+        self.progress_bar.setFormat(f"Paso {step_idx} / {n_steps} (λ_c = {wl_center:.1f} nm)")
+
+    @pyqtSlot(str)
+    def update_water_reference_status(self, message: str):
+        self.lbl_water_ref.setText(message)
 
     @pyqtSlot(np.ndarray, np.ndarray, np.ndarray, np.ndarray, float)
     def update_spectrum_plot(self, wave_raw: np.ndarray, spec_raw: np.ndarray,
@@ -236,6 +296,8 @@ class Backend(QtCore.QObject):
 
     spectrumFinishedSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, np.ndarray, float)
     fitFinishedSignal = pyqtSignal(np.ndarray, np.ndarray)
+    stepProgressSignal = pyqtSignal(int, int, float)  # (step_idx, n_steps, wl_center)
+    waterReferenceCheckedSignal = pyqtSignal(str)
 
     def __init__(self, camera=None, spectrometer=None, parent=None):
         super().__init__(parent)
@@ -246,14 +308,20 @@ class Backend(QtCore.QObject):
         self._last_wave = np.array([])
         self._last_spec = np.array([])
         self._last_norm = np.array([])
+        self._raw_wave_steps: List[np.ndarray] = []
+        self._raw_spec_steps: List[np.ndarray] = []
+        self._last_frame_2d: Optional[np.ndarray] = None  # matriz cosida (H, W_total) en modo Imagen 2D
 
     def make_connection(self, frontend: Frontend):
         frontend.measureSingleSignal.connect(self.measure_single_spectrum)
         frontend.measureStepGlueSignal.connect(self.measure_step_and_glue)
         frontend.stopMeasurementSignal.connect(self.stop_measurement)
         frontend.saveSpectrumSignal.connect(self.save_spectrum)
+        frontend.exportHDF5Signal.connect(self.export_hdf5)
         self.spectrumFinishedSignal.connect(frontend.update_spectrum_plot)
         self.fitFinishedSignal.connect(frontend.update_fit_plot)
+        self.stepProgressSignal.connect(frontend.update_progress)
+        self.waterReferenceCheckedSignal.connect(frontend.update_water_reference_status)
 
     @pyqtSlot()
     def stop_measurement(self):
@@ -298,6 +366,45 @@ class Backend(QtCore.QObject):
         except Exception as e:
             print(f"[Step & Glue] Error al guardar espectro: {e}")
 
+    @pyqtSlot(str)
+    def export_hdf5(self, filepath: str):
+        """Exporta el último cosido a HDF5 estructurado: /glued_spectrum, /wavelengths y un
+        grupo /raw_steps por cada paso crudo, con metadatos de red, ranura y timestamp."""
+        if len(self._last_wave) == 0:
+            print("[Step & Glue] No hay cosido registrado para exportar a HDF5.")
+            return
+        try:
+            ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+            ret_s, slit_width = self.spectrometer.ShamrockGetSlit(DEVICE)
+            metadata = {
+                "grating": int(grating),
+                "grating_name": NAME_GRATINGS[grating - 1] if 1 <= grating <= len(NAME_GRATINGS) else str(grating),
+                "slit_width_um": float(slit_width),
+            }
+            # /glued_spectrum es la matriz 2D completa (H, W_total) cuando el barrido se hizo en
+            # modo Imagen; de lo contrario, el vector 1D cosido.
+            glued_for_export = self._last_frame_2d if self._last_frame_2d is not None else self._last_spec
+            export_step_and_glue_to_hdf5(
+                filepath, self._last_wave, glued_for_export,
+                self._raw_wave_steps, self._raw_spec_steps, metadata,
+            )
+            print(f"[Step & Glue] HDF5 estructurado exportado con éxito en: {filepath}")
+        except Exception as e:
+            print(f"[Step & Glue] Error al exportar HDF5: {e}")
+
+    def _check_water_reference(self, wave: np.ndarray, spec: np.ndarray, laser_nm: float = 532.0) -> str:
+        """Ajusta la banda O-H del agua (~3400 cm⁻¹, ~650 nm a 532 nm) sobre el espectro cosido
+        para detectar distorsión espectral introducida por el cosido (reutiliza
+        pyspectrum/calibration/fit_raman_water.py::fit_signal_raman sin modificarlo)."""
+        try:
+            _, _, params = fit_signal_raman(wave, spec, ends_notch=wave[0], final_wave=wave[-1], laser_nm=laser_nm)
+            amplitude_oh = float(params[3])  # I_2: amplitud de la banda O-H principal (peak1, ~3400 cm⁻¹)
+            if amplitude_oh > 50.0:
+                return f"✅ Referencia Raman Agua: banda O-H (~3400 cm⁻¹) detectada, amplitud {amplitude_oh:.0f} — cosido sin distorsión aparente."
+            return f"⚠️ Referencia Raman Agua: banda O-H (~3400 cm⁻¹) débil o no detectada (amplitud {amplitude_oh:.0f}) — verificar el cosido."
+        except Exception as e:
+            return f"⚠️ No se pudo verificar la referencia Raman de agua: {e}"
+
     @pyqtSlot(float, float)
     def measure_single_spectrum(self, lambda_center: float, exp_time: float):
         from pyspectrum.modules.hardware_session import hardware_session
@@ -331,68 +438,85 @@ class Backend(QtCore.QObject):
         finally:
             hardware_session.release_session("Step & Glue — Espectro Único")
 
-    @pyqtSlot(float, float, float, float, bool)
-    def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap: float, exp_time: float, normalize: bool):
+    @pyqtSlot(float, float, float, float, bool, bool)
+    def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
+                               normalize: bool, check_water: bool = False):
         from pyspectrum.modules.hardware_session import hardware_session
         if not hardware_session.acquire_session("Step & Glue", auto_pause_live=True):
             return
 
         try:
-            # Cálculo de los centros espectrales según el ancho de dispersión (~300 nm para red 1)
-            step_span = 240.0 * (1.0 - overlap)
-            centers = []
-            c = start_wl + 120.0
-            while c <= end_wl + 50.0:
-                centers.append(c)
-                c += step_span
+            # Centros espectrales según la dispersión real de la red activa (Fase 4)
+            ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+            centers = compute_step_centers(start_wl, end_wl, overlap_pct, grating=grating, num_pixels=1004)
+            n_steps = len(centers)
 
-            if not centers:
-                centers = [0.5 * (start_wl + end_wl)]
+            # Modo 1D (FVB/Single-Track) vs 2D (Imagen): según el modo de lectura REAL de la
+            # cámara en este instante (mismo criterio que static_raman.py::_acquire_and_emit,
+            # Fase 3 — la cámara es un singleton compartido entre pestañas).
+            is_2d_mode = (self.camera.get_read_mode() == READ_MODE_IMAGE)
 
-            raw_waves = []
-            raw_specs = []
+            raw_waves: List[np.ndarray] = []
+            raw_data: List[np.ndarray] = []  # espectros 1D o cuadros 2D según is_2d_mode
 
             self._abort_requested = False
             self.camera.set_exposure_time(exp_time)
 
-            for wl_c in centers:
+            for i, wl_c in enumerate(centers):
                 if self._abort_requested:
-                    print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por el usuario.")
+                    print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por el usuario ({i}/{n_steps} pasos completados).")
                     break
+
+                # 1. Pausar la cámara (aborta cualquier adquisición residual antes de mover la red)
+                self.camera.abort_acquisition()
+
+                # 2. Mover el Shamrock y esperar asentamiento mecánico real
                 if not self._settle_wavelength(wl_c):
                     print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por fallo/timeout de asentamiento del grating.")
                     break
+
                 if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
                     ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
                 else:
                     ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
 
-                if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
-                    s_1d = self.camera.get_1d_spectrum()
+                # 3. Adquirir espectro (1D) o cuadro (2D)
+                if is_2d_mode:
+                    data_i = self.camera.get_most_recent_image()
                 else:
-                    frame = self.camera.get_most_recent_image()
-                    s_1d = np.mean(frame, axis=0)
+                    data_i = self.camera.get_1d_spectrum()
 
                 raw_waves.append(w_cal)
-                raw_specs.append(s_1d)
+                raw_data.append(data_i)
 
-            # Cosido continuo con algoritmo Step & Glue
+                # 4. Barra de progreso no bloqueante
+                self.stepProgressSignal.emit(i + 1, n_steps, wl_c)
+
+            # Cosido resiliente: incluso si se abortó a mitad de camino, cose y entrega lo
+            # obtenido hasta ese punto (no se descartan datos parciales).
             if not raw_waves:
                 print("[Step & Glue] Adquisición abortada sin datos.")
                 return
 
-            concat_w = np.concatenate(raw_waves)
-            concat_s = np.concatenate(raw_specs)
+            if is_2d_mode:
+                glued_w, glued_frame = sigmoidal_step_and_glue_2d(raw_waves, raw_data)
+                glued_s = np.mean(glued_frame, axis=0)  # curva representativa 1D para el gráfico
+            else:
+                glued_w, glued_s = sigmoidal_step_and_glue(raw_waves, raw_data)
+                glued_frame = None
+            self._last_frame_2d = glued_frame
 
-            glued_w, glued_s = glue_steps(concat_w, concat_s, number_pixel=1004, grade=2.0)
-
-            # Normalización con lámpara halógena
+            # Normalización con lámpara halógena (broadcast fila a fila en modo 2D)
             norm_w, norm_s = np.array([]), np.array([])
             lambda_max = 0.0
 
             if normalize:
                 norm_w = glued_w
-                norm_s = self.lamp_calib.normalize_spectrum(glued_w, glued_s)
+                if is_2d_mode:
+                    norm_frame = self.lamp_calib.normalize_spectrum(glued_w, glued_frame)
+                    norm_s = np.mean(norm_frame, axis=0)
+                else:
+                    norm_s = self.lamp_calib.normalize_spectrum(glued_w, glued_s)
                 target_w, target_s = norm_w, norm_s
             else:
                 target_w, target_s = glued_w, glued_s
@@ -402,10 +526,17 @@ class Backend(QtCore.QObject):
             if len(wave_fit) > 0:
                 self.fitFinishedSignal.emit(wave_fit, spec_fit)
 
-            # Cachear último resultado
+            # Verificación de referencia Raman de agua (banda O-H ~3400 cm⁻¹)
+            if check_water:
+                msg = self._check_water_reference(target_w, target_s)
+                self.waterReferenceCheckedSignal.emit(msg)
+
+            # Cachear último resultado (para Guardar TXT/NPZ y Exportar HDF5)
             self._last_wave = glued_w
             self._last_spec = glued_s
             self._last_norm = norm_s
+            self._raw_wave_steps = raw_waves
+            self._raw_spec_steps = raw_data
 
             self.spectrumFinishedSignal.emit(glued_w, glued_s, norm_w, norm_s, lambda_max)
         finally:

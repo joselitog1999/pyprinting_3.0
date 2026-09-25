@@ -31,6 +31,11 @@ directamente static_raman.py::StaticRamanWidget a alojar
 pyspectrum/ui/static_raman_container.py::StaticRamanTabContainer, que la divide en dos
 sub-pestañas internas (Espectro 1D & Análisis / Resultado Medición — Inspector 2D). `self.
 raman_widget` se conserva como alias de compatibilidad hacia el widget de la sub-pestaña A.
+
+Fase 4 (ver docs/decisions/DECISION_LOG.md#DEC-018): Pestaña 3 (Step & Glue) — sin cambios de
+wiring en este archivo, ya embebía step_and_glue.py::Frontend directamente (self.sandg_widget).
+El cosido raised-cosine, el soporte 2D y la exportación HDF5 viven en
+pyspectrum/calibration/halogen_lamp.py y pyspectrum/modules/step_and_glue.py.
 """
 from __future__ import annotations
 import os
