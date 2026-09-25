@@ -402,6 +402,57 @@ class NoisePsdDialog(QDialog):
         layout.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
 
 
+class CustomYRangeDialog(QDialog):
+    """Diálogo compacto para fijar manualmente los límites [Y_min, Y_max] del gráfico."""
+    def __init__(self, current_min: float, current_max: float, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Fijar Rango del Eje Y")
+        self.setMinimumWidth(260)
+        self.setStyleSheet(
+            "QDialog { background-color: #1e1e2e; color: #cdd6f4; } "
+            "QLabel { color: #cdd6f4; font-size: 11px; } "
+            "QDoubleSpinBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a; padding: 4px; font-size: 11px; border-radius: 3px; } "
+            "QPushButton { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a; padding: 5px 14px; border-radius: 3px; font-size: 11px; } "
+            "QPushButton:hover { background-color: #45475a; color: #89b4fa; }"
+        )
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        form = QHBoxLayout()
+        v_min = QVBoxLayout()
+        v_min.addWidget(QLabel("Y Mínimo:"))
+        self.spin_min = QDoubleSpinBox()
+        self.spin_min.setRange(-1e8, 1e8)
+        self.spin_min.setDecimals(2)
+        self.spin_min.setValue(current_min)
+        v_min.addWidget(self.spin_min)
+        form.addLayout(v_min)
+
+        v_max = QVBoxLayout()
+        v_max.addWidget(QLabel("Y Máximo:"))
+        self.spin_max = QDoubleSpinBox()
+        self.spin_max.setRange(-1e8, 1e8)
+        self.spin_max.setDecimals(2)
+        self.spin_max.setValue(current_max)
+        v_max.addWidget(self.spin_max)
+        form.addLayout(v_max)
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_apply = QPushButton("Aplicar")
+        btn_cancel = QPushButton("Cancelar")
+        btn_box.addStretch()
+        btn_box.addWidget(btn_apply)
+        btn_box.addWidget(btn_cancel)
+        layout.addLayout(btn_box)
+
+        btn_apply.clicked.connect(self.accept)
+        btn_cancel.clicked.connect(self.reject)
+
+    def get_range(self) -> Tuple[float, float]:
+        return self.spin_min.value(), self.spin_max.value()
+
+
 # ==============================================================================
 # VENTANA PRINCIPAL DEL ANALIZADOR ESPECTRAL
 # ==============================================================================
@@ -2151,24 +2202,24 @@ class SifAnalyzerWindow(QMainWindow):
             self.statusBar().showMessage(f"Cursor Transmisión: λ = {x_val:.2f} nm  |  T = {y_val:.2f} %")
 
     def _setup_all_plot_export_menus(self):
-        """Fase 4: habilita el menú contextual de clic derecho (FigureExportStudio) en todos los gráficos principales de la suite."""
+        """Habilita el menú contextual de clic derecho (FigureExportStudio, auto-rango y presets del eje Y) en todos los gráficos."""
         plot_specs = [
-            (self.plot_dark_1d, "ruido_1d", "Espectro 1D de Ruido"),
-            (self.plot_dark_2d, "ruido_2d", "Mapa 2D de Ruido"),
-            (self.plot_ref_1d, "referencia_1d", "Espectro 1D de Referencia"),
-            (self.plot_ref_2d, "referencia_2d", "Mapa 2D de Referencia"),
-            (self.plot_ref_compare, "comparador_referencias", "Comparador de Referencias"),
-            (self.plot_live_1d, "senal_1d", "Espectro 1D de Señal"),
-            (self.plot_live_2d, "senal_2d", "Mapa 2D de Señal"),
-            (self.plot_trans_main, "transmitancia", "Transmitancia"),
-            (self.plot_trans_residuals, "transmitancia_residuos", "Residuos de Transmitancia"),
-            (self.plot_ext_main, "extincion", "Extinción y Ajuste Multi-Pico"),
-            (self.plot_ext_residuals, "extincion_residuos", "Residuos del Ajuste"),
-            (self.plot_multi_curves, "multi_espectro", "Multi-Espectro"),
-            (self.plot_multi_polar, "polarizacion_malus", "Polarización — Ley de Malus"),
+            (self.plot_dark_1d, "ruido_1d", "Espectro 1D de Ruido", "counts"),
+            (self.plot_dark_2d, "ruido_2d", "Mapa 2D de Ruido", "image"),
+            (self.plot_ref_1d, "referencia_1d", "Espectro 1D de Referencia", "counts"),
+            (self.plot_ref_2d, "referencia_2d", "Mapa 2D de Referencia", "image"),
+            (self.plot_ref_compare, "comparador_referencias", "Comparador de Referencias", "counts"),
+            (self.plot_live_1d, "senal_1d", "Espectro 1D de Señal", "counts"),
+            (self.plot_live_2d, "senal_2d", "Mapa 2D de Señal", "image"),
+            (self.plot_trans_main, "transmitancia", "Transmitancia", "transmittance"),
+            (self.plot_trans_residuals, "transmitancia_residuos", "Residuos de Transmitancia", "residuals"),
+            (self.plot_ext_main, "extincion", "Extinción y Ajuste Multi-Pico", "extinction"),
+            (self.plot_ext_residuals, "extincion_residuos", "Residuos del Ajuste", "residuals"),
+            (self.plot_multi_curves, "multi_espectro", "Multi-Espectro", "multi"),
+            (self.plot_multi_polar, "polarizacion_malus", "Polarización — Ley de Malus", "polar"),
         ]
-        for plot_widget, default_name, display_title in plot_specs:
-            self._setup_plot_export_menu(plot_widget, default_name, display_title)
+        for plot_widget, default_name, display_title, category in plot_specs:
+            self._setup_plot_export_menu(plot_widget, default_name, display_title, category)
 
     # ==========================================================================
     # GESTIÓN DE ARCHIVOS Y REGLA DEL ARCHIVO MAESTRO
@@ -2395,8 +2446,92 @@ class SifAnalyzerWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error en Estudio de Exportación", f"No se pudo abrir el estudio de exportación:\n{str(e)}")
 
-    def _setup_plot_export_menu(self, plot_widget: pg.PlotWidget, default_name: str, display_title: str):
-        """Habilita menú contextual de clic derecho para exportar (FigureExportStudio / rápido) y auto-rango en el gráfico."""
+    def _prompt_custom_y_range(self, plot_widget: pg.PlotWidget):
+        """Abre un diálogo compacto para fijar manualmente el rango [Y_min, Y_max]."""
+        current_range = plot_widget.getViewBox().viewRange()[1]
+        cur_min, cur_max = float(current_range[0]), float(current_range[1])
+
+        dialog = CustomYRangeDialog(cur_min, cur_max, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            ymin, ymax = dialog.get_range()
+            if ymin < ymax:
+                plot_widget.setYRange(ymin, ymax, padding=0)
+
+    def _set_plot_y_zero_to_max(self, plot_widget: pg.PlotWidget):
+        """Fija el rango vertical entre 0 y el valor máximo de las curvas visibles con 5% de margen."""
+        max_y = 1.0
+        found = False
+        for item in plot_widget.getPlotItem().items:
+            if hasattr(item, "getData"):
+                try:
+                    _, y_data = item.getData()
+                    if y_data is not None and len(y_data) > 0:
+                        finite_y = y_data[np.isfinite(y_data)]
+                        if len(finite_y) > 0:
+                            max_y = max(max_y, float(np.max(finite_y)))
+                            found = True
+                except Exception:
+                    pass
+        top = max_y * 1.05 if (found and max_y > 0) else 100.0
+        plot_widget.setYRange(0.0, top, padding=0)
+
+    def _get_y_presets_for_category(self, category: str) -> List[Tuple[str, Optional[Tuple[float, float]]]]:
+        """Retorna la lista de presets semánticos (etiqueta, (ymin, ymax)) para el eje Y."""
+        if category == "extinction":
+            return [
+                ("0% a 100% (Escala Completa)", (0.0, 100.0)),
+                ("0% a 50% (Resonancias Fuertes / Películas)", (0.0, 50.0)),
+                ("0% a 25% (Plasmónica Confocal Típica)", (0.0, 25.0)),
+                ("0% a 10% (Nanopartículas Débiles / Single-NP)", (0.0, 10.0)),
+                ("0 a Máximo (Base anclada en 0)", None),
+            ]
+        elif category == "transmittance":
+            return [
+                ("0% a 100% (Nominal Estándar)", (0.0, 100.0)),
+                ("50% a 100% (Alta Transmisión / Dieléctricos)", (50.0, 100.0)),
+                ("0% a 50% (Muestras Densas / Filtros)", (0.0, 50.0)),
+                ("0% a 120% (Con margen de lámpara)", (0.0, 120.0)),
+                ("0 a Máximo (Base anclada en 0)", None),
+            ]
+        elif category == "counts":
+            return [
+                ("0 a Máximo (Base anclada en 0)", None),
+                ("0 a 65,535 cuentas (Rango 16-bit EMCCD)", (0.0, 65535.0)),
+                ("0 a 10,000 cuentas (Intensidad Media)", (0.0, 10000.0)),
+                ("0 a 5,000 cuentas (Baja Intensidad / Ruido)", (0.0, 5000.0)),
+            ]
+        elif category == "residuals":
+            return [
+                ("Simétrico [-10%, +10%]", (-10.0, 10.0)),
+                ("Simétrico [-5%, +5%]", (-5.0, 5.0)),
+                ("Simétrico [-2%, +2%]", (-2.0, 2.0)),
+                ("Simétrico [-1%, +1%]", (-1.0, 1.0)),
+            ]
+        elif category == "multi":
+            return [
+                ("0% a 100% (Transmitancia / Extinción)", (0.0, 100.0)),
+                ("0 a Máximo (Base anclada en 0)", None),
+                ("0.0 a 1.0 (Normalizado)", (0.0, 1.0)),
+            ]
+        elif category == "polar":
+            return [
+                ("0.0 a 1.0 (Normalizado)", (0.0, 1.0)),
+                ("0 a Máximo", None),
+            ]
+        else:
+            return [
+                ("0 a 100", (0.0, 100.0)),
+                ("0 a Máximo", None),
+            ]
+
+    def _setup_plot_export_menu(
+        self,
+        plot_widget: pg.PlotWidget,
+        default_name: str,
+        display_title: str,
+        category: str = "general"
+    ):
+        """Habilita menú contextual de clic derecho para exportar (FigureExportStudio / rápido) y control de auto-rango y escala Y."""
         plot_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         def _show_context_menu(pos):
@@ -2404,15 +2539,52 @@ class SifAnalyzerWindow(QMainWindow):
             menu.setStyleSheet(
                 "QMenu { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; font-size: 11px; } "
                 "QMenu::item { padding: 5px 18px; } "
-                "QMenu::item:selected { background-color: #313244; color: #89b4fa; }"
+                "QMenu::item:selected { background-color: #313244; color: #89b4fa; } "
+                "QMenu::separator { height: 1px; background-color: #45475a; margin: 4px 8px; }"
             )
             act_studio = menu.addAction("🎨 Abrir en Estudio de Exportación Científica (SVG / PNG 600 DPI)...")
             act_studio.triggered.connect(lambda: self._open_figure_export_studio(plot_widget, default_name, display_title))
-            menu.addSeparator()
+
             act_exp = menu.addAction(f"💾 Exportar Rápido '{display_title}' (PNG 600 DPI / SVG)...")
             act_exp.triggered.connect(lambda: self._export_single_plot(plot_widget, default_name))
-            act_reset = menu.addAction("🔍 Restablecer Vista (Auto-Rango)")
+
+            menu.addSeparator()
+
+            # Auto-rango global
+            act_reset = menu.addAction("🔍 Restablecer Vista (Auto-Rango X & Y)")
             act_reset.triggered.connect(plot_widget.enableAutoRange)
+
+            if category != "image":
+                act_reset_y = menu.addAction("↕️ Auto-Rango Solo Eje Y")
+                act_reset_y.triggered.connect(lambda: plot_widget.enableAutoRange(axis=pg.ViewBox.YAxis))
+
+                # Submenú de presets de escala vertical (Eje Y)
+                sub_y = menu.addMenu("📐 Escala del Eje Y")
+                sub_y.setStyleSheet(menu.styleSheet())
+
+                # Generar presets según la categoría espectroscópica
+                presets = self._get_y_presets_for_category(category)
+                for label, y_range in presets:
+                    if y_range is None:
+                        act_p = sub_y.addAction(label)
+                        act_p.triggered.connect(lambda checked=False, pw=plot_widget: self._set_plot_y_zero_to_max(pw))
+                    else:
+                        ymin, ymax = y_range
+                        act_p = sub_y.addAction(label)
+                        act_p.triggered.connect(lambda checked=False, pw=plot_widget, y0=ymin, y1=ymax: pw.setYRange(y0, y1, padding=0))
+
+                sub_y.addSeparator()
+                act_custom_y = sub_y.addAction("✏️ Rango Manual Y...")
+                act_custom_y.triggered.connect(lambda checked=False, pw=plot_widget: self._prompt_custom_y_range(pw))
+            else:
+                # Opciones específicas para mapas espaciales 2D
+                sub_2d = menu.addMenu("🗺️ Geometría de Vista 2D")
+                sub_2d.setStyleSheet(menu.styleSheet())
+                act_aspect_1 = sub_2d.addAction("Bloquear Aspecto 1:1 (Cuadrado)")
+                act_aspect_1.triggered.connect(lambda: plot_widget.getViewBox().setAspectLocked(True, 1.0))
+                act_aspect_free = sub_2d.addAction("Aspecto Libre (Ajustar a Ventana)")
+                act_aspect_free.triggered.connect(lambda: plot_widget.getViewBox().setAspectLocked(False))
+
             menu.exec(plot_widget.mapToGlobal(pos))
 
         plot_widget.customContextMenuRequested.connect(_show_context_menu)

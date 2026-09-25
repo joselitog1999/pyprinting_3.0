@@ -464,9 +464,40 @@ Reutiliza sin cambios la casilla `Sel` de la tabla de archivos (presente desde l
 
 `export_sif_session_to_hdf5()` sigue la misma disciplina de compresión (`gzip` nivel 4 + `shuffle`) que `core/hdf5_container.py::write_linescan_spectroscopy_hdf5()`, y adopta la ontología NeXus formalizada en `[[CAT-402_Estandar_Datos_FAIR_y_Serializacion_NeXus_HDF5|CAT-402]]`: grupo raíz `NXroot`, entrada `entry1` (`NXentry`) con subgrupos `instrument` (`NXinstrument`, con `detector_emccd`/`optics`/`spectrometer`), `sample`, `process` (`NXprocess`, incluyendo el ajuste multi-pico por subgrupo `peak_N`) y `data` (`NXdata`, con subgrupos `1d`/`2d`). Degrada de forma segura (sin excepción, sin escribir nada) si el paquete opcional `h5py` no está instalado, igual que el resto de exportadores HDF5 del proyecto.
 
-### Menú Contextual Universal `FigureExportStudio`
+### Menú Contextual Universal: Exportación Científica y Control de Escala Vertical (Eje Y)
 
-Los 13 `PlotWidget` principales de la suite (los 10 heredados de las Pestañas 1-5 más `plot_multi_curves`/`plot_multi_polar` de la Pestaña 6) quedan habilitados con `customContextMenuRequested`, ofreciendo al clic derecho: **`🎨 Abrir en Estudio de Exportación Científica`** (`FigureExportStudioDialog`, idéntico al usado en `analysis/lattice_disorder_gui.py`), **`💾 Exportar Rápido`** (PNG 600 DPI / SVG nativo vía `QSvgGenerator`) y **`🔍 Restablecer Vista`**.
+Los 13 `PlotWidget` principales de la suite (los 10 heredados de las Pestañas 1-5 más `plot_multi_curves`/`plot_multi_polar` de la Pestaña 6) cuentan con un menú contextual inteligente accesible mediante **clic derecho** sobre el gráfico:
+
+1. **Estudio Editorial de Publicación**:
+   * **`🎨 Abrir en Estudio de Exportación Científica`**: Invoca `FigureExportStudioDialog` (idéntico al usado en `analysis/lattice_disorder_gui.py`) para formatear títulos, leyendas, paletas y tipografías para *Nature* / *ACS* / *RSC*.
+   * **`💾 Exportar Rápido`**: Genera de forma inmediata una imagen PNG a 600 DPI o vector SVG escalable vía `QSvgGenerator`.
+2. **Auto-Rango Flexible**:
+   * **`🔍 Restablecer Vista (Auto-Rango X & Y)`**: Ajusta ambos ejes a los datos completos (`enableAutoRange`).
+   * **`↕️ Auto-Rango Solo Eje Y`**: Reajusta la escala vertical sin alterar el zoom horizontal en longitud de onda $\lambda$ seleccionado por el usuario.
+3. **Submenú `📐 Escala del Eje Y` (Presets Semánticos Especializados)**:
+   * **Para Extinción (`extinction`)**:
+     * `0% a 100% (Escala Completa)`: Visión global estándar de laboratorio.
+     * `0% a 50% (Resonancias Fuertes / Películas)`: Ideal para sustratos de alta densidad plasmónica.
+     * `0% a 25% (Plasmónica Confocal Típica)`: Zoom óptimo para resonancias individuales y dímeros.
+     * `0% a 10% (Nanopartículas Débiles / Single-NP)`: Inspección de partículas aisladas sub-50 nm.
+     * `0 a Máximo (Base anclada en 0)`: Fija $Y_{\min} = 0$ y escala dinámicamente hasta el pico con un 5% de margen superior.
+   * **Para Transmitancia (`transmittance`)**:
+     * `0% a 100% (Nominal Estándar)`: Escala física integral 0 a 100%.
+     * `50% a 100% (Alta Transmisión / Dieléctricos)`: Evita la compresión de contrastes en muestras poco absorbentes.
+     * `0% a 50% (Muestras Densas / Filtros)`: Análisis de absorción profunda o filtros ópticos.
+     * `0% a 120% (Con margen de lámpara)`: Tolera oscilaciones y overshoots de lámpara sin recortar curvas.
+     * `0 a Máximo (Base anclada en 0)`.
+   * **Para Espectros Puros en Cuentas CCD (`counts` — Ruido, Referencia, Señal)**:
+     * `0 a Máximo (Base anclada en 0 cuentas)`: Elimina el offset flotante visual.
+     * `0 a 65,535 cuentas (Rango 16-bit EMCCD)`: Monitorea directamente la cercanía a la saturación del detector Andor Newton/iXon.
+     * `0 a 10,000 cuentas` y `0 a 5,000 cuentas`: Enfoque en regiones de baja intensidad.
+   * **Para Residuos de Ajuste (`residuals`)**:
+     * Rangos simétricos centrados en cero: `Simétrico [-10%, +10%]`, `[-5%, +5%]`, `[-2%, +2%]` y `[-1%, +1%]`.
+   * **Para Multi-Espectro y Polarización (`multi`/`polar`)**:
+     * `0.0 a 1.0 (Normalizado)`, `0% a 100%` y `0 a Máximo`.
+   * **`✏️ Rango Manual Y...`**: Diálogo compacto emergente (`CustomYRangeDialog`) con spinboxes para fijar numéricamente $[Y_{\min}, Y_{\max}]$ con precisión decimal.
+4. **Para Mapas Espaciales 2D (`image`)**:
+   * Submenú `🗺️ Geometría de Vista 2D` con **`Bloquear Aspecto 1:1 (Cuadrado)`** y **`Aspecto Libre (Ajustar a Ventana)`**.
 
 ### Botón `📖 Wiki Científica`
 
