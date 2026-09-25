@@ -274,6 +274,19 @@ Singleton (mismo patrón `get_instance()` que `HardwareSessionManager`) con 4 se
 ### 12.7 Tests nuevos
 `tests/test_pyspectrum_shell_and_panel.py` (15), `tests/test_zero_order_safety.py` (8), `tests/test_andor_read_modes_transition.py` (16) — 39 tests nuevos. Full suite: 0 regresiones nuevas contra las fallas preexistentes ya registradas en `DEC-010`/`DEC-013`/`DEC-014`.
 
+### 12.8 Fase 2 — `ExplorationTabWidget`: Live View 2D y ROI Vertical Automático (`[[DECISION_LOG#DEC-016]]`)
+
+La Pestaña 1 (`🔭 1. Exploración`) reemplaza definitivamente a `camera_andor.py::Frontend` por `pyspectrum/ui/exploration_tab.py::ExplorationTabWidget`, sin ningún control de hardware duplicado con el Panel Izquierdo (§12.2) — sólo visor y herramientas de imagen.
+
+**Visor**: `pg.PlotItem` + `pg.ImageItem` (no `pg.ImageView`) con `pg.HistogramLUTWidget` lateral fijo (110 px). Colormaps intercambiables: **Viridis**, **Inferno**, **Greys**, **Jet** — los dos últimos resueltos vía `pg.colormap.get(name, source='matplotlib')`, con una implementación de respaldo hecha a mano si el backend matplotlib no estuviera disponible en el entorno. Herramientas de cabecera: `🔍 Auto-Rango` (encuadra la imagen completa), `🎚️ Auto-Contraste` (percentiles robustos 1–99% del cuadro actual, reutilizando `core/sif_processor.py::compute_robust_contrast_levels` — mismo algoritmo que el Analizador SIF), `✛ Retícula` (guía central de alineación).
+
+**ROI Vertical Automático**: `pg.LinearRegionItem` horizontal sobre la imagen. A diferencia del ROI de `camera_andor.py::Frontend` (que sólo propaga al soltar el mouse, `sigRegionChangeFinished`), este propaga de forma **continua** durante el arrastre (`sigRegionChanged`) a `spectroscopy_context.set_vertical_roi(y_min, y_max)` — sin botones de Importar/Guardar. Un indicador discreto en la cabecera (`ROI Slit: [Y_min : Y_max] (Centro: Y_c, Alto: H px)`) refleja el estado en todo momento.
+
+**`ExplorationWorker` — tercera excepción `QThread` del proyecto** (junto a Escaneo Lineal Espectral `[[DECISION_LOG#DEC-006]]` y Mapeo Confocal `ANOM-HYPERSPEC-01`): sostiene Live View a ~28 fps (mismo intervalo de 35 ms que la convención previa) sin bloquear el hilo GUI ni el botón E-STOP. Su `QTimer` interno se crea de forma perezosa dentro de `start_live()` para quedar correctamente afín al hilo del worker tras `moveToThread()`.
+
+### 12.9 Tests nuevos (Fase 2)
+`tests/test_pyspectrum_exploration_tab.py` (18): ausencia de controles de hardware duplicados, formateo del indicador de ROI (incl. límites invertidos), propagación automática a `SpectroscopyContext` + emisión de `verticalRoiChanged`, resolución de los 4 colormaps requeridos, auto-contraste robusto a outliers, `ExplorationWorker` (adquisición + `set_live()`), incrustación completa como Pestaña 0 del shell real. Full suite: 0 regresiones nuevas.
+
 ---
 
 ## 13. 🔗 Referencias Cruzadas

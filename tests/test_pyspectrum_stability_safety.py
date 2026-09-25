@@ -139,7 +139,7 @@ class TestPySpectrumStability(unittest.TestCase):
             # Shell de pestañas (Fase 1 del rework: reemplaza el DockArea anterior)
             self.assertIsNotNone(win.left_panel)
             self.assertEqual(win.tabs_workflow.count(), 6)
-            self.assertIsNotNone(win.cam_widget)
+            self.assertIsNotNone(win.exploration_widget)
             self.assertIsNotNone(win.raman_widget)
             self.assertIsNotNone(win.sandg_widget)
             self.assertIsNotNone(win.calib_widget)

@@ -8,7 +8,7 @@ unificado de pestañas de flujo de trabajo con un Panel Izquierdo Permanente y D
 (LeftHardwarePanel) que centraliza el control de la cámara Andor EMCCD y el espectrógrafo
 Shamrock 500i, reemplazando el DockArea flotante anterior.
 
-Decisiones de alcance (Fase 1, ver docs/decisions/DECISION_LOG.md):
+Decisiones de alcance (Fase 1, ver docs/decisions/DECISION_LOG.md#DEC-015):
 - Las 6 pestañas del shell son: Exploración, Static Raman, Step & Glue, Cinética de
   Crecimiento, Calibraciones y Mapeo Confocal. Las 4 primeras son las nombradas
   explícitamente en la directiva; Calibraciones y Mapeo Confocal se agregan como pestañas
@@ -19,10 +19,12 @@ Decisiones de alcance (Fase 1, ver docs/decisions/DECISION_LOG.md):
   funcionalidad por el sub-panel Shamrock del LeftHardwarePanel (mismos controles, sin vista
   propia) — se mantiene instanciado y wireado, mas no visible por defecto, accesible como
   diálogo de compatibilidad desde el menú Herramientas.
-- Pestaña 1 (Exploración) embebe temporalmente camera_andor.py::Frontend (Live View 2D ya
-  funcional) hasta que la Fase 2 la reemplace por el visor con ROI interactivo integrado al
-  SpectroscopyContext; sus controles de hardware redundantes con el panel izquierdo se
-  retirarán en esa fase.
+
+Fase 2 (ver docs/decisions/DECISION_LOG.md#DEC-016): Pestaña 1 (Exploración) reemplaza
+definitivamente camera_andor.py::Frontend por ExplorationTabWidget (visor 2D + ROI vertical
+interactivo propagado a SpectroscopyContext, sin controles de hardware duplicados con
+LeftHardwarePanel). camera_andor.py::Frontend/Backend permanecen intactos como módulo — sólo
+se retiran las instancias `cam_widget`/`cam_backend` que este archivo creaba.
 """
 from __future__ import annotations
 import os
@@ -40,9 +42,9 @@ from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.modules.hardware_session import hardware_session
 from pyspectrum.modules.spectroscopy_context import spectroscopy_context
 from pyspectrum.ui.left_hardware_panel import LeftHardwarePanel
+from pyspectrum.ui.exploration_tab import ExplorationTabWidget, ExplorationWorker
 
 from pyspectrum.modules.spectrum_control import Frontend as SpectrumFrontend, Backend as SpectrumBackend
-from pyspectrum.modules.camera_andor import Frontend as CameraFrontend, Backend as CameraBackend
 from pyspectrum.modules.step_and_glue import Frontend as StepGlueFrontend, Backend as StepGlueBackend
 from pyspectrum.modules.hyperspectral_confocal import Frontend as ConfocalFrontend, Backend as ConfocalBackend
 from pyspectrum.modules.static_raman import StaticRamanWidget, StaticRamanBackend
@@ -407,10 +409,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.main_splitter.setStretchFactor(1, 2)
         self.main_splitter.setSizes([440, 900])
 
-        # ── Pestaña 1: Exploración (Live View 2D; ROI interactivo llega en Fase 2) ────
-        self.cam_widget = CameraFrontend()
-        self.cam_widget.setToolTip("Vista en vivo del detector Andor CCD. El ROI interactivo ligado a SpectroscopyContext llega en la Fase 2.")
-        self.tabs_workflow.addTab(self.cam_widget, "🔭 1. Exploración")
+        # ── Pestaña 1: Exploración (Live View 2D + ROI vertical interactivo) ──
+        self.exploration_widget = ExplorationTabWidget()
+        self.exploration_widget.setToolTip("Vista en vivo del detector Andor CCD con ROI vertical interactivo ligado a SpectroscopyContext.")
+        self.tabs_workflow.addTab(self.exploration_widget, "🔭 1. Exploración")
 
         # ── Pestaña 2: Static Raman ────────────────────────────────────────────
         self.raman_widget = StaticRamanWidget()
@@ -452,8 +454,15 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.spec_backend = SpectrumBackend(self.spectrometer)
         self.spec_backend.make_connection(self.spec_widget)
 
-        self.cam_backend = CameraBackend(self.camera)
-        self.cam_backend.make_connection(self.cam_widget)
+        # Exploración (Pestaña 1): tercera excepción arquitectónica con Worker en QThread real
+        # (junto a Escaneo Lineal Espectral — DEC-006 — y Mapeo Confocal — ANOM-HYPERSPEC-01),
+        # para sostener Live View a 20-30 fps sin bloquear el hilo GUI ni el botón E-STOP.
+        self.exploration_worker = ExplorationWorker(self.camera)
+        self.exploration_thread = QThread(self)
+        self.exploration_worker.moveToThread(self.exploration_thread)
+        self.exploration_thread.start()
+        self.exploration_widget.liveToggledSignal.connect(self.exploration_worker.set_live)
+        self.exploration_worker.imageUpdatedSignal.connect(self.exploration_widget.update_image)
 
         self.sandg_backend = StepGlueBackend(self.camera, self.spectrometer)
         self.sandg_backend.make_connection(self.sandg_widget)
@@ -521,11 +530,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         # Registrar controladores Live en el HardwareSessionManager
         def pause_camera_live():
-            if self.cam_widget.btn_live.isChecked():
-                self.cam_widget.btn_live.setChecked(False)
-                self.cam_widget.btn_live.setText("▶️ Iniciar Live View")
-                self.cam_widget.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
-            self.cam_backend.toggle_live(False)
+            if self.exploration_widget.btn_live.isChecked():
+                self.exploration_widget.btn_live.setChecked(False)
+                self.exploration_widget.btn_live.setText("▶️ Iniciar Live View")
+                self.exploration_widget.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+            self.exploration_widget.liveToggledSignal.emit(False)
 
         def pause_raman_live():
             if self.raman_widget.btn_live.isChecked():
@@ -590,7 +599,14 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         )
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
             hardware_session.emergency_stop()
-            self.cam_backend.toggle_live(False)
+            # ExplorationWorker vive en exploration_thread: misma razón que ConfocalBackend
+            # más abajo — se detiene vía QMetaObject bloqueante antes de terminar el hilo.
+            QtCore.QMetaObject.invokeMethod(
+                self.exploration_worker, "stop_live",
+                QtCore.Qt.ConnectionType.BlockingQueuedConnection,
+            )
+            self.exploration_thread.quit()
+            self.exploration_thread.wait(3000)
             self.raman_backend.toggle_live(False)
             # ConfocalBackend vive en confocal_thread (ANOM-HYPERSPEC-01): una llamada
             # directa a stop_scan() desde el hilo GUI tocaría self.scan_timer (que
