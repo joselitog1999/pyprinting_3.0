@@ -2,6 +2,27 @@
 """
 window.py — Ventana Principal de PySpectrum 3.0
 PyPrinting 3.0 — UNSAM Nanofotónica
+
+Fase 1 del Rework Arquitectónico (DIRECTIVA DE INGENIERÍA — REWORK PYSPECTRUM 3.0): shell
+unificado de pestañas de flujo de trabajo con un Panel Izquierdo Permanente y Dinámico
+(LeftHardwarePanel) que centraliza el control de la cámara Andor EMCCD y el espectrógrafo
+Shamrock 500i, reemplazando el DockArea flotante anterior.
+
+Decisiones de alcance (Fase 1, ver docs/decisions/DECISION_LOG.md):
+- Las 6 pestañas del shell son: Exploración, Static Raman, Step & Glue, Cinética de
+  Crecimiento, Calibraciones y Mapeo Confocal. Las 4 primeras son las nombradas
+  explícitamente en la directiva; Calibraciones y Mapeo Confocal se agregan como pestañas
+  5/6 adicionales para no perder funcionalidad ya probada (antes vivían en el DockArea).
+- Cinética de Crecimiento se embebe mediante GrowthKineticsPanel (extraído de
+  GrowthKineticsWidget, que sigue existiendo standalone por retrocompatibilidad).
+- El Frontend legado del espectrógrafo (spectrum_control.py) queda 100% superado en
+  funcionalidad por el sub-panel Shamrock del LeftHardwarePanel (mismos controles, sin vista
+  propia) — se mantiene instanciado y wireado, mas no visible por defecto, accesible como
+  diálogo de compatibilidad desde el menú Herramientas.
+- Pestaña 1 (Exploración) embebe temporalmente camera_andor.py::Frontend (Live View 2D ya
+  funcional) hasta que la Fase 2 la reemplace por el visor con ROI interactivo integrado al
+  SpectroscopyContext; sus controles de hardware redundantes con el panel izquierdo se
+  retirarán en esa fase.
 """
 from __future__ import annotations
 import os
@@ -10,7 +31,6 @@ import time
 from pathlib import Path
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThread
-from pyqtgraph.dockarea import DockArea, Dock
 
 from config import SAFE_MODE, PI_SERIAL
 from core.nanopositioning import Frontend as NanoFrontend, Backend as NanoBackend
@@ -18,6 +38,8 @@ from core.shutters import Frontend as ShuttersFrontend, Backend as ShuttersBacke
 from pyspectrum.drivers.shamrock_driver import get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.modules.hardware_session import hardware_session
+from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+from pyspectrum.ui.left_hardware_panel import LeftHardwarePanel
 
 from pyspectrum.modules.spectrum_control import Frontend as SpectrumFrontend, Backend as SpectrumBackend
 from pyspectrum.modules.camera_andor import Frontend as CameraFrontend, Backend as CameraBackend
@@ -27,10 +49,19 @@ from pyspectrum.modules.static_raman import StaticRamanWidget, StaticRamanBacken
 from pyspectrum.modules.calibration_dock import CalibrationFrontend, CalibrationBackend
 
 from pyspectrum.modules.routines.luminescence import LuminescenceWidget, LuminescenceBackend
-from pyspectrum.modules.routines.growth_kinetics import GrowthKineticsWidget, GrowthKineticsBackend
+from pyspectrum.modules.routines.growth_kinetics import GrowthKineticsPanel, GrowthKineticsBackend
 from pyspectrum.modules.routines.dimers import DimersWidget, DimersBackend
 from pyspectrum.modules.routines.linescan_spectroscopy import create_linescan_routine
 from modules.hardware_dashboard import HardwareDashboardWindow
+
+# Índices fijos de las pestañas del shell principal (usados por LeftHardwarePanel.set_context()
+# y por los tests para no depender de literales dispersos).
+TAB_EXPLORATION = 0
+TAB_STATIC_RAMAN = 1
+TAB_STEP_AND_GLUE = 2
+TAB_GROWTH_KINETICS = 3
+TAB_CALIBRATION = 4
+TAB_CONFOCAL = 5
 
 
 class PySpectrumWindow(QtWidgets.QMainWindow):
@@ -39,8 +70,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PySpectrum 3.0 — Espectroscopía & Mapeo Hiperespectral (UNSAM Nanofotónica)")
-        self.resize(1360, 840)
-        self.setMinimumSize(1000, 680)
+        self.resize(1440, 880)
+        self.setMinimumSize(1100, 700)
 
         self.work_dir = Path.home() / "Documents" / "Data_PySpectrum"
         self.work_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +110,25 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
                 background-color: #181825;
                 color: #A6ADC8;
                 font-size: 9pt;
+            }
+            QTabWidget::pane {
+                border: 1px solid #313244;
+                background-color: #11111B;
+            }
+            QTabBar::tab {
+                background-color: #181825;
+                color: #A6ADC8;
+                padding: 8px 14px;
+                border: 1px solid #313244;
+                border-bottom: none;
+                font-weight: bold;
+            }
+            QTabBar::tab:selected {
+                background-color: #313244;
+                color: #89B4FA;
+            }
+            QTabBar::tab:hover {
+                color: #CDD6F4;
             }
         """)
 
@@ -121,26 +171,18 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         act_hw.triggered.connect(self._open_hardware_dashboard)
         tools_menu.addAction(act_hw)
 
-        act_calib = QtGui.QAction("🎯 Calibraciones del Sistema (Slit, Grating, Offset)", self)
-        act_calib.triggered.connect(lambda: self.dock_calibration.raise_())
-        tools_menu.addAction(act_calib)
+        tools_menu.addSeparator()
+        act_spec_legacy = QtGui.QAction("Control Legado del Espectrógrafo (compatibilidad)", self)
+        act_spec_legacy.setToolTip("Panel de control del Shamrock previo a la Fase 1. Sus mismos controles ya están disponibles en el Panel Izquierdo permanente.")
+        act_spec_legacy.triggered.connect(self._open_spectrometer_legacy_dialog)
+        tools_menu.addAction(act_spec_legacy)
 
         # ── Menú Rutinas Especializadas ───────────────────────────────────────
         routines_menu = menubar.addMenu("🧪 Rutinas")
 
-        act_static_raman = QtGui.QAction("🔬 Espectroscopía Raman Estática & Termometría", self)
-        act_static_raman.triggered.connect(lambda: self.dock_raman.raise_())
-        routines_menu.addAction(act_static_raman)
-
-        routines_menu.addSeparator()
-
         act_lumin = QtGui.QAction("Luminiscencia & Anti-Stokes", self)
         act_lumin.triggered.connect(self._open_luminescence)
         routines_menu.addAction(act_lumin)
-
-        act_growth = QtGui.QAction("Cinética de Crecimiento de Nanopartículas", self)
-        act_growth.triggered.connect(self._open_growth)
-        routines_menu.addAction(act_growth)
 
         act_dimers = QtGui.QAction("Caracterización de Dímeros Plasmónicos", self)
         act_dimers.triggered.connect(self._open_dimers)
@@ -346,47 +388,56 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             """)
 
     def _setup_ui(self):
-        self.dock_area = DockArea()
-        self.setCentralWidget(self.dock_area)
+        """Shell principal: Panel Izquierdo Permanente (Andor + Shamrock, ~1/3) y pestañas de
+        flujo de trabajo a la derecha (~2/3), reemplazando el DockArea flotante anterior."""
+        self.camera = get_andor_ccd()
+        self.spectrometer = get_shamrock()
 
-        # ── Docks Modulares ───────────────────────────────────────────────────
-        self.dock_camera = Dock("📷 Cámara Andor CCD (Detector)", size=(500, 500))
+        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        self.setCentralWidget(self.main_splitter)
+
+        self.left_panel = LeftHardwarePanel(self.camera, self.spectrometer, step_glue_tab_index=TAB_STEP_AND_GLUE)
+        self.left_panel.setMinimumWidth(320)
+        self.main_splitter.addWidget(self.left_panel)
+
+        self.tabs_workflow = QtWidgets.QTabWidget()
+        self.main_splitter.addWidget(self.tabs_workflow)
+
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 2)
+        self.main_splitter.setSizes([440, 900])
+
+        # ── Pestaña 1: Exploración (Live View 2D; ROI interactivo llega en Fase 2) ────
         self.cam_widget = CameraFrontend()
-        self.cam_widget.setToolTip("Panel del detector Andor CCD: adquisición en vivo 2D/1D, control térmico Peltier y ganancia EM.")
-        self.dock_camera.addWidget(self.cam_widget)
-        self.dock_area.addDock(self.dock_camera, 'left')
+        self.cam_widget.setToolTip("Vista en vivo del detector Andor CCD. El ROI interactivo ligado a SpectroscopyContext llega en la Fase 2.")
+        self.tabs_workflow.addTab(self.cam_widget, "🔭 1. Exploración")
 
-        self.dock_spectrometer = Dock("🌈 Espectrógrafo Andor Shamrock", size=(500, 260))
-        self.spec_widget = SpectrumFrontend()
-        self.spec_widget.setToolTip("Control motorizado del espectrógrafo Shamrock 500i: redes de difracción, longitud de onda central y ranura.")
-        self.dock_spectrometer.addWidget(self.spec_widget)
-        self.dock_area.addDock(self.dock_spectrometer, 'bottom', self.dock_camera)
-
-        self.dock_sandg = Dock("🧩 Espectroscopía & Step and Glue", size=(650, 400))
-        self.sandg_widget = StepGlueFrontend()
-        self.sandg_widget.setToolTip("Módulo de adquisición espectral y cosido continuo (Step & Glue) para barridos de banda ancha.")
-        self.dock_sandg.addWidget(self.sandg_widget)
-        self.dock_area.addDock(self.dock_sandg, 'right')
-
-        self.dock_raman = Dock("🔬 Espectroscopía Raman Estática & Termometría", size=(650, 400))
+        # ── Pestaña 2: Static Raman ────────────────────────────────────────────
         self.raman_widget = StaticRamanWidget()
-        self.raman_widget.setToolTip("Módulo de Raman estático ultra-rápido, sustracción de línea base y termometría in-situ con cursores duales.")
-        self.dock_raman.addWidget(self.raman_widget)
-        self.dock_area.addDock(self.dock_raman, 'above', self.dock_sandg)
+        self.tabs_workflow.addTab(self.raman_widget, "🔬 2. Static Raman")
 
-        self.dock_calibration = Dock("🎯 Calibraciones del Sistema", size=(650, 400))
+        # ── Pestaña 3: Step & Glue ─────────────────────────────────────────────
+        self.sandg_widget = StepGlueFrontend()
+        self.tabs_workflow.addTab(self.sandg_widget, "🧩 3. Step & Glue")
+
+        # ── Pestaña 4: Cinética de Crecimiento (embebida vía GrowthKineticsPanel) ──
+        self.growth_widget = GrowthKineticsPanel()
+        self.tabs_workflow.addTab(self.growth_widget, "🌱 4. Cinética")
+
+        # ── Pestaña 5: Calibraciones del Sistema ──────────────────────────────
         self.calib_widget = CalibrationFrontend()
-        self.calib_widget.setToolTip("Subsistema metrológico de calibraciones: alineación de slit, offsets de rejilla, EEPROM y persistencia TXT.")
-        self.dock_calibration.addWidget(self.calib_widget)
-        self.dock_area.addDock(self.dock_calibration, 'above', self.dock_sandg)
+        self.tabs_workflow.addTab(self.calib_widget, "🎯 5. Calibraciones")
 
-        self.dock_confocal = Dock("🧬 Mapeo Confocal Hiperespectral (X, Y, λ)", size=(650, 360))
+        # ── Pestaña 6: Mapeo Confocal Hiperespectral ──────────────────────────
         self.confocal_widget = ConfocalFrontend()
-        self.confocal_widget.setToolTip("Mapeo hiperespectral confocal: escaneo piezoeléctrico bidimensional sincronizado con espectrometría.")
-        self.dock_confocal.addWidget(self.confocal_widget)
-        self.dock_area.addDock(self.dock_confocal, 'bottom', self.dock_sandg)
+        self.tabs_workflow.addTab(self.confocal_widget, "🧬 6. Mapeo Confocal")
+
+        self.tabs_workflow.currentChanged.connect(self._on_main_tab_changed)
 
         self.statusBar().showMessage(f"PySpectrum 3.0 Listo. Carpeta de trabajo: {self.work_dir}")
+
+    def _on_main_tab_changed(self, idx: int):
+        self.left_panel.set_context(idx)
 
     def _setup_threads_and_backends(self):
         from core.hardware_manager import hardware_manager
@@ -394,9 +445,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         hardware_manager.set_profile("pyspectrum", rescan=False)
         pi.connect()
 
-        self.spectrometer = get_shamrock()
-        self.camera = get_andor_ccd()
+        # self.camera / self.spectrometer ya se crearon en _setup_ui() (LeftHardwarePanel los necesita
+        # antes de existir los backends legados que también los consumen).
 
+        self.spec_widget = SpectrumFrontend()
         self.spec_backend = SpectrumBackend(self.spectrometer)
         self.spec_backend.make_connection(self.spec_widget)
 
@@ -410,13 +462,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.raman_backend.make_connection(self.raman_widget)
         self.raman_backend.statusMessageSignal.connect(lambda msg: self.statusBar().showMessage(msg, 4000))
 
-        # ANOM-HYPERSPEC-01: segunda excepción arquitectónica (junto a Escaneo Lineal
-        # Espectral, DEC-006) con Worker en QThread real — a diferencia de las demás
-        # rutinas de este archivo, cada punto del mapeo bloquea con un pi.MOV() + una
-        # exposición/lectura CCD completa; en el hilo GUI eso congelaba toda la ventana
-        # (incluido el Stop/E-STOP) por la duración de cada exposición, cientos o miles
-        # de veces por mapa. moveToThread() también arrastra a self.scan_timer, que se
-        # parenta a self dentro de ConfocalBackend.__init__.
+        # ANOM-HYPERSPEC-01: excepción arquitectónica con Worker en QThread real — cada punto
+        # del mapeo bloquea con un pi.MOV() + una exposición/lectura CCD completa; en el hilo
+        # GUI eso congelaba toda la ventana (incluido el Stop/E-STOP) por la duración de cada
+        # exposición, cientos o miles de veces por mapa. moveToThread() también arrastra a
+        # self.scan_timer, que se parenta a self dentro de ConfocalBackend.__init__.
         self.confocal_backend = ConfocalBackend(self.camera, self.spectrometer)
         self.confocal_thread = QThread(self)
         self.confocal_backend.moveToThread(self.confocal_thread)
@@ -431,7 +481,6 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.lumin_backend = LuminescenceBackend(self.camera, self.spectrometer)
         self.lumin_backend.make_connection(self.lumin_widget)
 
-        self.growth_widget = GrowthKineticsWidget(self)
         self.growth_backend = GrowthKineticsBackend(self.camera, self.spectrometer)
         self.growth_backend.make_connection(self.growth_widget)
 
@@ -462,6 +511,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.shutters_be = ShuttersBackend()
         self.shutters_fe.make_connection(self.shutters_be)
         sh_vlo.addWidget(self.shutters_fe)
+
+        self.spectrometer_legacy_dialog = QtWidgets.QDialog(self)
+        self.spectrometer_legacy_dialog.setWindowTitle("Control Legado del Espectrógrafo (compatibilidad)")
+        spec_vlo = QtWidgets.QVBoxLayout(self.spectrometer_legacy_dialog)
+        spec_vlo.addWidget(self.spec_widget)
 
         self.hw_dashboard = None
 
@@ -510,6 +564,9 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
     def _open_shutters_dialog(self):
         self.shutters_dialog.show()
 
+    def _open_spectrometer_legacy_dialog(self):
+        self.spectrometer_legacy_dialog.show()
+
     def _open_hardware_dashboard(self):
         if self.hw_dashboard is None:
             self.hw_dashboard = HardwareDashboardWindow()
@@ -518,9 +575,6 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
     def _open_luminescence(self):
         self.lumin_widget.show()
-
-    def _open_growth(self):
-        self.growth_widget.show()
 
     def _open_dimers(self):
         self.dimers_widget.show()

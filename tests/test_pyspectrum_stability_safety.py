@@ -136,13 +136,14 @@ class TestPySpectrumStability(unittest.TestCase):
         QtWidgets.QMessageBox.question = lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes
         try:
             win = PySpectrumWindow()
-            # Docks obligatorios
-            self.assertIsNotNone(win.dock_camera)
-            self.assertIsNotNone(win.dock_spectrometer)
-            self.assertIsNotNone(win.dock_sandg)
-            self.assertIsNotNone(win.dock_raman)
-            self.assertIsNotNone(win.dock_calibration)
-            self.assertIsNotNone(win.dock_confocal)
+            # Shell de pestañas (Fase 1 del rework: reemplaza el DockArea anterior)
+            self.assertIsNotNone(win.left_panel)
+            self.assertEqual(win.tabs_workflow.count(), 6)
+            self.assertIsNotNone(win.cam_widget)
+            self.assertIsNotNone(win.raman_widget)
+            self.assertIsNotNone(win.sandg_widget)
+            self.assertIsNotNone(win.calib_widget)
+            self.assertIsNotNone(win.confocal_widget)
 
             # Widgets de rutinas
             self.assertIsNotNone(win.lumin_widget)
@@ -326,8 +327,8 @@ class TestPySpectrumSafety(unittest.TestCase):
     """Pruebas de salvaguardas de seguridad física: láseres, watchdog, platina y detector."""
 
     def setUp(self):
-        self.camera = get_andor_ccd(force_mock=True)
-        self.spectrometer = get_shamrock(force_mock=True)
+        self.camera = get_andor_ccd(force_mock=True, reset=True)
+        self.spectrometer = get_shamrock(force_mock=True, reset=True)
         hardware_session.clear_emergency()
         if hardware_session.is_busy:
             hardware_session.release_session(hardware_session.current_owner)

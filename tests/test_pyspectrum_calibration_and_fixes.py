@@ -202,10 +202,9 @@ class TestWindowIntegration(unittest.TestCase):
         QtWidgets.QMessageBox.question = lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes
         try:
             win = PySpectrumWindow()
-            self.assertTrue(hasattr(win, "dock_calibration"))
             self.assertTrue(hasattr(win, "calib_widget"))
             self.assertTrue(hasattr(win, "calib_backend"))
-            self.assertIsNotNone(win.dock_calibration)
+            self.assertIsNotNone(win.calib_widget)
             win.close()
         finally:
             QtWidgets.QMessageBox.question = orig_question

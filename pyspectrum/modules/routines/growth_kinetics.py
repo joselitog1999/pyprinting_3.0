@@ -18,23 +18,26 @@ from pyspectrum.modules.hardware_session import hardware_session
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
 
 
-class GrowthKineticsWidget(QtWidgets.QDialog):
-    """Ventana para el seguimiento in-situ del crecimiento plasmónico de nanopartículas."""
+_GROWTH_KINETICS_CONTROLS_STYLE = """
+    QLabel { color: #CDD6F4; font-weight: bold; }
+    QPushButton { background-color: #313244; color: #CDD6F4; border: 1px solid #45475A; border-radius: 4px; padding: 6px 12px; font-weight: bold; }
+    QPushButton:hover { background-color: #45475A; color: #FAB387; }
+    QComboBox, QLineEdit { background-color: #1E1E2E; color: #CDD6F4; border: 1px solid #45475A; border-radius: 4px; padding: 4px; }
+"""
+
+
+class GrowthKineticsPanel(QtWidgets.QWidget):
+    """Panel de Cinética de Crecimiento embebible (Pestaña 4 del shell principal de
+    PySpectrum 3.0). Contiene toda la UI y lógica de presentación; GrowthKineticsWidget lo
+    envuelve en un QDialog standalone para uso independiente/retrocompatibilidad."""
 
     startGrowthSignal = pyqtSignal(str, float, int, float)
     stopGrowthSignal = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Cinética de Crecimiento de Nanopartículas — PySpectrum 3.0")
-        self.resize(880, 530)
-        self.setStyleSheet("""
-            QDialog { background-color: #11111B; }
-            QLabel { color: #CDD6F4; font-weight: bold; }
-            QPushButton { background-color: #313244; color: #CDD6F4; border: 1px solid #45475A; border-radius: 4px; padding: 6px 12px; font-weight: bold; }
-            QPushButton:hover { background-color: #45475A; color: #FAB387; }
-            QComboBox, QLineEdit { background-color: #1E1E2E; color: #CDD6F4; border: 1px solid #45475A; border-radius: 4px; padding: 4px; }
-        """)
+        self.setObjectName("GrowthKineticsPanel")
+        self.setStyleSheet("QWidget#GrowthKineticsPanel { background-color: #11111B; } " + _GROWTH_KINETICS_CONTROLS_STYLE)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -136,6 +139,33 @@ class GrowthKineticsWidget(QtWidgets.QDialog):
             self.btn_run.setChecked(False)
             self.btn_run.setText("▶️ Iniciar Monitoreo de Crecimiento")
             self.btn_run.setStyleSheet("background-color: #FAB387; color: #11111B;")
+
+
+class GrowthKineticsWidget(QtWidgets.QDialog):
+    """Ventana standalone para el seguimiento in-situ del crecimiento plasmónico de
+    nanopartículas (compatibilidad hacia atrás: uso independiente fuera del shell principal).
+    Envuelve un GrowthKineticsPanel embebido y expone sus controles/señales como atributos
+    directos, de modo que GrowthKineticsBackend.make_connection() funcione igual sin importar
+    si se le pasa esta ventana standalone o el panel embebido en la Pestaña 4 del shell."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Cinética de Crecimiento de Nanopartículas — PySpectrum 3.0")
+        self.resize(880, 530)
+        self.setStyleSheet("QDialog { background-color: #11111B; } " + _GROWTH_KINETICS_CONTROLS_STYLE)
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.panel = GrowthKineticsPanel(self)
+        lay.addWidget(self.panel)
+
+        for attr_name in ("cmb_laser", "edit_exp", "edit_nframes", "edit_interval",
+                          "btn_run", "progress_bar", "lbl_peak", "plot_spec", "curve_spec",
+                          "curve_fit", "plot_spr_time", "curve_spr"):
+            setattr(self, attr_name, getattr(self.panel, attr_name))
+
+        self.startGrowthSignal = self.panel.startGrowthSignal
+        self.stopGrowthSignal = self.panel.stopGrowthSignal
+        self.update_growth_data = self.panel.update_growth_data
 
 
 class GrowthKineticsBackend(QtCore.QObject):

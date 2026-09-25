@@ -36,7 +36,9 @@
 
 El módulo **PySpectrum 3.0** es la estación central de **espectroscopía óptica, cosido espectral continuo (*Step and Glue*) y caracterización hiperespectral 2D/3D** de la suite PyPrinting 3.0.
 
-Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
+> **Fase 1 del Rework Arquitectónico (`[[DECISION_LOG#DEC-015]]`)**: desde esta fase, la ventana principal reemplaza el antiguo `DockArea` flotante por un **shell de 6 pestañas de flujo de trabajo** (`QTabWidget`) con un **Panel Izquierdo Permanente y Dinámico** (`LeftHardwarePanel`, ~1/3 del ancho) que centraliza el control de la cámara Andor EMCCD y el espectrógrafo Shamrock 500i. Ver §12 para el detalle completo.
+
+Integra de forma multihilo y desacoplada (`PyQt6`):
 - **Control de Espectrógrafo Andor Shamrock (SR-303i / SR-500i)**: Selección de red de difracción (150 l/mm, 1200 l/mm, espejo), longitud de onda central $\lambda_{center}$, ranuras micrométricas motorizadas (*slits*) y conmutación de puertos (*flippers*).
 - **Cámara Andor iXon3 EMCCD**: Control de refrigeración criogénica Peltier multi-etapa ($-65^\circ\text{C}$ a $-80^\circ\text{C}$), doble canal de amplificación (EMCCD alta sensibilidad y Convencional bajo ruido), ganancia EM ($0$ a $1000\times$), tiempo de exposición, visualización 2D en vivo ($1002 \times 1002$ px, píxel $13.0\,\mu\text{m}$), binning vertical hardware FVB y Single Track.
 - **Algoritmo *Step & Glue* de Banda Ancha**: Adquisición concatenada de múltiples rangos espectrales (ej. $450 - 950\ \text{nm}$) con solapamiento suave ponderado y normalización por lámpara halógena de calibración.
@@ -48,37 +50,38 @@ Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
 
 ---
 
-## 2. 🖼️ Maqueta de la Interfaz Visual (ASCII Layout)
+## 2. 🖼️ Maqueta de la Interfaz Visual (ASCII Layout, post-Fase 1)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  PySpectrum 3.0 — Espectroscopía & Mapeo Hiperespectral  [UNSAM Nanofotónica]                         -  □  ×    │
+│  PySpectrum 3.0 — Espectroscopía & Mapeo Hiperespectral  [UNSAM Nanofotónica]           🚨 E-STOP  🔄 Rearmar    │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  📁 Archivo    🔧 Herramientas    🧪 Rutinas                                                                      │
-├───────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────┤
-│  DOCK: CÁMARA ANDOR CCD (Detector 2D & Perfil 1D)                     │  DOCK: ESPECTROSCOPÍA & STEP AND GLUE    │
-│  [ ▶ Iniciar Live View ]  [ ❄️ Temp: -10.0 °C (Estabilizado) ]        │  Tiempo Exp: [ 1.0 ] s  λ Centro: [ 532 ]│
-│  Exp: [ 0.05 ] s  Set T: [ -10 ] °C  EM Gain: [ 0 ]                   │  [ 🔬 Medir Espectro Simple ]            │
-│  ┌─────────────────────────────────────────────────────────────────┐ │  ┌─────────────────────────────────────┐  │
-│  │                                                                 │ │  │ Parámetros Step & Glue (Cosido)     │  │
-│  │   [ Imagen 2D de la Ranura del Espectrógrafo / CCD ]            │ │  │ λ Inicial: [ 450.0 ] nm             │  │
-│  │   Resolución: 1002 x 1002 px                                    │ │  │ λ Final:   [ 950.0 ] nm             │  │
-│  │   ROI Horizontal: y = 480 .. 520 px                             │ │  │ Solapamiento: [ 0.20 ]              │  │
-│  │                                                                 │ │  │ ☑ Normalizar con Lámpara Halógena   │  │
-│  └─────────────────────────────────────────────────────────────────┘ │  │ ☑ Ajuste Polinomial SPR (λ_max)      │  │
-│  ┌─────────────────────────────────────────────────────────────────┐ │  │ ☐ Ajuste Raman Agua (3300 cm⁻¹)     │  │
-│  │ Perfil 1D Binnizado: [ Espectro en Vivo / ADC Counts ]          │ │  │ [ 🧩 Ejecutar Step and Glue ]       │  │
-│  └─────────────────────────────────────────────────────────────────┘ │  └─────────────────────────────────────┘  │
-├───────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
-│  DOCK: ESPECTRÓGRAFO ANDOR SHAMROCK                                   │  DOCK: MAPEO CONFOCAL HIPERESPECTRAL     │
-│  Red: [ 150 líneas/mm ▼ ]   λ Central: [ 532.00 ] nm                  │  X Min/Max: [ 45.0 ] [ 55.0 ] µm Step: 1 │
-│  Ranura Entrada: [ 50.0 ] µm  Puerto: [ Port 0: Fibra ▼ ]             │  Y Min/Max: [ 45.0 ] [ 55.0 ] µm Exp:0.05│
-│  [ 🟢 Obturador Espectrógrafo: ABIERTO ]                              │  [ 🚀 Iniciar Escaneo Hiperespectral ]   │
-│  Rango en detector: 356.2 nm — 708.4 nm                               │  [ Matriz: 11x11 pts ] [ Barra Progreso ]│
-├───────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
-│  🟢 PySpectrum 3.0 Listo | Carpeta de trabajo: C:/Users/josel/Documents/Data_PySpectrum | Temp: -10.0 °C         │
+├────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────┤
+│  PANEL IZQUIERDO PERMANENTE     │ [🔭1.Exploración][🔬2.Raman][🧩3.Step&Glue][🌱4.Cinética][🎯5.Calib][🧬6.Confocal]│
+│  (~1/3, siempre visible)        ├───────────────────────────────────────────────────────────────────────────────┤
+│  📷 Cámara Andor EMCCD (iXon3)  │                                                                                │
+│   🟢 Temp: -65.0 °C  Set T:[-65]│         Contenido de la pestaña activa                                        │
+│   ❄️ Enfriador: ON              │         (visor 2D/1D, controles de rutina, gráficos, tablas)                  │
+│   Amplificador: [EMCCD ▼]       │                                                                                │
+│   EM Gain: [ 0 ]                │                                                                                │
+│   Pre-Amp Gain: [ 1.0x ▼ ]      │                                                                                │
+│   Velocidad Lectura: [5.0MHz▼]  │                                                                                │
+│   Exposición (s): [ 0.05 ]      │                                                                                │
+│   Obturador Cámara: [ Auto ▼ ]  │                                                                                │
+│  🌈 Espectrógrafo Shamrock 500i │                                                                                │
+│   Red: [ 150 líneas/mm ▼ ]      │                                                                                │
+│   Ranura Entrada: [ 50.0 ] µm   │                                                                                │
+│   Puerto Entrada/Salida: [..▼]  │                                                                                │
+│   λ actual: 532.00 nm           │                                                                                │
+│   λ Central: [ 532.00 ] [➡️Ir]  │                                                                                │
+│   [ 🪞 Ir a Orden Cero (0 nm) ] │                                                                                │
+├────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────┤
+│  🟢 PySpectrum 3.0 Listo | Carpeta de trabajo: C:/Users/josel/Documents/Data_PySpectrum                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Al presionar **`🪞 Ir a Orden Cero (0 nm)`** se abre el diálogo modal `ZeroOrderSafetyDialog` (§12.3), que **nunca** mueve el espectrógrafo directamente. En la pestaña **Step & Glue**, el campo λ Central y el botón `➡️ Ir a λ` del panel izquierdo se inhabilitan automáticamente (la receta de cosido comanda la red).
 
 ---
 
@@ -93,9 +96,12 @@ Integra de forma multihilo y desacoplada (`PyQt6` + `pyqtgraph.dockarea`):
 | **🔧 Herramientas** | Platina Nanoposicionamiento | Abre el diálogo flotante del controlador de la platina PI E-517. |
 | **🔧 Herramientas** | Obturadores & Flippers | Abre el diálogo flotante de control de obturadores láser (532, 637, 592, 808 nm). |
 | **🔧 Herramientas** | Tablero de Conexiones | Abre el Tablero de Seguridad de Hardware ([`modules/hardware_dashboard.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/modules/hardware_dashboard.py)). |
+| **🔧 Herramientas** | Control Legado del Espectrógrafo | Abre `spectrum_control.py::Frontend` en un diálogo de compatibilidad (Fase 1): mismos controles ya disponibles en el Panel Izquierdo permanente. |
 | **🧪 Rutinas** | Luminiscencia & Anti-Stokes | Abre la ventana de seguimiento de fotoluminiscencia temporal $I(\lambda, t)$. |
-| **🧪 Rutinas** | Cinética de Crecimiento | Abre la ventana de monitoreo de crecimiento in-situ de nanopartículas. |
 | **🧪 Rutinas** | Dímeros Plasmónicos | Abre la ventana de espectroscopía de dímeros y anisotropía de polarización. |
+| **🧪 Rutinas** | Escaneo Lineal Espectral | Abre la rutina de escaneo lineal con la platina PI E-517 (§10). |
+
+> Desde la Fase 1, **Cinética de Crecimiento** dejó de ser un ítem de este menú: ahora vive embebida como Pestaña 4 (`🌱 4. Cinética`) del shell principal. `GrowthKineticsWidget` (el diálogo standalone previo) sigue existiendo por retrocompatibilidad, envolviendo internamente el mismo `GrowthKineticsPanel` que se embebe en la pestaña.
 
 ---
 
@@ -232,7 +238,45 @@ Procedimiento paso a paso completo: `[[MANUAL_USUARIO#4.5 Procedimiento Operativ
 
 ---
 
-## 11. 🔗 Referencias Cruzadas
+## 12. 🏗️ Fase 1 del Rework Arquitectónico — Shell de Pestañas y Panel Izquierdo Permanente
+
+Ver `[[DECISION_LOG#DEC-015]]` para el registro formal de la decisión. Resumen técnico:
+
+### 12.1 Shell principal (`pyspectrum/window.py`)
+El `DockArea` flotante fue reemplazado por un `QSplitter` horizontal: `LeftHardwarePanel` (~1/3) + `QTabWidget` de 6 pestañas (~2/3). Índices fijos exportados como constantes de módulo (`TAB_EXPLORATION=0`, `TAB_STATIC_RAMAN=1`, `TAB_STEP_AND_GLUE=2`, `TAB_GROWTH_KINETICS=3`, `TAB_CALIBRATION=4`, `TAB_CONFOCAL=5`). `tabs_workflow.currentChanged` dispara `LeftHardwarePanel.set_context(idx)`.
+
+| Pestaña | Widget embebido | Origen |
+|---|---|---|
+| 🔭 1. Exploración | `camera_andor.py::Frontend` (`cam_widget`) | Reusado tal cual; Fase 2 reemplaza su ROI por el ligado a `SpectroscopyContext` |
+| 🔬 2. Static Raman | `static_raman.py::StaticRamanWidget` | Sin cambios |
+| 🧩 3. Step & Glue | `step_and_glue.py::Frontend` (`sandg_widget`) | Sin cambios |
+| 🌱 4. Cinética | `growth_kinetics.py::GrowthKineticsPanel` (nuevo) | Extraído de `GrowthKineticsWidget` (ver §12.2) |
+| 🎯 5. Calibraciones | `calibration_dock.py::CalibrationFrontend` | Sin cambios (antes en Dock) |
+| 🧬 6. Mapeo Confocal | `hyperspectral_confocal.py::Frontend` | Sin cambios (antes en Dock; sigue en `QThread` propio, `ANOM-HYPERSPEC-01`) |
+
+`spectrum_control.py::Frontend` (`spec_widget`) se mantiene 100% instanciado y wireado (cero regresión) pero relocalizado a un diálogo de compatibilidad vía `🔧 Herramientas` (§3), al ser 100% redundante con el sub-panel Shamrock del panel izquierdo.
+
+### 12.2 `LeftHardwarePanel` (`pyspectrum/ui/left_hardware_panel.py`)
+Widget único (no hay un segundo par cámara/espectrógrafo con el que multiplexar), combina UI y despacho directo al driver, con `QTimer` propio de 1 Hz para refrescar temperatura y λ actual — mismo patrón que `camera_andor.py::Backend._read_temperature`. Sub-panel Andor: temperatura/enfriador, amplificador, EM Gain, **Pre-Amp Gain** y **Velocidad de Lectura (HSSpeed)** (ambos poblados dinámicamente desde el driver — `get_number_preamp_gains()`/`get_preamp_gain(i)`, `get_number_hs_speeds()`/`get_hs_speed(i)`), exposición, **modo de obturador interno de cámara** (Auto/Siempre Abierto/Siempre Cerrado). Sub-panel Shamrock: red, ranura, flippers IN/OUT, λ central + `➡️ Ir a λ`, `🪞 Ir a Orden Cero`. `set_context(tab_index)` inhabilita el campo manual de λ y `Ir a λ` únicamente en la pestaña Step & Glue (la receta de cosido comanda la red); Orden Cero permanece siempre disponible como acción manual explícita.
+
+### 12.3 `ZeroOrderSafetyDialog` (`pyspectrum/ui/zero_order_dialog.py`)
+Interlock modal disparado desde el botón `🪞 Ir a Orden Cero` del panel izquierdo. Inspecciona `EM Gain` (`get_emccd_gain()`) y obturadores láser realmente abiertos (`core/nidaq.py::get_open_shutter_names()` — **no** `is_watchdog_armed()`, que puede estar desarmado con un shutter físicamente abierto en Modo Alineación) y exige una de 5 acciones explícitas: `🛡️ Cerrar Láser y Apagar EM Gain` (recomendado), `🔴 Solo Cerrar Láser`, `🔻 Solo Apagar EM Gain`, `⚠️ Ignorar y Continuar (Override Experto)` (deja advertencia explícita en consola) o `✖ Cancelar` (no mueve nada). Sólo tras una acción no cancelada se invoca `spectrometer.goto_zero_order()`. No reemplaza ni modifica el safeguard silencioso preexistente de `spectrum_control.py::Backend.goto_zero_order()` (usado sólo por el diálogo legado de compatibilidad).
+
+### 12.4 Transición Segura de Modos de Lectura (`pyspectrum/ui/acquisition_setup_dialog.py`)
+`compute_buffer_shape(read_mode, width, height, n_tracks)` y `transition_read_mode(camera, new_mode, **kwargs)` son funciones puras (sin Qt) que implementan: abortar adquisición → esperar `DRV_IDLE` (`camera.get_status()`, nuevo en el driver) → `SetReadMode` + configuración específica (`SetSingleTrack`/`SetMultiTrack`/`SetRandomTrack`/`SetImage`) → forma exacta del nuevo buffer NumPy. `AcquisitionSetupDialog` es un indicador visual no bloqueante (`QProgressBar` indeterminado) que envuelve la llamada vía `.run(fn, *args)`.
+
+### 12.5 `andor_ccd_driver.py` — Pre-Amp Gain, HSSpeed, Multi/Random-Track
+Nuevas constantes `PREAMP_GAINS_MOCK=[1.0, 2.0, 4.3]`, `HSSPEEDS_MHZ_MOCK=[5.0, 3.0, 1.0]`. Métodos nuevos en `_MockAndorCCD` y `AndorCCDDriver` (con el mismo patrón `try/except → DRV_NOT_INITIALIZED` que el resto del archivo): `get_status()`, `get_number_preamp_gains()`/`get_preamp_gain()`/`set_preamp_gain()`, `get_number_hs_speeds()`/`get_hs_speed()`/`set_hs_speed()`, `set_shutter_mode()`/`get_shutter_mode()`, `set_multi_track()`/`get_multi_track()`, `set_random_track()`, `get_tracks_2d_spectrum()` (frame sintético `(NumTracks, Width)` realista para Multi/Random-Track).
+
+### 12.6 `SpectroscopyContext` (`pyspectrum/modules/spectroscopy_context.py`)
+Singleton (mismo patrón `get_instance()` que `HardwareSessionManager`) con 4 señales: `verticalRoiChanged(y_min, y_max, y_center, y_height)`, `readModeChanged(mode)`, `spectrographMoved(wavelength_nm, grating)`, `subjugatedModeChanged(active)`. En Fase 1 sólo `LeftHardwarePanel` publica `spectrographMoved` en cada refresco; el consumo pleno (ROI vertical interactivo de Tab 1, subyugación de `contrapropagante.py`/`app.py`) llega en Fases 2-3.
+
+### 12.7 Tests nuevos
+`tests/test_pyspectrum_shell_and_panel.py` (15), `tests/test_zero_order_safety.py` (8), `tests/test_andor_read_modes_transition.py` (16) — 39 tests nuevos. Full suite: 0 regresiones nuevas contra las fallas preexistentes ya registradas en `DEC-010`/`DEC-013`/`DEC-014`.
+
+---
+
+## 13. 🔗 Referencias Cruzadas
 - [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|📘 SYS-301: Shamrock 500i, iXon3 y Óptica Confocal]]
 - [[SYS-302_Calibracion_Espectral_y_Sincronizacion_Flippers|📑 SYS-302: Calibración Espectral, Offsets Ctypes y Flippers]]
 - [[SYS-305_Arquitectura_Optomecanica_Microscopio_Derecho_y_Ruteo_Espectral|🔬 SYS-305: Arquitectura Optomecánica y Ruteo Espectral]]

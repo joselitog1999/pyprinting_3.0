@@ -39,6 +39,15 @@ READ_MODE_MULTI_TRACK = 2
 READ_MODE_RANDOM_TRACK = 3
 READ_MODE_IMAGE = 4       # Imagen 2D
 
+# Modos de obturador interno de cámara (SetShutter typ=1, mode=...)
+SHUTTER_MODE_AUTO = 0
+SHUTTER_MODE_OPEN = 1
+SHUTTER_MODE_CLOSED = 2
+
+# Ganancias de pre-amplificador y velocidades de lectura horizontal simuladas en Modo Seguro
+PREAMP_GAINS_MOCK = [1.0, 2.0, 4.3]
+HSSPEEDS_MHZ_MOCK = [5.0, 3.0, 1.0]
+
 
 class _MockAndorCCD:
     """Simulador transparente de Cámara Andor iXon3 EMCCD (1002x1002 px, 13 µm)."""
@@ -61,10 +70,84 @@ class _MockAndorCCD:
         self._track_height = 40
         self._acquiring = False
         self._frame_count = 0
+        self._preamp_gain_idx = 0
+        self._hsspeed_idx = 0
+        self._shutter_mode = SHUTTER_MODE_AUTO
+        self._multi_track_params: Tuple[int, int, int] = (1, 5, 0)  # (number, height, offset)
+        self._random_track_areas: list = []
         print("[Andor CCD SIM] Cámara Andor virtual inicializada (1004x1002, iXon3 EMCCD DU8285).")
 
     def is_hardware_alive(self) -> bool:
         return False
+
+    def get_status(self) -> int:
+        return DRV_ACQUIRING if self._acquiring else DRV_IDLE
+
+    def get_number_preamp_gains(self) -> int:
+        return len(PREAMP_GAINS_MOCK)
+
+    def get_preamp_gain(self, index: int) -> Tuple[int, float]:
+        idx = max(0, min(len(PREAMP_GAINS_MOCK) - 1, int(index)))
+        return (DRV_SUCCESS, PREAMP_GAINS_MOCK[idx])
+
+    def set_preamp_gain(self, index: int) -> int:
+        with self._lock:
+            self._preamp_gain_idx = max(0, min(len(PREAMP_GAINS_MOCK) - 1, int(index)))
+            return DRV_SUCCESS
+
+    def get_preamp_gain_index(self) -> int:
+        return self._preamp_gain_idx
+
+    def get_number_hs_speeds(self, channel: int = 0, typ: int = 0) -> int:
+        return len(HSSPEEDS_MHZ_MOCK)
+
+    def get_hs_speed(self, index: int, channel: int = 0, typ: int = 0) -> Tuple[int, float]:
+        idx = max(0, min(len(HSSPEEDS_MHZ_MOCK) - 1, int(index)))
+        return (DRV_SUCCESS, HSSPEEDS_MHZ_MOCK[idx])
+
+    def set_hs_speed(self, index: int, typ: int = 0) -> int:
+        with self._lock:
+            self._hsspeed_idx = max(0, min(len(HSSPEEDS_MHZ_MOCK) - 1, int(index)))
+            return DRV_SUCCESS
+
+    def get_hs_speed_index(self) -> int:
+        return self._hsspeed_idx
+
+    def set_shutter_mode(self, mode: int, closing_time_ms: int = 0, opening_time_ms: int = 0) -> int:
+        """0: Auto (sincronizado con adquisición), 1: Siempre Abierto, 2: Siempre Cerrado."""
+        with self._lock:
+            self._shutter_mode = int(mode)
+            return DRV_SUCCESS
+
+    def get_shutter_mode(self) -> int:
+        return self._shutter_mode
+
+    def set_multi_track(self, number: int, height: int, offset: int) -> Tuple[int, int, int]:
+        with self._lock:
+            number = max(1, int(number))
+            height = max(1, int(height))
+            self._multi_track_params = (number, height, int(offset))
+            return (DRV_SUCCESS, int(offset), 0)
+
+    def get_multi_track(self) -> Tuple[int, int, int]:
+        return self._multi_track_params
+
+    def set_random_track(self, areas: list) -> int:
+        with self._lock:
+            self._random_track_areas = list(areas)
+            return DRV_SUCCESS
+
+    def get_random_track_areas(self) -> list:
+        return list(self._random_track_areas)
+
+    def get_tracks_2d_spectrum(self) -> np.ndarray:
+        """Genera un cuadro (NumTracks, Width) sintético para modos Multi-Track / Random-Track."""
+        if self._read_mode == READ_MODE_MULTI_TRACK:
+            n_tracks = self._multi_track_params[0]
+        else:
+            n_tracks = max(1, len(self._random_track_areas))
+        rows = [self.get_1d_spectrum() for _ in range(max(1, n_tracks))]
+        return np.stack(rows, axis=0).astype(np.float32)
 
     def initialize(self) -> int:
         with self._lock:
@@ -234,6 +317,8 @@ class _MockAndorCCD:
     def get_acquired_data(self) -> np.ndarray:
         if self._read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
             return self.get_1d_spectrum()
+        if self._read_mode in (READ_MODE_MULTI_TRACK, READ_MODE_RANDOM_TRACK):
+            return self.get_tracks_2d_spectrum()
         return self.get_most_recent_image()
 
 
@@ -487,6 +572,131 @@ class AndorCCDDriver:
         if self._read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
             return self.get_1d_spectrum(width)
         return self.get_most_recent_image(width, height)
+
+    def get_status(self) -> int:
+        """Consulta el estado de adquisición (DRV_IDLE / DRV_ACQUIRING) del driver."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            c_status = c_int()
+            ret = self._dll.GetStatus(byref(c_status))
+            return c_status.value if ret == DRV_SUCCESS else DRV_IDLE
+        except Exception:
+            return DRV_IDLE
+
+    def get_number_preamp_gains(self) -> int:
+        if not self._connected or self._dll is None:
+            return 0
+        try:
+            c_n = c_int()
+            ret = self._dll.GetNumberPreAmpGains(byref(c_n))
+            return c_n.value if ret == DRV_SUCCESS else 0
+        except Exception as e:
+            print(f"[Andor CCD] Error GetNumberPreAmpGains: {e}")
+            return 0
+
+    def get_preamp_gain(self, index: int) -> Tuple[int, float]:
+        if not self._connected or self._dll is None:
+            return (DRV_NOT_INITIALIZED, 1.0)
+        try:
+            c_gain = c_float()
+            ret = self._dll.GetPreAmpGain(c_int(int(index)), byref(c_gain))
+            return (ret, float(c_gain.value))
+        except Exception as e:
+            print(f"[Andor CCD] Error GetPreAmpGain: {e}")
+            return (DRV_NOT_INITIALIZED, 1.0)
+
+    def set_preamp_gain(self, index: int) -> int:
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            return self._dll.SetPreAmpGain(c_int(int(index)))
+        except Exception as e:
+            print(f"[Andor CCD] Error SetPreAmpGain: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def get_number_hs_speeds(self, channel: int = 0, typ: int = 0) -> int:
+        if not self._connected or self._dll is None:
+            return 0
+        try:
+            c_n = c_int()
+            ret = self._dll.GetNumberHSSpeeds(c_int(channel), c_int(typ), byref(c_n))
+            return c_n.value if ret == DRV_SUCCESS else 0
+        except Exception as e:
+            print(f"[Andor CCD] Error GetNumberHSSpeeds: {e}")
+            return 0
+
+    def get_hs_speed(self, index: int, channel: int = 0, typ: int = 0) -> Tuple[int, float]:
+        if not self._connected or self._dll is None:
+            return (DRV_NOT_INITIALIZED, 1.0)
+        try:
+            c_speed = c_float()
+            ret = self._dll.GetHSSpeed(c_int(channel), c_int(typ), c_int(int(index)), byref(c_speed))
+            return (ret, float(c_speed.value))
+        except Exception as e:
+            print(f"[Andor CCD] Error GetHSSpeed: {e}")
+            return (DRV_NOT_INITIALIZED, 1.0)
+
+    def set_hs_speed(self, index: int, typ: int = 0) -> int:
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            return self._dll.SetHSSpeed(c_int(typ), c_int(int(index)))
+        except Exception as e:
+            print(f"[Andor CCD] Error SetHSSpeed: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def set_shutter_mode(self, mode: int, closing_time_ms: int = 0, opening_time_ms: int = 0) -> int:
+        """0: Auto, 1: Siempre Abierto, 2: Siempre Cerrado. Mapea a SetShutter(typ=1, mode, ...)
+        del SDK 2 (typ=1: TTL alto abre el obturador interno de la cámara)."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            return self._dll.SetShutter(c_int(1), c_int(int(mode)), c_int(int(closing_time_ms)), c_int(int(opening_time_ms)))
+        except Exception as e:
+            print(f"[Andor CCD] Error SetShutter: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def set_multi_track(self, number: int, height: int, offset: int) -> Tuple[int, int, int]:
+        if not self._connected or self._dll is None:
+            return (DRV_NOT_INITIALIZED, 0, 0)
+        try:
+            c_bottom = c_int()
+            c_gap = c_int()
+            ret = self._dll.SetMultiTrack(c_int(int(number)), c_int(int(height)), c_int(int(offset)), byref(c_bottom), byref(c_gap))
+            return (ret, c_bottom.value, c_gap.value)
+        except Exception as e:
+            print(f"[Andor CCD] Error SetMultiTrack: {e}")
+            return (DRV_NOT_INITIALIZED, 0, 0)
+
+    def set_random_track(self, areas: list) -> int:
+        """areas: lista de tuplas (y_start, y_end) por pista, en orden ascendente de fila."""
+        if not self._connected or self._dll is None:
+            return DRV_NOT_INITIALIZED
+        try:
+            flat = []
+            for (y0, y1) in areas:
+                flat.extend([int(y0), int(y1)])
+            arr = (c_int * len(flat))(*flat)
+            return self._dll.SetRandomTrack(c_int(len(areas)), arr)
+        except Exception as e:
+            print(f"[Andor CCD] Error SetRandomTrack: {e}")
+            return DRV_NOT_INITIALIZED
+
+    def get_tracks_2d_spectrum(self, n_tracks: int, width: int = 1004) -> np.ndarray:
+        """Lee datos adquiridos con forma (NumTracks, Width) para Multi-Track / Random-Track."""
+        n_tracks = max(1, int(n_tracks))
+        if not self._connected or self._dll is None:
+            return np.zeros((n_tracks, width), dtype=np.float32)
+        try:
+            n_pixels = n_tracks * width
+            arr = (c_long * n_pixels)()
+            ret = self._dll.GetAcquiredData(arr, c_long(n_pixels))
+            if ret == DRV_SUCCESS:
+                return np.array(arr[:], dtype=np.float32).reshape((n_tracks, width))
+            return np.zeros((n_tracks, width), dtype=np.float32)
+        except Exception:
+            return np.zeros((n_tracks, width), dtype=np.float32)
 
 
 # ── Instancia Singleton y Fábrica ─────────────────────────────────────────────

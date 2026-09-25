@@ -390,6 +390,15 @@ def close_all_shutters() -> None:
             _watchdog_deadline = None
 
 
+def get_open_shutter_names() -> list[str]:
+    """Devuelve los nombres de los shutters actualmente abiertos, leyendo el estado real de
+    _shutter_signal. No usar is_watchdog_armed() como proxy: en Modo Alineación (timeout=None,
+    "Sin límite") un shutter puede estar físicamente abierto con el watchdog desarmado a
+    propósito, así que is_watchdog_armed()==False no implica que no haya láser abierto."""
+    with _nidaq_lock:
+        return [name for name, sig in zip(SHUTTERS, _shutter_signal) if sig == SHUTTER_POLARITY[name]]
+
+
 def up_flipper() -> None:
     global _flipper_high_power, _flipper_task0, _flipper_task1
     _flipper_high_power = False
