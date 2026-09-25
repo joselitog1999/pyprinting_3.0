@@ -15,8 +15,10 @@ Soporta:
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union, Any
 import io
+import math
 import os
 import re
 import warnings
@@ -24,10 +26,18 @@ import numpy as np
 from scipy import signal, ndimage
 from scipy.optimize import curve_fit
 
+from core.raman_engine import baseline_asls, model_gaussian, model_lorentzian, model_pseudo_voigt
+
 try:
     import sif_parser
 except ImportError:
     sif_parser = None
+
+try:
+    import h5py
+    H5PY_AVAILABLE = True
+except ImportError:
+    H5PY_AVAILABLE = False
 
 
 # ==============================================================================
@@ -1156,6 +1166,24 @@ def compute_residuals(t_meas: np.ndarray, t_calc: np.ndarray) -> np.ndarray:
     return np.asarray(t_meas, dtype=np.float64) - np.asarray(t_calc, dtype=np.float64)
 
 
+def compute_robust_contrast_levels(
+    data_2d: np.ndarray,
+    p_low: float = 1.0,
+    p_high: float = 99.0
+) -> Tuple[float, float]:
+    """
+    Calcula niveles de corte de intensidad basados en percentiles robustos,
+    eliminando artefactos por rayos cósmicos (outliers superiores) y píxeles muertos (inferiores).
+    """
+    valid = data_2d[np.isfinite(data_2d)]
+    if valid.size == 0:
+        return 0.0, 1.0
+    vmin, vmax = np.percentile(valid, [p_low, p_high])
+    if vmin >= vmax:
+        vmax = vmin + 1.0
+    return float(vmin), float(vmax)
+
+
 # ==============================================================================
 # ALGORITMOS DUALES DE TRANSMITANCIA Y AJUSTE AVANZADO DE PICOS (FANO / LSPR)
 # ==============================================================================
@@ -1424,6 +1452,250 @@ def fit_peak_advanced(
 
 
 # ==============================================================================
+# DECONVOLUCIÓN MULTI-PICO (1 A 5 PICOS) Y SUSTRACCIÓN DE LÍNEA BASE
+# ==============================================================================
+def model_fano(x: np.ndarray, amp: float, center: float, fwhm: float, q: float) -> np.ndarray:
+    """
+    Resonancia de Fano: F(x) = A * (q + eps)^2 / (1 + eps^2), con eps = 2*(x - center) / fwhm.
+    q -> +-infinito recupera el límite Lorentziano; q ~ O(1) produce el perfil asimétrico
+    característico de la interferencia entre un canal resonante discreto y un continuo.
+    """
+    g = np.maximum(1e-6, fwhm)
+    eps = 2.0 * (x - center) / g
+    return amp * ((q + eps) ** 2) / (1.0 + eps ** 2)
+
+
+def _peak_model_and_stride(model_type: str):
+    mt = model_type.lower().strip()
+    if mt == "gaussian":
+        return model_gaussian, 3
+    elif mt == "lorentzian":
+        return model_lorentzian, 3
+    elif mt == "fano":
+        return model_fano, 4
+    else:  # "pseudo_voigt" por defecto
+        return model_pseudo_voigt, 4
+
+
+def _seed_peak_centers(x_fit: np.ndarray, y_corrected: np.ndarray, n_peaks: int) -> List[float]:
+    """
+    Siembra hasta n_peaks centros iniciales detectando los máximos locales más prominentes
+    (scipy.signal.find_peaks sobre la señal ya corregida de línea base). Si se detectan menos
+    picos que los solicitados, completa espaciando las semillas restantes equitativamente en el ROI.
+    """
+    centers: List[float] = []
+    if len(x_fit) >= 3:
+        prominence = 0.05 * max(1e-9, float(np.ptp(y_corrected)))
+        min_distance = max(1, len(x_fit) // (4 * max(1, n_peaks)))
+        idx, props = signal.find_peaks(y_corrected, prominence=prominence, distance=min_distance)
+        if len(idx) > 0:
+            order = np.argsort(props["prominences"])[::-1]
+            idx_sorted = idx[order][:n_peaks]
+            centers = [float(x_fit[i]) for i in idx_sorted]
+
+    if len(centers) < n_peaks:
+        n_missing = n_peaks - len(centers)
+        equal_spaced = np.linspace(float(x_fit[0]), float(x_fit[-1]), n_missing + 2)[1:-1]
+        centers.extend(float(c) for c in equal_spaced)
+
+    return sorted(centers[:n_peaks])
+
+
+def fit_extinction_multi_peak(
+    wavelengths: np.ndarray,
+    signal_data: np.ndarray,
+    roi_range: Optional[Tuple[float, float]] = None,
+    n_peaks: int = 1,
+    model_type: str = "pseudo_voigt",
+    baseline_mode: str = "asls",
+    asls_lam: float = 1e5,
+    asls_p: float = 0.001,
+    slit_width_um: float = 100.0,
+    pixel_pitch_um: float = CCD_PIXEL_PITCH_UM
+) -> Dict[str, Any]:
+    """
+    Deconvolución simultánea de 1 a 5 picos de extinción/absorbancia óptica sobre un ROI espectral,
+    con sustracción de línea base configurable (Ninguna/Constante/Lineal/AsLS Whittaker) y perfiles
+    Gaussiano, Lorentziano, Pseudo-Voigt o Resonancia de Fano.
+
+    Las incertidumbres combinadas u_c de centro y FWHM siguen el mismo criterio metrológico que
+    fit_peak_advanced(): u_c^2 = u_fit^2 + u_slit^2 + u_pixel^2 (contribuciones de ajuste, ranura
+    de entrada y cuantización de píxel, ambas modeladas como distribuciones uniformes / sqrt(12)).
+    """
+    wl = np.asarray(wavelengths, dtype=np.float64)
+    sig = np.asarray(signal_data, dtype=np.float64)
+    n_peaks = int(max(1, min(5, n_peaks)))
+
+    if roi_range is not None:
+        lmin, lmax = min(roi_range), max(roi_range)
+        mask = (wl >= lmin) & (wl <= lmax) & np.isfinite(sig)
+    else:
+        mask = np.isfinite(sig)
+
+    if np.sum(mask) < max(6, 3 * n_peaks):
+        raise ValueError(f"Puntos insuficientes en el ROI para ajustar {n_peaks} pico(s) ({np.sum(mask)} puntos). Seleccione un rango mayor o reduzca el número de picos.")
+
+    x_fit = wl[mask]
+    y_fit = sig[mask]
+    roi_width = float(x_fit[-1] - x_fit[0])
+
+    # 1. Sustracción de Línea Base
+    bmode = baseline_mode.lower().strip()
+    if bmode == "asls":
+        baseline_curve = baseline_asls(y_fit, lam=asls_lam, p=asls_p)
+    elif bmode == "linear":
+        n_edge = max(1, min(3, len(y_fit) // 4))
+        y0 = float(np.mean(y_fit[:n_edge]))
+        y1 = float(np.mean(y_fit[-n_edge:]))
+        baseline_curve = np.interp(x_fit, [x_fit[0], x_fit[-1]], [y0, y1])
+    elif bmode == "constant":
+        n_edge = max(1, min(3, len(y_fit) // 4))
+        level = float(np.mean(np.concatenate([y_fit[:n_edge], y_fit[-n_edge:]])))
+        baseline_curve = np.full_like(y_fit, level)
+    else:  # "none"
+        baseline_curve = np.zeros_like(y_fit)
+
+    y_corrected = y_fit - baseline_curve
+
+    # 2. Semillado Automático de Centros
+    seed_centers = _seed_peak_centers(x_fit, y_corrected, n_peaks)
+
+    # 3. Modelo Compuesto y Ajuste No Lineal
+    single_model, stride = _peak_model_and_stride(model_type)
+    model_lower = model_type.lower().strip()
+    dispersion_px = float(np.mean(np.abs(np.gradient(x_fit))))
+    fwhm0 = max(dispersion_px * 2.0, roi_width / (3.0 * n_peaks))
+
+    def composite_model(x_eval, *params):
+        val = np.zeros_like(x_eval)
+        for k in range(n_peaks):
+            val = val + single_model(x_eval, *params[stride * k: stride * k + stride])
+        return val
+
+    p0: List[float] = []
+    lower: List[float] = []
+    upper: List[float] = []
+    amp_cap = max(10.0, 5.0 * float(np.ptp(y_corrected)))
+    for c0 in seed_centers:
+        amp0 = max(1e-6, float(np.interp(c0, x_fit, y_corrected)))
+        p0.extend([amp0, c0, fwhm0])
+        lower.extend([0.0, x_fit[0], dispersion_px * 0.5])
+        upper.extend([amp_cap, x_fit[-1], roi_width * 2.0 + 1e-6])
+        if stride == 4:
+            if model_lower == "fano":
+                p0.append(-1.0)
+                lower.append(-50.0)
+                upper.append(50.0)
+            else:  # pseudo_voigt
+                p0.append(0.5)
+                lower.append(0.0)
+                upper.append(1.0)
+
+    popt, pcov = curve_fit(composite_model, x_fit, y_corrected, p0=p0, bounds=(lower, upper), maxfev=20000)
+    perr = np.sqrt(np.maximum(0.0, np.diag(pcov)))
+
+    # 4. Incertidumbre Instrumental Combinada (idéntica metodología a fit_peak_advanced)
+    n_px_slit = max(1.0, float(slit_width_um) / float(pixel_pitch_um))
+    u_slit = (n_px_slit * dispersion_px) / np.sqrt(12.0)
+    u_pixel = dispersion_px / np.sqrt(12.0)
+
+    individual_peaks: List[np.ndarray] = []
+    raw_peaks: List[Dict[str, float]] = []
+    for k in range(n_peaks):
+        p_k = popt[stride * k: stride * k + stride]
+        e_k = perr[stride * k: stride * k + stride]
+        amp_k, center_k, fwhm_k = float(p_k[0]), float(p_k[1]), float(p_k[2])
+        u_center_fit, u_fwhm_fit = float(e_k[1]), float(e_k[2])
+        extra_k = float(p_k[3]) if stride == 4 else None
+
+        peak_curve = single_model(x_fit, *p_k)
+        individual_peaks.append(peak_curve)
+
+        area_gauss = amp_k * fwhm_k * math.sqrt(math.pi / (4.0 * math.log(2.0)))
+        area_lorentz = amp_k * fwhm_k * math.pi / 2.0
+        if model_lower == "gaussian":
+            area_k = area_gauss
+        elif model_lower == "lorentzian":
+            area_k = area_lorentz
+        elif model_lower == "pseudo_voigt":
+            eta_k = extra_k if extra_k is not None else 0.5
+            area_k = eta_k * area_lorentz + (1.0 - eta_k) * area_gauss
+        else:  # fano: sin forma cerrada, integración numérica de la componente pura
+            trapezoid_fn = getattr(np, "trapezoid", None) or np.trapz
+            area_k = float(trapezoid_fn(peak_curve, x_fit))
+
+        raw_peaks.append({
+            "center": center_k,
+            "amplitude": amp_k,
+            "fwhm": fwhm_k,
+            "area": float(area_k),
+            "extra": extra_k,
+            "u_center_fit": u_center_fit,
+            "u_fwhm_fit": u_fwhm_fit,
+        })
+
+    # 5. Ordenar por posición ascendente (índice 1..N de izquierda a derecha) y calcular ratios
+    raw_peaks_sorted_idx = sorted(range(n_peaks), key=lambda k: raw_peaks[k]["center"])
+    principal_amp = max(rp["amplitude"] for rp in raw_peaks) if raw_peaks else 1.0
+
+    peaks_params: List[Dict[str, Any]] = []
+    for order_pos, k in enumerate(raw_peaks_sorted_idx):
+        rp = raw_peaks[k]
+        u_c_center = float(np.sqrt(rp["u_center_fit"] ** 2 + u_slit ** 2 + u_pixel ** 2))
+        u_c_fwhm = float(np.sqrt(rp["u_fwhm_fit"] ** 2 + u_slit ** 2 + u_pixel ** 2))
+        entry: Dict[str, Any] = {
+            "index": order_pos + 1,
+            "lambda_0": rp["center"],
+            "u_lambda_0": u_c_center,
+            "fwhm": rp["fwhm"],
+            "u_fwhm": u_c_fwhm,
+            "amplitude": rp["amplitude"],
+            "area": rp["area"],
+            "ratio_h0": float(rp["amplitude"] / principal_amp) if principal_amp > 0 else 0.0,
+            "ratio_h2_h1": None,
+            "param_extra": rp["extra"],
+            "param_extra_name": "eta" if model_lower == "pseudo_voigt" else ("q" if model_lower == "fano" else None),
+        }
+        peaks_params.append(entry)
+
+    if n_peaks >= 2:
+        h1 = peaks_params[0]["amplitude"]
+        h2 = peaks_params[1]["amplitude"]
+        ratio_h2_h1 = float(h2 / h1) if h1 > 0 else 0.0
+        for entry in peaks_params:
+            entry["ratio_h2_h1"] = ratio_h2_h1
+
+    # 6. Curvas Globales, Residuos y Bondad de Ajuste
+    individual_peaks_sorted = [individual_peaks[k] for k in raw_peaks_sorted_idx]
+    peaks_sum = np.sum(individual_peaks, axis=0) if individual_peaks else np.zeros_like(x_fit)
+    model_curve = baseline_curve + peaks_sum
+    residuals = y_fit - model_curve
+
+    ss_res = float(np.sum(residuals ** 2))
+    ss_tot = float(np.sum((y_fit - np.mean(y_fit)) ** 2))
+    r_squared = float(1.0 - (ss_res / ss_tot)) if ss_tot > 0 else 0.0
+    dof = max(1, len(x_fit) - n_peaks * stride)
+    chi2_reduced = float(ss_res / dof)
+
+    return {
+        "model": model_lower,
+        "baseline_mode": bmode,
+        "n_peaks": n_peaks,
+        "roi_wavelengths": x_fit,
+        "roi_signal": y_fit,
+        "baseline_curve": baseline_curve,
+        "individual_peaks": individual_peaks_sorted,
+        "model_curve": model_curve,
+        "residuals": residuals,
+        "r_squared": r_squared,
+        "chi2_reduced": chi2_reduced,
+        "u_slit": float(u_slit),
+        "u_pixel": float(u_pixel),
+        "peaks_params": peaks_params,
+    }
+
+
+# ==============================================================================
 # EXPORTADOR DE DATOS
 # ==============================================================================
 def export_spectrum_txt(filepath: str,
@@ -1458,3 +1730,195 @@ def export_spectrum_txt(filepath: str,
         f.write("\n".join(lines) + "\n")
         fmt = "%.4f" + (delimiter + "%.6e") * len(columns)
         np.savetxt(f, matrix, fmt=fmt, delimiter=delimiter)
+
+
+# ==============================================================================
+# ANÁLISIS DE POLARIZACIÓN PLASMÓNICA (LEY DE MALUS) Y EXPORTACIÓN FAIR/NeXus
+# ==============================================================================
+def extract_polarization_angle_from_name(filename_or_path: str) -> Optional[float]:
+    """
+    Extrae el ángulo de polarización en grados a partir del nombre de archivo, si existe
+    un patrón reconocible (ej. '_0deg', '_45deg', '_176deg', 'pol90', 'pol_45'). Si el
+    nombre contiene explícitamente 'nopol' (sin analizador de polarización), retorna None.
+    """
+    name = os.path.basename(str(filename_or_path)).lower()
+    if "nopol" in name:
+        return None
+
+    m = re.search(r'(\d+(?:\.\d+)?)\s*deg', name)
+    if m:
+        return float(m.group(1))
+
+    m = re.search(r'pol[_-]?(\d+(?:\.\d+)?)', name)
+    if m:
+        return float(m.group(1))
+
+    return None
+
+
+def fit_malus_law(angles_deg: np.ndarray, intensities: np.ndarray) -> Dict[str, Any]:
+    """
+    Ajusta la Ley de Malus generalizada I(theta) = I_min + (I_max - I_min) * cos^2(theta - theta_0)
+    sobre una serie angular de polarización, y calcula el factor de anisotropía óptica (dicroísmo)
+    g = 2*(I_par - I_perp) / (I_par + 2*I_perp) y el contraste de polarización
+    C = (I_max - I_min) / (I_max + I_min), donde I_par = I_max e I_perp = I_min (theta_0 es, por
+    construcción del ajuste, la dirección de máxima transmisión/extinción).
+    """
+    theta = np.asarray(angles_deg, dtype=np.float64)
+    inten = np.asarray(intensities, dtype=np.float64)
+
+    if len(theta) < 3:
+        raise ValueError(f"Se requieren al menos 3 ángulos de polarización distintos para ajustar la Ley de Malus ({len(theta)} provistos).")
+
+    def malus_model(theta_deg, i_min, i_max, theta0_deg):
+        theta_rad = np.radians(theta_deg - theta0_deg)
+        return i_min + (i_max - i_min) * np.cos(theta_rad) ** 2
+
+    i_min0 = float(np.min(inten))
+    i_max0 = float(np.max(inten))
+    theta0_0 = float(theta[np.argmax(inten)])
+    p0 = [i_min0, max(i_max0, i_min0 + 1e-6), theta0_0]
+    amp_cap = max(1e-6, 5.0 * max(abs(i_max0), abs(i_min0), 1.0))
+    bounds = ([-amp_cap, -amp_cap, -360.0], [amp_cap, amp_cap, 360.0])
+
+    popt, pcov = curve_fit(malus_model, theta, inten, p0=p0, bounds=bounds, maxfev=10000)
+    perr = np.sqrt(np.maximum(0.0, np.diag(pcov)))
+    i_min_fit, i_max_fit, theta0_fit = (float(v) for v in popt)
+
+    pred = malus_model(theta, *popt)
+    ss_res = float(np.sum((inten - pred) ** 2))
+    ss_tot = float(np.sum((inten - np.mean(inten)) ** 2))
+    r_squared = float(1.0 - (ss_res / ss_tot)) if ss_tot > 0 else 0.0
+
+    i_par, i_perp = i_max_fit, i_min_fit
+    denom_g = i_par + 2.0 * i_perp
+    g_factor = float(2.0 * (i_par - i_perp) / denom_g) if abs(denom_g) > 1e-12 else 0.0
+    denom_c = i_max_fit + i_min_fit
+    contrast = float((i_max_fit - i_min_fit) / denom_c) if abs(denom_c) > 1e-12 else 0.0
+
+    theta_dense = np.linspace(0.0, 360.0, 361)
+    intensity_dense = malus_model(theta_dense, *popt)
+
+    return {
+        "i_min": i_min_fit,
+        "i_max": i_max_fit,
+        "theta0_deg": float(theta0_fit % 180.0),
+        "u_i_min": float(perr[0]),
+        "u_i_max": float(perr[1]),
+        "u_theta0_deg": float(perr[2]),
+        "g_factor": g_factor,
+        "contrast": contrast,
+        "r_squared": r_squared,
+        "angles_deg": theta,
+        "intensities": inten,
+        "theta_dense_deg": theta_dense,
+        "intensity_dense": intensity_dense,
+    }
+
+
+def export_sif_session_to_hdf5(filepath: str, session_data: Dict[str, Any]) -> str:
+    """
+    Serializa la sesión activa del Analizador SIF en un contenedor HDF5 compatible con el
+    estándar NeXus (NXroot/NXentry/NXinstrument/NXdata/NXprocess), siguiendo la misma
+    convención jerárquica y de compresión (gzip nivel 4 + shuffle) que
+    core.hdf5_container.write_linescan_spectroscopy_hdf5 y el compendio CAT-402.
+
+    session_data acepta las claves:
+      title, filename, detector (dict), optics (dict), spectrometer (dict), processing (dict),
+      wavelengths_nm (np.ndarray), data_1d (dict de np.ndarray), data_2d (dict de np.ndarray,
+      opcional), peaks_params (list[dict], opcional).
+
+    Si h5py no está disponible, no escribe nada y retorna la ruta solicitada sin crear el archivo
+    (mismo comportamiento de degradación segura que write_linescan_spectroscopy_hdf5).
+    """
+    if not H5PY_AVAILABLE:
+        print("[HDF5 Warning] h5py no está disponible. No se generará la sesión FAIR NeXus/HDF5.")
+        return filepath
+
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)) or ".", exist_ok=True)
+    comp = dict(compression="gzip", compression_opts=4, shuffle=True)
+
+    def _attrs(grp, d: Dict[str, Any]):
+        for k, v in (d or {}).items():
+            if v is None:
+                continue
+            if isinstance(v, (int, float, str, bool)):
+                grp.attrs[k] = v
+            else:
+                grp.attrs[k] = str(v)
+
+    def _ds(grp, name: str, arr: Optional[np.ndarray], dtype=np.float64, units: Optional[str] = None):
+        if arr is None:
+            return
+        arr = np.asarray(arr, dtype=dtype)
+        if arr.size == 0:
+            return
+        if name in grp:
+            del grp[name]
+        kwargs = dict(comp) if arr.ndim >= 1 and arr.size > 1 else {}
+        ds = grp.create_dataset(name, data=arr, **kwargs)
+        if units:
+            ds.attrs["units"] = units
+
+    with h5py.File(filepath, "w") as f:
+        f.attrs["NX_class"] = "NXroot"
+        f.attrs["file_name"] = filepath
+        f.attrs["file_time"] = datetime.now(timezone.utc).isoformat()
+        f.attrs["creator"] = "PyPrinting 3.0 -- Analizador SIF (Andor Solis)"
+
+        entry = f.create_group("entry1")
+        entry.attrs["NX_class"] = "NXentry"
+        entry.create_dataset("title", data=str(session_data.get("title", "Sesion SIF")))
+        entry.create_dataset("start_time", data=datetime.now(timezone.utc).isoformat())
+
+        instrument = entry.create_group("instrument")
+        instrument.attrs["NX_class"] = "NXinstrument"
+
+        detector = instrument.create_group("detector_emccd")
+        detector.attrs["NX_class"] = "NXdetector"
+        _attrs(detector, session_data.get("detector", {}))
+
+        optics = instrument.create_group("optics")
+        _attrs(optics, session_data.get("optics", {}))
+
+        spectrometer = instrument.create_group("spectrometer")
+        _attrs(spectrometer, session_data.get("spectrometer", {}))
+
+        sample = entry.create_group("sample")
+        sample.attrs["NX_class"] = "NXsample"
+        sample.attrs["filename"] = str(session_data.get("filename", ""))
+
+        process = entry.create_group("process")
+        process.attrs["NX_class"] = "NXprocess"
+        process.attrs["program"] = "PyPrinting 3.0"
+        _attrs(process, session_data.get("processing", {}))
+
+        peaks_params = session_data.get("peaks_params")
+        if peaks_params:
+            peaks_grp = process.create_group("multi_peak_fit")
+            for p in peaks_params:
+                idx = p.get("index", 0)
+                peak_grp = peaks_grp.create_group(f"peak_{idx}")
+                _attrs(peak_grp, {k: v for k, v in p.items() if not isinstance(v, (list, np.ndarray))})
+
+        data_grp = entry.create_group("data")
+        data_grp.attrs["NX_class"] = "NXdata"
+        data_grp.attrs["signal"] = "extinction" if "extinction" in (session_data.get("data_1d") or {}) else "transmittance_calc"
+        data_grp.attrs["axes"] = "wavelength_nm"
+
+        d1 = data_grp.create_group("1d")
+        _ds(d1, "wavelength_nm", session_data.get("wavelengths_nm"), units="nm")
+        for key, arr in (session_data.get("data_1d") or {}).items():
+            unit = "counts" if key in ("dark", "reference", "live") else ("%" if "transmittance" in key else "OD")
+            _ds(d1, key, arr, units=unit)
+
+        data_2d = session_data.get("data_2d") or {}
+        if data_2d:
+            d2 = data_grp.create_group("2d")
+            for key, arr in data_2d.items():
+                _ds(d2, key, arr, units="counts")
+
+        f.flush()
+
+    print(f"[HDF5 FAIR/NeXus] Sesión del Analizador SIF exportada en: {filepath}")
+    return filepath

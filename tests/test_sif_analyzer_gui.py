@@ -37,20 +37,22 @@ class TestSifAnalyzerGUI(unittest.TestCase):
         self.window.close()
 
     def test_01_instantiation_and_empty_state(self):
-        """Verifica que la ventana se instancie limpiamente con las 5 ventanas de proceso."""
+        """Verifica que la ventana se instancie limpiamente con las 7 ventanas de proceso (Fase 4)."""
         self.assertIn("Andor Solis", self.window.windowTitle())
         self.assertEqual(len(self.window.loaded_spectra), 0)
         self.assertEqual(self.window.active_index, -1)
         self.assertIsNone(self.window.master_spectrum)
 
-        # Corroborar 5 pestañas de proceso
-        self.assertEqual(self.window.tabs_process.count(), 5)
-        tab_titles = [self.window.tabs_process.tabText(i) for i in range(5)]
+        # Corroborar 7 pestañas de proceso (5 originales + Fase 4: Multi-Espectro y Ficha Metrológica)
+        self.assertEqual(self.window.tabs_process.count(), 7)
+        tab_titles = [self.window.tabs_process.tabText(i) for i in range(self.window.tabs_process.count())]
         self.assertTrue(any("Ruido" in t for t in tab_titles))
         self.assertTrue(any("Referencia" in t for t in tab_titles))
         self.assertTrue(any("Live" in t for t in tab_titles))
         self.assertTrue(any("Transmisión" in t or "Transmision" in t for t in tab_titles))
         self.assertTrue(any("Extinción" in t or "Extincion" in t for t in tab_titles))
+        self.assertTrue(any("Multi-Espectro" in t for t in tab_titles))
+        self.assertTrue(any("Ficha Metrológica" in t or "Ficha Metrologica" in t for t in tab_titles))
 
     def test_02_load_reserva_files_and_master_detection(self):
         """Carga los archivos de reserva y verifica la detección del Archivo Maestro."""
@@ -257,7 +259,8 @@ class TestSifAnalyzerGUI(unittest.TestCase):
         self.window.tabs_process.setCurrentIndex(4)
         self.assertIsNotNone(self.window.current_extinction)
 
-        # Ajuste de Fano en rango 600 - 750 nm
+        # Ajuste multi-pico (1 pico) de Fano en rango 600 - 750 nm
+        self.window.spin_fit_n_peaks.setValue(1)
         self.window.combo_fit_model.setCurrentText("Resonancia de Fano")
         self.window.spin_fit_lmin.setValue(620.0)
         self.window.spin_fit_lmax.setValue(720.0)
@@ -266,10 +269,13 @@ class TestSifAnalyzerGUI(unittest.TestCase):
         fit_res = self.window.last_peak_fit_results
         self.assertIsNotNone(fit_res)
         self.assertIn("fano", fit_res['model'].lower())
-        self.assertGreater(fit_res['peak_center'], 600.0)
-        self.assertGreater(fit_res['u_peak_center_combined'], 0.0)
+        self.assertEqual(len(fit_res['peaks_params']), 1)
+        peak0 = fit_res['peaks_params'][0]
+        self.assertGreater(peak0['lambda_0'], 600.0)
+        self.assertGreater(peak0['u_lambda_0'], 0.0)
         self.assertGreater(fit_res['r_squared'], 0.50)
-        self.assertIn("λ_peak", self.window.lbl_fit_results.text())
+        self.assertEqual(self.window.table_fit_peaks.rowCount(), 1)
+        self.assertIn("λ_res", self.window.lbl_fit_results.text())
 
     def test_08_manual_master_designation(self):
         """Verifica la designación manual de otro archivo como Maestro del lote."""
@@ -445,12 +451,9 @@ class TestSifAnalyzerGUI(unittest.TestCase):
         self.window._load_file_list([self.oblicua_path])
         self.window._select_file_index(0)
 
-        # 1. Alternar panel derecho
-        init_hidden = self.window.right_panel.isHidden()
-        self.window._on_toggle_right_panel()
-        self.assertEqual(self.window.right_panel.isHidden(), not init_hidden)
-        self.window._on_toggle_right_panel()
-        self.assertEqual(self.window.right_panel.isHidden(), init_hidden)
+        # 1. Panel Izquierdo único con opciones contextuales sincronizadas al tab activo
+        self.window.tabs_process.setCurrentIndex(1)
+        self.assertEqual(self.window.stack_options.currentIndex(), 1)
 
         # 2. Sincronización de ROI vertical Ref -> Live
         self.window.spin_ref_ymin.setValue(18)

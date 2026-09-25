@@ -992,14 +992,17 @@ El botón **`🌈 Iniciar Analizador SIF (Andor)`** o el comando `python sif_ana
 ```
 +----------------------------------------------------------------------------------------------------+
 |                                      SIF ANALYZER SUITE                                            |
-+-----------------------------------+----------------------------------------+-----------------------+
-| GESTOR DE ARCHIVOS SIF (IZQ)      | 5 VENTANAS DE PROCESO (CENTRAL)        | PANEL INSTRUMENTAL    |
-| - Archivo Maestro del Lote        | 1. Ruido / Dark (1D/2D, PSD, Filtros)  | - Torreta 5 Objetivos |
-| - Tabla con scroll horizontal     | 2. Referencia (ROI, Wiener, Despike)   | - Calib. Externa      |
-| - Nombre completo sin recortes    | 3. Live / Señal (Muestra, Copiar ROI)  | - Exportación Lote    |
-| - Canales (1D/2D) y Roles         | 4. Transmisión (Panel 2D, Residuos)    | - Imagen 300 DPI/SVG  |
-| - Tooltips con ruta completa      | 5. Extinción & Ajuste Picos Fano/Gauss | - Toggle [Ctrl+D]     |
-+-----------------------------------+----------------------------------------+-----------------------+
++-------------------------------------------------+--------------------------------------------------+
+| PANEL IZQUIERDO DE PARÁMETROS (QScrollArea)      | PANEL CENTRAL — 100% LIENZO DE GRÁFICOS           |
+| - Archivo Maestro del Lote                       | 7 Pestañas sin barras de control (Fase 4):        |
+| - Gestor de Archivos (tabla navegable c/teclado) | 1. Ruido / Dark (1D/2D, PSD)                      |
+| - Metadatos Activos: insignia 🗺️ 2D / 📊 1D-FVB   | 2. Referencia (ROI 2D, Comparador)                |
+| - Instrumentación: Escala y Óptica (Torreta,     | 3. Live / Señal (Muestra, ROI 2D)                  |
+|   Calib. Externa, Propagación ±σ_T)              | 4. Transmisión (Panel 2D, Residuos)               |
+| - ⚙️ Opciones del Panel Activo (QStackedWidget,  | 5. Extinción & Ajuste Multi-Pico (Fano/Voigt)     |
+|   sincronizado con la pestaña central activa)    | 6. Multi-Espectro & Polarización (Malus, g)       |
+| - 📖 Wiki Científica (barra superior)             | 7. Ficha Metrológica & FAIR (HDF5/NeXus)          |
++-------------------------------------------------+--------------------------------------------------+
 ```
 
 ### 12.1 Visión General, Filosofía y Capacidades Científicas
@@ -1039,12 +1042,12 @@ garantizando una concordancia prácticamente indistinguible con la medición nat
 * **Modo 1D (FVB):** Desviación mediana $|T_{\text{calc}} - T_{\text{meas}}| = \mathbf{0.0037\%}$.
 * **Modo 2D (Slit):** Desviación mediana $|T_{\text{calc}} - T_{\text{meas}}| = \mathbf{0.29\%}$ ($<0.5\%$).
 
-### 12.4 Las 5 Ventanas de Proceso en Secuencia Lógica
+### 12.4 Las 7 Ventanas de Proceso en Secuencia Lógica (Fase 4)
 
-La interfaz organiza el análisis en 5 pestañas de progresión continua. Cada barra de herramientas cuenta con un diseño compacto de **dos filas temáticas** con un ancho mínimo optimizado ($\approx 550\ \text{px}$), permitiendo al usuario redimensionar cómodamente los paneles y desplegar el panel derecho sin bloqueos.
+La interfaz organiza el análisis en 7 pestañas de progresión continua. Desde la reestructuración ergonómica de la Fase 1, cada pestaña central es **100% lienzo de gráficos**: los controles de cada ventana (Despike, Wiener, ROI, filtros de suavizado, modelo de ajuste, etc.) ya no viven como barras horizontales apretadas sobre los gráficos, sino como una página dedicada del panel `⚙️ Opciones del Panel Activo` en el panel izquierdo, que cambia automáticamente de contenido en sincronía con la pestaña central seleccionada. Desde la Fase 4, las Pestañas 6 y 7 cierran el flujo con comparación multi-archivo/polarización y una ficha de trazabilidad exportable en formato FAIR.
 
 ```
-[⬛ 1. Ruido/Dark] ──> [💡 2. Referencia] ──> [🔴 3. Live/Señal] ──> [📊 4. Transmisión] ──> [🔬 5. Extinción]
+[⬛ 1. Ruido] ─> [💡 2. Ref] ─> [🔴 3. Live] ─> [📊 4. Transmisión] ─> [🔬 5. Extinción] ─> [📈 6. Multi/Pol] ─> [📋 7. Ficha]
 ```
 
 #### Pestaña 1: ⬛ 1. Ruido / Dark
@@ -1114,25 +1117,40 @@ La interfaz organiza el análisis en 5 pestañas de progresión continua. Cada b
 >   $$\sigma_T^2(\lambda) = \left(\frac{\partial T}{\partial L}\right)^2 \sigma_L^2(\lambda) + \left(\frac{\partial T}{\partial R}\right)^2 \sigma_R^2(\lambda) + \left(\frac{\partial T}{\partial D}\right)^2 \sigma_D^2(\lambda)$$
 >   donde $\sigma_L^2$ y $\sigma_R^2$ integran el ruido de disparo fotónico Poissoniano ($\sqrt{N/G}$) más el ruido de lectura electrónico del sensor EMCCD ($\sigma_{\text{readout}}$), mientras que $\sigma_D^2(\lambda)$ proviene de la varianza espectral empírica caracterizada en el canal Dark del detector criogénico. Gráficamente, el área se traza entre $[T_{\text{calc}}(\lambda) - \sigma_T(\lambda)]$ y $[T_{\text{calc}}(\lambda) + \sigma_T(\lambda)]$.
 
-#### Pestaña 5: 🔬 5. Extinción & Ajuste Plasmónico
+#### Pestaña 5: 🔬 5. Extinción & Ajuste Multi-Pico (Fase 3)
 * **Propósito:** Computar la extinción óptica de la nanopartícula:
   $$\text{Ext}(\lambda) = -\log_{10}\left(\frac{T(\lambda)}{100}\right) = \log_{10}\left(\frac{100}{T(\lambda)}\right)$$
-  y ajustar modelos analíticos para caracterizar la Resonancia Plasmónica de Superficie Localizada (LSPR).
-* **Fila 1 (Modelos y Ajuste):**
-  - `Modelo`: Selector de función matemática:
-    * **Gaussiano:** Resonancias plasmónicas simétricas en nanopartículas coloidales homogéneas.
-    * **Lorentziano:** Modos dipolares cuasiestáticos ideales.
-    * **Asimétrico de Fano:** Interferencia cuántica/electrodinámica entre un continuo de dispersión y un modo plasmónico discreto:
-      $$I(\lambda) = I_0 + A \cdot \frac{(q + \epsilon)^2}{1 + \epsilon^2}, \quad \epsilon = \frac{\lambda - \lambda_0}{\Gamma/2}$$
-    * **Doble Pico Plasmónico:** Acoplamiento en dímeros o nanoestructuras anisótropas (modos longitudinal y transversal).
-  - `Cursores A y B`: Permite arrastrar reglas verticales para confinar el ajuste a la banda de interés sin distorsión de los flancos.
-  - Botón **`🚀 Ajustar Pico`**: Ejecuta la regresión no lineal por mínimos cuadrados ponderados (`scipy.optimize.curve_fit`).
-* **Fila 2 (Acondicionamiento y Rango):** `[x] Filtro Wiener en Extinción`, `Filtro Suavizado`, `Ventana` y `↺ Restaurar Rango`.
-* **Panel de Resultados Metrológicos (ISO/GUM):**
-  - Longitud de onda de resonancia: $\lambda_{\text{res}} \pm u(\lambda_{\text{res}})\ [\text{nm}]$.
-  - Ancho espectral FWHM: $\text{FWHM} \pm u(\text{FWHM})\ [\text{nm}]$.
-  - Parámetro de asimetría $q$ (en modelos Fano).
-  - Coeficiente de correlación $R^2$.
+  sustraer un fondo de fluorescencia/dispersión y **deconvolucionar de 1 a 5 resonancias plasmónicas superpuestas** simultáneamente para caracterizar la Resonancia Plasmónica de Superficie Localizada (LSPR).
+* **Panel `⚙️ Opciones del Panel Activo` (izquierdo):**
+  - `N° de Picos` (1-5): número de resonancias a ajustar conjuntamente; el semillado automático detecta los máximos locales más prominentes y completa el resto equiespaciado en el ROI.
+  - `Modelo Ajuste`: **Gaussiano**, **Lorentziano**, **Pseudo-Voigt** ($PV=\eta\cdot L+(1-\eta)\cdot G$, por defecto) o **Resonancia de Fano** ($I(\lambda) = A \cdot \frac{(q + \epsilon)^2}{1 + \epsilon^2}$, $\epsilon = \frac{2(\lambda - \lambda_0)}{\Gamma}$).
+  - `Línea Base`: **Ninguno**, **Constante**, **Lineal** o **AsLS Whittaker** (por defecto, con `λ` de rigidez y `p` de asimetría) — sustrae el fondo antes de ajustar los picos.
+  - `ROI λ Min/Max` (también arrastrable con las reglas moradas), `Ranura (µm)`.
+  - Botones **`⚡ Ajustar Modelo en ROI`**, **`🧹 Limpiar Ajuste`** y **`💾 Exportar Ajuste`**.
+* **Tabla de Parámetros de Ajuste:** una fila por pico con $\lambda_{\text{pico}}$, FWHM, Amplitud, Área, $H_i/H_0$, parámetro $q$ o $\eta$, y $R^2$.
+* **Cuadro de Metrología Unitaria (ISO/GUM):**
+  - $OD_{\text{máx}}$ (siempre visible, incluso antes de ajustar).
+  - Longitud de onda de resonancia del pico principal: $\lambda_{\text{res}} \pm u_c(\lambda_{\text{res}})\ [\text{nm}]$ y su FWHM combinada.
+  - Factor de calidad $Q = \lambda_{\text{res}}/\text{FWHM}$, coeficiente de determinación $R^2$, $\chi^2_{\text{reducido}}$, y razón cruzada $H_2/H_1$ (cuando hay 2 o más picos).
+
+#### Pestaña 6: 📈 6. Multi-Espectro & Polarización (Fase 4)
+* **Propósito:** Comparar visualmente varios archivos del lote a la vez y caracterizar el dicroísmo/anisotropía óptica de estructuras plasmónicas midiendo cómo varía la señal con el ángulo del polarizador.
+* **Panel de Opciones:**
+  - `Modo`: **Superposición (Overlay)** o **Cascada (Waterfall 2.5D)** con desplazamiento `ΔY`/`ΔX` por curva.
+  - `Curva`: Transmitancia T_calc, Extinción/Absorbancia, Señal Live (Counts) o Transmitancia T_meas.
+  - `Normalización`: Ninguna, Normalizar [0,1] o Dividir por Máximo.
+  - `🔄 Actualizar Multi-Espectro`: redibuja con los archivos marcados (casilla `Sel`) en la tabla de la izquierda.
+  - Sub-grupo **Dicroísmo y Polarización**: `λ_res (nm)` (longitud de onda donde se mide la intensidad de cada archivo) y **`⚡ Ajustar Ley de Malus`**.
+* **Sub-Pestaña A — Visualizador Multi-Curva:** superpone o escalona las curvas de todos los archivos marcados, coloreadas con la paleta Catppuccin.
+* **Sub-Pestaña B — Dicroísmo y Polarización:** proyección polar $(I\cos\theta, I\sin\theta)$ de los puntos experimentales y la curva ajustada $I(\theta) = I_{\min} + (I_{\max}-I_{\min})\cos^2(\theta-\theta_0)$, con cuadro de Metrología Unitaria: $I_{\max}$, $I_{\min}$, $\theta_0$, factor de anisotropía $g = 2(I_{\parallel}-I_{\perp})/(I_{\parallel}+2I_{\perp})$, contraste $C=(I_{\max}-I_{\min})/(I_{\max}+I_{\min})$ y $R^2$.
+* El ángulo de polarización se detecta automáticamente del nombre de archivo (`_45deg`, `pol90`, etc.); archivos `nopol` se excluyen del ajuste.
+
+#### Pestaña 7: 📋 7. Ficha Metrológica & FAIR (Fase 4)
+* **Propósito:** Compilar la trazabilidad completa del espectro activo (hardware, óptica, calibración, procesamiento y ajuste de picos) y exportarla en formatos abiertos y reutilizables.
+* **Panel de Opciones:**
+  - **`💾 Exportar Sesión HDF5 / NeXus`**: serializa la sesión en un archivo `.h5` con ontología NeXus (`NXroot/NXentry/NXinstrument/NXdata/NXprocess`), comprimido (gzip nivel 4 + shuffle).
+  - **`📋 Copiar Ficha al Portapapeles`** / **`📥 Exportar Ficha (.md)`**: la misma ficha en texto Markdown.
+* **Contenido de la Ficha:** detector (modelo, temperatura, ganancia EM, binning, exposición), óptica (objetivo, NA, escala, FOV), calibración espectral (ranura, origen, dispersión), protocolo de procesamiento (despike/Wiener/noise gate/baseline/modelo activos) y, si existe, la tabla completa del ajuste multi-pico de la Pestaña 5.
 
 ---
 
@@ -1173,11 +1191,12 @@ El panel lateral derecho (plegable/desplegable con el atajo **`Ctrl+D`**) reúne
 
 ---
 
-### 12.7 Gestor de Archivos SIF, Desplazamiento Horizontal y Tabla Completa
+### 12.7 Gestor de Archivos SIF, Navegación por Teclado y Tarjeta de Metadatos Enriquecida
 El panel izquierdo permite la navegación eficiente por lotes experimentales:
 * **`📂 Abrir Carpeta SIF`**: Indexa todos los archivos `.sif` del directorio.
 * **`👑 Fijar como Maestro`**: Asigna el archivo seleccionado como referencia global. Sus canales Dark y Halógena son heredados automáticamente por todos los archivos del lote que carezcan de blancos propios.
-* **Tabla con Scroll Horizontal**: Muestra el nombre completo de cada archivo sin truncamientos elípticos, los canales identificados (ej. `4 ch (Trans)`), el modo (`1D FVB` o `2D Slit`), dimensiones y estado de procesamiento. Cada celda dispone de un *tooltip* con su ruta absoluta en disco.
+* **Tabla con Scroll Horizontal y Navegación por Teclado**: Muestra el nombre completo de cada archivo sin truncamientos elípticos, los canales identificados (ej. `4 ch (Trans)`), el modo (`1D FVB` o `2D Slit`) y estado de procesamiento. Con la tabla enfocada, las flechas ↑/↓ o RePág/AvPág cambian instantáneamente el archivo activo (sin necesidad de hacer clic), actualizando metadatos y los 5 gráficos en tiempo real.
+* **Tarjeta de Metadatos Activos con Insignia FVB vs 2D**: identifica de un vistazo si el espectro activo es una **🗺️ Imagen Espacial 2D** (mostrando dimensiones $N_y \times N_\lambda$, escala µm/px del objetivo activo y campo de visión vertical $\text{FOV}_Y$) o un **📊 Espectro 1D (FVB)** (mostrando canales, rango espectral y dispersión nm/px), además de los datos físicos de adquisición (exposición, ranura, temperatura del detector, binning, ganancia EM).
 
 ---
 
@@ -1198,7 +1217,7 @@ Cualquier operador puede procesar una serie espectral completa siguiendo este pr
    - Activar `[x] Sub Dark` y `[x] Filtro Wiener`.
 5. **Alinear la Señal (Pestaña 3):**
    - Cambiar a la Pestaña 3.
-   - Presionar **`🔗 Copiar ROI Ref`** para replicar con exactitud el rango vertical de la lámpara.
+   - Presionar **`📋 Copiar ROI de Referencia`** para replicar con exactitud el rango vertical de la lámpara.
    - Activar `[x] Sub Dark` y `[x] Despike`. Verificar que el mapa 2D y el perfil 1D se limpien automáticamente.
 6. **Inspeccionar la Transmitancia (Pestaña 4):**
    - Pasar a la Pestaña 4.
@@ -1206,13 +1225,45 @@ Cualquier operador puede procesar una serie espectral completa siguiendo este pr
    - En `⚙️ Opciones de Cálculo 2D`, seleccionar `Ruta A` para curvas promediadas de bajo ruido o `Ruta B` para evaluar homogeneidad espacial píxel a píxel.
 7. **Ajustar la Extinción Plasmónica (Pestaña 5):**
    - Pasar a la Pestaña 5.
-   - Arrastrar los cursores A y B sobre el gráfico para delimitar el pico de extinción plasmónica.
-   - Seleccionar el `Modelo` (`Gaussiano` para partículas coloidales simples o `Fano` para nanoestructuras acopladas) y presionar **`🚀 Ajustar Pico`**.
-   - En el panel lateral derecho (`Ctrl+D`), seleccionar el objetivo utilizado (ej. `100x Oil`) y presionar **`📸 Guardar Figura (300 DPI / SVG)`** y **`💾 Exportar Tabla`**.
+   - Elegir `N° de Picos` (1, o 2-5 si hay resonancias acopladas superpuestas) y arrastrar las reglas moradas sobre el gráfico para delimitar el ROI de ajuste.
+   - Seleccionar el `Modelo Ajuste` (`Gaussiano`/`Lorentziano` para partículas simples, `Pseudo-Voigt` como opción general, o `Resonancia de Fano` para nanoestructuras acopladas asimétricas) y la `Línea Base` (`AsLS Whittaker` si hay fondo de fluorescencia), y presionar **`⚡ Ajustar Modelo en ROI`**.
+   - En el panel izquierdo (`Instrumentación: Escala y Óptica`), seleccionar el objetivo utilizado (ej. `100x Oil`) y, desde el menú `Archivo`, presionar **`📷 Exportar Gráfico como Imagen`** y **`💾 Exportar Espectro Activo (.dat)`**.
 
 > [!NOTE]
 > Para consultar el informe técnico exhaustivo sobre la arquitectura, análisis de causa raíz y benchmarks de la herramienta, consulte:  
 > [Reporte Técnico: Arquitectura, Ergonomía y Propagación de Filtros en el Analizador SIF (`reportes/sistema/SYS-304_Arquitectura_Analizador_SIF_y_Filtros_Cascada.md`)](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/SYS-304_Arquitectura_Analizador_SIF_y_Filtros_Cascada.md).
+
+### 12.9 Fase 2: Rendimiento 2D, Lazy Rendering, Auto-Contraste y Manipulación Directa
+
+> [!IMPORTANT]
+> **Fase 2 (2026):** el pipeline numérico (reducciones 1D, $T_{\text{calc}}$, extinción, métricas) se calcula siempre de forma íntegra en cada recálculo, pero el **renderizado costoso de los 3 mapas de calor 2D** (Ruido, Referencia, Live/Señal) ahora se **difiere (Lazy Rendering)** para las pestañas que el usuario no está mirando, eliminando la latencia que antes provocaba redibujar hasta 3 texturas 2D completas ante cada cambio de slider.
+
+* **Renderizado Perezoso (`_tab_2d_dirty`)**: al recalcular, sólo se ejecuta `ImageItem.setImage(...)` para la pestaña central activa (0=Ruido, 1=Referencia, 2=Live); las otras dos quedan marcadas como "sucias" y se renderizan automáticamente, bajo demanda, en el instante en que el usuario conmuta hacia ellas — sin recalcular el pipeline numérico, que ya estaba listo de antemano.
+* **Contraste Robusto por Percentiles (`Contraste 2D`)**: cada una de las 3 páginas de opciones (Ruido/Referencia/Live) incluye un selector con 5 presets — `✨ Auto-Robusto (1%-99%)` (por defecto), `🔍 Alto Contraste (2%-98%)`, `🌟 Resaltar Señal Débil (5%-95%)`, `🎯 Rango Completo (0%-100% Raw)` y `⚙️ Manual/LUT`. Los 4 primeros recalculan sólo los niveles `[v_min, v_max]` del mapa de calor vía `core.sif_processor.compute_robust_contrast_levels()` (percentiles robustos que ignoran NaN/Inf), evitando que un único rayo cósmico o píxel caliente "queme" la escala de colores y esconda el espectro útil. `Manual/LUT` cede el control al histograma interactivo.
+* **Histograma/LUT Interactivo (`📊 Histograma/LUT`)**: cada mapa 2D puede desplegar a su derecha un `HistogramLUTWidget` de PyQtGraph, permitiendo arrastrar manualmente los cursores de nivel mínimo/máximo y la curva de transferencia (gamma) con respuesta fluida.
+* **Cursor en Cruz con Lectura HUD**: los 3 visores 2D muestran un cursor cruzado que sigue el puntero y, al pie del mapa, reportan en vivo $\lambda$ (nm), $Y$ (px y µm según el objetivo activo) e Intensidad (cuentas) del píxel bajo el cursor.
+* **ROI Bidireccional y Copia Rápida**: las reglas horizontales arrastrables sobre los mapas 2D (`roi_ref_region`, `roi_live_region`) y los spinboxes `ROI Y Min/Max` del panel izquierdo permanecen sincronizados en ambos sentidos. El botón **`📋 Copiar ROI de Referencia`** (Pestaña 3) replica instantáneamente el ROI de la lámpara hacia la muestra.
+
+### 12.10 Fase 3: Core Espectral Avanzado, Deconvolución Multi-Pico y Metrología Unitaria
+
+> [!IMPORTANT]
+> **Fase 3 (2026):** el ajuste de picos de la Pestaña 5 se generalizó de un único perfil a una **deconvolución simultánea de 1 a 5 picos** (Gaussiano, Lorentziano, Pseudo-Voigt o Fano) con **sustracción de línea base AsLS Whittaker** configurable, y los 5 gráficos 1D de la suite (Ruido, Referencia, Live, Transmisión, Extinción) ahora presentan sus métricas dentro de un marco estandarizado `📐 Metrología Unitaria`.
+
+* **Deconvolución Multi-Pico**: `core.sif_processor.fit_extinction_multi_peak()` ajusta conjuntamente $N\in[1,5]$ resonancias sobre el ROI activo, con semillado automático de centros (`scipy.signal.find_peaks`, completando equiespaciado si detecta menos picos que los pedidos), reutilizando los perfiles ya validados de `core.raman_engine` (Gauss/Lorentz/Pseudo-Voigt) más un modelo Fano propio.
+* **Sustracción de Línea Base**: `Ninguno`/`Constante`/`Lineal`/`AsLS Whittaker` (reutiliza `core.raman_engine.baseline_asls`, el mismo algoritmo pentadiagonal validado en el Analizador Raman), aplicada antes del ajuste para separar fluorescencia o dispersión difusa del sustrato de las resonancias reales.
+* **Tabla de Parámetros de Ajuste**: una fila por pico con $\lambda_{\text{pico}}\pm u_c$, FWHM$\pm u_c$, Amplitud, Área (analítica o numérica según el modelo), $H_i/H_0$ y el parámetro $q$ (Fano) o $\eta$ (Pseudo-Voigt).
+* **Metrología Unitaria**: cada `QGroupBox("📐 Metrología Unitaria")` reporta, además de las métricas ya existentes en cada pestaña, indicadores complementarios — Ruido de Lectura RMS y detección de píxeles calientes (Ruido); Llenado Dinámico CCD y Estabilidad Espectral (Referencia); Señal Neta Máx, SNR Pico y SNR Integrado (Live); Contraste $\Delta T$ e Incertidumbre Combinada Media $\bar{u}_T$ (Transmisión); $OD_{\text{máx}}$, $\lambda_{\text{res}}$, factor de calidad $Q$, $R^2$ y $\chi^2_{\text{red}}$ (Extinción).
+
+### 12.11 Fase 4 (Final): Multi-Espectro, Polarización Plasmónica y Ecosistema FAIR
+
+> [!IMPORTANT]
+> **Fase 4 (2026, final del Plan Maestro):** la suite alcanza 7 pestañas, igualando la profundidad del Analizador de Desorden en Redes: comparación multi-espectro con análisis de polarización/dicroísmo (Pestaña 6), una ficha de trazabilidad metrológica exportable en formato FAIR/NeXus (Pestaña 7), y acceso universal a exportación de publicación (`FigureExportStudio`) y a la Wiki Científica desde cualquier punto de la ventana.
+
+* **Comparador Multi-Espectro**: usa la misma casilla `Sel` ya presente en la tabla de archivos desde el primer día del módulo; superpone o escalona (Waterfall) las curvas de los archivos marcados, con normalización opcional.
+* **Polarización Plasmónica**: `core.sif_processor.extract_polarization_angle_from_name()` detecta el ángulo del polarizador en el nombre de archivo (`_45deg`, `pol90`, `nopol`→excluido); `fit_malus_law()` ajusta $I(\theta)=I_{\min}+(I_{\max}-I_{\min})\cos^2(\theta-\theta_0)$ y calcula el factor de anisotropía óptica $g$ y el contraste de polarización $C$.
+* **Ecosistema FAIR**: `core.sif_processor.export_sif_session_to_hdf5()` serializa la sesión activa completa (metadatos de hardware, curvas 1D/2D y ajuste multi-pico) en un archivo `.h5` con ontología NeXus, siguiendo la misma convención de compresión que `core/hdf5_container.py` y el estándar `[[CAT-402_Estandar_Datos_FAIR_y_Serializacion_NeXus_HDF5|CAT-402]]`.
+* **Menú Contextual Universal**: clic derecho sobre **cualquier** gráfico de la suite (los 13 `PlotWidget` principales) abre `🎨 Abrir en Estudio de Exportación Científica` (`FigureExportStudioDialog`, el mismo diálogo multicapa de `lattice_disorder_gui.py`) o una exportación rápida PNG 600 DPI / SVG.
+* **Botón `📖 Wiki Científica`**: en la barra superior del panel central, abre (o reutiliza, patrón singleton) `ScientificWikiBrowserDialog` navegando a `CAT-108`.
 
 ---
 
@@ -1537,7 +1588,7 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 | **`Ctrl + A`** | Seleccionar la carpeta raíz de trabajo | Menú principal (`Files`) |
 | **`Ctrl + S`** | Crear subcarpeta diaria automática (`YYYY-MM-DD`) | Menú principal (`Files`) |
 | **`Ctrl + D`** | Abrir la carpeta de trabajo actual en el Explorador | Menú principal (`Files`) |
-| **`Ctrl + D`** | Alternar visibilidad del panel instrumental derecho (Plegar / Desplegar) | Analizador SIF (`sif_analyzer.py`) |
+| **`↑` / `↓` / `RePág` / `AvPág`** | Cambiar el espectro activo del lote (con la tabla de archivos enfocada) | Analizador SIF (`sif_analyzer.py`) |
 | **`Ctrl + G`** | Abrir el Diseñador Universal de Redes 2D | Menú `Tools` (`grid_generator.py`) |
 | **`Ctrl + H`** | Abrir Tablero de Conexiones y Seguridad de Hardware | Menú `Tools` / Global (`Ctrl+H`) |
 | **`Ctrl + M`** | Abrir ventana de Mediciones Automatizadas (Printing / Dimers) | Menú `Measurements` |
@@ -1599,9 +1650,9 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 * **Causa**: Sustracción duplicada del fondo. En archivos multicanal de transmitancia de Solis, el Canal 1 (Referencia) ya tiene el fondo restado internamente por el firmware (`ref_is_bg_corrected = True`). Si se aplica la fórmula convencional $(L - D)/(R - D)$, en las regiones de baja emisión de la lámpara el denominador $R - D$ colapsa hacia cero o se hace negativo.
 * **Solución**: El procesador `core/sif_processor.py` detecta automáticamente este flag y aplica la fórmula física correcta: $T_{\text{calc}} = (L - D) / R \times 100\%$. Si utiliza archivos personalizados, verifique que la casilla `Ruta A` o `Ruta B` esté activa en la Pestaña 4 y que la referencia no tenga sustracciones externas previas.
 
-### 22.10 La Ventana Central del Analizador SIF no se puede achicar o el Panel Derecho queda comprimido
-* **Causa**: En versiones anteriores, los botones de cada pestaña estaban en una sola fila extensa que forzaba un ancho mínimo $>1400\ \text{px}$.
-* **Solución**: La suite actual organiza todos los controles en dos filas compactas, permitiendo achicar la ventana central hasta $\approx 550\ \text{px}$. Además, puede pulsar **`Ctrl+D`** en cualquier momento para alternar (plegar o desplegar) el panel lateral derecho instantáneamente.
+### 22.10 No encuentro el Panel Derecho / los controles de una pestaña del Analizador SIF
+* **Causa**: Desde la reestructuración ergonómica de la Fase 1, el antiguo panel derecho de 3 hojas (instrumentación + exportación duplicada) fue eliminado. La ventana ahora usa un único `QSplitter` de 2 hojas: Panel Izquierdo de Parámetros y Panel Central de Gráficos.
+* **Solución**: Toda la instrumentación óptica (objetivo, calibración, propagación de incertidumbres) vive ahora en el panel izquierdo, en el grupo `Instrumentación: Escala y Óptica`. Los controles específicos de cada pestaña (Despike, Wiener, ROI, filtros, modelo de ajuste) se encuentran en el panel `⚙️ Opciones del Panel Activo`, justo debajo, que cambia automáticamente su contenido según la pestaña central seleccionada. La exportación científica sigue disponible desde el menú `Archivo` (`Ctrl+S` para exportar el espectro activo).
 
 ---
 
