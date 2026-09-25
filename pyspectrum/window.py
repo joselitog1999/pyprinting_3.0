@@ -25,6 +25,12 @@ definitivamente camera_andor.py::Frontend por ExplorationTabWidget (visor 2D + R
 interactivo propagado a SpectroscopyContext, sin controles de hardware duplicados con
 LeftHardwarePanel). camera_andor.py::Frontend/Backend permanecen intactos como módulo — sólo
 se retiran las instancias `cam_widget`/`cam_backend` que este archivo creaba.
+
+Fase 3 (ver docs/decisions/DECISION_LOG.md#DEC-017): Pestaña 2 (Static Raman) pasa de alojar
+directamente static_raman.py::StaticRamanWidget a alojar
+pyspectrum/ui/static_raman_container.py::StaticRamanTabContainer, que la divide en dos
+sub-pestañas internas (Espectro 1D & Análisis / Resultado Medición — Inspector 2D). `self.
+raman_widget` se conserva como alias de compatibilidad hacia el widget de la sub-pestaña A.
 """
 from __future__ import annotations
 import os
@@ -47,7 +53,8 @@ from pyspectrum.ui.exploration_tab import ExplorationTabWidget, ExplorationWorke
 from pyspectrum.modules.spectrum_control import Frontend as SpectrumFrontend, Backend as SpectrumBackend
 from pyspectrum.modules.step_and_glue import Frontend as StepGlueFrontend, Backend as StepGlueBackend
 from pyspectrum.modules.hyperspectral_confocal import Frontend as ConfocalFrontend, Backend as ConfocalBackend
-from pyspectrum.modules.static_raman import StaticRamanWidget, StaticRamanBackend
+from pyspectrum.modules.static_raman import StaticRamanBackend
+from pyspectrum.ui.static_raman_container import StaticRamanTabContainer
 from pyspectrum.modules.calibration_dock import CalibrationFrontend, CalibrationBackend
 
 from pyspectrum.modules.routines.luminescence import LuminescenceWidget, LuminescenceBackend
@@ -415,8 +422,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.tabs_workflow.addTab(self.exploration_widget, "🔭 1. Exploración")
 
         # ── Pestaña 2: Static Raman ────────────────────────────────────────────
-        self.raman_widget = StaticRamanWidget()
-        self.tabs_workflow.addTab(self.raman_widget, "🔬 2. Static Raman")
+        self.raman_container = StaticRamanTabContainer()
+        # Alias de compatibilidad: apunta al widget de Sub-pestaña A (Espectro 1D & Análisis),
+        # que es donde vivían btn_live y demás controles antes del contenedor de la Fase 3.
+        self.raman_widget = self.raman_container.spectrum_widget
+        self.tabs_workflow.addTab(self.raman_container, "🔬 2. Static Raman")
 
         # ── Pestaña 3: Step & Glue ─────────────────────────────────────────────
         self.sandg_widget = StepGlueFrontend()
@@ -468,7 +478,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.sandg_backend.make_connection(self.sandg_widget)
 
         self.raman_backend = StaticRamanBackend(self.camera, self.spectrometer)
-        self.raman_backend.make_connection(self.raman_widget)
+        self.raman_backend.make_connection(self.raman_widget, self.raman_container.inspector_widget)
         self.raman_backend.statusMessageSignal.connect(lambda msg: self.statusBar().showMessage(msg, 4000))
 
         # ANOM-HYPERSPEC-01: excepción arquitectónica con Worker en QThread real — cada punto

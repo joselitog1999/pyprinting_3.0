@@ -20,6 +20,13 @@ Funcionalidades:
       * Cociente de intensidades I_Stokes / I_Anti-Stokes.
       * Termometría fototérmica instantánea (K y °C).
   - Exportación 1-clic a TXT con metadatos completos y portapapeles TSV.
+
+Fase 3 del Rework Arquitectónico (docs/decisions/DECISION_LOG.md#DEC-017): selector de modo de
+lectura Andor (FVB/Single-Track/Multi-Track/Imagen 2D) con herencia automática del ROI vertical
+de SpectroscopyContext en Single-Track, transición segura vía transition_read_mode()
+(Fase 1). Las adquisiciones 2D (Multi-Track/Imagen 2D) se propagan a
+pyspectrum/ui/raman_2d_inspector.py::Raman2DInspectorWidget mediante frame2DAcquiredSignal,
+consumido por el contenedor pyspectrum/ui/static_raman_container.py::StaticRamanTabContainer.
 """
 from __future__ import annotations
 import math
@@ -36,7 +43,12 @@ from config import SHUTTERS, SAFE_MODE
 from pyspectrum.drivers.shamrock_driver import (
     DEVICE, GRATING_150_LINES, GRATING_1200_LINES, NAME_GRATINGS, get_shamrock
 )
-from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.drivers.andor_ccd_driver import (
+    get_andor_ccd,
+    READ_MODE_FVB, READ_MODE_SINGLE_TRACK, READ_MODE_MULTI_TRACK, READ_MODE_IMAGE,
+)
+from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+from pyspectrum.ui.acquisition_setup_dialog import AcquisitionSetupDialog, transition_read_mode
 from core.raman_engine import (
     wavelength_to_raman_shift,
     raman_shift_to_wavelength,
@@ -71,6 +83,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
     applySpectrometerConfigSignal = pyqtSignal(int, float)  # grating_idx (1-based), wl_center_nm
     saveSpectrumSignal = pyqtSignal(str, dict)  # path, metadata
     copyClipboardSignal = pyqtSignal()
+    setReadModeSignal = pyqtSignal(int, int)  # (read_mode, n_tracks)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -181,6 +194,41 @@ class StaticRamanWidget(QtWidgets.QWidget):
 
         row1.addStretch()
         hw_vlo.addLayout(row1)
+
+        # Fila 1b: Modo de Lectura Andor (FVB / Single-Track / Multi-Track / Imagen 2D)
+        row1b = QtWidgets.QHBoxLayout()
+        row1b.addWidget(QtWidgets.QLabel("Modo de Lectura:"))
+        self.cmb_read_mode = QtWidgets.QComboBox()
+        self.cmb_read_mode.addItem("FVB (1D Spectrum)", READ_MODE_FVB)
+        self.cmb_read_mode.addItem("Single-Track (Hardware ROI)", READ_MODE_SINGLE_TRACK)
+        self.cmb_read_mode.addItem("Multi-Track", READ_MODE_MULTI_TRACK)
+        self.cmb_read_mode.addItem("Imagen 2D (Full Slit)", READ_MODE_IMAGE)
+        self.cmb_read_mode.setToolTip(
+            "Modo de lectura del sensor Andor para esta adquisición Raman:\n"
+            "• FVB: Binnizado vertical completo en hardware (espectro 1D).\n"
+            "• Single-Track: Lee sólo las filas del ROI heredado automáticamente de la Pestaña 1 (Exploración).\n"
+            "• Multi-Track: N pistas paralelas simultáneas (ej. señal vs fondo), visualizadas en el Inspector 2D.\n"
+            "• Imagen 2D: Matriz completa del slit para análisis espacial de modos, en el Inspector 2D."
+        )
+        self.cmb_read_mode.currentIndexChanged.connect(self._on_read_mode_changed)
+        row1b.addWidget(self.cmb_read_mode)
+
+        self.lbl_multi_track_n = QtWidgets.QLabel("N Pistas:")
+        row1b.addWidget(self.lbl_multi_track_n)
+        self.spin_multi_track_n = QtWidgets.QSpinBox()
+        self.spin_multi_track_n.setRange(2, 8)
+        self.spin_multi_track_n.setValue(2)
+        self.spin_multi_track_n.setToolTip("Número de pistas paralelas a leer simultáneamente en modo Multi-Track.")
+        self.spin_multi_track_n.valueChanged.connect(lambda _v: self._on_read_mode_changed())
+        row1b.addWidget(self.spin_multi_track_n)
+
+        self.lbl_roi_inherited = QtWidgets.QLabel("")
+        self.lbl_roi_inherited.setStyleSheet("color: #A6E3A1; font-style: italic;")
+        self.lbl_roi_inherited.setToolTip("ROI vertical heredado automáticamente de spectroscopy_context (Pestaña 1: Exploración).")
+        row1b.addWidget(self.lbl_roi_inherited)
+
+        row1b.addStretch()
+        hw_vlo.addLayout(row1b)
 
         # Fila 2: Modos de Ventana Preconfigurados
         row2 = QtWidgets.QHBoxLayout()
@@ -372,8 +420,13 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.cursor_a.sigPositionChanged.connect(self._update_telemetry)
         self.cursor_b.sigPositionChanged.connect(self._update_telemetry)
 
+        # Mantiene la etiqueta de ROI heredado sincronizada en vivo si el operador mueve el
+        # ROI en la Pestaña 1 (Exploración) mientras Static Raman está en modo Single-Track.
+        spectroscopy_context.verticalRoiChanged.connect(self._on_context_roi_changed)
+
         # Configuración inicial de modo y centro
         self._on_mode_changed()
+        self._on_read_mode_changed()
 
     # ── Manejadores de Interfaz ───────────────────────────────────────────────
     def _on_laser_combo_changed(self, idx: int):
@@ -427,6 +480,28 @@ class StaticRamanWidget(QtWidgets.QWidget):
         grating_idx = int(self.cmb_grating.currentData())
         wl_center = float(self.spin_center_wl.value())
         self.applySpectrometerConfigSignal.emit(grating_idx, wl_center)
+
+    def _on_read_mode_changed(self, _idx: int = -1):
+        mode = self.cmb_read_mode.currentData()
+        is_multi = (mode == READ_MODE_MULTI_TRACK)
+        self.lbl_multi_track_n.setVisible(is_multi)
+        self.spin_multi_track_n.setVisible(is_multi)
+
+        if mode == READ_MODE_SINGLE_TRACK:
+            self._update_inherited_roi_label()
+        else:
+            self.lbl_roi_inherited.setText("")
+
+        n_tracks = int(self.spin_multi_track_n.value()) if is_multi else 1
+        self.setReadModeSignal.emit(int(mode), n_tracks)
+
+    def _update_inherited_roi_label(self):
+        y_min, y_max, y_center, y_height = spectroscopy_context.vertical_roi
+        self.lbl_roi_inherited.setText(f"ROI heredado: [{y_min}:{y_max}] (Centro: {y_center}, Alto: {y_height} px)")
+
+    def _on_context_roi_changed(self, y_min: int, y_max: int, y_center: int, y_height: int):
+        if self.cmb_read_mode.currentData() == READ_MODE_SINGLE_TRACK:
+            self.lbl_roi_inherited.setText(f"ROI heredado: [{y_min}:{y_max}] (Centro: {y_center}, Alto: {y_height} px)")
 
     def _on_acquire_single(self):
         self.requestAcquireSingleSignal.emit()
@@ -607,25 +682,85 @@ class StaticRamanWidget(QtWidgets.QWidget):
 class StaticRamanBackend(QtCore.QObject):
     """Controlador y orquestador físico para Raman Estático y Cámara CCD."""
 
-    spectrumAcquiredSignal = pyqtSignal(np.ndarray, np.ndarray)  # wl_axis, counts
+    spectrumAcquiredSignal = pyqtSignal(np.ndarray, np.ndarray)  # wl_axis, counts (FVB/Single-Track)
+    frame2DAcquiredSignal = pyqtSignal(np.ndarray, np.ndarray, str)  # wl_axis, frame2d, read_mode_name (Multi-Track/Imagen 2D)
     statusMessageSignal = pyqtSignal(str)
+
+    READ_MODE_NAMES = {
+        READ_MODE_FVB: "FVB",
+        READ_MODE_SINGLE_TRACK: "Single-Track",
+        READ_MODE_MULTI_TRACK: "Multi-Track",
+        READ_MODE_IMAGE: "Imagen 2D",
+    }
 
     def __init__(self, camera=None, spectrometer=None, parent=None):
         super().__init__(parent)
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
+        self.current_read_mode = READ_MODE_FVB
 
         self.live_timer = QTimer(self)
         self.live_timer.setInterval(40)  # ~25 FPS
         self.live_timer.timeout.connect(self._acquire_live_frame)
 
-    def make_connection(self, widget: StaticRamanWidget):
+    def make_connection(self, widget: StaticRamanWidget, inspector: Optional[Any] = None):
         widget.requestAcquireSingleSignal.connect(self.acquire_single)
         widget.toggleLiveRamanSignal.connect(self.toggle_live)
         widget.applySpectrometerConfigSignal.connect(self.apply_spectrometer_config)
         widget.saveSpectrumSignal.connect(self.save_spectrum_to_file)
+        widget.setReadModeSignal.connect(self.set_read_mode)
 
         self.spectrumAcquiredSignal.connect(widget.update_spectrum_data)
+
+        if inspector is not None:
+            self.frame2DAcquiredSignal.connect(inspector.set_frame_2d)
+
+    @pyqtSlot(int, int)
+    def set_read_mode(self, mode: int, n_tracks: int):
+        """Ejecuta la transición segura de modo de lectura (Fase 1: transition_read_mode()
+        envuelto en AcquisitionSetupDialog). En Single-Track hereda automáticamente el centro
+        y alto del ROI vertical publicado por la Pestaña 1 vía SpectroscopyContext."""
+        kwargs: Dict[str, Any] = {}
+        if mode == READ_MODE_SINGLE_TRACK:
+            _, _, y_center, y_height = spectroscopy_context.vertical_roi
+            kwargs["single_track_center"] = y_center if y_height > 0 else 501
+            kwargs["single_track_height"] = y_height if y_height > 0 else 40
+        elif mode == READ_MODE_MULTI_TRACK:
+            kwargs["n_tracks"] = max(1, int(n_tracks))
+            kwargs["multi_track_height"] = 5
+
+        dlg = AcquisitionSetupDialog(message="Configurando modo de lectura Raman...")
+        result = dlg.run(transition_read_mode, self.camera, int(mode), **kwargs)
+        self.current_read_mode = int(mode)
+        self.statusMessageSignal.emit(
+            f"Modo de lectura Raman: {self.READ_MODE_NAMES.get(mode, mode)} (buffer {result['buffer_shape']})"
+        )
+
+    def _current_wavelength_axis(self) -> np.ndarray:
+        from config import SHAMROCK_USE_FACTORY_EEPROM
+        if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+            _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
+        else:
+            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        return wl_arr
+
+    def _acquire_and_emit(self):
+        """Adquiere según el modo de lectura REAL de la cámara (camera.get_read_mode(), no el
+        último valor pedido por este widget): el detector es un singleton compartido por otras
+        pestañas (Exploración, Step & Glue), así que confiar únicamente en self.current_read_mode
+        podría desincronizarse si otra pestaña reconfiguró el modo entretanto. 1D (FVB/Single-
+        Track) va al gráfico principal; 2D (Multi-Track/Imagen 2D) va al Inspector 2D."""
+        wl_arr = self._current_wavelength_axis()
+        read_mode = self.camera.get_read_mode()
+        if read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
+            spec1d = self.camera.get_1d_spectrum()
+            self.spectrumAcquiredSignal.emit(wl_arr, spec1d)
+        elif read_mode == READ_MODE_MULTI_TRACK:
+            frame2d = self.camera.get_tracks_2d_spectrum()
+            self.frame2DAcquiredSignal.emit(wl_arr, frame2d, self.READ_MODE_NAMES.get(READ_MODE_MULTI_TRACK, "Multi-Track"))
+        else:  # READ_MODE_IMAGE (o cualquier otro no contemplado)
+            frame2d = self.camera.get_most_recent_image()
+            self.frame2DAcquiredSignal.emit(wl_arr, frame2d, self.READ_MODE_NAMES.get(READ_MODE_IMAGE, "Imagen 2D"))
 
     @pyqtSlot(int, float)
     def apply_spectrometer_config(self, grating_idx: int, wl_center: float):
@@ -641,25 +776,10 @@ class StaticRamanBackend(QtCore.QObject):
 
     @pyqtSlot()
     def acquire_single(self):
-        """Adquiere un único cuadro de la cámara y extrae el espectro 1D."""
+        """Adquiere un único cuadro de la cámara, según el modo de lectura activo (FVB/Single-
+        Track hacia el espectro 1D principal, Multi-Track/Imagen 2D hacia el Inspector 2D)."""
         try:
-            # Obtener eje de calibración actual (cúbico de EEPROM si está activo)
-            from config import SHAMROCK_USE_FACTORY_EEPROM
-            if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
-            else:
-                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-
-            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
-                spec1d = self.camera.get_1d_spectrum()
-            else:
-                frame = self.camera.get_most_recent_image()
-                if frame.shape[0] >= 520:
-                    spec1d = np.mean(frame[480:520, :], axis=0)
-                else:
-                    spec1d = np.mean(frame, axis=0)
-
-            self.spectrumAcquiredSignal.emit(wl_arr, spec1d)
+            self._acquire_and_emit()
             self.statusMessageSignal.emit("Espectro único adquirido exitosamente.")
         except Exception as e:
             self.statusMessageSignal.emit(f"Error en adquisición única: {e}")
@@ -678,22 +798,7 @@ class StaticRamanBackend(QtCore.QObject):
 
     def _acquire_live_frame(self):
         try:
-            from config import SHAMROCK_USE_FACTORY_EEPROM
-            if SHAMROCK_USE_FACTORY_EEPROM and hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                _, wl_arr = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
-            else:
-                _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-
-            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
-                spec1d = self.camera.get_1d_spectrum()
-            else:
-                frame = self.camera.get_most_recent_image()
-                if frame.shape[0] >= 520:
-                    spec1d = np.mean(frame[480:520, :], axis=0)
-                else:
-                    spec1d = np.mean(frame, axis=0)
-
-            self.spectrumAcquiredSignal.emit(wl_arr, spec1d)
+            self._acquire_and_emit()
         except Exception:
             pass
 
