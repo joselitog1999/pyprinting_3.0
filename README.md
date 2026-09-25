@@ -16,8 +16,8 @@
 
 * **Institución & Laboratorio:** Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS - UNSAM / CONICET), Buenos Aires, Argentina.
 * **Investigador Principal & Desarrollador Líder:** **Lic. José Luis González Peñafiel**  
-  *Físico graduado por la Escuela Politécnica Nacional (EPN, Ecuador); Trayectoria de Posgrado en Física de la Materia Condensada en Sorbonne Université (París, Francia); Candidato a Doctor en Física por la Universidad Nacional de San Martín (UNSAM, Argentina).*
-* **Directores de Investigación:** Dr. Fernando Stefani / Dr. Julián Gargiulo.
+  *Físico graduado por la Escuela Politécnica Nacional (EPN, Ecuador); Candidato a Doctor en Física por la Universidad Nacional de San Martín (UNSAM, Argentina).*
+* **Directores de Investigación:** Dr. Julián Gargiulo / Dra. Ianina Violi.
 * **Proyectos Marco:**
   1. *Plasmonic Lattices of Colloidal Au Nanospheres*: Resiliencia modal, desorden estructural 2D, NUFFT bidimensional, factor de Debye-Waller analítico y transiciones topológicas tipo KTHNY.
   2. *Optical Printing & Photothermal Assembly*: Pinzas ópticas, fuerzas de esparcimiento/gradiente, termoplasmónica y química de superficies DLVO/APTES para ensamblado guiado de nanodímeros acoplados.
@@ -249,7 +249,7 @@ Si utilizas PyPrinting 3.0, sus algoritmos de cristalografía 2D o sus módulos 
 
 ```bibtex
 @software{gonzalez_penafiel_pyprinting_2026,
-  author       = {González Peñafiel, José Luis and Gargiulo, Julián and Stefani, Fernando},
+  author       = {González Peñafiel, José Luis and Gargiulo, Julián and Violi, Ianina},
   title        = {{PyPrinting 3.0: Modular Platform for Optical Printing, Confocal Nanoscopy, and 2D Plasmonic Lattice Disorder Analysis}},
   month        = sep,
   year         = 2026,
@@ -263,4 +263,4 @@ Si utilizas PyPrinting 3.0, sus algoritmos de cristalografía 2D o sus módulos 
 ## 📄 Licencia y Reconocimientos
 
 * **Licencia**: Código y algoritmos desarrollados con fines académicos y científicos. Consulta los términos de uso en la institución.
-* **Agradecimientos**: Al Instituto de Nanosistemas (INS - UNSAM), al Consejo Nacional de Investigaciones Científicas y Técnicas (CONICET) de Argentina, a la Escuela Politécnica Nacional (EPN) de Ecuador y a Sorbonne Université.
+* **Agradecimientos**: Al Instituto de Nanosistemas (INS - UNSAM), al Consejo Nacional de Investigaciones Científicas y Técnicas (CONICET) de Argentina y a la Escuela Politécnica Nacional (EPN) de Ecuador.

@@ -4,8 +4,8 @@
 Plataforma modular de software e instrumentación científica de última generación desarrollada en **Python (compatible: >= 3.10, < 3.14 — validada en 3.10, 3.11, 3.12 y 3.13) / PyQt6** para **control de instrumentos en tiempo real, espectroscopía confocal láser, visión por computadora, microscopía contrapropagante y nanofabricación asistida por luz** (impresión óptica fototérmica de nanopartículas metálicas coloidales de Au/Ag y ensamblado guiado de nanodímeros plasmónicos sub-100 nm).
 
 * **Institución & Laboratorio:** Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS - UNSAM / CONICET), Buenos Aires, Argentina.
-* **Investigador Principal:** José Luis González Peñafiel (*Físico graduado por la Escuela Politécnica Nacional - EPN Ecuador, Candidato a Doctor en Física por la Universidad Nacional de San Martín - UNSAM, Trayectoria de Posgrado en Sorbonne University, París*).
-* **Directores de Investigación:** Dr. Fernando Stefani / Dr. Julián Gargiulo.
+* **Investigador Principal:** José Luis González Peñafiel (*Físico graduado por la Escuela Politécnica Nacional - EPN Ecuador, Candidato a Doctor en Física por la Universidad Nacional de San Martín - UNSAM*).
+* **Directores de Investigación:** Dr. Julián Gargiulo / Dra. Ianina Violi.
 * **Proyectos Marco:**
   - *Plasmonic lattices of colloidal Au nanospheres* (Resiliencia modal, desorden estructural, NUFFT 2D, Debye-Waller y $g(r)$).
   - *Optical Printing & Photothermal Assembly* (Pinzas ópticas, fuerzas de esparcimiento/gradiente, termoplasmónica y química de superficies DLVO/APTES).

@@ -1452,7 +1452,7 @@ El botón **`📚 Documentación y Créditos`** (Fila 3, Columna 3 del lanzador 
 * **README**: Abre la guía general `README.md`.
 * **Créditos del Autor**:
   - **José Luis González Peñafiel** (Becario Doctoral CONICET, INS-UNSAM, San Martín, Buenos Aires, Argentina).
-  - Dirección de investigación: Dr. Fernando Stefani / Dr. Julian Gargiulo.
+  - Dirección de investigación: Dr. Julián Gargiulo / Dra. Ianina Violi.
 
 ---
 

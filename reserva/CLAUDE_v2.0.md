@@ -331,7 +331,7 @@ Las decisiones críticas, irreversibles o físicamente peligrosas no deben ser t
 **Investigador:** José Luis González Peñafiel  
 **Formación:** Físico, EPN Ecuador; candidato a Doctor en Física, UNSAM.  
 **Laboratorio:** Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS/UNSAM-CONICET), Buenos Aires.  
-**Directores:** Dr. Fernando Stefani / Dr. Julián Gargiulo.
+**Directores:** Dr. Julián Gargiulo / Dra. Ianina Violi.
 
 ### Líneas principales
 

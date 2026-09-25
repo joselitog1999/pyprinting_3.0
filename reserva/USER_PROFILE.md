@@ -4,10 +4,10 @@ user_name: "José Luis González Peñafiel"
 age: 27
 origin: "Quito, Ecuador (EPN)"
 current_institution: "UNSAM (INS) / CABA, Argentina"
-academic_trajectory: ["EPN Ecuador (Física)", "UNSAM Argentina (Candidato a Doctor)", "Sorbonne University (M.Sc. Trajectory)"]
+academic_trajectory: ["EPN Ecuador (Física)", "UNSAM Argentina (Candidato a Doctor)"]
 vault_location: "C:\\Users\\josel\\Documents\\Obsidian_Vault\\Nanofotonica"
 bibliography_location: "C:\\Users\\josel\\OneDrive - Universidad Nacional de San Martin (1)\\Nanofotonica\\Bibliografia"
-last_updated: 2026-08-18
+last_updated: 2026-09-25
 tags:
   - type/user-profile
   - status/master-profile
@@ -26,7 +26,7 @@ tags:
 - **Origen:** Quito, Ecuador.
 - **Formación de Grado:** Físico graduado por la **Escuela Politécnica Nacional (EPN)**, Quito, Ecuador.
 - **Filiación & Doctorado Actual:** Candidato a Doctor en Física en la **Universidad Nacional de San Martín (UNSAM)**, Buenos Aires, Argentina / Miembro del **Instituto de Nanosistemas (INS - UNSAM)** / Residente en CABA.
-- **Proyección & Postgrado:** Trayectoria de posgrado en **Sorbonne University** (Francia) con orientación avanzada en fotónica.
+- **Directores de Doctorado:** Dr. Julián Gargiulo y Dra. Ianina Violi.
 - **Laboratorios & Proyectos Previos:**
   - Integrante del *Mass Spectroscopy and Spectrometry Group (MSOS)* del Laboratorio de Espectroscopía (2023–2025).
   - Integrante del *Laboratorio de Interacción Radiación-Materia* (implementación de cámara de irradiación electrónica para modificación de materiales dieléctricos y 2D).

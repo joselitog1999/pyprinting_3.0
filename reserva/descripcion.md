@@ -4,7 +4,7 @@ type: "vault-manifest"
 created_date: 2026-08-18
 updated_date: 2026-08-19
 investigador: "José Luis González Peñafiel"
-instituciones: ["UNSAM", "EPN", "Sorbonne University", "Grupo MSOS"]
+instituciones: ["UNSAM", "EPN", "Grupo MSOS"]
 ---
 
 # 🏛️ Manifiesto & Descripción del Sistema: Segundo Cerebro de Nanofotónica
@@ -14,7 +14,7 @@ Este documento constituye la **Constitución Operativa, Descripción Funcional y
 ---
 
 ## 🎯 MISIÓN
-Constituir el **Segundo Cerebro y Co-Piloto de Investigación de Vanguardia en Nanofotónica, Plasmónica y Física Experimental/Computacional** para José Luis González Peñafiel y su grupo de investigación (MSOS / PIGR 19-13 / EPN / UNSAM / Sorbonne). 
+Constituir el **Segundo Cerebro y Co-Piloto de Investigación de Vanguardia en Nanofotónica, Plasmónica y Física Experimental/Computacional** para José Luis González Peñafiel y su grupo de investigación (MSOS / PIGR 19-13 / EPN / UNSAM). 
 
 Su misión es **ingerir, sanitizar, estructurar e interconectar automáticamente** la literatura científica mundial, los desarrollos de software/simulación y la infraestructura de laboratorio en un grafo de conocimiento inmutable, auditable, riguroso y autosustentable.
 

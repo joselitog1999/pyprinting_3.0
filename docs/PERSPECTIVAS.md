@@ -1,8 +1,8 @@
 # 🔮 Perspectivas, Objetivos Logrados y Nuevas Fronteras — PyPrinting 3.0
 
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
-**Investigador Principal:** José Luis González Peñafiel (*Físico EPN, Doctorando INS-UNSAM / CONICET, Sorbonne Université*)  
-**Directores de Investigación:** Dr. Fernando Stefani / Dr. Julián Gargiulo  
+**Investigador Principal:** José Luis González Peñafiel (*Físico EPN, Doctorando INS-UNSAM / CONICET*)  
+**Directores de Investigación:** Dr. Julián Gargiulo / Dra. Ianina Violi  
 **Ubicación:** `docs/PERSPECTIVAS.md`  
 **Última Actualización:** 13 de Septiembre de 2026  
 

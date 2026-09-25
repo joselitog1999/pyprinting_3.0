@@ -2,8 +2,8 @@
 
 **PyPrinting 3.0 / PySpectrum 3.0 — Suite de Nanofotónica y Control Instrumental**  
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**  
-**Investigador Principal & Desarrollador Líder:** José Luis González Peñafiel (*Físico EPN / Sorbonne Université / Becario Doctoral CONICET UNSAM*)  
-**Dirección Doctoral:** Dr. Fernando Stefani / Dr. Julián Gargiulo  
+**Investigador Principal & Desarrollador Líder:** José Luis González Peñafiel (*Físico EPN / Becario Doctoral CONICET UNSAM*)  
+**Dirección Doctoral:** Dr. Julián Gargiulo / Dra. Ianina Violi  
 **Código del Documento:** `SYS-106` | **Eje Temático:** `[ARQ] / [DAT] (Cálculo de Alto Rendimiento, Aceleración por GPU y Concurrencia de Hilos)`  
 **Fecha de Emisión:** Septiembre 2026 | **Estado:** Aprobado / Especificación de Arquitectura e Ingeniería
 

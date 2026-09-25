@@ -27,9 +27,9 @@ graph TD
 ## 🏛️ 1. Identidad del Investigador y las 8 Filosofías Fundamentales del Conocimiento
 
 Este proyecto forma parte del **Segundo Cerebro de Nanofotónica** concebido y liderado por **José Luis González Peñafiel**:
-* **Formación**: Físico graduado por la Escuela Politécnica Nacional (EPN, Ecuador); Trayectoria de Posgrado en Física de la Materia Condensada en Sorbonne Université (París, Francia); Candidato a Doctor en Física por la Universidad Nacional de San Martín (UNSAM, Argentina).
+* **Formación**: Físico graduado por la Escuela Politécnica Nacional (EPN, Ecuador); Candidato a Doctor en Física por la Universidad Nacional de San Martín (UNSAM, Argentina).
 * **Afiliación**: Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS - UNSAM / CONICET).
-* **Dirección Doctoral**: Dr. Fernando Stefani / Dr. Julián Gargiulo.
+* **Dirección Doctoral**: Dr. Julián Gargiulo / Dra. Ianina Violi.
 * **Líneas de Investigación Centrales**: Nanofabricación óptica asistida por láser, óptica termoplasmónica, autoensamblado coloidal de nanopartículas de oro/plata, microscopía confocal y dinámica de desorden en superredes plasmónicas bidimensionales.
 
 Toda intervención técnica, algorítmica y documental debe regirse por sus **8 Filosofías Fundamentales del Conocimiento**:
