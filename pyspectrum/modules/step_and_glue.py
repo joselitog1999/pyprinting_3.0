@@ -40,10 +40,12 @@ class Frontend(QtWidgets.QFrame):
     """Interfaz para adquisición de espectros simples, cosido Step & Glue y cinéticas."""
 
     measureSingleSignal = pyqtSignal(float, float)  # (lambda_center, exp_time)
-    measureStepGlueSignal = pyqtSignal(float, float, float, float, bool, bool)  # (start, end, overlap_pct, exp_time, normalize, check_water)
+    # (start, end, overlap_pct, exp_time, normalize, check_water, use_optical_core, subtract_substrate)
+    measureStepGlueSignal = pyqtSignal(float, float, float, float, bool, bool, bool, bool)
     stopMeasurementSignal = pyqtSignal()
     saveSpectrumSignal = pyqtSignal(str)
     exportHDF5Signal = pyqtSignal(str)
+    lockSubstrateSignal = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -145,6 +147,15 @@ class Frontend(QtWidgets.QFrame):
         )
         sandg_grid.addWidget(self.spin_overlap_pct, 2, 1)
 
+        self.chk_optical_core = QtWidgets.QCheckBox("🎯 Usar Zona Óptica Central (103 nm / 12 nm)")
+        self.chk_optical_core.setToolTip(
+            "En vez del span de dispersión teórico completo, usa la ventana óptica central "
+            "estimativa por red (103 nm para 150 l/mm, 12 nm para 1200 l/mm — código legado "
+            "StepandGlue_ps.py de Luciana/CIBION) para un solapamiento más profundo, a costa "
+            "de más pasos por barrido."
+        )
+        sandg_grid.addWidget(self.chk_optical_core, 3, 0, 1, 2)
+
         controls_vlo.addWidget(box_sandg)
 
         # Opciones de procesamiento
@@ -161,6 +172,18 @@ class Frontend(QtWidgets.QFrame):
         self.chk_fit_raman = QtWidgets.QCheckBox("Verificar Referencia Raman Agua (banda O-H, ~3400 cm⁻¹)")
         self.chk_fit_raman.setToolTip("Ajusta la banda O-H del agua (~650 nm a 532 nm de excitación) sobre el espectro cosido, para detectar distorsión espectral introducida por el cosido.")
         controls_vlo.addWidget(self.chk_fit_raman)
+
+        # Fijar fondo de sustrato (código legado: "Lock Signal on Sustrate")
+        substrate_box = QtWidgets.QHBoxLayout()
+        self.btn_lock_substrate = QtWidgets.QPushButton("🔒 Fijar Fondo Sustrato")
+        self.btn_lock_substrate.setToolTip("Adquiere y memoriza el espectro/cuadro actual del detector como fondo de sustrato, para restarlo de cada paso antes del cosido y la normalización.")
+        self.btn_lock_substrate.clicked.connect(self._on_lock_substrate)
+        substrate_box.addWidget(self.btn_lock_substrate)
+
+        self.chk_sub_substrate = QtWidgets.QCheckBox("Restar Fondo de Sustrato")
+        self.chk_sub_substrate.setToolTip("Si está activo, resta el fondo de sustrato fijado (píxel a píxel) de cada paso adquirido, antes de la normalización y el cosido.")
+        substrate_box.addWidget(self.chk_sub_substrate)
+        controls_vlo.addLayout(substrate_box)
 
         # Botones de Acción Step & Glue y Detención
         btn_box = QtWidgets.QHBoxLayout()
@@ -239,15 +262,23 @@ class Frontend(QtWidgets.QFrame):
             exp = float(self.edit_exp.text())
             norm = self.chk_norm_lamp.isChecked()
             check_water = self.chk_fit_raman.isChecked()
+            use_optical_core = self.chk_optical_core.isChecked()
+            subtract_substrate = self.chk_sub_substrate.isChecked()
             self.lbl_water_ref.setText("")
             self.lbl_status.setText(f"Ejecutando Step & Glue [{start_wl:.0f} - {end_wl:.0f} nm], solapamiento {self.spin_overlap_pct.value()}%...")
-            self.measureStepGlueSignal.emit(start_wl, end_wl, overlap_pct, exp, norm, check_water)
+            self.measureStepGlueSignal.emit(
+                start_wl, end_wl, overlap_pct, exp, norm, check_water, use_optical_core, subtract_substrate,
+            )
         except ValueError:
             pass
 
     def _on_stop_measure(self):
         self.lbl_status.setText("⏹ Detención solicitada por el usuario...")
         self.stopMeasurementSignal.emit()
+
+    def _on_lock_substrate(self):
+        self.lbl_status.setText("🔒 Fondo de sustrato fijado (paso actual del detector).")
+        self.lockSubstrateSignal.emit()
 
     def _on_save_spectrum(self):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar Espectro", "", "Datos ASCII (*.txt *.csv);;NumPy (*.npz);;Todos (*.*)")
@@ -311,6 +342,7 @@ class Backend(QtCore.QObject):
         self._raw_wave_steps: List[np.ndarray] = []
         self._raw_spec_steps: List[np.ndarray] = []
         self._last_frame_2d: Optional[np.ndarray] = None  # matriz cosida (H, W_total) en modo Imagen 2D
+        self._substrate_signal: Optional[np.ndarray] = None  # fondo de sustrato fijado ("Lock Sustrato")
 
     def make_connection(self, frontend: Frontend):
         frontend.measureSingleSignal.connect(self.measure_single_spectrum)
@@ -318,6 +350,7 @@ class Backend(QtCore.QObject):
         frontend.stopMeasurementSignal.connect(self.stop_measurement)
         frontend.saveSpectrumSignal.connect(self.save_spectrum)
         frontend.exportHDF5Signal.connect(self.export_hdf5)
+        frontend.lockSubstrateSignal.connect(self.lock_substrate)
         self.spectrumFinishedSignal.connect(frontend.update_spectrum_plot)
         self.fitFinishedSignal.connect(frontend.update_fit_plot)
         self.stepProgressSignal.connect(frontend.update_progress)
@@ -327,6 +360,17 @@ class Backend(QtCore.QObject):
     def stop_measurement(self):
         self._abort_requested = True
         print("[Step & Glue] Solicitud de detención recibida.")
+
+    @pyqtSlot()
+    def lock_substrate(self):
+        """Memoriza el cuadro/espectro actual del detector como fondo de sustrato (código
+        legado: 'Lock Signal on Sustrate'), en el modo de lectura real activo en este
+        instante (1D o 2D), para restarlo píxel a píxel de cada paso de un barrido posterior."""
+        if self.camera.get_read_mode() == READ_MODE_IMAGE:
+            self._substrate_signal = self.camera.get_most_recent_image().copy()
+        else:
+            self._substrate_signal = self.camera.get_1d_spectrum().copy()
+        print(f"[Step & Glue] Fondo de sustrato fijado (forma {self._substrate_signal.shape}).")
 
     def _settle_wavelength(self, wl_center: float, timeout_s: float = GRATING_SETTLE_TIMEOUT_S) -> bool:
         """Settle del grating SIN sleep fijo: polling real de is_moving()/wait_until_ready()
@@ -438,17 +482,22 @@ class Backend(QtCore.QObject):
         finally:
             hardware_session.release_session("Step & Glue — Espectro Único")
 
-    @pyqtSlot(float, float, float, float, bool, bool)
+    @pyqtSlot(float, float, float, float, bool, bool, bool, bool)
     def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
-                               normalize: bool, check_water: bool = False):
+                               normalize: bool, check_water: bool = False, use_optical_core: bool = False,
+                               subtract_substrate: bool = False):
         from pyspectrum.modules.hardware_session import hardware_session
         if not hardware_session.acquire_session("Step & Glue", auto_pause_live=True):
             return
 
         try:
-            # Centros espectrales según la dispersión real de la red activa (Fase 4)
+            # Centros espectrales según la dispersión real de la red activa (Fase 4), o según la
+            # ventana óptica central estimativa (103/12 nm, código legado) si use_optical_core.
             ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
-            centers = compute_step_centers(start_wl, end_wl, overlap_pct, grating=grating, num_pixels=1004)
+            centers = compute_step_centers(
+                start_wl, end_wl, overlap_pct, grating=grating, num_pixels=1004,
+                use_optical_core=use_optical_core,
+            )
             n_steps = len(centers)
 
             # Modo 1D (FVB/Single-Track) vs 2D (Imagen): según el modo de lectura REAL de la
@@ -485,6 +534,17 @@ class Backend(QtCore.QObject):
                     data_i = self.camera.get_most_recent_image()
                 else:
                     data_i = self.camera.get_1d_spectrum()
+
+                # Resta de fondo de sustrato fijado ("Lock Sustrato"), pixel a pixel, antes de
+                # la normalización y el cosido (código legado: taking_signal_sustrate()).
+                if subtract_substrate and self._substrate_signal is not None:
+                    if self._substrate_signal.shape == data_i.shape:
+                        data_i = data_i - self._substrate_signal
+                    else:
+                        print(
+                            f"[Step & Glue] Fondo de sustrato ignorado en {wl_c:.1f} nm: forma "
+                            f"incompatible ({self._substrate_signal.shape} vs {data_i.shape})."
+                        )
 
                 raw_waves.append(w_cal)
                 raw_data.append(data_i)

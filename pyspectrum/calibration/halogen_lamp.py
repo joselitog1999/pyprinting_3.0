@@ -174,14 +174,29 @@ def raised_cosine_weights(wavelengths: np.ndarray, lambda_a: float, lambda_b: fl
     return w1, w2
 
 
-def glue_pair_sigmoidal(wave1: np.ndarray, spec1: np.ndarray, wave2: np.ndarray, spec2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def glue_pair_sigmoidal(
+    wave1: np.ndarray, spec1: np.ndarray, wave2: np.ndarray, spec2: np.ndarray,
+    edge_crop_pixels: int = 15,
+) -> Tuple[np.ndarray, np.ndarray]:
     """Cose dos espectros 1D consecutivos con blending raised-cosine en la región de
     solapamiento real [λa,λb] = intersección de los rangos de wave1/wave2. Fuera de la
-    intersección, cada espectro conserva sus valores originales sin modificar."""
+    intersección, cada espectro conserva sus valores originales sin modificar.
+
+    edge_crop_pixels: recorta N píxeles de AMBOS extremos de cada paso individual antes de
+    calcular la intersección, para evitar la aberración de coma del detector Andor en los
+    bordes del CCD. Default 15 = fidelidad exacta con StepandGlue_ps.py/Lampara_ps.py
+    (`n_skip_points=30` -> `n=15` por lado, código legado de Luciana/CIBION)."""
     wave1 = np.asarray(wave1, dtype=np.float64)
     spec1 = np.asarray(spec1, dtype=np.float64)
     wave2 = np.asarray(wave2, dtype=np.float64)
     spec2 = np.asarray(spec2, dtype=np.float64)
+
+    n = max(0, int(edge_crop_pixels))
+    if n > 0:
+        if len(wave1) > 2 * n:
+            wave1, spec1 = wave1[n:-n], spec1[n:-n]
+        if len(wave2) > 2 * n:
+            wave2, spec2 = wave2[n:-n], spec2[n:-n]
 
     if len(wave1) == 0:
         return wave2, spec2
@@ -216,7 +231,7 @@ def glue_pair_sigmoidal(wave1: np.ndarray, spec1: np.ndarray, wave2: np.ndarray,
     return wave_out[order], spec_out[order]
 
 
-def sigmoidal_step_and_glue(wave_steps: List[np.ndarray], spec_steps: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+def sigmoidal_step_and_glue(wave_steps: List[np.ndarray], spec_steps: List[np.ndarray], edge_crop_pixels: int = 15) -> Tuple[np.ndarray, np.ndarray]:
     """Cose N espectros 1D consecutivos encadenando glue_pair_sigmoidal() secuencialmente
     (cada paso nuevo se funde contra el resultado acumulado). Resiliente a cancelación
     anticipada: basta con pasar una lista parcial de pasos ya adquiridos."""
@@ -224,11 +239,11 @@ def sigmoidal_step_and_glue(wave_steps: List[np.ndarray], spec_steps: List[np.nd
         return np.array([]), np.array([])
     wave_acc, spec_acc = wave_steps[0], spec_steps[0]
     for w, s in zip(wave_steps[1:], spec_steps[1:]):
-        wave_acc, spec_acc = glue_pair_sigmoidal(wave_acc, spec_acc, w, s)
+        wave_acc, spec_acc = glue_pair_sigmoidal(wave_acc, spec_acc, w, s, edge_crop_pixels=edge_crop_pixels)
     return wave_acc, spec_acc
 
 
-def sigmoidal_step_and_glue_2d(wave_steps: List[np.ndarray], frame_steps: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+def sigmoidal_step_and_glue_2d(wave_steps: List[np.ndarray], frame_steps: List[np.ndarray], edge_crop_pixels: int = 15) -> Tuple[np.ndarray, np.ndarray]:
     """Cose N cuadros 2D (H, W_i) consecutivos fila por fila, reutilizando
     glue_pair_sigmoidal() por cada fila del ROI vertical. Todos los cuadros deben compartir
     la misma altura H (mismo ROI/modo de lectura durante todo el barrido)."""
@@ -240,25 +255,42 @@ def sigmoidal_step_and_glue_2d(wave_steps: List[np.ndarray], frame_steps: List[n
     h = frame_steps[0].shape[0]
     wave_acc, row0_acc = wave_steps[0], frame_steps[0][0, :]
     for w, f in zip(wave_steps[1:], frame_steps[1:]):
-        wave_acc, row0_acc = glue_pair_sigmoidal(wave_acc, row0_acc, w, f[0, :])
+        wave_acc, row0_acc = glue_pair_sigmoidal(wave_acc, row0_acc, w, f[0, :], edge_crop_pixels=edge_crop_pixels)
 
     result = np.zeros((h, len(wave_acc)), dtype=np.float64)
     result[0, :] = row0_acc
     for row_idx in range(1, h):
         wave_row, spec_row = wave_steps[0], frame_steps[0][row_idx, :]
         for w, f in zip(wave_steps[1:], frame_steps[1:]):
-            wave_row, spec_row = glue_pair_sigmoidal(wave_row, spec_row, w, f[row_idx, :])
+            wave_row, spec_row = glue_pair_sigmoidal(wave_row, spec_row, w, f[row_idx, :], edge_crop_pixels=edge_crop_pixels)
         result[row_idx, :] = spec_row
 
     return wave_acc, result
 
 
-def compute_step_centers(start_wl: float, end_wl: float, overlap_pct: float, grating: int = 1, num_pixels: int = 1004) -> List[float]:
+# Ventana óptica central estimativa por red (StepandGlue_ps.py:1065-1069, código legado de
+# Luciana/CIBION), deliberadamente más conservadora que el span de dispersión teórico
+# completo (GRATING_DISPERSION_NM_PER_PX * num_pixels): produce un solapamiento más profundo,
+# a costa de más pasos por barrido.
+OPTICAL_CORE_WINDOW_NM = {1: 103.0, 2: 12.0}
+
+
+def compute_step_centers(
+    start_wl: float, end_wl: float, overlap_pct: float, grating: int = 1, num_pixels: int = 1004,
+    use_optical_core: bool = False,
+) -> List[float]:
     """Calcula las N longitudes de onda centrales necesarias para cubrir [start_wl, end_wl]
     con el % de solapamiento pedido, según la dispersión real de la red activa del Shamrock
-    500i (150 l/mm: 0.175 nm/px -> ~176 nm de ventana; 1200 l/mm: 0.022 nm/px -> ~22 nm)."""
-    dispersion = GRATING_DISPERSION_NM_PER_PX.get(int(grating), GRATING_DISPERSION_NM_PER_PX[1])
-    full_span = dispersion * num_pixels
+    500i (150 l/mm: 0.175 nm/px -> ~176 nm de ventana; 1200 l/mm: 0.022 nm/px -> ~22 nm).
+
+    use_optical_core=True reproduce fielmente la densidad de pasos de StepandGlue_ps.py,
+    usando la ventana óptica central estimativa (103 nm / 12 nm, OPTICAL_CORE_WINDOW_NM) en
+    vez del span de dispersión teórico completo, para solapamiento más profundo."""
+    if use_optical_core:
+        full_span = OPTICAL_CORE_WINDOW_NM.get(int(grating), OPTICAL_CORE_WINDOW_NM[1])
+    else:
+        dispersion = GRATING_DISPERSION_NM_PER_PX.get(int(grating), GRATING_DISPERSION_NM_PER_PX[1])
+        full_span = dispersion * num_pixels
     overlap_pct = max(0.0, min(0.9, float(overlap_pct)))
     step_span = full_span * (1.0 - overlap_pct)
     if step_span <= 0.0:

@@ -85,7 +85,9 @@ class TestRaisedCosineWeights(unittest.TestCase):
         wave2 = np.linspace(600.0, 700.0, 100)
         spec1 = np.full(100, 10.0)
         spec2 = np.full(100, 20.0)
-        gw, gs = glue_pair_sigmoidal(wave1, spec1, wave2, spec2)
+        # edge_crop_pixels=0: aísla la lógica de concatenación sin la confusión del recorte de
+        # borde (verificado por separado en TestEdgeCropAndOpticalCoreAndSubstrate).
+        gw, gs = glue_pair_sigmoidal(wave1, spec1, wave2, spec2, edge_crop_pixels=0)
         self.assertEqual(len(gw), 200)
         self.assertTrue(np.all(np.diff(gw) > 0))
 
@@ -343,15 +345,156 @@ class TestFrontendUI(unittest.TestCase):
         self.fe.edit_end_wl.setText("950.0")
         self.fe.edit_exp.setText("0.1")
         self.fe._on_sandg_measure()
-        start, end, overlap_pct, exp, norm, check_water = received[-1]
+        start, end, overlap_pct, exp, norm, check_water, use_optical_core, subtract_substrate = received[-1]
         self.assertAlmostEqual(overlap_pct, 0.30)
         self.assertTrue(check_water)
+        self.assertFalse(use_optical_core)
+        self.assertFalse(subtract_substrate)
 
     def test_progress_bar_updates_from_signal(self):
         self.fe.update_progress(2, 5, 532.5)
         self.assertEqual(self.fe.progress_bar.value(), 2)
         self.assertEqual(self.fe.progress_bar.maximum(), 5)
         self.assertIn("532.5", self.fe.progress_bar.format())
+
+
+class TestEdgeCropOpticalCoreAndSubstrate(unittest.TestCase):
+    """Corrección de alineación con legacy (StepandGlue_ps.py / Lampara_ps.py, Luciana/CIBION):
+    recorte de 15 px de borde por defecto, ventana óptica central 103/12 nm, y resta de fondo
+    de sustrato fijado ("Lock Sustrato") antes de la normalización y el cosido."""
+
+    def setUp(self):
+        hardware_session.clear_emergency()
+        self.camera = get_andor_ccd(force_mock=True)
+        self.spectrometer = get_shamrock(force_mock=True)
+        self.camera.set_read_mode(READ_MODE_FVB)
+        self.fe = Frontend()
+        self.be = Backend(self.camera, self.spectrometer)
+        self.be.make_connection(self.fe)
+
+    # ── 1. Recorte de 15 píxeles de borde ─────────────────────────────────
+
+    def test_default_edge_crop_is_15_pixels_per_side(self):
+        wave1 = np.arange(0.0, 100.0)  # 100 puntos, índice == valor
+        wave2 = np.arange(80.0, 180.0)
+        spec1 = np.full(100, 10.0)
+        spec2 = np.full(100, 20.0)
+        gw, gs = glue_pair_sigmoidal(wave1, spec1, wave2, spec2)  # default edge_crop_pixels=15
+        # wave1 recortado: [15, 84]; wave2 recortado: [95, 164] -> unión final debe empezar en
+        # 15 (no en 0) y terminar en 164 (no en 179).
+        self.assertAlmostEqual(gw.min(), 15.0)
+        self.assertAlmostEqual(gw.max(), 164.0)
+
+    def test_edge_crop_zero_preserves_full_range(self):
+        wave1 = np.arange(0.0, 100.0)
+        wave2 = np.arange(80.0, 180.0)
+        spec1 = np.full(100, 10.0)
+        spec2 = np.full(100, 20.0)
+        gw, gs = glue_pair_sigmoidal(wave1, spec1, wave2, spec2, edge_crop_pixels=0)
+        self.assertAlmostEqual(gw.min(), 0.0)
+        self.assertAlmostEqual(gw.max(), 179.0)
+
+    def test_edge_crop_does_not_empty_short_arrays(self):
+        # Array de 20 puntos con recorte de 15 por lado (30 total) sería vacío: debe
+        # degradar con seguridad a "sin recorte" en vez de lanzar o perder datos.
+        wave1 = np.linspace(0.0, 19.0, 20)
+        wave2 = np.linspace(15.0, 34.0, 20)
+        spec1 = np.full(20, 5.0)
+        spec2 = np.full(20, 7.0)
+        gw, gs = glue_pair_sigmoidal(wave1, spec1, wave2, spec2, edge_crop_pixels=15)
+        self.assertGreater(len(gw), 0)
+
+    def test_full_pipeline_edge_crop_reduces_range_vs_uncropped(self):
+        centers_uncropped_w, centers_uncropped_s = sigmoidal_step_and_glue(
+            [np.linspace(400, 500, 1004), np.linspace(470, 570, 1004)],
+            [np.full(1004, 1.0), np.full(1004, 2.0)],
+            edge_crop_pixels=0,
+        )
+        cropped_w, cropped_s = sigmoidal_step_and_glue(
+            [np.linspace(400, 500, 1004), np.linspace(470, 570, 1004)],
+            [np.full(1004, 1.0), np.full(1004, 2.0)],
+            edge_crop_pixels=15,
+        )
+        self.assertGreater(centers_uncropped_w.max(), cropped_w.max())
+        self.assertLess(centers_uncropped_w.min(), cropped_w.min())
+
+    # ── 2. Ventana óptica central (103 nm / 12 nm) ────────────────────────
+
+    def test_optical_core_grating_150_uses_103nm_window(self):
+        centers_default = compute_step_centers(450.0, 950.0, 0.20, grating=1, use_optical_core=False)
+        centers_core = compute_step_centers(450.0, 950.0, 0.20, grating=1, use_optical_core=True)
+        # 103 nm (core) < ~176 nm (dispersión teórica completa) -> más pasos con el modo core.
+        self.assertGreater(len(centers_core), len(centers_default))
+
+    def test_optical_core_grating_1200_uses_12nm_window(self):
+        centers_default = compute_step_centers(500.0, 520.0, 0.20, grating=2, use_optical_core=False)
+        centers_core = compute_step_centers(500.0, 520.0, 0.20, grating=2, use_optical_core=True)
+        self.assertGreaterEqual(len(centers_core), len(centers_default))
+
+    def test_optical_core_flag_reaches_backend_step_calculation(self):
+        self.camera.set_read_mode(READ_MODE_FVB)
+        progress_calls = []
+        self.be.stepProgressSignal.connect(lambda i, n, wl: progress_calls.append(n))
+        finished = []
+        self.be.spectrumFinishedSignal.connect(lambda *args: finished.append(args))
+
+        self.be.measure_step_and_glue(450.0, 950.0, 0.20, 0.05, normalize=False, check_water=False, use_optical_core=True)
+        n_with_core = progress_calls[0]
+
+        progress_calls.clear()
+        finished.clear()
+        self.be.measure_step_and_glue(450.0, 950.0, 0.20, 0.05, normalize=False, check_water=False, use_optical_core=False)
+        n_without_core = progress_calls[0]
+
+        self.assertGreater(n_with_core, n_without_core)
+
+    # ── 3. Fijar y restar fondo de sustrato ───────────────────────────────
+
+    def test_lock_substrate_stores_current_camera_reading(self):
+        self.assertIsNone(self.be._substrate_signal)
+        self.be.lock_substrate()
+        self.assertIsNotNone(self.be._substrate_signal)
+        self.assertEqual(self.be._substrate_signal.shape, (1004,))
+
+    def test_lock_substrate_signal_from_frontend_reaches_backend(self):
+        self.fe.lockSubstrateSignal.emit()
+        self.assertIsNotNone(self.be._substrate_signal)
+
+    def test_subtract_substrate_removes_locked_background_from_each_step(self):
+        # Fija un fondo de sustrato constante conocido monkeypatchando get_1d_spectrum.
+        substrate_level = np.full(1004, 300.0)
+        self.be._substrate_signal = substrate_level.copy()
+
+        original_get_1d = self.camera.get_1d_spectrum
+        signal_level = 1000.0
+        self.camera.get_1d_spectrum = lambda: np.full(1004, signal_level)
+        try:
+            self.be.measure_step_and_glue(450.0, 650.0, 0.20, 0.05, normalize=False, check_water=False, subtract_substrate=True)
+        finally:
+            self.camera.get_1d_spectrum = original_get_1d
+
+        # Cada paso crudo cacheado debe reflejar signal - substrate = 700, no 1000.
+        self.assertGreater(len(self.be._raw_spec_steps), 0)
+        for step_spec in self.be._raw_spec_steps:
+            np.testing.assert_allclose(step_spec, signal_level - 300.0)
+
+    def test_subtract_substrate_ignored_without_lock(self):
+        # subtract_substrate=True pero nunca se fijó sustrato: no debe lanzar ni alterar datos.
+        try:
+            self.be.measure_step_and_glue(450.0, 650.0, 0.20, 0.05, normalize=False, check_water=False, subtract_substrate=True)
+        except Exception as e:
+            self.fail(f"measure_step_and_glue lanzó una excepción sin sustrato fijado: {e}")
+        self.assertGreater(len(self.be._raw_spec_steps), 0)
+
+    def test_subtract_substrate_shape_mismatch_does_not_raise(self):
+        # Sustrato fijado en 2D pero el barrido corre en 1D: forma incompatible, debe
+        # ignorarse con seguridad (no restar, no lanzar).
+        self.be._substrate_signal = np.zeros((self.camera.height, self.camera.width))
+        try:
+            self.be.measure_step_and_glue(450.0, 650.0, 0.20, 0.05, normalize=False, check_water=False, subtract_substrate=True)
+        except Exception as e:
+            self.fail(f"measure_step_and_glue lanzó una excepción con forma de sustrato incompatible: {e}")
+        self.assertGreater(len(self.be._raw_spec_steps), 0)
 
 
 if __name__ == "__main__":
