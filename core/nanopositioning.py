@@ -331,6 +331,19 @@ class Frontend(QFrame):
         ]
         self.go_to_pos_signal.emit(go_to_pos)
 
+    # ── Subyugación Master-Slave (Fase 5, DEC-019) ────────────────────────────
+
+    def set_actuators_enabled(self, enabled: bool):
+        """Habilita/deshabilita los actuadores manuales de movimiento (flechas de paso,
+        StepEdit/zStepEdit, Go To, Set Reference). xLabel/yLabel/zLabel (telemetría de
+        posición real) y el estado de conexión NUNCA se deshabilitan aquí — deben seguir
+        refrescándose en vivo incluso subyugado a un master externo (PySpectrum 3.0)."""
+        for w in (self.xUpButton, self.xUp2Button, self.xDownButton, self.xDown2Button,
+                  self.yUpButton, self.yUp2Button, self.yDownButton, self.yDown2Button,
+                  self.zUpButton, self.zUp2Button, self.zDownButton, self.zDown2Button,
+                  self.StepEdit, self.zStepEdit, self.gotoButton, self.set_ref_button):
+            w.setEnabled(enabled)
+
     # ── Gestión de Régimen de Coordenadas ─────────────────────────────────────
 
     @pyqtSlot(int)

@@ -375,6 +375,17 @@ class Frontend(QFrame):
 
         main_layout.addWidget(sec_box)
 
+    def set_actuators_enabled(self, enabled: bool):
+        """Habilita/deshabilita la apertura manual de obturadores/flipper/notch (Fase 5,
+        subyugación Master-Slave, DEC-019). btn_close_all queda SIEMPRE habilitado por
+        seguridad — es una vía de escape manual válida incluso subyugado a un master
+        externo (PySpectrum 3.0), nunca debe bloquearse."""
+        widgets = [self.shutter0button, self.shutter1button, self.shutter2button, self.powerbutton, self.notch532button]
+        if self.shutter3button is not None:
+            widgets.append(self.shutter3button)
+        for w in widgets:
+            w.setEnabled(enabled)
+
     def closeEvent(self, event):
         if hasattr(self, '_status_timer') and self._status_timer.isActive():
             self._status_timer.stop()

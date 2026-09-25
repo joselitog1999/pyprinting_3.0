@@ -87,6 +87,13 @@ class Frontend(QFrame):
         lo.addWidget(self.focus_autocorrx2_button, 3, 0)
         lo.addWidget(self.show_autocorr_btn,       4, 0)
 
+    def set_actuators_enabled(self, enabled: bool):
+        """Habilita/deshabilita la ejecución manual de rutinas de foco Z (Fase 5,
+        subyugación Master-Slave, DEC-019). show_autocorr_btn es un toggle de
+        visualización, no un actuador físico — queda siempre habilitado."""
+        for w in (self.focus_gotomax_button, self.focus_lock_button, self.focus_autocorrx2_button):
+            w.setEnabled(enabled)
+
     def _color_menu(self):
         colors = ["color: green;", "color: red;", "color: #d4ac0d; font-weight: bold;", "color: #ad1457; font-weight: bold;", "color: blue;"]
         idx = self.focus_laser.currentIndex()
@@ -349,11 +356,19 @@ class Backend(QObject):
     @pyqtSlot(str)
     def focus_autocorr_lin_x2(self, mode_printing: str):
         if not self.locked_focus:
-            print("[Focus] ⚠️ No había perfil axial bloqueado previo (Lock focus) — Ejecutando auto-lock en Z actual...")
+            msg = "[Focus] ⚠️ No había perfil axial bloqueado previo (Lock focus) — Ejecutando auto-lock en Z actual..."
+            try:
+                print(msg)
+            except UnicodeEncodeError:
+                print(msg.encode("ascii", "replace").decode("ascii"))
             laser_idx = SHUTTERS.index(self.laser) if hasattr(self, 'laser') and self.laser in SHUTTERS else 0
             self.focus_lock_lin(True, laser_idx)
             if not self.locked_focus:
-                print("[Focus] ⚠️ No se pudo realizar auto-lock.")
+                msg = "[Focus] ⚠️ No se pudo realizar auto-lock."
+                try:
+                    print(msg)
+                except UnicodeEncodeError:
+                    print(msg.encode("ascii", "replace").decode("ascii"))
                 self.autofinishSignal.emit(mode_printing)
                 return
 

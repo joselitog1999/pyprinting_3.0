@@ -191,6 +191,16 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         act_spec_legacy.triggered.connect(self._open_spectrometer_legacy_dialog)
         tools_menu.addAction(act_spec_legacy)
 
+        tools_menu.addSeparator()
+        act_contrapropagante = QtGui.QAction("Microscopio Contrapropagante (Ventana Satélite Subyugada)", self)
+        act_contrapropagante.setShortcut(QtGui.QKeySequence("Ctrl+M"))
+        act_contrapropagante.setToolTip(
+            "Abre el microscopio Contrapropagante como ventana satélite. Se subyuga automáticamente "
+            "a Modo Solo Monitoreo mientras PySpectrum tenga el control exclusivo del hardware (Fase 5)."
+        )
+        act_contrapropagante.triggered.connect(self._open_contrapropagante)
+        tools_menu.addAction(act_contrapropagante)
+
         # ── Menú Rutinas Especializadas ───────────────────────────────────────
         routines_menu = menubar.addMenu("🧪 Rutinas")
 
@@ -283,6 +293,22 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         """)
         self.lbl_hw_status.setToolTip("Monitorea la exclusividad mutua: indica qué rutina tiene tomado el control de los instrumentos.")
         toolbar.addWidget(self.lbl_hw_status)
+
+        # Indicador de acoplamiento con la platina PI y la ventana satélite (Fase 5, DEC-019)
+        self.lbl_stage_status = QtWidgets.QLabel("🔗 Platina PI: Conectada [Libre]")
+        self.lbl_stage_status.setStyleSheet("""
+            QLabel {
+                color: #89B4FA;
+                font-weight: bold;
+                font-size: 9.5pt;
+                padding: 4px 10px;
+                background-color: #1E1E2E;
+                border: 1px solid #313244;
+                border-radius: 4px;
+            }
+        """)
+        self.lbl_stage_status.setToolTip("Estado de acoplamiento de la platina PI E-517 y de la ventana satélite Contrapropagante (Libre = control manual disponible / Subyugada = PySpectrum tiene el control exclusivo).")
+        toolbar.addWidget(self.lbl_stage_status)
 
         # Espaciador elástico
         spacer = QtWidgets.QWidget()
@@ -392,6 +418,36 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             self.lbl_hw_status.setStyleSheet("""
                 QLabel {
                     color: #A6E3A1;
+                    font-weight: bold;
+                    font-size: 9.5pt;
+                    padding: 4px 10px;
+                    background-color: #1E1E2E;
+                    border: 1px solid #313244;
+                    border-radius: 4px;
+                }
+            """)
+
+    def _on_subjugation_status_changed(self, subjugated: bool):
+        """Actualiza el indicador de acoplamiento de la platina PI / ventana satélite
+        Contrapropagante (Fase 5, DEC-019)."""
+        if subjugated:
+            self.lbl_stage_status.setText("🔒 Platina PI: Conectada [Subyugada]")
+            self.lbl_stage_status.setStyleSheet("""
+                QLabel {
+                    color: #11111B;
+                    font-weight: bold;
+                    font-size: 9.5pt;
+                    padding: 4px 10px;
+                    background-color: #FAB387;
+                    border: 1px solid #FAB387;
+                    border-radius: 4px;
+                }
+            """)
+        else:
+            self.lbl_stage_status.setText("🔗 Platina PI: Conectada [Libre]")
+            self.lbl_stage_status.setStyleSheet("""
+                QLabel {
+                    color: #89B4FA;
                     font-weight: bold;
                     font-size: 9.5pt;
                     padding: 4px 10px;
@@ -563,6 +619,16 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         hardware_session.sessionChangedSignal.connect(self._on_session_changed)
         hardware_session.statusWarningSignal.connect(lambda msg: self.statusBar().showMessage(msg, 6000))
 
+        # Subyugación Master-Slave (Fase 5, DEC-019): cualquier rutina de PySpectrum que
+        # adquiera la sesión exclusiva de hardware (Step & Glue, Mapeo Confocal, Cinética,
+        # etc.) subyuga automáticamente la ventana satélite Contrapropagante/PyPrinting a
+        # Modo Solo Monitoreo; al liberarla, la restaura a modo autónomo. Wireado UNA sola
+        # vez aquí (no en cada rutina individualmente) porque todas ya pasan por el mismo
+        # hardware_session.acquire_session()/release_session() singleton.
+        hardware_session.sessionChangedSignal.connect(lambda owner, busy: spectroscopy_context.set_subjugated(busy))
+        spectroscopy_context.subjugatedModeChanged.connect(self._on_subjugation_status_changed)
+        self.contrapropagante_satellite = None
+
     def _select_directory(self):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta de Trabajo", str(self.work_dir))
         if d:
@@ -606,6 +672,20 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
     def _open_linescan(self):
         self.linescan_widget.show()
 
+    def _open_contrapropagante(self):
+        """Abre (o trae al frente) el microscopio Contrapropagante como ventana satélite
+        Master-Slave (Fase 5, DEC-019): mismo QApplication/contexto global, subyugada
+        automáticamente mientras PySpectrum tenga el control exclusivo del hardware."""
+        if self.contrapropagante_satellite is None:
+            import contrapropagante
+            win, backend, threads = contrapropagante.create_contrapropagante_satellite(parent=self)
+            self.contrapropagante_satellite = win
+            self._contrapropagante_backend = backend
+            self._contrapropagante_threads = threads
+        self.contrapropagante_satellite.show()
+        self.contrapropagante_satellite.raise_()
+        self.contrapropagante_satellite.activateWindow()
+
     def closeEvent(self, event):
         reply = QtWidgets.QMessageBox.question(
             self, 'Cerrar PySpectrum 3.0',
@@ -638,6 +718,12 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             self.linescan_worker.cancel_scan()
             self.linescan_thread.quit()
             self.linescan_thread.wait(3000)
+            if self.contrapropagante_satellite is not None:
+                for t in self._contrapropagante_threads:
+                    t.quit()
+                for t in self._contrapropagante_threads:
+                    t.wait(3000)
+                self.contrapropagante_satellite.close()
             from core.nidaq import close_all_shutters
             close_all_shutters()
             event.accept()

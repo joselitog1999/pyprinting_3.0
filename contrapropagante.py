@@ -192,7 +192,8 @@ class ConfocalDualFrontend(QWidget):
         self.point_graph_CM_top.hide()
 
         # ── 2. CONTROLES COMPARTIDOS & CM DUAL (Centro) ──────────────────────
-        controls_container = QWidget()
+        self.controls_container = QWidget()
+        controls_container = self.controls_container
         controls_vlo = QVBoxLayout(controls_container)
         controls_vlo.setContentsMargins(4, 0, 4, 0)
         controls_vlo.setSpacing(6)
@@ -398,6 +399,14 @@ class ConfocalDualFrontend(QWidget):
         if not math.isnan(xb) and not math.isnan(yb):
             self.point_graph_CM_bot.setData([xb], [yb])
             self.point_graph_CM_bot.show()
+
+    def set_actuators_enabled(self, enabled: bool):
+        """Habilita/deshabilita en bloque el panel de controles compartidos y CM dual
+        (Fase 5, subyugación Master-Slave, DEC-019): láseres, parámetros de escaneo,
+        botones Start/Stop/CM, métodos de centrado. Los visores TOP/BOT (top_widget/
+        bot_widget, fuera de controls_container) NUNCA se deshabilitan — deben seguir
+        actualizando la imagen en vivo si PySpectrum u otra rutina envía frames."""
+        self.controls_container.setEnabled(enabled)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -919,8 +928,57 @@ class ContrapropaganteMainWindow(QMainWindow):
         self.setMinimumSize(1000, 600)
         self.resize(1440, 900)
 
+        self._current_master_name = "PySpectrum 3.0"
+
         self._setup_menu()
         self._setup_docks()
+        self._setup_subjugation_bus()
+
+    # ── Subyugación Master-Slave (Fase 5, DEC-019) ────────────────────────────
+
+    def _setup_subjugation_bus(self):
+        """Conecta esta ventana satélite al bus de estado global de PySpectrum 3.0. Import
+        perezoso (no al tope del módulo): contrapropagante.py es una app standalone que no
+        debe fallar al arrancar si se ejecuta sola y pyspectrum no está disponible por
+        cualquier motivo — la subyugación es una integración opcional, no un requisito."""
+        try:
+            from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+            from pyspectrum.modules.hardware_session import hardware_session
+        except Exception as e:
+            print(f"[Contrapropagante] Bus de subyugación PySpectrum no disponible ({e}). Operando en modo autónomo puro.")
+            return
+
+        spectroscopy_context.subjugatedModeChanged.connect(self._on_subjugation_changed)
+        hardware_session.sessionChangedSignal.connect(self._on_master_session_changed)
+
+    def _on_master_session_changed(self, owner: str, is_busy: bool):
+        """Driver primario y atómico: sessionChangedSignal(owner, is_busy) trae ambos datos
+        juntos en un solo evento, así que actualiza el nombre del master Y aplica la
+        subyugación en el mismo hilo de ejecución — evita una condición de carrera de orden
+        de señales donde spectroscopy_context.subjugatedModeChanged (emitido en cascada por
+        el wiring central de PySpectrumWindow sobre esta misma sessionChangedSignal) podía
+        llegar antes de que _current_master_name se hubiera actualizado, mostrando el banner
+        con el nombre de master obsoleto."""
+        self._current_master_name = owner if owner else "PySpectrum 3.0"
+        self.set_subjugated_mode(is_busy, master_name=self._current_master_name)
+
+    def _on_subjugation_changed(self, subjugated: bool):
+        """Complementario: reacciona a cambios de subyugación disparados directamente sobre
+        spectroscopy_context sin pasar por hardware_session.sessionChangedSignal (ej. una
+        integración futura que subyugue sin adquirir una sesión con nombre de owner)."""
+        self.set_subjugated_mode(subjugated, master_name=self._current_master_name)
+
+    def set_subjugated_mode(self, subjugated: bool, master_name: str = "PySpectrum 3.0"):
+        """Modo Solo Monitoreo: bloquea la interacción manual de los actuadores (nano,
+        confocal dual, obturadores, foco) preservando 100% activos los displays de
+        telemetría (posición PI, traza del fotodiodo, vista confocal)."""
+        self.subjugated_banner.setVisible(subjugated)
+        if subjugated:
+            self.subjugated_banner.setText(
+                f"🔒 SUBJUGADO A {master_name} — Modo Solo Monitoreo (Controles manuales bloqueados)"
+            )
+        for w in (self.nanoWidget, self.dual_frontend, self.shuttersWidget, self.focusWidget):
+            w.set_actuators_enabled(not subjugated)
 
     def _add_action(self, menu, label, slot, shortcut=None):
         a = QAction(label, self)
@@ -959,8 +1017,22 @@ class ContrapropaganteMainWindow(QMainWindow):
     def _setup_docks(self):
         grid = QGridLayout(self._cwidget)
         grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(0)
+
+        # Banner de subyugación (oculto por defecto; Fase 5, DEC-019)
+        self.subjugated_banner = QLabel(
+            "🔒 SUBJUGADO A PYSPECTRUM 3.0 — Modo Solo Monitoreo (Controles manuales bloqueados)"
+        )
+        self.subjugated_banner.setStyleSheet(
+            "background-color: #FAB387; color: #11111B; font-weight: bold; padding: 2px;"
+        )
+        self.subjugated_banner.setFixedHeight(28)
+        self.subjugated_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.subjugated_banner.setVisible(False)
+        grid.addWidget(self.subjugated_banner, 0, 0)
+
         self.dockArea = DockArea()
-        grid.addWidget(self.dockArea)
+        grid.addWidget(self.dockArea, 1, 0)
 
         # 1. Confocal Contrapropagante (TOP | CONTROLES | BOT) — Arriba ocupando ancho principal
         confocalDock = Dock("Confocal Contrapropagante Dual (TOP / BOT)", size=(1200, 480))
@@ -1171,16 +1243,21 @@ class Backend(QObject):
             self.confocalDualWorker.stop_scan)
 
 
-def main():
-    app = QApplication(sys.argv)
-
-    # Inicializar Hilos e Instrumentos
+def create_contrapropagante_satellite(parent=None):
+    """Crea la ventana Contrapropagante + su Backend + hilos de trabajo, lista para
+    embeberse como ventana satélite subyugable dentro de OTRA aplicación PyQt6 ya en
+    ejecución (Fase 5, DEC-019 — típicamente PySpectrum 3.0 vía pyspectrum/window.py):
+    NO crea un QApplication propio ni bloquea con app.exec(). Los 3 QThread
+    (instrumentThread/confocalThread/cameraThread) se detienen automáticamente al cerrar la
+    ventana (closeSignal), en vez de depender de que termine toda la aplicación anfitriona.
+    Devuelve (win, backend, threads) para que el llamador pueda gestionar limpieza adicional
+    si lo necesita (ej. su propio closeEvent)."""
     instrumentThread = QThread()
     confocalThread = QThread()
     cameraThread = QThread()
 
     backend = Backend()
-    win = ContrapropaganteMainWindow()
+    win = ContrapropaganteMainWindow(parent)
     win.make_connection(backend)
 
     backend.nanoWorker.moveToThread(instrumentThread)
@@ -1199,12 +1276,30 @@ def main():
     confocalThread.start()
     cameraThread.start()
 
+    threads = [instrumentThread, confocalThread, cameraThread]
+
+    def _on_satellite_close():
+        for t in threads:
+            t.quit()
+        for t in threads:
+            t.wait(3000)
+
+    win.closeSignal.connect(_on_satellite_close)
+
+    return win, backend, threads
+
+
+def main():
+    app = QApplication(sys.argv)
+    win, backend, threads = create_contrapropagante_satellite()
+
     win.show()
     ret = app.exec()
 
-    instrumentThread.quit(); instrumentThread.wait()
-    confocalThread.quit();   confocalThread.wait()
-    cameraThread.quit();     cameraThread.wait()
+    for t in threads:
+        t.quit()
+    for t in threads:
+        t.wait()
 
     sys.exit(ret)
 

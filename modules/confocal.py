@@ -430,6 +430,13 @@ class Frontend(QFrame):
         p.plot(drift[0], drift[2], pen=pg.mkPen("b", width=1), symbol="o")
         self.drift_widget.show()
 
+    def set_actuators_enabled(self, enabled: bool):
+        """Habilita/deshabilita las acciones manuales de escaneo/centrado/drift (Fase 5,
+        subyugación Master-Slave, DEC-019). scanButtonstop y saveimageButton son acciones
+        seguras (detener, guardar) y quedan siempre habilitadas."""
+        for w in (self.scanButton, self.CMcheck, self.CMcheck_NP2, self.driftButton):
+            w.setEnabled(enabled)
+
     def closeEvent(self, event):
         reply = QMessageBox.question(
             self, "Salir", "¿Cerrar Confocal?",

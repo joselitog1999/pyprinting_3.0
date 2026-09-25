@@ -20,7 +20,7 @@ import numpy as np
 
 from PyQt6.QtCore    import QObject, QThread, pyqtSignal, pyqtSlot, QMetaObject, Qt, Q_ARG
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
-                              QGridLayout, QMessageBox, QFileDialog)
+                              QGridLayout, QMessageBox, QFileDialog, QLabel)
 from PyQt6.QtGui     import QAction, QKeySequence
 from pyqtgraph.dockarea import DockArea, Dock
 
@@ -82,8 +82,47 @@ class Frontend(QMainWindow):
         self.setCentralWidget(self._cwidget)
         self.setMinimumSize(1000, 600)
         self.resize(1440, 900)
+        self._current_master_name = "PySpectrum 3.0"
         self._setup_menu()
         self._setup_docks()
+        self._setup_subjugation_bus()
+
+    # ── Subyugación Master-Slave (Fase 5, DEC-019) ────────────────────────────
+
+    def _setup_subjugation_bus(self):
+        """Conecta esta ventana satélite al bus de estado global de PySpectrum 3.0. Import
+        perezoso: app.py es una app standalone que no debe fallar al arrancar si se ejecuta
+        sola y pyspectrum no está disponible — la subyugación es opcional, no un requisito."""
+        try:
+            from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+            from pyspectrum.modules.hardware_session import hardware_session
+        except Exception as e:
+            print(f"[PyPrinting] Bus de subyugación PySpectrum no disponible ({e}). Operando en modo autónomo puro.")
+            return
+
+        spectroscopy_context.subjugatedModeChanged.connect(self._on_subjugation_changed)
+        hardware_session.sessionChangedSignal.connect(self._on_master_session_changed)
+
+    def _on_master_session_changed(self, owner: str, is_busy: bool):
+        """Driver primario y atómico: ver el mismo comentario en
+        contrapropagante.py::ContrapropaganteMainWindow._on_master_session_changed."""
+        self._current_master_name = owner if owner else "PySpectrum 3.0"
+        self.set_subjugated_mode(is_busy, master_name=self._current_master_name)
+
+    def _on_subjugation_changed(self, subjugated: bool):
+        self.set_subjugated_mode(subjugated, master_name=self._current_master_name)
+
+    def set_subjugated_mode(self, subjugated: bool, master_name: str = "PySpectrum 3.0"):
+        """Modo Solo Monitoreo: bloquea la interacción manual de los actuadores preservando
+        100% activos los displays de telemetría (posición PI, traza del fotodiodo, vista
+        confocal)."""
+        self.subjugated_banner.setVisible(subjugated)
+        if subjugated:
+            self.subjugated_banner.setText(
+                f"🔒 SUBJUGADO A {master_name} — Modo Solo Monitoreo (Controles manuales bloqueados)"
+            )
+        for w in (self.nanoWidget, self.confocalWidget, self.shuttersWidget, self.focusWidget):
+            w.set_actuators_enabled(not subjugated)
 
     def _add_action(self, menu, label, slot, shortcut=None):
         a = QAction(label, self)
@@ -121,8 +160,22 @@ class Frontend(QMainWindow):
     def _setup_docks(self):
         grid = QGridLayout(self._cwidget)
         grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(0)
+
+        # Banner de subyugación (oculto por defecto; Fase 5, DEC-019)
+        self.subjugated_banner = QLabel(
+            "🔒 SUBJUGADO A PYSPECTRUM 3.0 — Modo Solo Monitoreo (Controles manuales bloqueados)"
+        )
+        self.subjugated_banner.setStyleSheet(
+            "background-color: #FAB387; color: #11111B; font-weight: bold; padding: 2px;"
+        )
+        self.subjugated_banner.setFixedHeight(28)
+        self.subjugated_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.subjugated_banner.setVisible(False)
+        grid.addWidget(self.subjugated_banner, 0, 0)
+
         self.dockArea = DockArea()
-        grid.addWidget(self.dockArea)
+        grid.addWidget(self.dockArea, 1, 0)
 
         # 1. Confocal — arriba izquierda
         confocalDock = Dock("Confocal", size=(600, 400))
@@ -563,14 +616,13 @@ class Backend(QObject):
         frontend.dimersWidget.make_connection(self.dimersWorker)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    if not QApplication.instance():
-        app = QApplication(sys.argv); open_terminal = True
-    else:
-        app = QApplication.instance(); open_terminal = False
-
-    gui    = Frontend()
+def create_app_satellite(parent=None):
+    """Crea la ventana principal de PyPrinting (microscopio simple) + su Backend + hilos de
+    trabajo, lista para embeberse como ventana satélite subyugable dentro de OTRA aplicación
+    PyQt6 ya en ejecución (Fase 5, DEC-019 — típicamente PySpectrum 3.0). NO crea un
+    QApplication propio ni bloquea con app.exec(). Los 3 QThread se detienen automáticamente
+    al cerrar la ventana (closeSignal). Devuelve (gui, worker, threads)."""
+    gui    = Frontend(parent)
     worker = Backend()
     gui.make_connection(worker)
     worker.make_connection(gui)
@@ -595,6 +647,33 @@ if __name__ == "__main__":
     confocalThread.start()
     cameraThread.start()
 
+    threads = [instrumentThread, confocalThread, cameraThread]
+
+    def _on_satellite_close():
+        for t in threads:
+            t.quit()
+        for t in threads:
+            t.wait(3000)
+
+    gui.closeSignal.connect(_on_satellite_close)
+
+    return gui, worker, threads
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+if __name__ == "__main__":
+    if not QApplication.instance():
+        app = QApplication(sys.argv); open_terminal = True
+    else:
+        app = QApplication.instance(); open_terminal = False
+
+    gui, worker, threads = create_app_satellite()
+
     gui.show()
     if open_terminal:
-        sys.exit(app.exec())
+        ret = app.exec()
+        for t in threads:
+            t.quit()
+        for t in threads:
+            t.wait()
+        sys.exit(ret)
