@@ -1651,8 +1651,8 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 * **Solución**: El procesador `core/sif_processor.py` detecta automáticamente este flag y aplica la fórmula física correcta: $T_{\text{calc}} = (L - D) / R \times 100\%$. Si utiliza archivos personalizados, verifique que la casilla `Ruta A` o `Ruta B` esté activa en la Pestaña 4 y que la referencia no tenga sustracciones externas previas.
 
 ### 22.10 No encuentro el Panel Derecho / los controles de una pestaña del Analizador SIF
-* **Causa**: Desde la reestructuración ergonómica de la Fase 1, el antiguo panel derecho de 3 hojas (instrumentación + exportación duplicada) fue eliminado. La ventana ahora usa un único `QSplitter` de 2 hojas: Panel Izquierdo de Parámetros y Panel Central de Gráficos.
-* **Solución**: Toda la instrumentación óptica (objetivo, calibración, propagación de incertidumbres) vive ahora en el panel izquierdo, en el grupo `Instrumentación: Escala y Óptica`. Los controles específicos de cada pestaña (Despike, Wiener, ROI, filtros, modelo de ajuste) se encuentran en el panel `⚙️ Opciones del Panel Activo`, justo debajo, que cambia automáticamente su contenido según la pestaña central seleccionada. La exportación científica sigue disponible desde el menú `Archivo` (`Ctrl+S` para exportar el espectro activo).
+* **Causa**: El panel lateral derecho con las `⚙️ Opciones del Panel Activo` puede haber sido colapsado u ocultado para maximizar el área de gráficos.
+* **Solución**: Puede alternar la visibilidad del panel derecho pulsando el botón **`👁️ Opciones`** en la esquina superior derecha de las pestañas centrales, o usando el atajo de teclado **`Ctrl+D`** (también accesible desde el menú `Ver -> 👁️ Opciones del Panel Activo`). El panel derecho utiliza un `QStackedWidget` de 7 páginas sincronizado automáticamente con la pestaña activa (Ruido, Referencia, Live, Transmisión, Extinción, Multi-Espectro y Ficha Metrológica). La instrumentación de torreta óptica y escala vive fijamente en el panel izquierdo debajo de los metadatos.
 
 ---
 

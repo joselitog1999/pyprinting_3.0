@@ -16,7 +16,9 @@ Arquitectura por Ventanas de Proceso Separadas (7 pestañas, Fase 4):
 - Ventana 7 (📋 7. Ficha Metrológica): Trazabilidad completa del instrumento y del procesamiento, y exportación FAIR
   a HDF5/NeXus, Markdown o portapapeles.
 - Archivo Maestro (👑 Maestro): Detección e importación en lote donde el archivo con 4 canales comparte ruido y ref.
-- Panel Izquierdo: Archivos, metadatos, instrumentación óptica, opciones contextuales por pestaña (QStackedWidget).
+- Panel Izquierdo: Entrada y Hardware (Archivos cargados, metadatos 1D-FVB vs 2D, escala óptica y objetivo confocal).
+- Panel Central: 7 Ventanas de Proceso Separadas (lienzo 100% gráficos y mapas 2D).
+- Panel Derecho: Opciones contextuales por pestaña activa (QStackedWidget con 7 páginas), colapsable con Ctrl+D / botón Opciones.
 - Menú contextual universal: exportación FigureExportStudio (SVG/PNG 600 DPI) por clic derecho en todo gráfico;
   acceso directo a la Wiki Científica (ScientificWikiBrowserDialog) desde la barra superior.
 """
@@ -501,6 +503,14 @@ class SifAnalyzerWindow(QMainWindow):
         act_clear.triggered.connect(self._on_clear_all)
         menu_file.addAction(act_clear)
 
+        menu_view = menubar.addMenu("Ver")
+        self.act_toggle_right = QAction("👁️ Opciones del Panel Activo", self)
+        self.act_toggle_right.setShortcut("Ctrl+D")
+        self.act_toggle_right.setCheckable(True)
+        self.act_toggle_right.setChecked(True)
+        self.act_toggle_right.triggered.connect(self._on_toggle_right_panel)
+        menu_view.addAction(self.act_toggle_right)
+
         menu_tools = menubar.addMenu("Herramientas")
         act_auto_roles = QAction("🎯 Auto-asignar Roles Heurísticos", self)
         act_auto_roles.triggered.connect(self._on_auto_assign_roles)
@@ -519,18 +529,23 @@ class SifAnalyzerWindow(QMainWindow):
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.main_splitter)
 
-        # 1. Panel Izquierdo: Parámetros (Archivos, Metadatos, Óptica, Opciones Contextuales)
+        # 1. Panel Izquierdo: Entrada y Hardware (Archivos, Metadatos, Óptica)
         self.left_panel = self._create_left_panel()
-        self.left_panel.setMinimumWidth(300)
+        self.left_panel.setMinimumWidth(280)
         self.main_splitter.addWidget(self.left_panel)
 
-        # 2. Panel Central: 5 Ventanas de Proceso Separadas (lienzo 100% gráficos)
+        # 2. Panel Central: 7 Ventanas de Proceso Separadas (lienzo 100% gráficos)
         self.center_panel = self._create_center_process_tabs()
         self.center_panel.setMinimumWidth(500)
         self.main_splitter.addWidget(self.center_panel)
 
+        # 3. Panel Derecho: Parámetros y Modelos Contextuales (Opciones del Panel Activo)
+        self.right_panel = self._create_right_panel()
+        self.right_panel.setMinimumWidth(300)
+        self.main_splitter.addWidget(self.right_panel)
+
         self.main_splitter.setChildrenCollapsible(False)
-        self.main_splitter.setSizes([380, 1180])
+        self.main_splitter.setSizes([320, 960, 340])
 
     # --------------------------------------------------------------------------
     # PANEL IZQUIERDO: ARCHIVO MAESTRO, ARCHIVOS Y METADATOS
@@ -709,6 +724,24 @@ class SifAnalyzerWindow(QMainWindow):
         vbox_optics.addWidget(self.chk_calculate_errors)
 
         layout.addWidget(grp_optics)
+        layout.addStretch(1)
+
+        scroll.setWidget(container)
+        return scroll
+
+    # --------------------------------------------------------------------------
+    # PANEL DERECHO: OPCIONES CONTEXTUALES DE LA VENTANA ACTIVA
+    # --------------------------------------------------------------------------
+    def _create_right_panel(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
 
         # Grupo: Opciones Contextuales de la Ventana Activa (QStackedWidget)
         grp_context_options = QGroupBox("⚙️ Opciones del Panel Activo")
@@ -724,11 +757,6 @@ class SifAnalyzerWindow(QMainWindow):
         self.stack_options.addWidget(self._create_metrology_options_page())
         vbox_context.addWidget(self.stack_options)
         layout.addWidget(grp_context_options, stretch=1)
-
-        # Nota: exportación científica (.dat/lote/imagen) queda accesible desde el menú "Archivo"
-        # (act_export_dat Ctrl+S / act_export_batch / act_export_img), invocando los mismos manejadores
-        # (_on_export_active_curves / _on_export_batch_set / _on_export_plot_image); no se duplican
-        # botones dedicados en este panel para mantenerlo despejado.
 
         scroll.setWidget(container)
         return scroll
@@ -755,6 +783,18 @@ class SifAnalyzerWindow(QMainWindow):
         ))
         self.btn_wiki_global.clicked.connect(lambda: self._open_wiki_note("CAT-108"))
         top_bar.addWidget(self.btn_wiki_global)
+
+        self.btn_toggle_right = QPushButton("👁️ Opciones")
+        self.btn_toggle_right.setCheckable(True)
+        self.btn_toggle_right.setChecked(True)
+        self.btn_toggle_right.setToolTip(make_tooltip(
+            "Alternar Panel de Opciones (Ctrl+D)",
+            "Muestra u oculta el panel lateral derecho con las opciones y parámetros de la pestaña activa.",
+            "Permite colapsar el panel de parámetros para maximizar el área de visualización gráfica de espectros y mapas 2D."
+        ))
+        self.btn_toggle_right.clicked.connect(self._on_toggle_right_panel)
+        top_bar.addWidget(self.btn_toggle_right)
+
         layout.addLayout(top_bar)
 
         self.tabs_process = QTabWidget()
@@ -2640,6 +2680,20 @@ class SifAnalyzerWindow(QMainWindow):
         self.spin_fit_asls_lam.setVisible(is_asls)
         self.lbl_fit_asls_p.setVisible(is_asls)
         self.spin_fit_asls_p.setVisible(is_asls)
+
+    def _on_toggle_right_panel(self, checked: Optional[bool] = None):
+        """Alterna la visibilidad del panel derecho de opciones contextuales."""
+        if not hasattr(self, "right_panel") or self.right_panel is None:
+            return
+        if checked is not None and isinstance(checked, bool):
+            new_visible = checked
+        else:
+            new_visible = self.right_panel.isHidden()
+        self.right_panel.setVisible(new_visible)
+        if hasattr(self, "btn_toggle_right") and self.btn_toggle_right.isChecked() != new_visible:
+            self.btn_toggle_right.setChecked(new_visible)
+        if hasattr(self, "act_toggle_right") and self.act_toggle_right.isChecked() != new_visible:
+            self.act_toggle_right.setChecked(new_visible)
 
     def _on_main_tab_changed(self, idx: int):
         if hasattr(self, 'stack_options'):

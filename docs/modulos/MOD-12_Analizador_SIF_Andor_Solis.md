@@ -308,9 +308,9 @@ El panel izquierdo administra el lote experimental con máxima ergonomía visual
 
 ---
 
-## 6. Instrumentación Óptica y Exportación Científica (Panel Izquierdo)
+## 6. Instrumentación Óptica y Calibración (Panel Izquierdo)
 
-Desde la Fase 1 de reestructuración ergonómica, la instrumentación óptica vive en el grupo `Instrumentación: Escala y Óptica` del panel izquierdo, debajo de la tarjeta de Metadatos Activos y encima del panel contextual `⚙️ Opciones del Panel Activo`. Ya no existe un panel derecho colapsable ni el atajo `Ctrl+D`; el panel izquierdo completo se desplaza con el `QScrollArea` integrado.
+El panel izquierdo reúne de manera ergonómica la entrada de datos y los parámetros instrumentales fijos de hardware: el selector y tabla de archivos, la tarjeta de metadatos (distinguiendo espectros 1D-FVB de imágenes 2D) y el grupo `Instrumentación: Escala y Óptica`.
 
 Contiene:
 1. **Óptica y Torreta Instrumental de 5 Objetivos**:
@@ -323,10 +323,22 @@ Contiene:
 2. **Calibración Externa de Longitud de Onda**:
    * Permite inyectar archivos de dispersión polinomial externa (`pyspectrum_calibration_last.txt`), tablas `[pixel, lambda]` o vectores ASCII de calibración en caso de que el archivo SIF requiera re-calibración.
    * Botón `Restablecer`: Regresa a la calibración nativa guardada en la cabecera SIF.
-3. **Exportación Científica Avanzada** (menú `Archivo`):
-   * **`💾 Exportar Espectro Activo (.dat)`** (`Ctrl+S`): Genera un archivo `.dat`, `.txt` o `.csv` con encabezados metrológicos comentados (`#`) listos para importar en OriginLab, Python o MATLAB, incluyendo columnas de $\lambda$, $T_{\text{calc}}$, $\sigma_T$, $T_{\text{meas}}$, Extinción, Residuos y $u_c(\lambda)$.
-   * **`📦 Exportación Completa en Lote`**: Itera por todas las muestras cargadas, calcula su transmitancia con las opciones activas y las guarda automáticamente en una subcarpeta.
-   * **`📷 Exportar Gráfico como Imagen (PNG/SVG)`**: Exporta la gráfica activa a resolución de publicación científica (PNG a 300 DPI o vectores SVG escalables).
+3. **Propagación de Incertidumbres ISO/GUM**:
+   * Casilla `Propagación de Incertidumbres ±σ_T`: evalúa en tiempo real las bandas de confianza derivadas del ruido de lectura y fotónico.
+
+---
+
+## 6.5 Panel Derecho: Opciones Contextuales de la Ventana Activa (⚙️ Opciones)
+
+Para garantizar un área de trabajo espaciosa y un lienzo gráfico 100% despejado en el panel central, todas las opciones y perillas de modelado y procesamiento se concentran en el **Panel Derecho** (`self.right_panel`).
+
+* **QStackedWidget Sincronizado**:
+  El panel derecho cambia automáticamente su contenido de forma reactiva según la pestaña seleccionada en el panel central (Páginas 0 a 6: Ruido, Referencia, Live, Transmisión, Extinción/Ajuste Multi-Pico, Multi-Espectro/Polarización y Ficha Metrológica FAIR).
+* **Control de Visibilidad y Colapso Ergónomico**:
+  * **Botón `👁️ Opciones`**: Ubicado en la barra superior del panel central junto a `📖 Wiki Científica`. Permite ocultar o mostrar el panel derecho con un solo clic.
+  * **Atajo de Teclado `Ctrl+D`**: Conmuta la visibilidad del panel derecho al instante.
+  * **Menú `Ver -> 👁️ Opciones del Panel Activo`**: Acción verificable en la barra de menú para alternar el panel.
+  * Al colapsar el panel de opciones, el panel central se expande automáticamente ocupando todo el ancho de la pantalla, ideal para inspeccionar mapas 2D de alta resolución o sutiles hombros plasmónicos.
 
 ---
 
@@ -521,6 +533,7 @@ A continuación se detalla el procedimiento estándar para procesar un conjunto 
 | **`Ctrl+S`** | Exporta las curvas procesadas de la muestra activa a `.dat`/`.txt`/`.csv`. |
 | **`Ctrl+Shift+S`** | Exporta en lote (Batch) todas las muestras del conjunto. |
 | **`Ctrl+I`** | Exporta la gráfica activa a imagen PNG (300 DPI) o vector SVG. |
+| **`Ctrl+D`** | Alterna la visibilidad del Panel Derecho de Opciones (`👁️ Opciones`). |
 | **`F5`** | Fuerza el recálculo integral de todas las curvas (`⚡ Recalcular`). |
 | **`Puntero sobre control`** | Muestra el cartelito de ayuda flotante (*Tooltip*) con la función física de la perilla o casilla. |
 

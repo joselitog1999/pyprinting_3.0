@@ -1,12 +1,12 @@
 """
 tests/test_sif_analyzer_ergonomics.py
 ======================================
-Pruebas automatizadas de la Fase 1 de reestructuración ergonómica de UI del
+Pruebas automatizadas de la reestructuración ergonómica de UI del
 Analizador SIF (`sif_analyzer.py`): navegación por teclado en la tabla de
 archivos, tarjeta de metadatos con insignia FVB (1D) vs Imagen 2D,
 sincronización del panel de opciones contextuales (`stack_options`) con la
-pestaña activa (`tabs_process`), y ausencia de widgets residuales del
-antiguo panel derecho de 3 hojas.
+pestaña activa (`tabs_process`), y disposición ergonómica en 3 paneles
+(Izquierda: Archivos/Óptica, Centro: Gráficos, Derecha: Opciones colapsable).
 """
 
 import os
@@ -109,24 +109,41 @@ class TestSifAnalyzerErgonomics(unittest.TestCase):
             self.assertEqual(self.window.stack_options.currentIndex(), idx)
 
     # --------------------------------------------------------------------
-    # 4. Ausencia total de widgets residuales del antiguo panel derecho de 3 hojas
+    # 4. Topología ergonómica de 3 paneles y panel derecho de opciones
     # --------------------------------------------------------------------
-    def test_04_no_residual_right_panel_widgets(self):
-        """El antiguo panel derecho de 3 hojas (right_panel, btn_toggle_right, _create_right_panel) fue eliminado."""
-        for attr_name in ("right_panel", "btn_toggle_right"):
-            self.assertFalse(
-                hasattr(self.window, attr_name),
-                f"Widget residual del antiguo panel derecho aún presente: {attr_name}"
-            )
-        self.assertFalse(hasattr(SifAnalyzerWindow, "_create_right_panel"))
-        self.assertFalse(hasattr(SifAnalyzerWindow, "_on_toggle_right_panel"))
+    def test_04_three_panel_layout_with_right_options(self):
+        """El splitter principal posee 3 paneles: Izquierdo (archivos/óptica), Central (gráficos) y Derecho (opciones)."""
+        # El splitter principal debe tener exactamente 3 hojas
+        self.assertEqual(self.window.main_splitter.count(), 3)
+        self.assertEqual(self.window.main_splitter.widget(0), self.window.left_panel)
+        self.assertEqual(self.window.main_splitter.widget(1), self.window.center_panel)
+        self.assertEqual(self.window.main_splitter.widget(2), self.window.right_panel)
 
-        # El splitter principal debe tener exactamente 2 hojas (Izquierda / Central)
-        self.assertEqual(self.window.main_splitter.count(), 2)
-
-        # La instrumentación óptica y las opciones contextuales viven ahora en el panel izquierdo
+        # Panel izquierdo contiene la instrumentación óptica
         self.assertTrue(hasattr(self.window, "combo_objective"))
+        self.assertTrue(self.window.left_panel.isAncestorOf(self.window.combo_objective))
+
+        # Panel derecho contiene el stack de opciones contextuales
         self.assertTrue(hasattr(self.window, "stack_options"))
+        self.assertTrue(self.window.right_panel.isAncestorOf(self.window.stack_options))
+
+        # Controles de toggle (botón en barra superior y acción de menú con atajo Ctrl+D)
+        self.assertTrue(hasattr(self.window, "btn_toggle_right"))
+        self.assertTrue(hasattr(self.window, "act_toggle_right"))
+        self.assertFalse(self.window.right_panel.isHidden())
+        self.assertTrue(self.window.btn_toggle_right.isChecked())
+        self.assertTrue(self.window.act_toggle_right.isChecked())
+
+        # Probar colapso y restauración del panel derecho
+        self.window._on_toggle_right_panel()
+        self.assertTrue(self.window.right_panel.isHidden())
+        self.assertFalse(self.window.btn_toggle_right.isChecked())
+        self.assertFalse(self.window.act_toggle_right.isChecked())
+
+        self.window._on_toggle_right_panel()
+        self.assertFalse(self.window.right_panel.isHidden())
+        self.assertTrue(self.window.btn_toggle_right.isChecked())
+        self.assertTrue(self.window.act_toggle_right.isChecked())
 
 
 if __name__ == '__main__':
