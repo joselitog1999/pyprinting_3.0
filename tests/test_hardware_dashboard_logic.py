@@ -21,7 +21,7 @@ app = QApplication.instance() or QApplication(sys.argv)
 from core.hardware_manager import HardwareManager, hardware_manager
 from pyspectrum.drivers.shamrock_driver import _MockShamrock, ShamrockDriver, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import _MockAndorCCD, AndorCCDDriver, get_andor_ccd
-from config import pi, PI_SERIAL
+from config import pi, PI_SERIAL, SAFE_MODE
 
 
 def test_shamrock_mock_detection():
@@ -76,20 +76,37 @@ def test_hardware_manager_no_false_positive_connected():
 
 
 def test_hardware_manager_isolation():
-    """Verifica el ciclo de aislamiento por software (Soft Mock)."""
+    """Verifica el ciclo de aislamiento por software (Soft Mock, DEC-022).
+
+    is_isolated() refleja EXCLUSIVAMENTE el flag manual por-dispositivo (device_isolated) fijado
+    por toggle_isolation() — no debe confundirse con SAFE_MODE (la simulación GLOBAL de toda la
+    aplicación, ver core/nidaq.py, que cada llamador real ya verifica por su cuenta antes de
+    consultar is_isolated()). device_states, en cambio, sí es sensible a SAFE_MODE porque
+    connect_device() (invocado internamente al des-aislar) recurre a 'mock' en SAFE_MODE
+    independientemente del flag de aislamiento manual — de ahí la rama explícita más abajo,
+    igual que ya hace test_hardware_manager_no_false_positive_connected para 'connected'.
+    """
     hw = HardwareManager()
     dev = "Espectrógrafo Andor Shamrock"
 
-    # Aislar dispositivo
+    # Aislar dispositivo manualmente (Soft Mock)
     hw.toggle_isolation(dev, True)
+    assert hw.device_isolated[dev] is True
     assert hw.is_isolated(dev) is True
     assert hw.device_states[dev] == "mock"
     assert "Aislado" in hw.device_details[dev]
 
-    # Desaislar dispositivo (en ausencia de hardware debe pasar a disconnected)
+    # Desaislar el dispositivo: el flag manual per-dispositivo se limpia y is_isolated()
+    # dejar de reportarlo como aislado, sin importar el estado de SAFE_MODE.
     hw.toggle_isolation(dev, False)
+    assert hw.device_isolated[dev] is False
     assert hw.is_isolated(dev) is False
-    assert hw.device_states[dev] in ("disconnected", "connected")
+
+    # El estado resultante en device_states sí depende de SAFE_MODE (connect_device() interno).
+    if SAFE_MODE:
+        assert hw.device_states[dev] == "mock", "Bajo SAFE_MODE, connect_device() siempre debe recurrir a 'mock'."
+    else:
+        assert hw.device_states[dev] in ("disconnected", "connected")
 
 
 def test_pi_virtual_mode_detection():

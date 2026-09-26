@@ -628,6 +628,11 @@ class ScientificWikiBrowserDialog(QDialog):
 
         self.web_view: Optional['QWebEngineView'] = None
         self.text_browser: Optional[QTextBrowser] = None
+        # Última cadena HTML asignada al visor activo (DEC-022): caché agnóstica de motor de
+        # renderizado, para poder inspeccionar sincrónicamente qué se mostró sin importar si el
+        # visor activo es QWebEngineView (QWebEnginePage.toHtml() sólo es asíncrono, vía
+        # callback) o el QTextBrowser de fallback.
+        self._last_html: str = ""
 
         self._init_ui()
         self._refresh_index()
@@ -878,6 +883,7 @@ class ScientificWikiBrowserDialog(QDialog):
 
     def _set_view_html(self, html: str, anchor: Optional[str] = None) -> None:
         """Asigna HTML al visor activo (WebEngine o QTextBrowser) con soporte de anclas."""
+        self._last_html = html
         if self.web_view is not None:
             base_url = QUrl.fromLocalFile(str(BASE_DIR) + "/")
             self.web_view.setHtml(html, base_url)

@@ -99,8 +99,14 @@ class HardwareManager(QObject):
         self.hardwareLogSignal.emit(ts, level, message)
 
     def is_isolated(self, dev: str) -> bool:
-        """Devuelve True si el dispositivo está en modo simulación/aislado."""
-        return self.device_isolated.get(dev, False) or SAFE_MODE
+        """Devuelve True si el dispositivo fue aislado explícitamente por software (Soft Mock,
+        ver toggle_isolation()). No consulta SAFE_MODE: los 9 puntos de consumo reales de este
+        método (core/nidaq.py) ya verifican `if SAFE_MODE: ...` por su cuenta ANTES de llegar a
+        preguntar is_isolated(), así que replicar esa condición aquí sólo enmascaraba el estado
+        real del aislamiento manual (p.ej. is_isolated() quedaba en True para siempre bajo
+        SAFE_MODE, incluso tras des-aislar explícitamente un dispositivo con toggle_isolation(...,
+        False)) sin aportar ninguna protección adicional. Ver DEC-009 y DEC-022."""
+        return self.device_isolated.get(dev, False)
 
     def connect_device(self, dev: str) -> bool:
         """Intenta la conexión física real de un instrumento específico en caliente."""

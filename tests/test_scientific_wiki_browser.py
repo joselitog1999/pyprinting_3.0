@@ -130,7 +130,12 @@ class TestNavigateToAndHistory:
 
     def test_navigate_to_loads_real_note_content(self, dlg):
         dlg.navigate_to("CAT-001")
-        html = dlg.text_browser.toHtml()
+        # dlg.text_browser sólo existe como visor de fallback (ver HAS_WEBENGINE en
+        # analysis/scientific_wiki_browser.py); en este entorno el visor activo es
+        # QWebEngineView, cuyo QWebEnginePage.toHtml() es asíncrono (requiere callback) y no
+        # puede leerse sincrónicamente aquí. dlg._last_html es la caché agnóstica de motor de
+        # renderizado que _set_view_html() actualiza en cada navegación (DEC-022).
+        html = dlg._last_html
         assert "CAT-001" in html or "Apéndice" in html
         assert dlg._current_note_id == "CAT-001"
 
@@ -238,7 +243,10 @@ class TestMissingNoteGraceful:
     def test_nonexistent_note_id_does_not_crash(self, dlg):
         dlg.navigate_to("CAT-999999")  # no existe
         assert dlg._current_note_id == "CAT-999999"
-        html = dlg.text_browser.toHtml()
+        # Ver comentario equivalente en test_navigate_to_loads_real_note_content: dlg._last_html
+        # es la caché agnóstica de motor de renderizado (DEC-022), necesaria porque el visor
+        # activo aquí es QWebEngineView (toHtml() asíncrono), no el QTextBrowser de fallback.
+        html = dlg._last_html
         assert "no disponible" in html.lower() or "no se pudo cargar" in html.lower()
 
     def test_nonexistent_note_id_shows_error_status(self, dlg):
