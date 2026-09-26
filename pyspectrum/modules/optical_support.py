@@ -70,10 +70,12 @@ def run_z_autofocus(laser_color: str = "532 nm (green)", timeout_s: float = 15.0
     return result["ok"]
 
 
-def _read_photodiode_sample(n_samples: int = 5, channel_index: int = 0) -> float:
+def read_photodiode_level(n_samples: int = 5, channel_index: int = 0) -> float:
     """Lee n_samples muestras del canal de fotodiodo channel_index y devuelve su promedio.
     Usa una Task de un solo disparo (continuous=False), correcta para este muestreo puntual
-    punto-a-punto (no un streaming continuo como modules/trace.py)."""
+    punto-a-punto (no un streaming continuo como modules/trace.py). Pública (Fase 6, DEC-020):
+    reutilizada por growth_kinetics.py/dimers.py para los criterios de parada basados en
+    fotodiodo y la detección de eventos de impresión por salto de traza."""
     from core.nidaq import channels_photodiodos
 
     task = channels_photodiodos(rate=1000.0, samps_per_chan=n_samples, continuous=False)
@@ -84,6 +86,39 @@ def _read_photodiode_sample(n_samples: int = 5, channel_index: int = 0) -> float
     finally:
         task.close()
     return float(np.mean(data[channel_index]))
+
+
+# Alias retro-compatible (nombre privado original, Fase 5)
+_read_photodiode_sample = read_photodiode_level
+
+
+def move_stage_to(x_um: float, y_um: float, z_um: Optional[float] = None, timeout_s: float = 5.0) -> Tuple[float, float, float]:
+    """Desplaza la platina piezoeléctrica PI a (x_um, y_um[, z_um]), clampeando explícitamente a
+    [0, PI_STAGE_RANGE_UM] (además del clamping interno de config.pi.MOV) y esperando confirmación
+    real de asentamiento en lazo cerrado (pi.qONT()) con un timeout de seguridad propio — a
+    diferencia de core/nanopositioning.py, que no tiene timeout en su espera equivalente. Si
+    z_um es None, el eje Z no se toca (permite escaneos puramente XY). Devuelve la posición real
+    final leída por pi.qPOS()."""
+    from config import pi, PI_STAGE_RANGE_UM
+
+    x_c = float(np.clip(x_um, 0.0, PI_STAGE_RANGE_UM))
+    y_c = float(np.clip(y_um, 0.0, PI_STAGE_RANGE_UM))
+    axes = [1, 2]
+    targets = [x_c, y_c]
+    if z_um is not None:
+        z_c = float(np.clip(z_um, 0.0, PI_STAGE_RANGE_UM))
+        axes.append(3)
+        targets.append(z_c)
+
+    pi.MOV(axes, targets)
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        if all(pi.qONT(axes).values()):
+            break
+        time.sleep(0.01)
+
+    pos = pi.qPOS()
+    return (float(pos["1"]), float(pos["2"]), float(pos["3"]))
 
 
 def run_confocal_centering(range_um: float = 1.0, pixels: int = 20, method: str = "center_of_gauss") -> Tuple[float, float]:

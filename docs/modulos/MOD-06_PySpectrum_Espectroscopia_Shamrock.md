@@ -349,6 +349,28 @@ PySpectrum 3.0 es la aplicación maestra del laboratorio. `contrapropagante.py` 
 ### 12.16 Tests nuevos (Fase 5)
 `tests/test_hardware_session_master_slave.py` (24): transición a Modo Solo Monitoreo y restauración en los 4 grupos de widgets subyugables (incl. excepciones de seguridad), telemetría confirmada siempre activa, paridad `app.py`, wiring central del bus, E-STOP (cierra shutters, libera sesión, libera la ventana satélite), `run_z_autofocus`/`run_confocal_centering`/`get_stage_coordinates` en `SAFE_MODE` sin colisiones de hilos. Full suite: 0 regresiones nuevas.
 
+### 12.17 Fase 6 — Reconstrucción de Pestañas 4 y 5: Grilla de Crecimiento Automatizado y Secuencia de Impresión de Dímeros (`[[DECISION_LOG#DEC-020]]`)
+
+Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` (Luciana/CIBION, leído directamente para verificar la lógica antes de reimplementar) como una segunda sub-pestaña **añadida** dentro de `GrowthKineticsPanel` y `DimersWidget` — el modo puntual/de polarización histórico (Fase 1-5) queda intacto en la primera sub-pestaña, sin cambios de atributos ni señales.
+
+**Pestaña 4 → "🗺️ Grilla Automatizada"** (`GrowthKineticsBackend`, métodos nuevos):
+- **Generación/carga de grilla**: `generate_grid(rows, cols, dx_um, dy_um, x0, y0, z0)` (rectangular N×M, coordenadas absolutas — el origen X0/Y0/Z0 reemplaza el antiguo "set reference" del legado; botón `📍 Usar Posición Actual como Origen` lo pre-llena vía `get_stage_coordinates()`) o `load_grid_file(path)` (`.txt`, detecta automáticamente orientación 2/3×N vs. N×2/3). Visualizador 2D (`pg.ScatterPlotItem`): pendiente=gris `#45475A`, actual=amarillo `#F9E2AF`, completado=verde `#A6E3A1`.
+- **Máquina de estados por nodo** (`_process_next_node()`, encadenada vía `QTimer.singleShot(0, ...)` — no `moveToThread`, sigue la convención QTimer-en-hilo-GUI del resto de `pyspectrum/modules/routines/`): mover platina (`optical_support.move_stage_to()`) → autofoco cada N nodos (`optical_support.run_z_autofocus()`) → centrado confocal opcional de semilla (`optical_support.run_confocal_centering()`) → abrir obturador + tracking espectral continuo con ajuste polinomial de λ_max (`fit_signal_polynomial`, reutilizado del modo puntual) → evaluar 3 criterios de parada → cerrar obturador → guardar (`.txt`: cinética + espectro final) → siguiente nodo.
+- **Criterios duales de parada** (`_track_node_spectrum()`): A) `λ_max ≥ lambda_target_nm` (checkbox), B) caída de fotodiodo ≥ `photodiode_drop_pct`% respecto de la primera lectura (checkbox, vía `optical_support.read_photodiode_level()`), C) `t_max_s` — **siempre activo**, colchón de seguridad independientemente de A/B.
+- **Controles de ejecución**: `▶️ Iniciar Grilla`, `⏸️ Pausa` (sólo bloquea el avance al siguiente nodo — el nodo en curso siempre termina su fase actual), `⏯️ Reanudar`, `⏭️ Siguiente Nodo` (salta manualmente el nodo actual, funciona en cualquier estado), `⏹️ Abortar` — todos conectados también a `hardware_session.emergencyStopSignal`.
+
+**Pestaña 5 → "🔗 Secuencia de Impresión"** (`DimersBackend`, métodos nuevos):
+- Misma generación/carga de grilla que Pestaña 4 (posiciones de NP1).
+- **Ciclo por par** (`_process_next_pair()`): mover a NP1 → abrir láser de impresión + `_monitor_print_trace()` (detecta el salto característico `I_new > I_old × umbral` vía `read_photodiode_level()`, replica `Dimers_ps.py::grid_trace_detect`) → cerrar láser → centrado confocal sub-píxel de NP1 (`run_confocal_centering()`) → `move_stage_to()` al offset nanométrico programado (Δx/Δy en nm, convertido a µm) → repetir impresión+detección para NP2 → escaneo de post-validación (`run_confocal_centering()` de nuevo) → espectroscopía del par acoplado (cámara+Shamrock) → guardar (`.txt`: espectro + coordenadas NP1/NP2) → re-enfoque axial cada K pares (`run_z_autofocus()`).
+- Mismos controles de ejecución (Play/Pausa/Reanudar/Siguiente Par/Abortar) e interlock de E-STOP que la Pestaña 4.
+
+**Helpers nuevos y públicos en `pyspectrum/modules/optical_support.py`** (compartidos por ambas rutinas, no duplicados): `move_stage_to(x_um, y_um, z_um=None, timeout_s=5.0)` (clamp explícito + `pi.qONT()` con timeout propio — `core/nanopositioning.py` no tiene timeout en su espera equivalente) y `read_photodiode_level()` (antes privado `_read_photodiode_sample` de la Fase 5, ahora público; alias retro-compatible conservado).
+
+**Simplificación deliberada de persistencia**: `.txt` plano (`numpy.savetxt`) por nodo/par en vez de un esquema HDF5 nuevo — ese diseño más pesado (grilla de longitud de onda común interpolada, `native_length_mismatch`, etc.) está reservado para el esquema HDF5 de `LineScanSpectroscopy`, todavía no aprobado; duplicarlo aquí para dos rutinas cuyo pedido era "HDF5 y/o TXT" habría sido desproporcionado para esta fase.
+
+### 12.18 Tests nuevos (Fase 6)
+`tests/test_growth_kinetics_routine.py` (9): generación paramétrica N×M, carga `.txt` (2 columnas y matriz legada 3×N), corrida completa deteniéndose por cada uno de los 3 criterios (λ_max, caída de fotodiodo, `t_max_s`) con `run_z_autofocus`/`run_confocal_centering` mockeados y conteo de llamadas verificado, pausa + salto manual + reanudación, y E-STOP durante el tracking espectral (cierra obturador, termina sin colgarse). `tests/test_dimers_routine.py` (5): generación/carga de grilla, ciclo completo de dos partículas verificando la posición exacta de NP2 (centroide mockeado + offset configurado en nm), re-enfoque cada K pares, y E-STOP durante la espera de traza de impresión (cierra obturador, termina sin colgarse). Full suite: 0 regresiones nuevas.
+
 ---
 
 ## 13. 🔗 Referencias Cruzadas

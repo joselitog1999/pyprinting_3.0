@@ -715,6 +715,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             self.confocal_thread.wait(3000)
             self.lumin_backend.stop_luminescence()
             self.growth_backend.stop_growth()
+            self.growth_backend.abort_grid()
+            self.dimers_backend.abort_sequence()
             self.linescan_worker.cancel_scan()
             self.linescan_thread.quit()
             self.linescan_thread.wait(3000)
