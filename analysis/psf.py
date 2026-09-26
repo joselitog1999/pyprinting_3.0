@@ -13,7 +13,7 @@ from scipy import ndimage
 
 
 def center_of_mass(image: np.ndarray):
-    com = ndimage.measurements.center_of_mass(image)
+    com = ndimage.center_of_mass(image)
     yo, xo = np.around(com, 3)
     return xo, yo
 

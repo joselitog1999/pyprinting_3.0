@@ -655,95 +655,155 @@ El módulo de trazas temporales incluye análisis espectral en tiempo real para 
 
 ## 4. Módulo 06: PySpectrum 3.0 (`pyspectrum.py` — Espectroscopía, Step & Glue y Mapeo Hiperespectral)
 
-> 📖 **Manual de Usuario Dedicado**: Consultar [[MOD-06_PySpectrum_Espectroscopia_Shamrock|MOD-06: PySpectrum 3.0 — Espectroscopía y Mapeo Hiperespectral]] para Shamrock 500i, Step & Glue y calibración en hardware.
+> 📖 **Manual de Usuario Canónico Dedicado**: Consultar [[MOD-06_PySpectrum_Espectroscopia_Shamrock|MOD-06: PySpectrum 3.0 — Espectroscopía y Mapeo Hiperespectral]] para el detalle técnico exhaustivo de ingeniería, SDK Andor Shamrock, Step & Glue y calibración en hardware.
 
-El panel **`🌈 PySpectrum 3.0`** (Fila 1, Columna 2 del lanzador `main.py`) es la estación central para la caracterización espectral de nanopartículas, cosido de banda ancha (*Step and Glue*), mapeo hiperespectral 2D/3D y cinéticas nanofotónicas.
+El panel **`🌈 PySpectrum 3.0`** (Fila 1, Columna 2 del lanzador `main.py`) es la estación central de nanofotónica para la caracterización espectral de nanopartículas coloidales, cosido de banda ancha (*Step and Glue*), mapeo hiperespectral 2D/3D y cinéticas fototérmicas en lazo cerrado.
 
-### 4.1 Arquitectura y Conexión de Hardware
-- **Espectrógrafo Andor Shamrock (SR-303i / SR-500i)**: Control de redes de difracción (150 l/mm, 1200 l/mm, espejo), ranuras micrométricas motorizadas (10 a 2500 µm), obturador interno y flippers de puerto (fibra vs ranura).
-- **Detector Andor iXon3 EMCCD**: Enfriamiento criogénico Peltier hasta $-65\ ^\circ\text{C} / -80\ ^\circ\text{C}$, doble canal de salida (EMCCD multiplicador $1\times-1000\times$ y convencional de ultra-bajo ruido), visualización en vivo 2D a 30 FPS ($1002 \times 1002$ px, $13.0\,\mu\text{m}$) y perfil espectral 1D (FVB / Single Track).
-- **Modo Seguro y Simulación Transparente**: Controladores `_MockShamrock` y `_MockAndorCCD` que permiten operar sin hardware físico conectado, generando perfiles plasmónicos sintéticos con ruido instrumental.
+### 4.1 Arquitectura del Shell, Panel Izquierdo Permanente y Atajos Globales
 
-### 4.2 Modos de Operación y Algoritmos
-1. **Espectro Simple**: Adquisición monocanal en torno a $\lambda_{\text{center}}$ fija.
-2. **Step & Glue (Cosido Continuo Multirango)**:
-   - Adquisición concatenada de múltiples bandas (ej. 450 a 950 nm) con solapamiento angular suave ($20\%$).
-   - **Control de Aborto Limpio (`⏹ Detener Escaneo`)**: Permite interrumpir la secuencia multi-ventana entre pasos espectrales de manera cooperativa sin descalibrar el goniómetro.
-   - **Exportación Directa (`💾 Guardar Espectro...`)**: Guarda el espectro cosido activo en formatos ASCII (`.txt`, `.csv`) con cabeceras completas o contenedor NumPy binario (`.npz`).
-   - **Normalización Halógena**: Corrección de la eficiencia de red y respuesta cuántica del detector dividiendo por el perfil de referencia de la lámpara halógena (`pyspectrum/calibration/data/`).
-3. **Ajustes Analíticos en Tiempo Real**:
-   - **Ajuste Polinomial SPR**: Detección automática del pico de resonancia plasmónica ($\lambda_{\text{max}}$, FWHM y amplitud).
-   - **Ajuste Raman de Agua**: Deconvolución Lorentziana de la banda OH (~3300 cm⁻¹) para calibración y termometría óptica.
-4. **Mapeo Confocal Hiperespectral $(X, Y, \lambda)$**:
-   - Coordinación síncrona de la platina piezoeléctrica PI con el detector Andor CCD para construir cubos de datos tridimensionales de $N_x \times N_y$ espectros.
-5. **Rutinas Nanofotónicas Especializadas**:
-   - *Fotoluminiscencia & Anti-Stokes*: Registro temporal $I(\lambda, t)$ bajo excitación láser con control de obturador TTL.
-   - *Cinética de Crecimiento*: Seguimiento continuo del desplazamiento del pico plasmónico $\lambda_{\text{max}}(t)$ durante síntesis fototérmica.
-   - *Dímeros Plasmónicos*: Espectros dependientes de la polarización (paralela vs perpendicular) y cálculo de acoplamiento de campo cercano.
+A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LOG#DEC-015]]` a `[[DECISION_LOG#DEC-021]]`), la ventana principal reemplaza el antiguo DockArea flotante por un **shell ergonómico de 7 pestañas de flujo de trabajo** (`QTabWidget`, ~2/3 del ancho) acoplado a un **Panel Izquierdo Permanente y Dinámico** (`LeftHardwarePanel`, ~1/3 del ancho):
 
-### 4.3 Dock: Calibraciones del Sistema (`calibration_dock.py`)
-Ubicado como pestaña en el área de trabajo (junto a Step & Glue y Raman) y en el menú `🔧 Herramientas`, centraliza los ajustes de metrología física y metrología instrumental del espectrógrafo Andor Shamrock:
-1. **Alineación de Ranura (Slit) & Centroide Óptico X**:
-   - Botón directo `🎯 Mover a Orden Cero (0.0 nm)` para visualización especular de la rendija en el plano focal del detector.
-   - Control micrométrico de apertura de ranura (10 a 2500 µm).
-   - Calibración y almacenamiento del pixel central del slit (`SLIT_CENTER_PIXEL_X`, 501.0 px).
-   - **Auto-Calibración de Centroide X**: Ajuste gaussiano no lineal automatizado sobre el perfil horizontal en orden cero que determina con precisión subpíxel el centroide $x_0$ y el FWHM.
-2. **Offsets de Rejilla & Detector (SDK Oficial Andor)**:
-   - Lectura y escritura directa en hardware mediante llamadas Ctypes nativas a `ShamrockCIF.dll`:
-     - `ShamrockGetGratingOffset` y `ShamrockSetGratingOffset` (para red 150 l/mm, 1200 l/mm y Espejo).
-     - `ShamrockGetDetectorOffset` y `ShamrockSetDetectorOffset` (ajuste fino del plano focal de la CCD).
-     - `ShamrockGetSlitZeroPosition` y `ShamrockSetSlitZeroPosition` (cero mecánico de ranura).
-3. **Calibración Cúbica de Longitud de Onda**:
-   - Inspección directa de los polinomios de dispersión de fábrica almacenados en la EEPROM: $\lambda(p) = a + bp + cp^2 + dp^3$.
-4. **Respuesta Instrumental Halógena**:
-   - Carga y verificación de curvas de corrección de sensibilidad óptica espectral.
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  PySpectrum 3.0 — Espectroscopía & Mapeo Hiperespectral  [UNSAM Nanofotónica]           🚨 E-STOP  🔄 Rearmar    │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  📁 Archivo    🔧 Herramientas    🧪 Rutinas                                                                      │
+├────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────┤
+│  PANEL IZQUIERDO PERMANENTE     │ [🔭1.Expl][🔬2.Raman][🧩3.S&G][🌱4.Cinet][📐5.Calib][🧬6.Confocal][✨7.Lumin]  │
+│  (~1/3, siempre visible)        ├───────────────────────────────────────────────────────────────────────────────┤
+│  📷 Cámara Andor EMCCD (iXon3)  │                                                                                │
+│   🟢 Temp: -65.0 °C  Set T:[-65]│         Área de Trabajo Central de la Pestaña Activa                          │
+│   ❄️ Enfriador: ON              │         (Visores 2D/1D, inspectores, máquinas de estado, plots interactivos)  │
+│   Amplificador: [EMCCD ▼]       │                                                                                │
+│   EM Gain: [ 0 ]                │                                                                                │
+│   Pre-Amp Gain: [ 1.0x ▼ ]      │                                                                                │
+│   Velocidad Lectura: [5.0MHz▼]  │                                                                                │
+│   Exposición (s): [ 0.05 ]      │                                                                                │
+│   Obturador Cámara: [ Auto ▼ ]  │                                                                                │
+│  🌈 Espectrógrafo Shamrock 500i │                                                                                │
+│   Red: [ 150 líneas/mm ▼ ]      │                                                                                │
+│   Ranura Entrada: [ 50.0 ] µm   │                                                                                │
+│   Puerto Entrada/Salida: [..▼]  │                                                                                │
+│   λ actual: 532.00 nm           │                                                                                │
+│   λ Central: [ 532.00 ] [➡️Ir]  │                                                                                │
+│   [ 🪞 Ir a Orden Cero (0 nm) ] │                                                                                │
+├────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────┤
+│  🟢 PySpectrum 3.0 Listo | Carpeta de trabajo: C:/Users/josel/Documents/Data_PySpectrum                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
-### 4.4 Sistema Integral de Seguridad Física e Instrumentación
+#### Atajos de Teclado Globales (Shortcuts)
+| Atajo | Acción Primaria | Alcance / Pestañas Activas |
+|---|---|---|
+| `Ctrl+Space` | Alternar Adquisición Live View | Pestaña 1 (Exploración) y Pestaña 2 (Static Raman); no-op seguro en el resto |
+| `Ctrl+R` | Disparar Adquisición Primaria de la Pestaña | Static Raman, Step & Glue, Cinética, Mapeo Confocal, Luminiscencia |
+| `Ctrl+0` | Abrir Diálogo de Seguridad de Orden Cero | Global en todo momento |
+| `Ctrl+M` | Abrir / Enfocar Satélite Contrapropagante | Global (conmutación Master-Slave) |
+| `Ctrl+E` / `F12` | Parada de Emergencia Inmediata (`E-STOP`) | Global (cierre de todos los láseres y liberación de sesión) |
+| `Ctrl+1` a `Ctrl+7` | Conmutar a la Pestaña N de Trabajo | Global (1: Exploración, 2: Raman, 3: S&G, 4: Cinética, 5: Calib, 6: Confocal, 7: Lumin) |
 
-Para garantizar la integridad mecánica y óptica del espectrómetro Shamrock 500i y el detector Andor iXon3 EMCCD, PySpectrum 3.0 incorpora un subsistema de seguridad multinivel:
+---
 
-1. **Árbitro Central de Hardware (`HardwareSessionManager`)**:
-   - **Exclusión Mutua**: Evita colisiones por acceso concurrente entre rutinas (Step & Glue, Mapeo Confocal, Fotoluminiscencia, Cinética, Dímeros y Calibraciones). Solo un módulo puede poseer el control del hardware a la vez.
-   - **Auto-Pausa de Previsualización Live**: Al iniciar cualquier rutina de medición batch, el árbitro pausa automáticamente las vistas en vivo activas (`Live CCD` y `Live Raman`), evitando conflictos de lectura en el buffer del detector.
-   - **Badge de Estado en Tiempo Real**: Informa visualmente el estado del instrumento (`🟢 Sesión: Hardware Disponible`, `🟠 En Ejecución: [Rutina]`, `🚨 E-STOP ACTIVO`).
+### 4.2 Las 7 Pestañas de Flujo de Trabajo
 
-2. **Parada de Emergencia Global (🚨 E-STOP)**:
-   - Botón rojo de alta visibilidad ubicado en la barra de herramientas superior de PySpectrum 3.0.
-   - **Acción Inmediata**: Cierra instantáneamente todos los obturadores láser vía NI-DAQmx (`close_all_shutters()`), aborta la adquisición del sensor Andor CCD y cancela las rutinas en curso.
-   - **Enclavamiento de Seguridad**: Impide iniciar cualquier adquisición posterior hasta que el operador verifique la seguridad física y presione explícitamente `🔄 Rearmar Sistema`.
+#### 1️⃣ Pestaña 1: Exploración y Live View 2D
+- **Visualizador 2D de Alta Velocidad**: Implementado en PyQtGraph con worker en `QThread` dedicado (`ExplorationWorker`). Mantiene entre 20 y 30 fps estables en modo continuo sin congelar eventos de la GUI.
+- **ROI Vertical Interactivo con Propagación Automática**: Región lineal horizontal arrastrable (`LinearRegionItem`) para definir los límites de ranura ($y_{\min}, y_{\max}$). Al modificarla, el centroide y la altura se propagan en tiempo real a través del bus global `SpectroscopyContext.verticalRoiChanged`, siendo heredados automáticamente por el resto de los módulos sin requerir clics adicionales.
+- **Herramientas de Visión**: Paletas Viridis, Inferno, Greys y Jet, auto-contraste robusto por percentiles (1%–99%) y crosshair central para alineación micrométrica.
 
-3. **Regla de Clampeo de Fotoflux (Protección del Registro EMCCD)**:
-   - Para prevenir la degradación acelerada del registro de multiplicación por avalancha del detector Andor iXon3, el sistema aplica un límite estricto: **la ganancia EM no puede superar $5\times$ si el tiempo de exposición es mayor a $1.0\ \text{s}$**.
-   - Si el usuario incrementa la exposición por encima de $1.0\ \text{s}$ teniendo una ganancia mayor, el controlador reduce de forma transparente la ganancia a $5\times$ y emite una alerta de seguridad.
+#### 2️⃣ Pestaña 2: Static Raman e Inspector 2D
+- **Modos de Adquisición**: Full Vertical Binning (FVB, Modo 0), Single-Track por hardware (Modo 1, con límites cargados automáticamente desde el ROI de Pestaña 1), Multi-Track (Modo 2) e Imagen 2D completa (Modo 4).
+- **Sub-pestaña "Resultado Medición" / Inspector 2D**:
+  - Panel superior: Heatmap bidimensional $[H \times W]$ con cursor horizontal móvil.
+  - Panel inferior: Perfil espectral 1D interactivo acoplado.
+  - **Slider Fila por Fila**: Desplazamiento ergonómico pixel a pixel por la ranura con guardas `blockSignals`.
+  - **Conmutador a Promedio Espacial**: Alterna a la media espacial del ROI $\mu(\lambda)$, graficando una banda sombreada semitransparente con la desviación estándar $\pm \sigma(\lambda)$ entre filas (`FillBetweenItem`).
+- **Herramientas Espectroscópicas**: Sustracción de fluorescencia AsLS (Whittaker), cursores duales Stokes y anti-Stokes para cálculo directo de temperatura fototérmica local $T$, y exportación FAIR estructurada en HDF5 / CSV.
 
-4. **Interlock Óptico de Orden Cero (0.0 nm y Posición Espejo)**:
-   - Al posicionar la longitud de onda central en $0.0\ \text{nm}$ o seleccionar la posición de espejo plano (reflexión especular completa sin dispersión angular), el sistema fuerza automáticamente la ganancia EM a $0\times$ y cierra todos los obturadores láser para evitar quemaduras irreversibles en el chip CCD.
+#### 3️⃣ Pestaña 3: Step & Glue Espectral (Cosido de Banda Ancha)
+- **Algoritmo de Ponderación de Coseno Alzado (*Raised-Cosine*)**:
+  $$w_1 = \cos^2\left(\frac{\pi}{2} \frac{\lambda - \lambda_a}{\lambda_b - \lambda_a}\right), \quad w_2 = \sin^2\left(\frac{\pi}{2} \frac{\lambda - \lambda_a}{\lambda_b - \lambda_a}\right)$$
+  Garantiza $w_1 + w_2 = 1.0$ estricto a precisión de punto flotante de máquina ($\sim 2.2 \times 10^{-16}$), eliminando artefactos y saltos de discontinuidad en las uniones espectrales.
+- **Paridad con Código Legado de Nanofotónica**:
+  - Recorte de bordes de 15 píxeles (`edge_crop_pixels=15`, paridad exacta con `Lampara_ps.py`).
+  - Núcleo óptico central: $103\text{ nm}$ para la red de 150 l/mm y $12\text{ nm}$ para la red de 1200 l/mm (`StepandGlue_ps.py:1062-1072`).
+- **Soporte Multimodal**: Cosido tanto en perfiles 1D como en matrices 2D espaciales preservadas fila a fila.
+- **Correcciones Ópticas**: Bloqueo de sustrato (*Substrate Lock*), normalización por lámpara halógena trazable NIST y verificación de calibración con pico Raman del agua pura a $649\text{ nm}$ ($3400\text{ cm}^{-1}$).
 
-5. **Tiempos de Asentamiento Mecánico y Exclusión Multihilo (`RLock`)**:
-   - Bloqueo reentrante de hilo (`threading.RLock`) en los controladores de bajo nivel para Shamrock y Andor CCD.
-   - Tiempos de amortiguación física calibrados:
-     - Rotación de torreta de redes: **$4.0\ \text{s}$** (`GRATING_SETTLING_TIME_S`).
-     - Traslación de ranuras micrométricas: **$0.8\ \text{s}$** (`SLIT_SETTLING_TIME_S`).
-     - Desplazamiento de longitud de onda: **$0.3\ \text{s}$** (`WAVELENGTH_SETTLING_TIME_S`).
-   - Métodos `is_moving()` y `wait_until_ready()` para garantizar que ninguna adquisición comience mientras los componentes ópticos se encuentren vibrando o en transición motriz.
+#### 4️⃣ Pestaña 4: Cinética de Crecimiento Plasmónico (*Growth Kinetics*)
+- **Grillas Paramétricas y Carga de Archivos**: Generación de mallas $N \times M$ o importación de archivos `.txt` (compatibilidad con matrices legadas $3 \times N$). Botón `📍 Usar Posición Actual como Origen` para fijar el marco de referencia en coordenadas absolutas de la platina PI.
+- **Máquina de Estados Automatizada por Nodo**:
+  1. Movimiento de la platina piezoeléctrica mediante `move_stage_to()` con timeout de asentamiento.
+  2. Autofoco Z axial por correlación cruzada en fotodiodo cada $N_{\text{autofocus}}$ nodos (`run_z_autofocus()`).
+  3. Micro-escaneo confocal opcional para centrado de semilla (`run_confocal_centering()`).
+  4. Apertura del obturador del láser de síntesis con renovación periódica de latido (`heartbeat_shutter()`).
+  5. Tracking espectral continuo y ajuste lorentziano/polinomial del máximo plasmónico $\lambda_{\max}(t)$ en vivo.
+- **Criterios Duales de Parada Automática**:
+  - *Criterio A*: Desplazamiento espectral $\lambda_{\max} \ge \lambda_{\text{target}}$.
+  - *Criterio B*: Salto o caída de señal de fotodiodo $\ge \text{umbral}\%$.
+  - *Criterio C (Seguridad)*: Tiempo máximo alcanzado $t \ge t_{\max}$ (siempre activo como cota de contención).
+- Controles de ejecución: `Iniciar Grilla`, `Pausa`, `Reanudar`, `Siguiente Nodo`, `Abortar` y `E-STOP`.
 
-### 4.5 Procedimiento Operativo Estandarizado (SOP del Escaneo Lineal Espectral)
+#### 5️⃣ Pestaña 5: Calibraciones Modulares del Sistema (`calibration_dock.py`)
+Centraliza los ajustes metrológicos del espectrógrafo y del sensor Andor:
+1. **Ranura de Entrada & Pixel X Central**: Apertura motorizada (10 a 2500 µm), movimiento a Orden Cero (0.0 nm) y auto-calibración con ajuste gaussiano sub-píxel del centroide del slit.
+2. **Offsets de Rejilla & Detector (SDK ShamrockCIF.dll)**: Calibración no volátil de pasos mecánicos angulares para Red 1 (150 l/mm), Red 2 (1200 l/mm) y Espejo.
+3. **Calibración Cúbica EEPROM**: Lectura de los coeficientes de dispersión $\lambda(p) = a + bp + cp^2 + dp^3$.
+4. **Respuesta Radiométrica (Lámpara Halógena)**: Carga y normalización con curvas de calibración NIST.
+5. **Persistencia Centralizada (.txt)**: Almacenamiento y restauración completa de parámetros en archivo `.txt`.
+6. **Verificación Raman de Agua (Fase 7)**: Medición in-situ con láser 532 nm del pico OH a $649\text{ nm}$ ($3400\text{ cm}^{-1}$), reportando el corrimiento $\Delta \lambda$ y la bondad de ajuste $R^2$.
+7. **Perfil de Ruido Oscuro (Fase 7)**: Cierre forzado de obturadores (`close_all_shutters()`), adquisición de cuadro de fondo en el modo activo y guardado explícito en `dark_noise_profile.npz`.
 
-> [!CAUTION]
-> **Checklist previo:** obturador de la lámpara verificado en el Tablero de Conexiones; recta de barrido dentro de $0$–$100\ \mu\text{m}$; botón global **`🚨 PARADA DE EMERGENCIA (E-STOP)`** de la barra superior accesible y sin diálogos modales encima.
+#### 6️⃣ Pestaña 6: Mapeo Confocal Hiperespectral
+- Coordinación síncrona entre el escaneo piezoeléctrico bidimensional de la platina PI y la adquisición espectral del detector CCD.
+- Construcción de hipercubos de datos $(X, Y, \lambda)$ para análisis espacial de dispersión, extinción y fotoluminiscencia.
 
-Protocolo de 8 pasos para un barrido lineal de transmisión/extinción (`[[MOD-06_PySpectrum_Espectroscopia_Shamrock#10. Escaneo Lineal Espectral (Transmisión/Extinción)|MOD-06 §10]]`):
+#### 7️⃣ Pestaña 7: Luminiscencia & Anti-Stokes Embebida
+- **Sub-pestaña "Monitoreo Puntual"**: Seguimiento temporal clásico $I(\lambda, t)$ e intensidad integrada $I(t)$ bajo excitación láser en un punto fijo.
+- **Sub-pestaña "Grilla + Filtro Notch"**:
+  - **Control del Filtro Notch 532 nm**: Botones dedicados `⬇️ Insertar Notch (Bloquea Rayleigh)` y `⬆️ Retirar Notch`, comandando `core.nidaq.flipper_notch532("down"/"up")` con posición por defecto insertada dentro del haz para proteger el sensor.
+  - **Barrido en Grilla**: Ejecución multi-nodo con posicionamiento piezo, autofoco periódico y adquisición consciente del modo de lectura Andor (promedio espacial de filas en Modo Imagen 2D vs. lectura nativa en Modo 1D).
 
-1. **Abrir la rutina:** Menú **`🧪 Rutinas → Escaneo Lineal Espectral (Transmisión/Extinción)`**.
-2. **Definir el ROI vertical:** Presionar **`🔍 Vista Previa del Sensor`** y arrastrar la banda horizontal sobre la vista previa (o editar **`Centro (px)`**/**`Altura (px)`**) hasta encuadrar la franja espectral.
-3. **Configurar Adquisición:** Elegir **`Fuente (Lámpara)`**, **`Exp. 1D (s)`**/**`Exp. 2D (s)`** y **`Modo Espectral`** (si es "Espectro Completo (Step & Glue)", completar λ Inicial/λ Final/Solapamiento; opcionalmente abrir **`⚙️ Avanzado`** para el Multiplicador σ_dark).
-4. **Marcar la Referencia:** Posicionar la muestra y presionar **`📍 Tomar Posición Actual`** (o cargar X_ref/Y_ref/Z_ref manualmente), luego **`📥 Tomar Referencia (Fase A)`**. Si aparece el banner ámbar de señal débil, no continuar: corregir lámpara/obturador/ROI y repetir este paso hasta que desaparezca.
-5. **Fijar la recta de barrido:** Completar X inicial, X final, Y fijo, Z fijo y Paso ΔX en el grupo **`B. Recta de Barrido`**; revisar la etiqueta **`⏱ Tiempo estimado`**.
-6. **Ejecutar:** Presionar **`🚀 Iniciar Escaneo`** (habilitado solo tras una Referencia válida). Si el tiempo estimado supera 10 minutos, confirmar el diálogo de escaneo prolongado.
-7. **Supervisar:** Seguir la barra de progreso, **`Restante: ...`**, el plot 1D en vivo y el heatmap 2D acumulado. **`⏹ Cancelar Escaneo`** (cabecera local) detiene al finalizar el punto actual; **`🚨 PARADA DE EMERGENCIA (E-STOP)`** corta de inmediato ante cualquier anomalía.
-8. **Exportar y archivar:** Al finalizar, registrar la ruta `.h5` informada en el diálogo "Escaneo Finalizado". Usar **`🎨 Exportar Curva`** para abrir el Estudio de Exportación (`FigureExportStudioDialog`) sobre el plot 1D.
+---
 
-> Tabla completa de límites de validez y modos de falla de esta rutina: `[[MOD-06_PySpectrum_Espectroscopia_Shamrock#10.1 Límites de Validez y Modos de Falla — Escaneo Lineal Espectral|MOD-06 §10.1]]`.
+### 4.3 Rutinas Satélites: Caracterización y Fabricación de Dímeros (*Dimers*)
+
+Accesible desde el menú superior **`🧪 Rutinas → Caracterización de Dímeros Plasmónicos`**:
+- **Secuencia Automatizada de Fabricación**:
+  1. Impresión de NP 1 monitoreando el salto característico en el fotodiodo ($I_{\text{new}} > I_{\text{old}} \times \text{umbral}$).
+  2. Micro-escaneo confocal y ajuste gaussiano para hallar el centroide real sub-píxel de NP 1.
+  3. Desplazamiento piezoeléctrico de precisión al offset programado ($\Delta x, \Delta y\text{ en nm}$).
+  4. Impresión de NP 2 y post-escaneo de validación morfológica.
+  5. Espectroscopía óptica del dímero acoplado para evaluar acoplamiento de campo cercano y anisotropía de polarización (paralela vs perpendicular).
+  6. Re-enfoque axial periódico cada $K$ pares.
+
+---
+
+### 4.4 Protocolo de Subyugación de Hardware (Master-Slave)
+
+Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapropagante.py`](file:///C:/Users/josel/Documents/Obsidian_Vault/printing3/contrapropagante.py)) o la aplicación principal ([`app.py`](file:///C:/Users/josel/Documents/Obsidian_Vault/printing3/app.py)):
+1. **Modo Master de PySpectrum**: Al abrir o reclamar la sesión de hardware ([`HardwareSessionManager`](file:///C:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum/modules/hardware_session.py)), PySpectrum asume el control maestro.
+2. **Subyugación de Ventanas Satélites**: La ventana esclava despliega un banner ámbar superior permanente:  
+   `🔒 SUBJUGADO A PYSPECTRUM 3.0 (MODO SOLO MONITOREO)`
+3. **Bloqueo Selectivo de Actuadores**: Se deshabilitan los botones de movimiento manual de nanoposicionamiento, foco y obturación láser vía `set_actuators_enabled(False)`.
+4. **Excepciones Críticas de Seguridad Inviolables**:
+   - El botón **`Cerrar Todos (btn_close_all)`** permanece **siempre habilitado** para que el operador pueda cortar la emisión láser desde cualquier ventana.
+   - Los botones de detención y guardado confocal permanecen activos.
+5. **Telemetría Continua**: Las lecturas en vivo de posición XYZ de la platina PI y la señal del fotodiodo vía NI-DAQmx continúan transmitiéndose sin colisiones de hilos.
+
+---
+
+### 4.5 Interlocks de Seguridad Física y Óptica
+
+1. **Parada de Emergencia Global (🚨 E-STOP)**:
+   - Accionable mediante el botón de cabecera o los atajos `Ctrl+E` / `F12`.
+   - Cierra instantáneamente todos los obturadores láser (`close_all_shutters()`), aborta la adquisición del sensor Andor CCD, libera la sesión de hardware y desbloquea las ventanas satélites.
+2. **Diálogo de Seguridad de Orden Cero ([`ZeroOrderSafetyDialog`](file:///C:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum/ui/zero_order_dialog.py))**:
+   - Impide mover el espectrógrafo a $0.0\ \text{nm}$ directamente. Evalúa el estado del sensor y ofrece 5 opciones claras para evitar la quema irreversible del chip EMCCD por reflexión especular directa del haz láser.
+3. **Protección de Ganancia EMCCD**:
+   - Clampeo estricto a un máximo de $5\times$ si el tiempo de exposición supera $1.0\ \text{s}$.
+4. **Tiempos de Asentamiento Óptico**:
+   - Retardo automático de $4.0\ \text{s}$ para rotación de torreta de redes, $0.8\ \text{s}$ para ranuras y $0.3\ \text{s}$ para desplazamiento de longitud de onda antes de iniciar cualquier captura.
 
 ---
 
