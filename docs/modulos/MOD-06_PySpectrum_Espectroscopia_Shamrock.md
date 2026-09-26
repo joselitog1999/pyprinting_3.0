@@ -371,6 +371,31 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
 ### 12.18 Tests nuevos (Fase 6)
 `tests/test_growth_kinetics_routine.py` (9): generación paramétrica N×M, carga `.txt` (2 columnas y matriz legada 3×N), corrida completa deteniéndose por cada uno de los 3 criterios (λ_max, caída de fotodiodo, `t_max_s`) con `run_z_autofocus`/`run_confocal_centering` mockeados y conteo de llamadas verificado, pausa + salto manual + reanudación, y E-STOP durante el tracking espectral (cierra obturador, termina sin colgarse). `tests/test_dimers_routine.py` (5): generación/carga de grilla, ciclo completo de dos partículas verificando la posición exacta de NP2 (centroide mockeado + offset configurado en nm), re-enfoque cada K pares, y E-STOP durante la espera de traza de impresión (cierra obturador, termina sin colgarse). Full suite: 0 regresiones nuevas.
 
+### 12.19 Fase 7 (Cierre) — Pestaña 7 Luminiscencia (Filtro Notch 532 + Grilla), Verificación de Calibración con Agua, Perfil de Ruido Oscuro y Atajos Globales (`[[DECISION_LOG#DEC-021]]`)
+
+**Arquitectura final de las 7 pestañas del shell** (`pyspectrum/window.py`, constantes `TAB_*`): 1️⃣ Exploración, 2️⃣ Static Raman, 3️⃣ Step & Glue, 4️⃣ Cinética de Crecimiento, 5️⃣ Calibraciones, 6️⃣ Mapeo Confocal, 7️⃣ **Luminiscencia (nueva, Fase 7)** — agregada al final (`TAB_LUMINESCENCE = 6`) en vez de insertarse en la posición que su nombre legado sugeriría, para no renumerar/romper los índices `TAB_*` ya consumidos por `LeftHardwarePanel.set_context()` y por los tests existentes. Dímeros permanece como diálogo lanzado desde el menú `🧪 Rutinas` (no se pidió embeberlo en esta fase); Luminiscencia sí se embebió — su menú "Rutinas → Luminiscencia" fue removido al quedar redundante.
+
+**Pestaña 7 → Sub-pestaña "🔬 Grilla + Filtro Notch"** (`pyspectrum/modules/routines/luminescence.py`, refactorizado a `LuminescencePanel`/`LuminescenceWidget` con el mismo split que `growth_kinetics.py`; el modo puntual histórico de la Sub-pestaña 1 queda 100% intacto):
+- **Control del Filtro Notch 532 nm (Flipper)**: botones `⬇️ Insertar Notch (Bloquea Rayleigh)` / `⬆️ Retirar Notch` → `core.nidaq.flipper_notch532("down"/"up")`. Semántica ("down" = dentro del haz, bloqueando Rayleigh) tomada del propio default de seguridad ya establecido en `core/shutters.py::Backend.close()` (`flipper_notch532("down")` al apagar), no inventada para esta fase.
+- **Grilla de coordenadas + máquina de estados**: mismo patrón de generación/carga que Pestañas 4/5 (`generate_grid`/`load_grid_file`, coordenadas absolutas, botón "Usar Posición Actual como Origen"). Por nodo: mover platina (`optical_support.move_stage_to()`) → autofoco cada N nodos (`optical_support.run_z_autofocus()`) → abrir obturador → **adquisición consciente del modo de lectura** (`camera.get_read_mode() == READ_MODE_IMAGE` → promedio de filas 2D; si no, `get_1d_spectrum()` directo de hardware — mismo criterio que `step_and_glue.py::lock_substrate()`) → cerrar obturador → guardar `.txt` → siguiente nodo. Mismos controles Play/Pausa/Reanudar/Siguiente/Abortar e interlock de E-STOP que las Pestañas 4/5.
+
+**Pestaña 5 (Calibraciones) → Ventanitas nuevas 6 y 7** (`pyspectrum/modules/calibration_dock.py`):
+- **💧 Verificación Raman de Agua**: adquiere con láser 532 nm, ajusta con `fit_signal_raman()` (`pyspectrum/calibration/fit_raman_water.py`, sin modificar — ese ajuste fija las posiciones 649/702 nm como parámetros del modelo, sólo ajusta amplitudes). El corrimiento de calibración se calcula por separado, no invasivamente: máximo observado del espectro crudo en una ventana ±15 nm alrededor de 649 nm, reportado como `observado − 649.0`, junto al R² del ajuste (`calc_r2()`, reutilizado de la misma función).
+- **🌑 Perfil de Ruido Oscuro**: cierra todos los obturadores (`close_all_shutters()`), adquiere un cuadro consciente del modo de lectura, y lo caracteriza con `core/sif_processor.py::characterize_background_noise()` (sin código nuevo de estadística de ruido). El resultado queda en memoria hasta que el operador confirma explícitamente `💾 Guardar como Perfil de Sustracción` (persistencia `.npz` en `pyspectrum/calibration/dark_noise_profile.npz`) — medir nunca sobrescribe automáticamente un perfil guardado previamente.
+
+**Atajos de teclado globales** (`pyspectrum/window.py::_setup_shortcuts()`): tabla de despacho por pestaña activa, reutilizando los botones primarios ya existentes de cada pestaña (no lógica duplicada):
+| Atajo | Acción | Pestañas donde actúa |
+|---|---|---|
+| `Ctrl+Space` | Alterna Live View (`.btn_live.click()`) | Exploración, Static Raman (no-op en el resto) |
+| `Ctrl+R` | Dispara medición primaria (`.btn_single`/`.btn_run`/`.btn_scan`.click()) | Raman, Step&Glue, Cinética, Confocal, Luminiscencia (no-op en Exploración/Calibraciones) |
+| `Ctrl+0` | Abre `ZeroOrderSafetyDialog` (`left_panel.btn_zero_order.click()`) | Global |
+| `Ctrl+M` | Abre/enfoca satélite Contrapropagante (ya existía, Fase 5) | Global |
+| `Ctrl+E` / `F12` | E-STOP global (`_on_emergency_stop_clicked()`) | Global |
+| `Ctrl+1`…`Ctrl+7` | Salta a la pestaña N | Global |
+
+### 12.20 Tests nuevos (Fase 7)
+`tests/test_pyspectrum_luminescence_and_calibration.py` (13): default seguro y toggle del Flipper Notch 532, corrida completa de grilla con verificación de apertura/cierre de obturador, rama de adquisición consciente del modo de lectura, E-STOP durante el tracking (cierra obturador, sin colgarse); verificación de agua contra un espectro sintético con corrimiento conocido (confirma que el corrimiento calculado coincide con el inyectado); ruido oscuro confirmando la llamada real a `close_all_shutters()` y la habilitación del botón de guardado; persistencia `.npz` y su no-op seguro sin medición previa; los 7 atajos de pestaña; Ctrl+Space en Exploración y no-op en el resto; despacho de Ctrl+R verificado con espías de `.click()` por pestaña (sin disparar adquisiciones reales, para no dejar timers/sesiones de hardware corriendo entre tests); atajo de E-STOP. Dos tests preexistentes actualizados por el conteo de pestañas (5→6 pasa a 6→7, no es una regresión sino una actualización de aserción correcta tras la 7ª pestaña aditiva). Full suite: 0 regresiones nuevas.
+
 ---
 
 ## 13. 🔗 Referencias Cruzadas

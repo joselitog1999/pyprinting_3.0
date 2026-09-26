@@ -62,7 +62,7 @@ from pyspectrum.modules.static_raman import StaticRamanBackend
 from pyspectrum.ui.static_raman_container import StaticRamanTabContainer
 from pyspectrum.modules.calibration_dock import CalibrationFrontend, CalibrationBackend
 
-from pyspectrum.modules.routines.luminescence import LuminescenceWidget, LuminescenceBackend
+from pyspectrum.modules.routines.luminescence import LuminescencePanel, LuminescenceBackend
 from pyspectrum.modules.routines.growth_kinetics import GrowthKineticsPanel, GrowthKineticsBackend
 from pyspectrum.modules.routines.dimers import DimersWidget, DimersBackend
 from pyspectrum.modules.routines.linescan_spectroscopy import create_linescan_routine
@@ -76,6 +76,7 @@ TAB_STEP_AND_GLUE = 2
 TAB_GROWTH_KINETICS = 3
 TAB_CALIBRATION = 4
 TAB_CONFOCAL = 5
+TAB_LUMINESCENCE = 6
 
 
 class PySpectrumWindow(QtWidgets.QMainWindow):
@@ -203,10 +204,6 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         # ── Menú Rutinas Especializadas ───────────────────────────────────────
         routines_menu = menubar.addMenu("🧪 Rutinas")
-
-        act_lumin = QtGui.QAction("Luminiscencia & Anti-Stokes", self)
-        act_lumin.triggered.connect(self._open_luminescence)
-        routines_menu.addAction(act_lumin)
 
         act_dimers = QtGui.QAction("Caracterización de Dímeros Plasmónicos", self)
         act_dimers.triggered.connect(self._open_dimers)
@@ -505,12 +502,71 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.confocal_widget = ConfocalFrontend()
         self.tabs_workflow.addTab(self.confocal_widget, "🧬 6. Mapeo Confocal")
 
+        # ── Pestaña 7: Luminiscencia & Anti-Stokes (embebida vía LuminescencePanel, Fase 7) ──
+        # Agregada al final (no insertada en la posición 6 que sugeriría su nombre "Pestaña 6"
+        # en la directiva original) para no reordenar/renumerar las 6 pestañas ya existentes:
+        # TAB_CALIBRATION/TAB_CONFOCAL y los tests que dependen de esos índices quedan intactos.
+        self.lumin_widget = LuminescencePanel()
+        self.tabs_workflow.addTab(self.lumin_widget, "✨ 7. Luminiscencia")
+
         self.tabs_workflow.currentChanged.connect(self._on_main_tab_changed)
+        self._setup_shortcuts()
 
         self.statusBar().showMessage(f"PySpectrum 3.0 Listo. Carpeta de trabajo: {self.work_dir}")
 
     def _on_main_tab_changed(self, idx: int):
         self.left_panel.set_context(idx)
+
+    def _setup_shortcuts(self):
+        """Atajos de teclado globales del shell (Fase 7, DEC-021). Ctrl+M ya existe como
+        QAction del menú Herramientas (Fase 5) — no se duplica aquí."""
+        self.shortcut_live_view = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Space"), self)
+        self.shortcut_live_view.activated.connect(self._shortcut_toggle_live_view)
+
+        self.shortcut_measure = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+R"), self)
+        self.shortcut_measure.activated.connect(self._shortcut_trigger_measurement)
+
+        self.shortcut_zero_order = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+0"), self)
+        self.shortcut_zero_order.activated.connect(self._shortcut_goto_zero_order)
+
+        self.shortcut_estop_ctrl = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+E"), self)
+        self.shortcut_estop_ctrl.activated.connect(self._on_emergency_stop_clicked)
+        self.shortcut_estop_f12 = QtGui.QShortcut(QtGui.QKeySequence("F12"), self)
+        self.shortcut_estop_f12.activated.connect(self._on_emergency_stop_clicked)
+
+        self.shortcuts_tabs = []
+        for i in range(self.tabs_workflow.count()):
+            sc = QtGui.QShortcut(QtGui.QKeySequence(f"Ctrl+{i + 1}"), self)
+            sc.activated.connect(lambda idx=i: self.tabs_workflow.setCurrentIndex(idx))
+            self.shortcuts_tabs.append(sc)
+
+    def _shortcut_toggle_live_view(self):
+        """Ctrl+Space: alterna Live View en la pestaña activa (Exploración o Static Raman;
+        no-op en las demás pestañas, que no tienen un concepto de vista continua)."""
+        idx = self.tabs_workflow.currentIndex()
+        if idx == TAB_EXPLORATION:
+            self.exploration_widget.btn_live.click()
+        elif idx == TAB_STATIC_RAMAN:
+            self.raman_container.spectrum_widget.btn_live.click()
+
+    def _shortcut_trigger_measurement(self):
+        """Ctrl+R: dispara la acción de medición/adquisición primaria de la pestaña activa."""
+        idx = self.tabs_workflow.currentIndex()
+        if idx == TAB_STATIC_RAMAN:
+            self.raman_container.spectrum_widget.btn_single.click()
+        elif idx == TAB_STEP_AND_GLUE:
+            self.sandg_widget.btn_single.click()
+        elif idx == TAB_GROWTH_KINETICS:
+            self.growth_widget.btn_run.click()
+        elif idx == TAB_CONFOCAL:
+            self.confocal_widget.btn_scan.click()
+        elif idx == TAB_LUMINESCENCE:
+            self.lumin_widget.btn_run.click()
+
+    def _shortcut_goto_zero_order(self):
+        """Ctrl+0: abre el diálogo de seguridad de Orden Cero (ZeroOrderSafetyDialog) — el
+        mismo botón que ya expone el Panel Izquierdo permanente, con la misma confirmación."""
+        self.left_panel.btn_zero_order.click()
 
     def _setup_threads_and_backends(self):
         from core.hardware_manager import hardware_manager
@@ -557,7 +613,6 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.calib_backend.make_connection(self.calib_widget)
         self.calib_backend.statusSignal.connect(lambda msg: self.statusBar().showMessage(msg, 4000))
 
-        self.lumin_widget = LuminescenceWidget(self)
         self.lumin_backend = LuminescenceBackend(self.camera, self.spectrometer)
         self.lumin_backend.make_connection(self.lumin_widget)
 
@@ -663,9 +718,6 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.hw_dashboard.show()
         self.hw_dashboard.raise_()
 
-    def _open_luminescence(self):
-        self.lumin_widget.show()
-
     def _open_dimers(self):
         self.dimers_widget.show()
 
@@ -714,6 +766,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             self.confocal_thread.quit()
             self.confocal_thread.wait(3000)
             self.lumin_backend.stop_luminescence()
+            self.lumin_backend.abort_grid()
             self.growth_backend.stop_growth()
             self.growth_backend.abort_grid()
             self.dimers_backend.abort_sequence()

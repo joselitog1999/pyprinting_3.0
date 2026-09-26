@@ -25,7 +25,8 @@ import pyqtgraph as pg
 from config import (
     SAFE_MODE,
     ANDOR_FLIP_Y_IMAGE,
-    ANDOR_FLIP_X_IMAGE
+    ANDOR_FLIP_X_IMAGE,
+    SHUTTERS,
 )
 from pyspectrum.drivers.shamrock_driver import (
     DEVICE,
@@ -36,8 +37,15 @@ from pyspectrum.drivers.shamrock_driver import (
     SHAMROCK_SUCCESS,
     get_shamrock
 )
-from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd, READ_MODE_IMAGE
 from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration
+from pyspectrum.calibration.fit_raman_water import fit_signal_raman, calc_r2
+from core.sif_processor import characterize_background_noise
+from core.nidaq import open_shutter, close_shutter, close_all_shutters, heartbeat_shutter
+from pyspectrum.modules.hardware_session import hardware_session
+
+# Perfil de sustracción de ruido oscuro persistido (Fase 7, DEC-021)
+DARK_NOISE_PROFILE_FILE = Path(__file__).resolve().parent.parent / "calibration" / "dark_noise_profile.npz"
 
 # Archivo de persistencia de calibración local (.txt y fallback .json)
 CALIBRATION_TXT_FILE = Path(__file__).resolve().parent.parent / "calibration" / "pyspectrum_calibration_last.txt"
@@ -65,6 +73,10 @@ class CalibrationFrontend(QtWidgets.QFrame):
     saveCalibrationTxtSignal = pyqtSignal(str)
     loadCalibrationTxtSignal = pyqtSignal(str)
     reloadLastCalibrationSignal = pyqtSignal()
+
+    verifyWaterCalibrationSignal = pyqtSignal()
+    measureDarkNoiseSignal = pyqtSignal()
+    saveDarkNoiseProfileSignal = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -371,6 +383,56 @@ class CalibrationFrontend(QtWidgets.QFrame):
 
         vbox.addWidget(box_persist)
 
+        # ── 6. Ventanita: Verificación Raman de Agua ──────────────────────────
+        box_water = QtWidgets.QGroupBox("💧 6. Verificación de Calibración con Agua (~649 nm / 3400 cm⁻¹)")
+        box_water.setToolTip("Verifica la exactitud de la calibración de longitud de onda usando las bandas Raman intrínsecas del agua (O-H stretch).")
+        water_layout = QtWidgets.QGridLayout(box_water)
+        water_layout.setSpacing(6)
+
+        self.lbl_water_status = QtWidgets.QLabel("Sin verificar. Colocar cubeta con agua en el foco antes de medir.")
+        self.lbl_water_status.setStyleSheet("color: #A6ADC8; font-size: 8.5pt;")
+        self.lbl_water_status.setWordWrap(True)
+        water_layout.addWidget(self.lbl_water_status, 0, 0, 1, 2)
+
+        self.btn_verify_water = QtWidgets.QPushButton("💧 Verificar Calibración con Agua (3400 cm⁻¹)")
+        self.btn_verify_water.setStyleSheet("background-color: #89DCEB; color: #11111B;")
+        self.btn_verify_water.setToolTip(
+            "Adquiere un espectro con láser 532 nm, ajusta las bandas Raman del agua (~649/702 nm) con\n"
+            "fit_signal_raman() y reporta el corrimiento respecto a la posición teórica y la calidad del ajuste (R²)."
+        )
+        self.btn_verify_water.clicked.connect(self.verifyWaterCalibrationSignal.emit)
+        water_layout.addWidget(self.btn_verify_water, 1, 0, 1, 2)
+
+        vbox.addWidget(box_water)
+
+        # ── 7. Ventanita: Perfil de Ruido Oscuro (Dark Current) ───────────────
+        box_dark = QtWidgets.QGroupBox("🌑 7. Perfil de Ruido Oscuro (Dark Current)")
+        box_dark.setToolTip("Caracteriza el ruido de fondo del detector con todos los obturadores cerrados, para sustracción automática.")
+        dark_layout = QtWidgets.QGridLayout(box_dark)
+        dark_layout.setSpacing(6)
+
+        self.lbl_dark_status = QtWidgets.QLabel("Sin medir.")
+        self.lbl_dark_status.setStyleSheet("color: #A6ADC8; font-size: 8.5pt;")
+        self.lbl_dark_status.setWordWrap(True)
+        dark_layout.addWidget(self.lbl_dark_status, 0, 0, 1, 2)
+
+        self.btn_measure_dark = QtWidgets.QPushButton("🌑 Medir Ruido Oscuro (Dark Current)")
+        self.btn_measure_dark.setStyleSheet("background-color: #313244; color: #CDD6F4;")
+        self.btn_measure_dark.setToolTip(
+            "Cierra todos los obturadores de cámara y láser, adquiere un cuadro de fondo, y calcula\n"
+            "la media y desviación estándar de cuentas por píxel (core/sif_processor.py::characterize_background_noise)."
+        )
+        self.btn_measure_dark.clicked.connect(self.measureDarkNoiseSignal.emit)
+        dark_layout.addWidget(self.btn_measure_dark, 1, 0, 1, 2)
+
+        self.btn_save_dark_profile = QtWidgets.QPushButton("💾 Guardar como Perfil de Sustracción")
+        self.btn_save_dark_profile.setEnabled(False)
+        self.btn_save_dark_profile.setToolTip("Persiste el último fondo oscuro medido en pyspectrum/calibration/dark_noise_profile.npz para sustracción automática futura.")
+        self.btn_save_dark_profile.clicked.connect(self.saveDarkNoiseProfileSignal.emit)
+        dark_layout.addWidget(self.btn_save_dark_profile, 2, 0, 1, 2)
+
+        vbox.addWidget(box_dark)
+
         # Barra de estado local
         self.lbl_status = QtWidgets.QLabel("Listo para calibrar.")
         self.lbl_status.setStyleSheet("color: #A6ADC8; font-size: 9pt; font-weight: bold;")
@@ -489,6 +551,24 @@ class CalibrationFrontend(QtWidgets.QFrame):
     def show_status(self, msg: str):
         self.lbl_status.setText(msg)
 
+    @pyqtSlot(float, float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray)
+    def update_water_verification(self, shift_nm: float, observed_peak_nm: float, r2: float,
+                                  wave_raw: np.ndarray, spec_raw: np.ndarray, wave_fit: np.ndarray, spec_fit: np.ndarray):
+        precision_txt = "ALTA" if abs(shift_nm) < 0.5 else ("MODERADA" if abs(shift_nm) < 2.0 else "BAJA — recalibrar")
+        self.lbl_water_status.setText(
+            f"Pico O-H observado: <b>{observed_peak_nm:.2f} nm</b> (teórico 649.00 nm) | "
+            f"Corrimiento: <b>{shift_nm:+.2f} nm</b> | Ajuste R²={r2:.3f} | Precisión: <b>{precision_txt}</b>"
+        )
+        if len(wave_raw) > 0:
+            self.curve_profile.setData(wave_raw, spec_raw)
+        if len(wave_fit) > 0:
+            self.curve_fit.setData(wave_fit, spec_fit)
+
+    @pyqtSlot(float, float)
+    def update_dark_noise_result(self, mean_counts: float, std_counts: float):
+        self.lbl_dark_status.setText(f"Fondo oscuro: media = <b>{mean_counts:.2f}</b> cuentas, σ = <b>{std_counts:.2f}</b> cuentas/píxel.")
+        self.btn_save_dark_profile.setEnabled(True)
+
 
 class CalibrationBackend(QtCore.QObject):
     """Backend de gestión y sincronización de calibraciones ópticas."""
@@ -500,6 +580,9 @@ class CalibrationBackend(QtCore.QObject):
     slitFitResultSignal = pyqtSignal(float, float, np.ndarray, np.ndarray, np.ndarray)
     activeCalibFileUpdatedSignal = pyqtSignal(str)
     statusSignal = pyqtSignal(str)
+
+    waterVerificationResultSignal = pyqtSignal(float, float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray)
+    darkNoiseResultSignal = pyqtSignal(float, float)
 
     def __init__(self, camera=None, spectrometer=None, parent=None):
         super().__init__(parent)
@@ -521,6 +604,11 @@ class CalibrationBackend(QtCore.QObject):
         self.lamp_file: str = "lamparaIR_450-950_overlap0.2"
         self.lamp_temp_k: float = 3100.0
         self.active_calib_file: str = str(CALIBRATION_TXT_FILE)
+
+        # Fase 7 (DEC-021): último fondo oscuro medido, pendiente de persistir si el usuario lo solicita.
+        self._last_dark_frame: Optional[np.ndarray] = None
+        self._last_dark_mean: float = 0.0
+        self._last_dark_std: float = 0.0
 
         # Cargar calibración previa al inicializar (prioridad .txt, fallback .json)
         if not self.load_calibration_from_txt(str(CALIBRATION_TXT_FILE)):
@@ -545,6 +633,12 @@ class CalibrationBackend(QtCore.QObject):
         frontend.saveCalibrationTxtSignal.connect(self.save_calibration_to_txt)
         frontend.loadCalibrationTxtSignal.connect(self.load_calibration_from_txt)
         frontend.reloadLastCalibrationSignal.connect(lambda: self.load_calibration_from_txt(str(CALIBRATION_TXT_FILE)))
+
+        frontend.verifyWaterCalibrationSignal.connect(self.verify_water_calibration)
+        frontend.measureDarkNoiseSignal.connect(self.measure_dark_noise)
+        frontend.saveDarkNoiseProfileSignal.connect(self.save_dark_noise_profile)
+        self.waterVerificationResultSignal.connect(frontend.update_water_verification)
+        self.darkNoiseResultSignal.connect(frontend.update_dark_noise_result)
 
         self.slitInfoUpdatedSignal.connect(frontend.update_slit_info)
         self.gratingOffsetUpdatedSignal.connect(frontend.update_grating_offset)
@@ -728,6 +822,91 @@ class CalibrationBackend(QtCore.QObject):
             else:
                 cg = float(x0_guess)
             return (cg, 10.0, np.array([]))
+
+    @pyqtSlot()
+    def verify_water_calibration(self):
+        """Verifica la exactitud de la calibración de longitud de onda usando las bandas Raman
+        intrínsecas del agua (O-H stretch, ~649/702 nm bajo bombeo 532 nm), reutilizando
+        fit_signal_raman() de pyspectrum/calibration/fit_raman_water.py sin modificarlo."""
+        laser = SHUTTERS[0]  # 532 nm (green)
+        if not hardware_session.acquire_session("Verificación Raman de Agua"):
+            return
+        try:
+            self.camera.set_exposure_time(1.0)
+            ret, wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+            open_shutter(laser)
+            heartbeat_shutter(30.0)
+            if self.camera.get_read_mode() == READ_MODE_IMAGE:
+                frame = self.camera.get_most_recent_image()
+                spec = np.mean(frame, axis=0)
+            else:
+                spec = self.camera.get_1d_spectrum()
+        finally:
+            close_shutter(laser)
+            hardware_session.release_session("Verificación Raman de Agua")
+
+        wave_fit, spec_fit, params = fit_signal_raman(np.asarray(wave_axis), np.asarray(spec), laser_nm=532.0)
+
+        # fit_signal_raman() fija peak1/peak2 (649/702 nm) como parámetros del MODELO (sólo ajusta
+        # amplitudes), no como posiciones libres — así que el corrimiento real de calibración se
+        # mide buscando el máximo observado crudo en una ventana angosta alrededor del pico teórico,
+        # sin tocar la función compartida.
+        expected_peak_nm = 649.0
+        window_nm = 15.0
+        wave_arr = np.asarray(wave_axis)
+        spec_arr = np.asarray(spec)
+        mask = (wave_arr >= expected_peak_nm - window_nm) & (wave_arr <= expected_peak_nm + window_nm)
+        if np.any(mask):
+            observed_peak_nm = float(wave_arr[mask][np.argmax(spec_arr[mask])])
+        else:
+            observed_peak_nm = expected_peak_nm
+        shift_nm = observed_peak_nm - expected_peak_nm
+
+        r2 = 0.0
+        if len(wave_fit) > 0 and len(wave_fit) == len(spec_fit):
+            spec_fit_interp = np.interp(wave_arr, wave_fit, spec_fit)
+            r2 = calc_r2(spec_arr, spec_fit_interp)
+
+        self.waterVerificationResultSignal.emit(shift_nm, observed_peak_nm, r2, wave_arr, spec_arr, np.asarray(wave_fit), np.asarray(spec_fit))
+        self.statusSignal.emit(f"Verificación de agua completada: corrimiento {shift_nm:+.2f} nm respecto a 649.00 nm.")
+
+    @pyqtSlot()
+    def measure_dark_noise(self):
+        """Cierra todos los obturadores (láser + notch) y caracteriza el ruido de fondo del
+        detector con core/sif_processor.py::characterize_background_noise()."""
+        if not hardware_session.acquire_session("Perfil de Ruido Oscuro"):
+            return
+        try:
+            close_all_shutters()
+            heartbeat_shutter(30.0)
+            self.camera.set_exposure_time(0.5)
+            if self.camera.get_read_mode() == READ_MODE_IMAGE:
+                frame = self.camera.get_most_recent_image()
+            else:
+                frame = self.camera.get_1d_spectrum()
+        finally:
+            hardware_session.release_session("Perfil de Ruido Oscuro")
+
+        profile = characterize_background_noise(np.asarray(frame))
+        self._last_dark_frame = np.asarray(frame)
+        self._last_dark_mean = float(profile.mean_counts)
+        self._last_dark_std = float(profile.std_counts)
+        self.darkNoiseResultSignal.emit(self._last_dark_mean, self._last_dark_std)
+        self.statusSignal.emit(f"Ruido oscuro caracterizado: media={self._last_dark_mean:.2f}, σ={self._last_dark_std:.2f} cuentas/píxel.")
+
+    @pyqtSlot()
+    def save_dark_noise_profile(self):
+        if self._last_dark_frame is None:
+            self.statusSignal.emit("No hay perfil de ruido oscuro medido para guardar.")
+            return
+        try:
+            DARK_NOISE_PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(str(DARK_NOISE_PROFILE_FILE), dark_frame=self._last_dark_frame,
+                    mean_counts=self._last_dark_mean, std_counts=self._last_dark_std,
+                    timestamp=time.strftime("%Y-%m-%d %H:%M:%S"))
+            self.statusSignal.emit(f"Perfil de ruido oscuro guardado en: {DARK_NOISE_PROFILE_FILE.name}")
+        except Exception as e:
+            self.statusSignal.emit(f"Error al guardar perfil de ruido oscuro: {e}")
 
     @pyqtSlot(str)
     def load_lamp_calibration(self, filepath: str):

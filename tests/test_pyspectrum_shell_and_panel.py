@@ -32,7 +32,7 @@ from pyspectrum.modules.routines.growth_kinetics import (
 )
 from pyspectrum.window import (
     PySpectrumWindow, TAB_EXPLORATION, TAB_STATIC_RAMAN, TAB_STEP_AND_GLUE,
-    TAB_GROWTH_KINETICS, TAB_CALIBRATION, TAB_CONFOCAL,
+    TAB_GROWTH_KINETICS, TAB_CALIBRATION, TAB_CONFOCAL, TAB_LUMINESCENCE,
 )
 
 
@@ -144,15 +144,16 @@ class TestPySpectrumWindowShell(unittest.TestCase):
         self.win.close()
         QtWidgets.QMessageBox.question = self._orig_question
 
-    def test_six_tabs_present_with_expected_titles(self):
-        self.assertEqual(self.win.tabs_workflow.count(), 6)
-        titles = [self.win.tabs_workflow.tabText(i) for i in range(6)]
+    def test_seven_tabs_present_with_expected_titles(self):
+        self.assertEqual(self.win.tabs_workflow.count(), 7)
+        titles = [self.win.tabs_workflow.tabText(i) for i in range(7)]
         self.assertIn("Exploración", titles[TAB_EXPLORATION])
         self.assertIn("Static Raman", titles[TAB_STATIC_RAMAN])
         self.assertIn("Step & Glue", titles[TAB_STEP_AND_GLUE])
         self.assertIn("Cinética", titles[TAB_GROWTH_KINETICS])
         self.assertIn("Calibraciones", titles[TAB_CALIBRATION])
         self.assertIn("Mapeo Confocal", titles[TAB_CONFOCAL])
+        self.assertIn("Luminiscencia", titles[TAB_LUMINESCENCE])
 
     def test_left_panel_permanent_across_tab_switches(self):
         for idx in range(self.win.tabs_workflow.count()):
