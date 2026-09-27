@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
                               QComboBox, QPushButton)
 from PyQt6.QtGui     import QShortcut, QKeySequence
 
-from config  import pi, SHUTTERS, PI_STAGE_RANGE_UM
+from config  import pi, SHUTTERS, PI_STAGE_RANGE_UM, PI_Z_RANGE_UM, wait_on_target
 from nidaq   import (open_shutter, close_shutter, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, RATE_MULTICHANNEL, PD_CHANNELS,
                      PD_CHANS_LIST)
@@ -219,13 +219,13 @@ class Backend(QObject):
 
     def _clamped_zo(self, center_z: float) -> float:
         """Ancla el origen [zo, zo+range_total] de la rampa Z al mismo rango físico
-        [0, PI_STAGE_RANGE_UM] que pi.MOV() clampea a nivel de driver. WOS/CTO/WAV_LIN
+        [0, PI_Z_RANGE_UM] que pi.MOV() clampea a nivel de driver para Z (DEC-036). WOS/CTO/WAV_LIN
         (usados para la geometría de trigger de la rampa) van directo al driver GCS sin
         clamping propio, así que sin este ajuste la geometría de trigger puede quedar
         desfasada del movimiento físico realmente alcanzable cerca de los límites de
         recorrido (ANOM-FOCUS-02)."""
         zo = center_z - self.range_total / 2
-        return max(0.0, min(PI_STAGE_RANGE_UM - self.range_total, zo))
+        return max(0.0, min(PI_Z_RANGE_UM - self.range_total, zo))
 
     def _ramp_lin_with_retry_cap(self, context: str):
         """Ejecuta _ramp_lin() reintentando hasta MAX_RAMP_RETRIES veces si no se
@@ -482,12 +482,13 @@ class Backend(QObject):
 
     def _move_z(self, z: float, timeout_s: float = 10.0):
         pi.MOV(3, z)
-        t0 = time.time()
-        while not all(pi.qONT(3).values()):
-            if time.time() - t0 > timeout_s:
-                raise TimeoutError(
-                    f"[Focus] PI qONT() timeout ({timeout_s}s) moviendo a Z={z:.3f} µm.")
-            time.sleep(0.1)
+        # DEC-036: espera acotada y confirmada; sin confirmación se cierran los obturadores
+        # antes de propagar el error (el excepthook de seguridad lo registra sin abortar).
+        if not wait_on_target(3, timeout_s=timeout_s, poll_s=0.1):
+            from core.nidaq import close_all_shutters
+            close_all_shutters()
+            raise TimeoutError(
+                f"[Focus] PI qONT() timeout ({timeout_s}s) moviendo a Z={z:.3f} µm.")
 
     def make_connection(self, frontend: Frontend):
         frontend.focus_gotomax_signal.connect(self.focus_go_to_maximum)

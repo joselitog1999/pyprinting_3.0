@@ -1,0 +1,6 @@
+p_true=0.00 sigma_in= 10.0 | p_est(N_det, as GUI)=0.252 | p_est(N_total)=0.252 | 1-sqrt(1-p)=0.000 | sigma_H2H1=10.70 | sigma_wilson=9.32
+p_true=0.00 sigma_in= 20.0 | p_est(N_det, as GUI)=0.248 | p_est(N_total)=0.248 | 1-sqrt(1-p)=0.000 | sigma_H2H1=20.36 | sigma_wilson=19.14
+p_true=0.20 sigma_in= 10.0 | p_est(N_det, as GUI)=0.250 | p_est(N_total)=0.335 | 1-sqrt(1-p)=0.106 | sigma_H2H1=10.56 | sigma_wilson=9.25
+p_true=0.20 sigma_in= 20.0 | p_est(N_det, as GUI)=0.244 | p_est(N_total)=0.323 | 1-sqrt(1-p)=0.106 | sigma_H2H1=19.85 | sigma_wilson=19.01
+p_true=0.40 sigma_in= 10.0 | p_est(N_det, as GUI)=0.243 | p_est(N_total)=0.416 | 1-sqrt(1-p)=0.225 | sigma_H2H1=10.67 | sigma_wilson=8.82
+p_true=0.40 sigma_in= 20.0 | p_est(N_det, as GUI)=0.246 | p_est(N_total)=0.412 | 1-sqrt(1-p)=0.225 | sigma_H2H1=20.41 | sigma_wilson=19.93

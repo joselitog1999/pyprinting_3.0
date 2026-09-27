@@ -41,7 +41,7 @@ from pyqtgraph.dockarea import DockArea, Dock
 from config import (pi, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE, SAFE_MODE,
                     DEFAULT_CONFOCAL_RANGE_X, DEFAULT_CONFOCAL_RANGE_Y,
                     DEFAULT_CONFOCAL_PIXELS_X, DEFAULT_CONFOCAL_PIXELS_Y,
-                    DEFAULT_CONFOCAL_FILTER_PERCENT, PI_SERVO_TIME)
+                    DEFAULT_CONFOCAL_FILTER_PERCENT, PI_SERVO_TIME, wait_on_target)
 from nidaq import (open_shutter, close_shutter, close_all_shutters, heartbeat_shutter,
                    channels_photodiodos, channels_triggers, PD_CHANS_LIST, RATE_MULTICHANNEL)
 from psf import (center_of_mass, center_of_gauss2D, center_of_donut2D)
@@ -663,22 +663,36 @@ class ConfocalDualBackend(QObject):
         pi.CTO(2, 5, yo + self.extra_y)
         pi.CTO(2, 6, yo + self.range_total_y - self.extra_y)
 
-    def _wait_axis_settle(self, axes, timeout_s: float = 0.05):
+    def _abort_scan_on_stage_fault(self):
+        """Falla de la platina a mitad del escaneo (DEC-036): se detiene todo y se cierran los
+        obturadores. No se vuelve a la posición inicial: con la platina en falla, un MOV más
+        no tiene sentido y la reconexión la decide el operador."""
+        self.signal_scan_stop = True
+        for name in ("PDtimer_rampxy", "PDtimer_rampxz", "PDtimer_rampyx", "PDtimer_rampyz"):
+            timer = getattr(self, name, None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+        close_all_shutters()
+        print("[Contrapropagante] Escaneo ABORTADO por falla de la platina: obturadores cerrados.")
+
+    def _wait_axis_settle(self, axes, timeout_s: float = 0.05) -> bool:
         """Confirma asentamiento físico (qONT) del eje/es recién movidos antes de disparar
         la rampa (pi.WGO) — mismo patrón que modules/confocal.py::_wait_axis_settle
         (ANOM-CONFOCAL-04 / ANOM-CONTRAPROP-01a): sin esto, el trigger del wave-table
         puede dispararse mientras el eje todavía está en vuelo inercial de la transición
         de fila, produciendo error de posición Y por fila en el par de imágenes dual.
         Acotado a timeout_s para no colgar el hilo confocal compartido ante un fallo de
-        servo real."""
-        t0 = time.time()
-        try:
-            while not all(pi.qONT(axes).values()):
-                if time.time() - t0 > timeout_s:
-                    break
-                time.sleep(0.002)
-        except Exception:
-            pass
+        servo real.
+
+        DEC-036: devuelve False sólo ante una FALLA de la platina (desconectada o lectura
+        fallida); en ese caso el escaneo ya quedó abortado con los obturadores cerrados y el
+        llamador debe retornar. Una demora con la platina sana sigue como antes."""
+        if wait_on_target(axes, timeout_s=timeout_s, poll_s=0.002):
+            return True
+        if getattr(pi, "is_mock", False) or getattr(pi, "connected", True) or getattr(pi, "_isolated", False):
+            return True
+        self._abort_scan_on_stage_fault()
+        return False
 
     def _synthetic_dual_grid(self):
         """Imagen gaussiana sintética determinística (SAFE_MODE) para demo/testing —
@@ -767,7 +781,8 @@ class ConfocalDualBackend(QObject):
         dy = self.range_y / self.Ny
         target_y = getattr(self, "y_min", self.y_pos - self.range_y / 2) + dy / 2 + self.i * dy
         pi.MOV(2, target_y)
-        self._wait_axis_settle(2)  # ANOM-CONTRAPROP-01a: confirma asentamiento antes del WGO
+        if not self._wait_axis_settle(2):  # ANOM-CONTRAPROP-01a: confirma asentamiento antes del WGO
+            return
 
         row = self.i
         def _synth():
@@ -792,7 +807,8 @@ class ConfocalDualBackend(QObject):
         dz = self.range_y / self.Ny
         target_z = getattr(self, "z_min", self.z_pos - self.range_y / 2) + dz / 2 + self.i * dz
         pi.MOV(3, target_z)
-        self._wait_axis_settle(3)
+        if not self._wait_axis_settle(3):
+            return
 
         row = self.i
         def _synth():
@@ -816,7 +832,8 @@ class ConfocalDualBackend(QObject):
         dx = self.range_x / self.Nx
         target_x = getattr(self, "x_min", self.x_pos - self.range_x / 2) + dx / 2 + self.i * dx
         pi.MOV(1, target_x)
-        self._wait_axis_settle(1)
+        if not self._wait_axis_settle(1):
+            return
 
         col = self.i
         def _synth():
@@ -843,7 +860,8 @@ class ConfocalDualBackend(QObject):
         dz = self.range_x / self.Nx
         target_z = getattr(self, "z_min", self.z_pos - self.range_x / 2) + dz / 2 + self.i * dz
         pi.MOV(3, target_z)
-        self._wait_axis_settle(3)
+        if not self._wait_axis_settle(3):
+            return
 
         row = self.i
         def _synth():
@@ -1291,6 +1309,9 @@ def create_contrapropagante_satellite(parent=None):
 
 def main():
     app = QApplication(sys.argv)
+    # DEC-036: sin esto, una excepción en un slot aborta el proceso sin cerrar los obturadores.
+    from core.safety_excepthook import install_safety_excepthook
+    install_safety_excepthook()
     win, backend, threads = create_contrapropagante_satellite()
 
     win.show()

@@ -216,7 +216,7 @@ pyspectrum/
 ### 🛡️ Estándar 4: Usabilidad, Tooltips y Tolerancia a Errores
 
 1. **Tooltips Obligatorios**: Todo control interactivo (`QPushButton`, `QLineEdit`, `QComboBox`, `QCheckBox`) **DEBE** definir un tooltip explicativo mediante `.setToolTip(...)` detallando su función física y unidades.
-2. **Validación de Rangos Entrantes**: Todo campo de texto numérico debe validar que el valor ingresado esté dentro de límites físicamente seguros antes de enviarlo al backend (ej. clamping de posición piezo entre $0.0$ y $100.0\,\mu\text{m}$).
+2. **Validación de Rangos Entrantes**: Todo campo de texto numérico debe validar que el valor ingresado esté dentro de límites físicamente seguros antes de enviarlo al backend (ej. clamping de posición piezo entre $0$ y $100\,\mu\text{m}$ en X e Y, y entre $0$ y $20\,\mu\text{m}$ en Z; `config.PI_AXIS_RANGE_UM`).
 3. **Diálogos de Confirmación y Finalización**: Toda rutina automatizada exitosa debe culminar con un diálogo informativo visual (`QMessageBox.Icon.Information`) que ofrezca guardar automáticamente los datos y abrir la carpeta de trabajo.
 
 ---

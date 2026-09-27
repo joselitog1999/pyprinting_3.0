@@ -45,7 +45,7 @@ Funcionalidades centrales:
 │  PyPrinting 3.0 — Cámara Réflex Canon EOS 500D (Live View EDSDK 64-bit)                               -  □  ×    │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  PANEL SUPERIOR DE CONTROL ÓPTICO Y EXPOSICIÓN                                                                   │
-│  [ ▶ LIVE VIEW (F1) ]  [ 📸 SNAP (F8) ]  [ ⏺ REC VIDEO ]  │  ISO: [ 800 ▼]  Tv: [ 1/30s ▼]  Zoom: [ 5x (EVF) ▼]  │
+│  [ ▶ LIVE VIEW ]  [ 📸 SNAP ]  [ ⏺ REC VIDEO ]            │  ISO: [ 800 ▼]  Tv: [ 1/30s ▼]  Zoom: [ 5x (EVF) ▼]  │
 │  Simulación EVF: [X] Activa  Brillo: [───●─────] +1.2 EV  Gamma: [───●─────] 1.4  AE Mode: Manual (M)            │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  CANVAS DE VIDEO PRINCIPAL (PyQt6 GraphicsView + OverlayWidget)                                                  │
@@ -74,8 +74,8 @@ Funcionalidades centrales:
 
 | Control / Botón | Tipo de Widget | Atajo | Rango / Opciones | Descripción Técnica |
 |---|---|:---:|---|---|
-| `LIVE VIEW` | `QPushButton` | `F1` | `ON / OFF` | Activa o pausa la descarga continua de frames EVF desde la memoria de la Canon. |
-| `SNAP` | `QPushButton` | `F8` | — | Dispara el obturador mecánico a máxima resolución ($15.1\ \text{MP}$) y descarga el archivo. |
+| `LIVE VIEW` | `QPushButton` | — | `ON / OFF` | Activa o pausa la descarga continua de frames EVF desde la memoria de la Canon. |
+| `SNAP` | `QPushButton` | — | — | Dispara el obturador mecánico a máxima resolución ($15.1\ \text{MP}$) y descarga el archivo. |
 | `ISO Combo` | `QComboBox` | — | `100, 200, 400, 800, 1600, 3200, 6400, 12800` | Modifica la ganancia analógica del sensor mediante `kEdsPropID_ISOSpeed`. |
 | `Tv Combo` | `QComboBox` | — | `1/4000s` a `30s`, `Bulb` | Tiempo de exposición mecánico mediante `kEdsPropID_Tv`. |
 | `Zoom Combo` | `QComboBox` | — | `1x`, `5x`, `10x` | Controla el zoom digital óptico nativo del visor réflex (`kEdsPropID_Evf_Zoom`). |
@@ -86,6 +86,8 @@ Funcionalidades centrales:
 | `🔬 Corroborar (Fiducial)` | `QPushButton` | — | Requiere zoom 1x + calibración | Abre `FiducialValidationDialog` para corroborar la calibración vigente contra un par de partículas impresas a distancia conocida (ver §10.2). |
 | `🟦 Caja Confocal` | `QPushButton` (checkable) | — | `ON` por defecto | Muestra/oculta la caja cian proyectada del área de escaneo confocal actual (ver §10.4). |
 | `🟪 Grilla Impresión` | `QPushButton` (checkable) | — | `ON` por defecto | Muestra/oculta la grilla magenta proyectada de la red de nanopartículas cargada en Impresión/Dímeros (ver §10.4). |
+
+> ⚠️ **F1 y F8 no son atajos de la cámara** (corregido tras la auditoría del 2026-09-27, DEC-036). En la ventana principal de PyPrinting, **F1 inicia la traza y abre el obturador de su láser**, y **F8 ejecuta el autofoco Z con láser** (`modules/trace.py`, `modules/focus.py`). No los uses para controlar la cámara.
 
 ---
 

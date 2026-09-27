@@ -12,7 +12,9 @@ import time
 from typing import Dict, Any, List
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from config import SAFE_MODE, PI_SERIAL, SHUTTERS
+from config import SAFE_MODE, PI_SERIAL, SHUTTERS, NIDAQ_DEVICE
+
+NIDAQ_DEVICE_KEY = "NI-DAQmx (Dev1)"
 
 
 class HardwareManager(QObject):
@@ -347,11 +349,31 @@ class HardwareManager(QObject):
 
         self.log("SUCCESS", f"Escaneo de hardware finalizado (Perfil: '{prof_name}').")
 
+    def physical_daq_present(self) -> bool:
+        """True si el sistema ve la placa NI física (`NIDAQ_DEVICE`). En SAFE_MODE es False:
+        ahí nada toca hardware y el aislamiento es inocuo."""
+        if SAFE_MODE:
+            return False
+        try:
+            import nidaqmx.system
+            return NIDAQ_DEVICE in [d.name for d in nidaqmx.system.System.local().devices]
+        except Exception:
+            return False
+
     @pyqtSlot(str, bool)
     def toggle_isolation(self, dev: str, isolate: bool):
         """Aísla o restablece la conexión de un dispositivo específico."""
         if dev == "Espectrómetro USB (PySpectrum)":
             self.log("WARNING", f"[{dev}] El módulo permanece inactivo hasta la integración de PySpectrum.")
+            return
+
+        # DEC-036: con la placa aislada, open/close_shutter, close_all_shutters(), el watchdog y el
+        # botón de pánico dejan de escribir en ella. Si la placa física está presente, aislarla
+        # significa que un obturador abierto ya no se puede cerrar: se rechaza.
+        if isolate and dev == NIDAQ_DEVICE_KEY and self.physical_daq_present():
+            self.log("ERROR", f"[{dev}] Aislamiento RECHAZADO: hay una placa NI conectada. Aislarla anularía "
+                              f"el cierre de obturadores, el watchdog y el botón de pánico (DEC-036).")
+            self.isolationChangedSignal.emit(dev, False)
             return
 
         self.device_isolated[dev] = isolate

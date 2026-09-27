@@ -2,6 +2,7 @@
 
 **Location**: `docs/evidence/EVIDENCE_LEDGER.md`  
 **Purpose**: Central registry linking physical claims, empirical constants, code implementations, and peer-reviewed literature.
+**Bench verification backlog**: claims that only the real hardware can confirm are tracked, with procedure and acceptance criterion, in `docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`.
 
 ---
 
@@ -282,7 +283,7 @@ implementation:
 decision: "DEC-033"
 validation:
   test_suite: "tests/test_spectral_geometry_and_step_coverage.py (30 tests; oracle = datasheet values written as literals, independent of the code constants)"
-  pending_bench_confirmation: "Optional: GetPixelSize on the live camera (scratch/legacy_console_probe.py, section C). Not required by the decision."
+  pending_bench_confirmation: "Optional: GetPixelSize on the live camera (tools/bench/legacy_console_probe.py, section C; bench test BANCO-01 in docs/evidence/PRUEBAS_BANCO_PENDIENTES.md). Not required by the decision."
   last_verified: "2026-09-26"
   verified_by: "Datasheets + Solis hardware records + legacy code cross-check (this session)"
 ```

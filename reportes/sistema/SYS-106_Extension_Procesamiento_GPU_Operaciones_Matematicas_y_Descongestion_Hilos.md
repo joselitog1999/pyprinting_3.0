@@ -189,7 +189,7 @@ La adopción de aceleración por GPU en instrumentación científica exige un es
 1. **Regla del Umbral de Densidad Aritmética (Threshold Rule)**:
    Solo se envían a GPU tensores cuya dimensión espacial supere los $256 \times 256$ elementos o lotes mayores a 100 curvas. Para vectores unidimensionales pequeños (como la lectura de un fotodiodo de 500 puntos en `focus.py`), el cómputo debe permanecer en CPU.
 2. **Invarianza de los Interlocks de Hardware**:
-   Los guardrails de seguridad física (clampeo de voltaje piezoeléctrico a $[0, 10]\,\text{V}$, recorrido $[0, 100]\,\mu\text{m}$ y apagado de obturadores en $<2\,\text{ms}$) **se ejecutan invariablemente en la CPU**. La GPU jamás debe intermediar en la lógica de parada de emergencia.
+   Los guardrails de seguridad física (clampeo de voltaje piezoeléctrico a $[0, 10]\,\text{V}$, recorrido $[0, 100]\,\mu\text{m}$ en X e Y y $[0, 20]\,\mu\text{m}$ en Z, y apagado de obturadores en $<2\,\text{ms}$) **se ejecutan invariablemente en la CPU**. La GPU jamás debe intermediar en la lógica de parada de emergencia.
 3. **Persistencia y Compatibilidad FAIR**:
    Los resultados numéricos generados en GPU deben ser bit a bit consistentes con los estándares IEEE 754 de CPU, garantizando que los contenedores HDF5 (`[[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5]]`) conserven reproducibilidad metrológica universal.
 

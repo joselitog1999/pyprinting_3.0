@@ -59,7 +59,7 @@ Trayectoria del Haz Láser (532 nm / 642 nm / etc.):
    - **Mecanismo**: Láminas opacas biestables con tiempo de apertura/cierre rápido ($\tau \sim 1 - 5\ \text{ms}$).
    - **Objetivo físico**: Interrumpir por completo el flujo de fotones hacia la muestra ($T_{\text{shutter}} \approx 0\%$, densidad óptica $\text{OD} > 6$).
    - **Justificación**: Evitar la ebullición explosiva del solvente coloidal, la fotodegradación irreversible de nanopartículas ya impresas o la irradiación desatendida ante fallos del hilo de la interfaz gráfica.
-   - **Control**: Líneas digitales dedicadas `Dev1/port0/line0:3`.
+   - **Control**: Líneas digitales dedicadas `port0/line11` (532 nm, activo en BAJO), `line8` (637 nm), `line9` (592 nm) y `line10` (808 nm) (`config.SHUTTER_CHANNELS`; corregido en DEC-036, antes decía `line0:3`).
 
 2. **Flipper de Potencia (*Power Flipper*)**:
    - **Mecanismo**: Montura motorizada biestable Thorlabs (modelo MFF101 o equivalente accionado por pulsos de tensión) que inserta o retira un filtro de densidad neutra calibrado ($\text{OD} = 2.0 - 3.0$, atenuación $100\times - 1000\times$).

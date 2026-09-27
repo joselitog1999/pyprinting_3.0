@@ -33,7 +33,7 @@
 Este subsistema combina dos herramientas críticas para la confiabilidad y reproducibilidad experimental de **PyPrinting 3.0**:
 
 1. **Tablero de Seguridad y Conexiones de Hardware (`hardware_dashboard.py` / `core/hardware_manager.py`)**:
-   - Monitoreo en vivo del estado de los dispositivos físicos: Platina PI E-517/E-727, Placa NI-DAQmx PCIe-6323/USB-6343 (`Dev1`), Cámara Canon EOS 500D (EDSDK), Espectrógrafo Andor Shamrock SR-303i, Cámara Andor CCD (Espectroscopía), Relés de Obturadores TTL y Flipper Motorizado.
+   - Monitoreo en vivo del estado de los dispositivos físicos: Platina PI P-517.3CD con controlador E-517, Placa NI-DAQmx PCIe-6353 (`Dev1`), Cámara Canon EOS 500D (EDSDK), Espectrógrafo Andor Shamrock SR-500i, Cámara Andor CCD (Espectroscopía), Relés de Obturadores TTL y Flipper Motorizado.
    - **Perfiles de Inicialización por Defecto**: Aislamiento selectivo de hardware por aplicación para evitar sobrecarga de bus USB y bloqueos de puertos.
    - **Aislamiento por Software (*Soft Mock Isolation*)**: Permite aislar o simular individualmente cualquier subsistema sin reiniciar la aplicación ni afectar a los demás dispositivos.
    - **Detección Rigurosa de Hardware vs. Mocks**: Eliminación total de falsos positivos `Conectado` mediante re-inspección forzada en el bus y liberación de handles DLL colgados.
@@ -57,8 +57,8 @@ Este subsistema combina dos herramientas críticas para la confiabilidad y repro
 │  [🟢 ONLINE]  Platina Piezoeléctrica PI E-517 (USB '0119048050')                      │
 │               Posición: (+25.400, +30.120, +15.000) µm  |  [X] Aislar  [ 🔌 Desconectar]│
 │                                                                                        │
-│  [🟢 ONLINE]  Tarjeta NI-DAQmx PCIe-6323 / USB-6343 (Dev1)                             │
-│               Canales AI: 0..3  |  AO: 0..2  |  DO: port0/line0:7  |  [X] Aislar       │
+│  [🟢 ONLINE]  Tarjeta NI-DAQmx PCIe-6353 (Dev1)                                        │
+│               Canales AI: 0..6  |  AO: 0..1  |  DO: port0/line7:11  |  [X] Aislar      │
 │                                                                                        │
 │  [🔴 OFFLINE] Cámara Réflex Canon EOS 500D (EDSDK)                                     │
 │               Detalle: Desconectado por perfil por defecto (Disponible bajo demanda)    │

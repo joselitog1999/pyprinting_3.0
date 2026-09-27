@@ -17,7 +17,7 @@ Hardware control code interfaces with real, physical instruments. Software delay
 
 ### Step 1: Interface & Channel Mapping
 1. Identify all physical channels used in the routine:
-   * Digital I/O (e.g., `Dev1/port0/line0:3` for Uniblitz shutters).
+   * Digital I/O (e.g., `Dev1/port0/line8`–`line11` for the laser shutters, with 532 nm on `line11` active-LOW — `config.SHUTTER_CHANNELS` / `SHUTTER_POLARITY`).
    * Analog Output (e.g., `Dev1/ao0`, `ao1` for flippers).
    * Analog Input (e.g., `Dev1/ai0` for photodiode capture).
    * Serial / COM ports (e.g., PI E-517 controller, laser diode SCPI).
@@ -32,7 +32,7 @@ Hardware control code interfaces with real, physical instruments. Software delay
 
 ### Step 3: Safety Interlocks & Watchdog Auditing
 1. Confirm fail-safe defaults:
-   * In the event of an unhandled Python exception, do digital lines drop to 0V (shutter closed)?
+   * In the event of an unhandled Python exception, is `core/safety_excepthook.py` installed in that entry point, so every shutter is written to its **closed** state at its own polarity? Never read "line at 0 V" as "closed": the 532 nm shutter (`line11`) is active-LOW, so 0 V means **open**, and an undriven line falls to 0 V through the PCIe-6353 pull-down (`BANCO-16`).
    * Is the `ShutterWatchdog` thread armed, and does every shutter-holding loop renew `heartbeat_shutter()` per iteration within the 30 s default deadline (`core/nidaq.py::_default_timeout_s`)?
 2. Verify boundary checks on physical stages:
    * Are piezo axes clamped to $0.0 \le X,Y,Z \le 100.0\ \mu\text{m}$?
@@ -51,7 +51,7 @@ Hardware control code interfaces with real, physical instruments. Software delay
 
 ## 1. Hardware Interface Summary
 * **Subsystem**: [e.g., Photothermal Printing Shutter Engine]
-* **DAQ Channels**: `Dev1/port0/line0` (TTL Digital Out)
+* **DAQ Channels**: `Dev1/port0/line8` (TTL Digital Out, 637 nm shutter, active-HIGH — state each line's polarity; 532 nm on `line11` is active-LOW)
 * **Serial Interfaces**: COM3 (PI E-517, 115200 baud)
 
 ## 2. Timing & Concurrency Verification

@@ -37,8 +37,9 @@ In accordance with the Guide to the Expression of Uncertainty in Measurement (IS
 4. Apply coverage factor $k$ (typically $k=2$ for $95.45\%$ coverage) to obtain expanded uncertainty $U = k \cdot u_c(y)$.
 
 ### Step 4: Physical Limits & Lower Bounds
-1. In optical localization, verify that reported positioning precision does not violate the Cramér-Rao Lower Bound (CRLB) given the measured photon count $N$ and background noise $b$:
-   $$\sigma_{\text{CRLB}} = \sqrt{\frac{\sigma_{\text{PSF}}^2}{N} \left(1 + \frac{4\tau}{1 + \sqrt{2\tau}}\right)}$$
+1. In optical localization, verify that reported positioning precision does not violate the Cramér-Rao Lower Bound (CRLB) given the measured photon count $N$ and background $b$ (photons per pixel), per Rieger & Stallinga (2014), Eq. 7 (doi:10.1002/cphc.201300711):
+   $$\sigma_{\text{CRLB}} \approx \sqrt{\frac{\sigma_a^2}{N} \left(1 + 4\tau + \sqrt{\frac{2\tau}{1 + 4\tau}}\right)}, \qquad \sigma_a^2 = \sigma_{\text{PSF}}^2 + \frac{a^2}{12}, \qquad \tau = \frac{2\pi b\, \sigma_a^2}{N a^2}$$
+   with $a$ the pixel size. For EMCCD data (iXon3) multiply the variance by $F^2 = 2$, unless $N$ came from a mean–variance gain calibration, which already absorbs that factor (Rieger & Stallinga 2014 §2.1).
 2. In spectral calibration, check residual root-mean-square error (RMSE) against the spectrometer slit resolution limit.
 
 ---

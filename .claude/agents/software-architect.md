@@ -57,7 +57,7 @@ You are the **Lead Software Architect** for PyPrinting 3.0. Your mission is to e
 * **Sept 14 Monolithic Modularization Trauma**: never attempt a "Big Bang Refactor" on multi-thousand-line god nodes — an aggressive extraction once broke double-Gaussian fits and the image exporter, forcing an emergency rollback. Use the Strangler Fig pattern with numerical parity tests (`assert_allclose`) before deprecating legacy code.
 * **`Reset All` Event Freezes**: never destructively overwrite state wired to `pyqtSignal` listeners — `blockSignals(True)` on dependent spinboxes before bulk resets to avoid recursive callback cascades.
 * **Canon EDSDK Video Buffer Crashes**: reallocating frame buffers mid-stream crashes on fullscreen/zoom toggles — stream into preallocated static RAM buffers (see `instrumentation.md` §5 for the fixed-size-stream + reentrant-lock pattern).
-* **Dual Laser Control Handles**: from `main.py` or an individual microscope window, initialize analog DAC channels (`ao0`/`ao1`) independently from digital shutter lines (`port0/line0:3`).
+* **Dual Laser Control Handles**: from `main.py` or an individual microscope window, initialize analog DAC channels (`ao0`/`ao1`) independently from digital shutter lines (`port0/line8`–`line11`, `config.SHUTTER_CHANNELS`).
 * **Per-Pixel Heavy `emit()` Saturates the GUI Thread (`DEC-013`, confocal step-scan)**: emitting a full 2D image/matrix (`dataSignal.emit(image)`) on every pixel/sample tick floods PyQt6's event queue and stalls the GIL under GC pressure — the exact "chaotic acceleration and braking" users report as instability. Decimate: emit at most once per row, or throttle to a fixed refresh rate decoupled from the acquisition tick. Same root cause as `QTimer(0)` step loops — zero interval has no fixed cadence and races the event loop; always use an explicit period.
 * **Orphaned Timer After Mid-Scan Combo Change (`DEC-013`, `contrapropagante.py` PSF-mode parity)**: if a mode combo (e.g. PSF axis) can change mid-scan and each mode dispatches its own `QTimer`, Stop must resolve the timer/worker that is *actually running*, not the one implied by the combo's current value — else Stop silently fails to halt the platina, or "Next Index" moves the stage with the shutter still open. Disable the combo (`setEnabled(False)`) for the full duration of active acquisition; the only fully robust fix.
 
@@ -90,8 +90,8 @@ Do not re-solve those in individual test files. What follows is what `conftest.p
   to progress at all — a plain assertion after `start_*()` observes nothing. Use the
   `_wait_for_signal(signal, timeout_s)` idiom (`tests/test_growth_kinetics_routine.py` lines
   30-41): a `QEventLoop` quit by the signal, plus a single-shot `QTimer` that also quits it, then
-  disconnect. The timeout is the whole point, for the same reason the `qONT()` poll in
-  `exemplars/hardware_timing_and_safety_gold.md` is bounded: a genuine hang must fail fast instead
+  disconnect. The timeout is the whole point, for the same reason the on-target wait
+  (`config.wait_on_target`) in `exemplars/hardware_timing_and_safety_gold.md` is bounded: a genuine hang must fail fast instead
   of blocking the suite indefinitely.
 * **`QWebEnginePage.toHtml()` is asynchronous (callback-based)** and cannot be read synchronously
   after a navigation call. `HAS_WEBENGINE` is `True` in this environment, so

@@ -120,7 +120,7 @@ graph TD
 | Componente | Instrumento Físico | Función API Python | Acción |
 |---|---|---|---|
 | **Platina Piezoeléctrica** | Physik Instrumente (PI E-517/E-736) | `pi.MOV([1,2,3], [x,y,z])` | Posicionamiento en bucle cerrado 0-100 µm con corrección de tilt. |
-| **Obturadores Láser** | NI-DAQmx Dev1 (Digital I/O `line0:3`) | `open_shutter(laser)` / `close_shutter(laser)` | Pulso TTL de apertura/cierre en < 1 ms con protección por watchdog. |
+| **Obturadores Láser** | NI-DAQmx Dev1 (Digital I/O `port0/line8`–`line11`; 532 nm en `line11`, activo en BAJO) | `open_shutter(laser)` / `close_shutter(laser)` | Pulso TTL de apertura/cierre en < 1 ms con protección por watchdog. |
 | **Power Flipper (Atenuador OD)** | NI-DAQmx Dev1 (Analog Output `ao0`/`ao1`) | `down_flipper()` / `up_flipper()` | Pulso de $5\ \text{V} \times 100\ \text{ms}$ para conmutar filtro de densidad neutra (Low/High Power). |
 | **Flipper Notch 532 nm (Espejo)** | NI-DAQmx Dev1 (Digital Output `port0/line7`) | `flipper_notch532(state)` | Conmutación del espejo rebatible hacia el filtro Notch 532 nm. |
 | **Adquisición Fotodiodo** | NI-DAQmx Dev1 (Analog Input `ai0`/`ai1`) | `grid_trace_detect(data)` | Muestreo continuo de intensidad $I(t)$ e $I_{\text{BS}}(t)$. |

@@ -170,6 +170,11 @@ class HardwareDashboardWidget(QFrame):
                 chk_isolate.setToolTip("Módulo Espectrómetro Inactivo — Pendiente de integración con PySpectrum.")
                 lbl_dev.setStyleSheet("font-weight: bold; color: #6c7086;")
                 lbl_detail.setStyleSheet("color: #6c7086; font-size: 9pt; font-style: italic;")
+            elif dev_name == "NI-DAQmx (Dev1)" and hardware_manager.physical_daq_present():
+                chk_isolate.setEnabled(False)
+                chk_isolate.setToolTip(
+                    "No se puede aislar: hay una placa NI conectada. Con la placa aislada, el cierre de "
+                    "obturadores, el watchdog y el botón de pánico dejarían de actuar sobre ella (DEC-036).")
 
             btn_action.clicked.connect(lambda _, d=dev_name: self._handle_action_button(d))
             chk_isolate.toggled.connect(lambda chk, d=dev_name: hardware_manager.toggle_isolation(d, chk))
@@ -288,6 +293,17 @@ class HardwareDashboardWidget(QFrame):
     def _connect_signals(self):
         hardware_manager.deviceStatusSignal.connect(self._on_device_status_update)
         hardware_manager.hardwareLogSignal.connect(self._on_hardware_log)
+        hardware_manager.isolationChangedSignal.connect(self._on_isolation_changed)
+
+    @pyqtSlot(str, bool)
+    def _on_isolation_changed(self, dev_name: str, isolated: bool):
+        """Refleja el estado REAL del aislamiento: si el backend lo rechazó (DEC-036), la casilla
+        vuelve a desmarcarse sin reenviar la orden."""
+        w = self.dev_widgets.get(dev_name)
+        if w is not None and w["isolate"].isChecked() != isolated:
+            w["isolate"].blockSignals(True)
+            w["isolate"].setChecked(isolated)
+            w["isolate"].blockSignals(False)
 
     def _on_profile_changed(self, idx: int):
         profiles = ["pyprinting", "pyspectrum", "camera", "all"]

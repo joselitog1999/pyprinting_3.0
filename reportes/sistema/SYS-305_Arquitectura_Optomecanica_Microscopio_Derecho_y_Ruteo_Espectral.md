@@ -16,7 +16,7 @@
   - `[[CAT-103_Control_Lazo_Cerrado_Fototermico_y_Sintesis_Dimeros]]`: Síntesis de dímeros guiada por fotodiodo.
   - `[[CAT-107_Cinetica_Captura_Fotodiodo_Time_Volt_Filtro_Nhold]]`: Dinámica de respuesta de obturadores mecánicos y señales analógicas.
 - **Reportes de Sistema Conexos:**
-  - `[[SYS-201_Seguridad_Optica_Watchdog_y_Obturadores]]`: Watchdog activo por latido, enclavamientos y control de obturadores en `line0:3`.
+  - `[[SYS-201_Seguridad_Optica_Watchdog_y_Obturadores]]`: Watchdog activo por latido, enclavamientos y control de obturadores en `port0/line8`–`line11`.
   - `[[SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx]]`: Ciclo de vida DAQmx, pulsos de conmutación del espejo rebatible de potencia.
   - `[[SYS-204_Modulo_Camara_Canon_EDSDK_y_Buffer_RAM]]`: Control nativo de la cámara réflex Canon EOS 500D y Live View.
   - `[[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3]]`: Espectrógrafo Shamrock 500i, detector iXon3 EMCCD y DLLs C.
@@ -152,21 +152,30 @@ La siguiente matriz define la combinación instrumental exacta para los 10 exper
 
 ## 5. 🔌 Integración de Hardware NI-DAQmx, Canales de Fotodiodos y Obturación
 
-La tarjeta de adquisición **National Instruments NI-DAQmx USB-6341 / PCIe-6323 (`Dev1`)** gobierna las señales analógicas y digitales de la estación:
+La tarjeta de adquisición **National Instruments PCIe-6353 (`Dev1`)** (tesis de L. Martínez, §3.4; coincide con las tasas de `config.py`, 1.25 MS/s en un canal y 1.00 MS/s multicanal) gobierna las señales analógicas y digitales de la estación.
 
-### 5.1 Entradas Analógicas (Canales Confocales)
-- **`Dev1/ai0`**: Fotodiodo amplificado Thorlabs PDA100A-EC (Canal Verde 532 nm / iSCAT). Ganancia típica $20\ \text{dB}$ a $40\ \text{dB}$.
-- **`Dev1/ai1`**: Fotodiodo amplificado Thorlabs PDA100A-EC (Canal Rojo 637 nm / Dímeros / PL).
-- **`Dev1/ai2`**: Fotodiodo amplificado Thorlabs PDA100A-EC (Canal Amarillo 592 nm / SERS / Fluorescencia).
-- **`Dev1/ai3`**: Fotodiodo de referencia de potencia del láser divisor de haz (*Beamsplitter Monitor*).
+> [!WARNING]
+> **Corrección 2026-09-27 (`DEC-036`).** La versión anterior de esta sección ubicaba los obturadores en las líneas 0 a 3 del puerto 0 y los flippers en las líneas digitales 4 y 5, y asignaba otros canales a los fotodiodos. Nada de eso coincide con el código. Los canales de abajo salen de `config.py` (`SHUTTER_CHANNELS`, `SHUTTER_POLARITY`, `FLIPPER_*`, `PD_CHANNELS`), y el mapeo físico línea ↔ servo está pendiente de verificar en el banco (`BANCO-15`).
 
-### 5.2 Salidas Digitales (Obturadores y Flippers)
-- **`Dev1/port0/line0`**: Obturador Láser Verde 532 nm (Thorlabs SH05 / Uniblitz).
-- **`Dev1/port0/line1`**: Obturador Láser Rojo 637 nm.
-- **`Dev1/port0/line2`**: Obturador Láser Infrarrojo 808 nm / Amarillo 592 nm.
-- **`Dev1/port0/line3`**: Obturador General de Seguridad / Haz de Transmisión.
-- **`Dev1/port0/line4`**: Conmutador de Espejo Rebatible de Potencia (*Power Flipper*: Low Power / High Power).
-- **`Dev1/port0/line5`**: Conmutador Flipper de Detección (Espectrómetro Shamrock vs Canales Confocales).
+### 5.1 Entradas Analógicas (Fotodiodos, `config.PD_CHANNELS`)
+- **`Dev1/ai0`**: Fotodiodo del canal 532 nm.
+- **`Dev1/ai1`**: Fotodiodo del canal 592 nm.
+- **`Dev1/ai2`**: Fotodiodo del canal 637 nm.
+- **`Dev1/ai3`**: Fotodiodo del canal 808 nm.
+- **`Dev1/ai6`**: Fotodiodo de referencia del divisor de haz (`PD_CHAN_BS`).
+- Las rampas confocales leen además los canales de disparo `ai4` (X) y `ai5` (Y) (`config.TRIGGER_CHANNELS`).
+
+### 5.2 Salidas (Obturadores y Flippers)
+Los obturadores y el flipper de potencia son **servos de dos posiciones con driver propio** (indicación del operador); la placa sólo les entrega el nivel lógico.
+- **`Dev1/port0/line11`**: Obturador 532 nm, **activo en BAJO** (`SHUTTER_POLARITY` = `False`: la línea en BAJO **abre**).
+- **`Dev1/port0/line8`**: Obturador 637 nm (activo en ALTO).
+- **`Dev1/port0/line9`**: Obturador 592 nm (activo en ALTO).
+- **`Dev1/port0/line10`**: Obturador 808 nm (activo en ALTO).
+- **`Dev1/port0/line7`** (`FLIPPER_532_CHAN`, en el código `flipper_notch532`): **no es un filtro notch**; el nombre es un error de notación heredado del legado 1.0 (investigador, 2026-09-27). Por cómo lo usa el legado (`Luminescence_ps.py`, `Growth_ps.py`: se baja para adquirir espectros y se sube al terminar), es el **espejo de detección**: *up* = detección confocal y cámara Canon, *down* = espectrómetro. **[A confirmar por el investigador.]**
+- **`Dev1/ao0`** / **`Dev1/ao1`** (`FLIPPER_AO_UP`, `FLIPPER_AO_DOWN`; `up_flipper` / `down_flipper`): **filtro de densidad** para todos los láseres, que conmuta la potencia (*up* = baja, *down* = alta; legado `Shutters_ps.py:187-189`), por pulsos analógicos y desacoplado de las líneas de los obturadores.
+
+> [!CAUTION]
+> Las líneas digitales del PCIe-6353 tienen un pull-down de 50 kΩ (hoja de datos NI 6353): sin un programa que las maneje (PC encendiéndose, placa reiniciada, proceso terminado a la fuerza) quedan en BAJO, y para el 532 nm, activo en BAJO, eso significa **abierto**. Mientras el proceso vive, el watchdog y el excepthook de seguridad cierran los obturadores; cuando el proceso muere, no. Pendiente de verificar en el banco (`BANCO-16`).
 
 ---
 

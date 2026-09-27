@@ -29,6 +29,8 @@ try:
                             register_watchdog_callback, unregister_watchdog_callback,
                             register_flipper_callback, unregister_flipper_callback,
                             is_flipper_high_power, set_default_shutter_timeout,
+                            register_shutter_fault_callback, unregister_shutter_fault_callback,
+                            get_unconfirmed_shutters,
                             _shutter_signal)
 except ImportError:
     from nidaq   import (open_shutter, close_shutter, close_all_shutters, up_flipper, down_flipper,
@@ -37,6 +39,8 @@ except ImportError:
                          register_watchdog_callback, unregister_watchdog_callback,
                          register_flipper_callback, unregister_flipper_callback,
                          is_flipper_high_power, set_default_shutter_timeout,
+                         register_shutter_fault_callback, unregister_shutter_fault_callback,
+                         get_unconfirmed_shutters,
                          _shutter_signal)
 
 
@@ -53,16 +57,23 @@ class Frontend(QFrame):
     autoclose_timeout_signal = pyqtSignal(object)
     watchdog_triggered_signal = pyqtSignal()
     flipper_hardware_signal  = pyqtSignal(bool)
+    shutter_fault_signal     = pyqtSignal(str, str, bool)   # (obturador, detalle, confirmado)
     closeSignal              = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._unconfirmed: set[str] = set()
         self._setup_gui()
         self._setup_hardware_bridges()
 
     def _setup_hardware_bridges(self):
         self.watchdog_triggered_signal.connect(self._on_watchdog_triggered)
         register_watchdog_callback(self._watchdog_callback_bridge)
+
+        # DEC-036: el callback llega desde el hilo del watchdog o desde el que accionó el
+        # obturador; la señal lo trae al hilo de la GUI.
+        self.shutter_fault_signal.connect(self._on_shutter_fault)
+        register_shutter_fault_callback(self._shutter_fault_bridge)
 
         self.flipper_hardware_signal.connect(self.update_power_ui)
         register_flipper_callback(self._flipper_hardware_bridge)
@@ -85,10 +96,76 @@ class Frontend(QFrame):
         except Exception:
             pass
 
+    def _shutter_fault_bridge(self, name: str, detail: str, confirmed: bool):
+        try:
+            self.shutter_fault_signal.emit(name, detail, confirmed)
+        except Exception:
+            pass
+
+    def _shutter_button(self, name: str):
+        buttons = (self.shutter0button, self.shutter1button, self.shutter2button, self.shutter3button)
+        idx = SHUTTERS.index(name) if name in SHUTTERS else -1
+        return buttons[idx] if 0 <= idx < len(buttons) else None
+
+    @staticmethod
+    def _set_checked_silently(btn, checked: bool):
+        if btn is not None and btn.isChecked() != checked:
+            btn.blockSignals(True)
+            btn.setChecked(checked)
+            btn.blockSignals(False)
+
+    @pyqtSlot(str, str, bool)
+    def _on_shutter_fault(self, name: str, detail: str, confirmed: bool):
+        """Refleja el estado REAL del obturador (DEC-036), no el que se pidió con el clic.
+
+        Un cierre sin confirmar se muestra marcado (tratado como abierto), en rojo, con un
+        banner que persiste hasta que el cierre se confirma. Una apertura fallida o bloqueada
+        desmarca la casilla y explica por qué."""
+        btn = self._shutter_button(name)
+        if confirmed:
+            self._unconfirmed.discard(name)
+            self._set_checked_silently(btn, False)
+            if btn is not None:
+                btn.setStyleSheet(self._default_shutter_styles.get(name, ""))
+            self._last_open_failure = ""
+        elif "cierre" in detail:
+            self._unconfirmed.add(name)
+            self._set_checked_silently(btn, True)
+            if btn is not None:
+                btn.setStyleSheet("color: #f38ba8; font-weight: bold; background-color: rgba(243, 139, 168, 0.18);")
+        else:
+            self._set_checked_silently(btn, False)
+            self._last_open_failure = f"No se abrió {name}: {detail}"
+        self._refresh_fault_banner()
+        self._update_security_status()
+
+    def _refresh_fault_banner(self):
+        pending = [n for n in SHUTTERS if n in self._unconfirmed]
+        if pending:
+            self.lbl_fault_banner.setText(
+                "⚠️ CIERRE SIN CONFIRMAR: " + ", ".join(pending)
+                + " — se tratan como ABIERTOS; el watchdog sigue reintentando el cierre.")
+            self.lbl_fault_banner.setStyleSheet(
+                "color: #11111b; background-color: #f38ba8; font-weight: bold; font-size: 8pt; "
+                "padding: 3px; border-radius: 3px;")
+            self.lbl_fault_banner.setVisible(True)
+        elif getattr(self, "_last_open_failure", ""):
+            self.lbl_fault_banner.setText("⚠️ " + self._last_open_failure)
+            self.lbl_fault_banner.setStyleSheet(
+                "color: #11111b; background-color: #fab387; font-weight: bold; font-size: 8pt; "
+                "padding: 3px; border-radius: 3px;")
+            self.lbl_fault_banner.setVisible(True)
+        else:
+            self.lbl_fault_banner.setVisible(False)
+
     @pyqtSlot()
     def _on_watchdog_triggered(self):
-        """Sincroniza la UI cuando el watchdog de hardware fuerza el cierre de obturadores."""
-        for btn in (self.shutter0button, self.shutter1button, self.shutter2button, self.shutter3button):
+        """Sincroniza la UI cuando el watchdog de hardware fuerza el cierre de obturadores. Un
+        obturador cuyo cierre no se confirmó sigue marcado (se trata como abierto, DEC-036)."""
+        for name, btn in zip(SHUTTERS, (self.shutter0button, self.shutter1button,
+                                        self.shutter2button, self.shutter3button)):
+            if name in self._unconfirmed:
+                continue
             if btn is not None and btn.isChecked():
                 btn.blockSignals(True)
                 btn.setChecked(False)
@@ -373,6 +450,19 @@ class Frontend(QFrame):
         self.lbl_security_status.setStyleSheet("color: #a6adc8; font-size: 8pt;")
         sec_layout.addWidget(self.lbl_security_status)
 
+        # DEC-036: banner persistente de obturadores sin confirmar / aperturas rechazadas.
+        self.lbl_fault_banner = QLabel("")
+        self.lbl_fault_banner.setWordWrap(True)
+        self.lbl_fault_banner.setVisible(False)
+        sec_layout.addWidget(self.lbl_fault_banner)
+        self._default_shutter_styles = {
+            name: btn.styleSheet()
+            for name, btn in zip(SHUTTERS, (self.shutter0button, self.shutter1button,
+                                            self.shutter2button, self.shutter3button))
+            if btn is not None
+        }
+        self._last_open_failure = ""
+
         main_layout.addWidget(sec_box)
 
     def set_actuators_enabled(self, enabled: bool):
@@ -391,6 +481,7 @@ class Frontend(QFrame):
             self._status_timer.stop()
         unregister_watchdog_callback(self._watchdog_callback_bridge)
         unregister_flipper_callback(self._flipper_hardware_bridge)
+        unregister_shutter_fault_callback(self._shutter_fault_bridge)
         self.closeSignal.emit()
         super().closeEvent(event)
 

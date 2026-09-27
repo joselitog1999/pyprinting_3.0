@@ -37,6 +37,7 @@ os.environ["PYPRINTING_SAFE"] = "1"
 # Ver conftest.py: config debe importarse antes que PyQt6 en este entorno.
 import config  # noqa: F401
 import numpy as np
+import pytest
 import modules.confocal as confocal_mod
 import contrapropagante as cp_mod
 
@@ -120,7 +121,7 @@ def test_scan_ramp_xy_confirms_settle_before_ramp_and_uses_bare_heartbeat(app, m
 
     settle_calls = []
     monkeypatch.setattr(backend, "_wait_axis_settle",
-                         lambda axes, timeout_s=0.05: settle_calls.append(axes))
+                         lambda axes, timeout_s=0.05: settle_calls.append(axes) or True)
     monkeypatch.setattr(backend, "_ramp_x_line", lambda: (np.ones(30), np.ones(30)))
 
     hb_calls = []
@@ -146,7 +147,7 @@ def test_scan_ramp_xy_tilt_correction_settles_both_axes(app, monkeypatch):
 
     settle_calls = []
     monkeypatch.setattr(backend, "_wait_axis_settle",
-                         lambda axes, timeout_s=0.05: settle_calls.append(axes))
+                         lambda axes, timeout_s=0.05: settle_calls.append(axes) or True)
     monkeypatch.setattr(backend, "_ramp_x_line", lambda: (np.ones(30), np.ones(30)))
     monkeypatch.setattr(confocal_mod, "heartbeat_shutter", lambda *a, **k: None)
 
@@ -169,7 +170,7 @@ def test_contraprop_scan_ramp_xy_confirms_settle_and_bare_heartbeat(app, monkeyp
 
     settle_calls = []
     monkeypatch.setattr(backend, "_wait_axis_settle",
-                         lambda axes, timeout_s=0.05: settle_calls.append(axes))
+                         lambda axes, timeout_s=0.05: settle_calls.append(axes) or True)
 
     hb_calls = []
     monkeypatch.setattr(cp_mod, "heartbeat_shutter", lambda *a, **k: hb_calls.append((a, k)))
@@ -221,7 +222,7 @@ def test_start_scan_dispatches_to_correct_timer_and_configure_per_psf_mode(app, 
 def test_scan_ramp_xz_moves_z_and_settles_z_axis(app, monkeypatch):
     backend = _prepared_dual_backend()
     settle_calls = []
-    monkeypatch.setattr(backend, "_wait_axis_settle", lambda axes, timeout_s=0.05: settle_calls.append(axes))
+    monkeypatch.setattr(backend, "_wait_axis_settle", lambda axes, timeout_s=0.05: settle_calls.append(axes) or True)
     hb_calls = []
     monkeypatch.setattr(cp_mod, "heartbeat_shutter", lambda *a, **k: hb_calls.append(True))
 
@@ -236,7 +237,7 @@ def test_scan_ramp_xz_moves_z_and_settles_z_axis(app, monkeypatch):
 def test_scan_ramp_yx_moves_x_and_stores_by_column(app, monkeypatch):
     backend = _prepared_dual_backend()
     settle_calls = []
-    monkeypatch.setattr(backend, "_wait_axis_settle", lambda axes, timeout_s=0.05: settle_calls.append(axes))
+    monkeypatch.setattr(backend, "_wait_axis_settle", lambda axes, timeout_s=0.05: settle_calls.append(axes) or True)
 
     backend._scan_ramp_yx()
 
@@ -249,7 +250,7 @@ def test_scan_ramp_yx_moves_x_and_stores_by_column(app, monkeypatch):
 def test_scan_ramp_yz_moves_z_and_settles_z_axis(app, monkeypatch):
     backend = _prepared_dual_backend()
     settle_calls = []
-    monkeypatch.setattr(backend, "_wait_axis_settle", lambda axes, timeout_s=0.05: settle_calls.append(axes))
+    monkeypatch.setattr(backend, "_wait_axis_settle", lambda axes, timeout_s=0.05: settle_calls.append(axes) or True)
 
     backend._scan_ramp_yz()
 
@@ -289,3 +290,69 @@ def test_all_four_ramp_modes_run_to_completion_without_error(app, monkeypatch):
 
         assert finished == [True], f"Modo {mode} no emitió scanfinishedSignal al completar"
         assert not getattr(backend, timer_attr).isActive()
+
+
+# ── DEC-036 — la platina en falla aborta el escaneo; una demora con la platina sana, no ──
+
+class _FaultyStage:
+    """Platina real (no mock) que dejó de estar conectada y no fue aislada por el operador."""
+    is_mock = False
+    connected = False
+    _isolated = False
+
+
+class _SlowHealthyStage:
+    is_mock = False
+    connected = True
+    _isolated = False
+
+
+@pytest.mark.parametrize("mod_name,factory", [
+    ("confocal", lambda: confocal_mod.Backend()),
+    ("contrapropagante", lambda: cp_mod.ConfocalDualBackend()),
+])
+def test_wait_axis_settle_aborts_the_scan_on_stage_fault(app, monkeypatch, mod_name, factory):
+    mod = confocal_mod if mod_name == "confocal" else cp_mod
+    backend = factory()
+    closes = []
+    monkeypatch.setattr(mod, "wait_on_target", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "pi", _FaultyStage())
+    monkeypatch.setattr(mod, "close_all_shutters", lambda: closes.append(1) or True)
+    backend.signal_scan_stop = False
+    assert backend._wait_axis_settle(2) is False, "Con la platina en falla el llamador debe retornar"
+    assert closes == [1], "Se cierran los obturadores"
+    assert backend.signal_scan_stop is True, "El escaneo queda detenido"
+
+
+@pytest.mark.parametrize("mod_name,factory", [
+    ("confocal", lambda: confocal_mod.Backend()),
+    ("contrapropagante", lambda: cp_mod.ConfocalDualBackend()),
+])
+def test_wait_axis_settle_tolerates_a_slow_but_healthy_stage(app, monkeypatch, mod_name, factory):
+    mod = confocal_mod if mod_name == "confocal" else cp_mod
+    backend = factory()
+    closes = []
+    monkeypatch.setattr(mod, "wait_on_target", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "pi", _SlowHealthyStage())
+    monkeypatch.setattr(mod, "close_all_shutters", lambda: closes.append(1) or True)
+    backend.signal_scan_stop = False
+    assert backend._wait_axis_settle(2) is True
+    assert closes == [] and backend.signal_scan_stop is False
+
+
+def test_scan_row_is_not_acquired_when_the_stage_fails(app, monkeypatch):
+    backend = confocal_mod.Backend()
+    backend._scan_ramp_parameters([2, 2, 3, 3])
+    backend.i = 0
+    backend.image_gone = np.zeros((3, 3))
+    backend.image_back = np.zeros((3, 3))
+    backend.image = np.zeros((3, 3))
+    backend.tic = time.time()
+    backend.tilt_correction_enabled = False
+    ramps = []
+    monkeypatch.setattr(backend, "_wait_axis_settle", lambda axes, timeout_s=0.05: False)
+    monkeypatch.setattr(backend, "_ramp_x_line", lambda: ramps.append(1) or (np.ones(30), np.ones(30)))
+    monkeypatch.setattr(confocal_mod, "heartbeat_shutter", lambda *a, **k: None)
+    backend._scan_ramp_xy()
+    assert ramps == [], "Sin asentamiento confirmado por falla no se dispara la rampa"
+    assert backend.i == 0

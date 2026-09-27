@@ -146,7 +146,7 @@ Esta vertiente documenta la ingeniería de software, arquitectura de hilos, gest
 
 | Signatura | Eje | Documento / Reporte Técnico | Enfoque de Ingeniería y Hardware | Enlace Directo |
 |:---:|:---:|---|---|---|
-| `SYS-201` | `[SEG]` | **Seguridad Óptica Activa, Watchdog y Obturadores** | Fail-safe activo con latido (*heartbeat*), conmutación de obturadores en NI-DAQmx (`line0:3`), interlocks y parada de emergencia. | [[SYS-201_Seguridad_Optica_Watchdog_y_Obturadores]] |
+| `SYS-201` | `[SEG]` | **Seguridad Óptica Activa, Watchdog y Obturadores** | Fail-safe activo con latido (*heartbeat*), conmutación de obturadores en NI-DAQmx (`line8`–`line11`), interlocks y parada de emergencia. | [[SYS-201_Seguridad_Optica_Watchdog_y_Obturadores]] |
 | `SYS-202` | `[INS]` | **Actuación de Flipper de Potencia y Ciclo DAQmx** | Ciclo de vida de tareas en NI-DAQmx C-API, generación de pulsos de 5V, supresión de tareas zombi y cleanup de hardware. | [[SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx]] |
 | `SYS-203` | `[INS]` | **Control de Fuentes Láser, Protocolos RS-232/SCPI** | Comunicación serie y USB-VCP con láseres Spectra-Physics Excelsior, Coherent OBIS y MPBC, control analógico y modulación. | [[SYS-203_Control_Comunicaciones_Laseres_RS232_SCPI]] |
 | `SYS-204` | `[INS]` | **Controlador Canon EDSDK, Simulación EVF y RAM** | Wrapper ctypes para Canon EDSDK 13.20, modo EVF sin ruido de ganancia, descarga en memoria RAM y Picture-in-Picture (PiP). | [[SYS-204_Modulo_Camara_Canon_EDSDK_y_Buffer_RAM]] |
@@ -161,7 +161,7 @@ Esta vertiente documenta la ingeniería de software, arquitectura de hilos, gest
 | `SYS-302` | `[CAL]` | **Calibración Espectral Shamrock y Flippers Reactivos** | Ajuste Gaussiano sub-píxel de rendija en orden cero ($m=0$), offsets Shamrock SDK, reactividad flipper Qt y *Step & Glue*. | [[SYS-302_Calibracion_Espectral_y_Sincronizacion_Flippers]] |
 | `SYS-303` | `[PRT]` | **Protocolo Metrológico de Calibración de Espectrógrafo** | Protocolo SOP multi-fase (0 a 6): lámparas Ne/Ar, fonón de silicio Si-100 a $520.50\,\text{cm}^{-1}$, corrección radiométrica NIST y archivo persistente. | [[SYS-303_Protocolo_Metrologico_Calibracion_Espectrometro]] |
 | `SYS-304` | `[DAT]` | **Arquitectura Analizador SIF, Filtros 2D y Ergonomía** | Ingeniería inversa del formato binario `.sif` de Andor Solis, pipeline de filtrado en cascada 2D $\to$ 1D, noise gate y toolbars compactas. | [[SYS-304_Arquitectura_Analizador_SIF_y_Filtros_Cascada]] |
-| `SYS-305` | `[INS]` | **Arquitectura Optomecánica del Microscopio y Ruteo** | Trazado físico del banco, torreta de 5 objetivos, conmutador flipper hacia Shamrock/confocal, líneas DAQmx (`ai0:2`, `line0:3`) y matriz para 10 experimentos. | [[SYS-305_Arquitectura_Optomecanica_Microscopio_Derecho_y_Ruteo_Espectral]] |
+| `SYS-305` | `[INS]` | **Arquitectura Optomecánica del Microscopio y Ruteo** | Trazado físico del banco, torreta de 5 objetivos, conmutador flipper hacia Shamrock/confocal, líneas DAQmx (`ai0:2`, `line8`–`line11`) y matriz para 10 experimentos. | [[SYS-305_Arquitectura_Optomecanica_Microscopio_Derecho_y_Ruteo_Espectral]] |
 | `SYS-306` | `[DAT]` | **Arquitectura del Motor Raman y Quimiometría Multiespectral** | Arquitectura de `core/raman_engine.py` y `analysis/multi_spectrum_widget.py`, desespicado MAD, AsLS/AirPLS/ModPoly y PCA SVD. | [[SYS-306_Arquitectura_Motor_Raman_y_Quimiometria_Multiespectral]] |
 
 ---

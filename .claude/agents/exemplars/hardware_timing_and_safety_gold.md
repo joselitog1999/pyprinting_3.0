@@ -6,22 +6,23 @@ Referenced by `instrumentation.md`, `software-architect.md`. Match this structur
 ```
 MOVE → SETTLE (bounded poll) → ACQUIRE → DECIMATE-EMIT → (row end: FLYBACK-MOVE → DAMPING PAUSE) → repeat
 ```
-Each stage exists because skipping it reproduces a real post-mortem in this lab (`DEC-002`, `DEC-003`, `DEC-013`, `DEC-014`).
+Each stage exists because skipping it reproduces a real post-mortem in this lab (`DEC-002`, `DEC-011`, `DEC-013`, `DEC-014`, `DEC-036`).
 
 ## Reference Implementation (schematic)
 ```python
-def _scan_axis(self, positions, timeout_s=5.0):
-    for i, target in enumerate(positions):
-        # 1. MOVE — never skip clamping, even for "small" relative steps
-        pi.MOV(axis, clamp(target, 0.0, PI_STAGE_RANGE_UM))
+from config import pi, clamp_axis_um, wait_on_target
+from core.nidaq import heartbeat_shutter, close_all_shutters
 
-        # 2. SETTLE — bounded poll, never `while True`, never a blind sleep
-        t0 = time.monotonic()
-        while not pi.qONT(axis):
-            if time.monotonic() - t0 > timeout_s:
-                raise TimeoutError(f"Axis {axis} did not settle within {timeout_s}s")
-            heartbeat_shutter()          # renew watchdog EVERY iteration, not once per node
-            time.sleep(0.003)             # >=3ms physical settle floor
+def _scan_axis(self, axis, positions, timeout_s=5.0):
+    for i, target in enumerate(positions):
+        # 1. MOVE — never skip clamping, even for "small" relative steps (per axis: Z is 20 µm)
+        pi.MOV(axis, clamp_axis_um(axis, target))
+
+        # 2. SETTLE — bounded, confirmed by the closed loop; heartbeat on EVERY poll
+        if not wait_on_target(axis, timeout_s=timeout_s, poll_s=0.003, on_tick=heartbeat_shutter):
+            close_all_shutters()          # no confirmed arrival: never acquire, never continue
+            self._abort(f"Axis {axis} did not confirm on-target within {timeout_s}s")
+            return
 
         # 3. ACQUIRE
         sample = read_photodiode()
@@ -40,8 +41,9 @@ def _scan_axis(self, positions, timeout_s=5.0):
 ## Why Each Line Is There (map to post-mortems)
 | Line | Failure it prevents | Source |
 |---|---|---|
-| `clamp(target, 0, 100)` inside `MOV` | Roundoff/tilt-compensation drift pushes the controller past physical limits | `instrumentation.md` §3.1 |
-| Bounded `qONT()` poll with `timeout_s` | Unbounded poll hangs the whole worker forever on a stalled servo | `DEC-013` (`ANOM-FOCUS-03`), `DEC-014` |
+| `clamp_axis_um(axis, target)` (also inside `MOV`) | Roundoff/tilt-compensation drift pushes the controller past physical limits; Z travel is 20 µm, not 100 µm | `instrumentation.md` §3.1, `DEC-036` |
+| `wait_on_target(...)` instead of a hand-written `qONT()` loop | Unbounded poll hangs the whole worker forever on a stalled servo; `pi.qONT()` returns a **dict**, so `while not pi.qONT(axis)` never waits at all; a read failure used to be reported as on-target | `DEC-013` (`ANOM-FOCUS-03`), `DEC-014`, `DEC-036` |
+| On `False`: close shutters and abort, never re-home or reconnect | Continuing after an unconfirmed arrival acquires at the wrong place with the laser open; an automatic reconnect homes the stage mid-routine | `DEC-036` |
 | `heartbeat_shutter()` **inside** the settle loop | A single call per node is not enough — a slow settle or long exposure alone can exceed the 30s watchdog deadline | `DEC-002`, `DEC-013` |
 | Decimated `emit()` | Emitting a full frame/row every tick floods the Qt event queue and produces GC-pressure stutter, read by users as "the program hangs" | `DEC-013` |
 | Flyback `MOV` **before** the damping `sleep` | A pause placed before the flyback move settles the *previous* pixel, not the flyback destination — the next trigger then fires mid-flight | `DEC-013` |

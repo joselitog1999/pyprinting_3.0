@@ -20,7 +20,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer, QEventLoop
 import pyqtgraph as pg
 
-from config import SHUTTERS, PI_STAGE_RANGE_UM
+from config import SHUTTERS, PI_STAGE_RANGE_UM, PI_Z_RANGE_UM
 from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
@@ -163,7 +163,7 @@ class DimersWidget(QtWidgets.QDialog):
         self.spin_dy_grid = QtWidgets.QDoubleSpinBox(); self.spin_dy_grid.setRange(0.01, 1000.0); self.spin_dy_grid.setValue(3.0); self.spin_dy_grid.setSuffix(" µm")
         self.spin_x0 = QtWidgets.QDoubleSpinBox(); self.spin_x0.setRange(0.0, PI_STAGE_RANGE_UM); self.spin_x0.setSuffix(" µm")
         self.spin_y0 = QtWidgets.QDoubleSpinBox(); self.spin_y0.setRange(0.0, PI_STAGE_RANGE_UM); self.spin_y0.setSuffix(" µm")
-        self.spin_z0 = QtWidgets.QDoubleSpinBox(); self.spin_z0.setRange(0.0, PI_STAGE_RANGE_UM); self.spin_z0.setSuffix(" µm")
+        self.spin_z0 = QtWidgets.QDoubleSpinBox(); self.spin_z0.setRange(0.0, PI_Z_RANGE_UM); self.spin_z0.setSuffix(" µm")
 
         grid_gen.addWidget(QtWidgets.QLabel("Filas (N):"), 0, 0); grid_gen.addWidget(self.spin_rows, 0, 1)
         grid_gen.addWidget(QtWidgets.QLabel("Columnas (M):"), 1, 0); grid_gen.addWidget(self.spin_cols, 1, 1)

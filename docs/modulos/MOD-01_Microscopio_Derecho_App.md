@@ -41,7 +41,7 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 - **Escaneo Confocal 2D/3D por Fotodiodos**: Barrido piezoeléctrico continuo con rampa triangular y adquisición sincronizada NI-DAQmx.
 - **Adquisición de Trazas Fototérmicas a $10\ \text{kHz}$**: Monitoreo continuo de fotodiodo con cálculo de espectro FFT en tiempo real y potencia de referencia *Beam Splitter* (BS).
 - **Autofoco Axial Z Automático**: Algoritmo de correlación cuadrática en ventana axial de $2\ \mu\text{m}$.
-- **Control de Nanoposicionamiento PI**: Control de la platina piezoeléctrica cerrada PI E-517 / E-736 ($100 \times 100 \times 100\ \mu\text{m}$).
+- **Control de Nanoposicionamiento PI**: Control de la platina piezoeléctrica de lazo cerrado PI P-517.3CD con controlador E-517 ($100 \times 100 \times 20\ \mu\text{m}$: X e Y hasta 100 µm, Z hasta 20 µm; `config.PI_AXIS_RANGE_UM`).
 - **Obturadores TTL y Flipper Motorizado**: Manejo de láseres de 532 nm, 637 nm y 592 nm.
 
 ---
@@ -123,7 +123,7 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 ### Dock Shutters / Flipper (Seguridad Óptica & Modo Alineación)
 | Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
 |---|---|---|---|
-| `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line0:3` gestionados con matriz de polaridades (532 nm invertido en relé). |
+| `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line11` (532 nm, activo en BAJO), `line8`, `line9` y `line10`, gestionados con matriz de polaridades (`config.SHUTTER_CHANNELS` / `SHUTTER_POLARITY`, DEC-036). |
 | `Power Flipper` | `QCheckBox` | `Low / High power` | Actuador biestable que conmuta el filtro de densidad neutra (atenuador OD) con pulsos de $5\ \text{V} \times 100\ \text{ms}$ en `Dev1/ao0`/`ao1`. Conectado a `clicked` para interacción de usuario, desacoplado del watchdog de obturadores y con auto-recuperación de tareas zombi DAQ. |
 | `Notch 532 Flipper` | `QCheckBox` | `Mirror Up / Down` | Inserta o retira el espejo de desviación hacia el filtro Notch de 532 nm vía `Dev1/port0/line7` (`set_notch532`). |
 | `Auto-cierre Check` | `QCheckBox` | `True / False` | Habilita o inhabilita el temporizador de auto-apagado de seguridad. |
@@ -135,7 +135,7 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 | Control / Botón | Tipo de Widget | Valores / Rango | Descripción Técnica |
 |---|---|---|---|
 | `Régimen de Coordenadas` | `QComboBox` | `Legacy`, `Laser Ref`, `Sample Ref` | Selector global que adapta reactivamente todas las etiquetas (`X`, `Y (Vert)`, `Y (Muestra)`), ejes de gráficos y reportes, manteniendo 100% invariante la actuación física del hardware PI. |
-| `Ejes (Go To / Read)` | `QDoubleSpinBox` / `QLabel` | $0.000 - 100.000\ \mu\text{m}$ | Visualización continua (`pi.qPOS()`) y comando de coordenadas piezoeléctricas. Las etiquetas de los Ejes 1, 2 y 3 se adaptan dinámicamente con tooltips informativos de dirección de movimiento. |
+| `Ejes (Go To / Read)` | `QDoubleSpinBox` / `QLabel` | X, Y: $0.000 - 100.000\ \mu\text{m}$; Z: $0.000 - 20.000\ \mu\text{m}$ | Visualización continua (`pi.qPOS()`) y comando de coordenadas piezoeléctricas. Las etiquetas de los Ejes 1, 2 y 3 se adaptan dinámicamente con tooltips informativos de dirección de movimiento. |
 | `Botones de Paso` | `QPushButton` | $\pm 0.1$, $\pm 1.0$, $\pm 10.0\ \mu\text{m}$ | Incrementos relativos discretos sobre los ejes de la platina. |
 | `Navegación con Flechas`| Teclado | $\uparrow, \downarrow, \leftarrow, \rightarrow, \text{PgUp}, \text{PgDn}$ | Permite mover la platina paso a paso de a 1 unidad ($\pm \text{Step X-Y}$ o $\pm \text{Step Z}$) con el teclado al enfocar el dock. |
 | `Set Reference` | `QPushButton` | Origen $P_0$ | Fija las coordenadas actuales como origen de referencia experimental. |

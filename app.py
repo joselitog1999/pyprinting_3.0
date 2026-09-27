@@ -662,6 +662,9 @@ def create_app_satellite(parent=None):
 
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
+    # DEC-036: sin esto, una excepción en un slot aborta el proceso sin cerrar los obturadores.
+    from core.safety_excepthook import install_safety_excepthook
+    install_safety_excepthook()
     if not QApplication.instance():
         app = QApplication(sys.argv); open_terminal = True
     else:

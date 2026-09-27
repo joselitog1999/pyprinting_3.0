@@ -1,0 +1,246 @@
+# Respuestas del investigador a la auditoría
+
+**Fuente:** investigador responsable del laboratorio, 2026-09-27. Son información de primera mano sobre el banco y el protocolo de INS-UNSAM y **prevalecen sobre `CONSOLIDADO.md`** donde lo contradigan. Cada punto indica qué hallazgos cambia. Lo marcado **[A CONFIRMAR]** es una interpretación nuestra que todavía no validó el investigador.
+
+## 1. Placa NI y conexionado
+
+- **Dato:** el manual de la placa está en `docs/bibliografia/` (`BNC-2110.pdf`); hay **dos BNC-2110 acopladas**.
+- **Implica:** la regleta no es una SCB-68 (L2 202-11).
+  - **[A CONFIRMAR]** El PCIe-6353 tiene dos conectores de 68 pines, y P0.8–P0.11 (los obturadores) están en el conector 1 (L2 202-01). Entonces cada BNC-2110 cubriría un conector, y los obturadores irían en la segunda.
+
+## 2. Ruteo óptico y actuadores
+
+- **Dato — espejo de detección:** el espejo up/down conmuta la detección.
+  - **up**: detección confocal y cámara Canon.
+  - **down**: espectrómetro.
+- **Dato — filtro de densidad:** lo que figura como "flipper notch 532" es un **error de notación de la versión legacy 1.0**. Es un filtro de densidad para **todos** los láseres que conmuta la potencia entre alta y baja (escaneos confocales, autofoco, etc.). El recorrido del objetivo al espectrómetro, pasando por un beamsplitter, está descrito en algún reporte.
+- **Mapeo a canales — CONFIRMADO.** El legado de PyPrinting rotula `line7` como "Mirror" y comenta "#Ahora es un espejo" (`printing2/Shutters_pp.py:63`). La segunda ronda (R2-4) fija el sentido: el espectrómetro sólo recibe luz con el espejo abajo. El mapeo, deducido primero del código legacy de PySpectrum:
+  - **`Dev1/ao0` / `ao1`** (`upFlipper` / `downFlipper`; en 3.0, `up_flipper` / `down_flipper`) es el **filtro de densidad**: `down` = potencia alta, `up` = potencia baja. Así lo dice el comentario de `scratch/pyspectrum-legacy/Shutters_ps.py:187-189`, y así lo usa `modules/measurements.py` al imprimir (alta para la traza, baja para escaneos y autofoco).
+  - **`Dev1/port0/line7`** ("Flipper Notch 532"; en 3.0, `flipper_notch532`) es el **espejo de detección**: `Luminescence_ps.py` y `Growth_ps.py` lo bajan al adquirir espectros y lo suben al terminar.
+- **Implica, si se confirma:**
+  - "Notch 532" es un nombre equivocado en `core/nidaq.py`, `core/shutters.py`, `luminescence.py`, `lab-invariants.md`, `SYS-305` §5.2 (redactada el 2026-09-27 con ese nombre), CAT-251, MANUAL y SYS-202.
+  - La premisa de C-08 ("el filtro protege al EMCCD de la línea Rayleigh") no aplica. Sí sigue en pie que el estado del actuador vive sólo en memoria y nadie comanda su posición al arrancar.
+
+## 3. Protocolo de sustrato
+
+- **Dato:** el protocolo actual es **PDDA / PSS**.
+- **Implica:**
+  - Se confirma S-4: las menciones de APTES como protocolo del laboratorio son incorrectas (CAT-110, MOD-14, CAT-100, `lab-invariants` §6 y los prompts de `physicist`, `colloidal-chemist` y `experimentalist`).
+  - Sigue abierto si se conserva la limpieza Piranha.
+
+## 4. Fuerza iónica
+
+- **Dato:** la fuerza iónica de trabajo varía entre **0.5 y 1.5 mM**.
+- **Implica:** la longitud de Debye va de ≈ 13.6 nm a ≈ 7.9 nm. Se calculó para un electrolito 1:1 a 25 °C con κ⁻¹ = 0.304 nm / √I[M] (Israelachvili, *Intermolecular and Surface Forces*); en el medio del rango, 1.0 mM da ≈ 9.6 nm.
+  - El valor "0.75 mM / 11 nm" de `lab-invariants` cae **dentro** del rango: no es falso, pero debe expresarse como rango y no como valor único.
+  - El 1.5 mM de Gargiulo es el extremo superior.
+
+## 5. Richardson-Lucy antes de Picasso
+
+- **Dato:** **permitido, con advertencia.**
+- **Implica:**
+  - Se conserva el comportamiento del código. CAT-206 debe dejar de decir que está prohibido.
+  - Hay que verificar que la advertencia exista en la GUI.
+  - C-19 (fotones y `lpx` de Picasso sin significado físico tras RL) sigue en pie como advertencia metrológica.
+
+## 6. Estado de uso de cada programa
+
+- **Dato:**
+  - **PyPrinting 3.0 y la cámara fueron probados en el banco y funcionan** en general, con detalles.
+  - **PySpectrum 3.0 no fue probado.**
+  - El **microscopio contrapropagante** tiene fallas de lógica, porque usa las mismas herramientas pero **duplicadas**.
+- **Implica:**
+  - Corrige lo que se había registrado en `DEC-036` ("PyPrinting 3.0 todavía no se usa en el banco").
+  - C-01 (traza de impresión) debe re-examinarse a la luz de que la impresión funcionó en el banco (pregunta abierta: ¿se imprimió con 3.0 después del commit `6abbbfc` del 2026-09-19, que introdujo la tarea continua?).
+  - El contrapropagante (C-21, C-41) es candidato a reutilizar los módulos de confocal e impresión en vez de duplicarlos.
+
+## 7. Offsets del Shamrock
+
+- **Dato:** el offset se mide cada cierto tiempo y se actualiza. Debe ser un **valor dinámico**:
+  - que se pueda cargar desde la configuración;
+  - que se pueda modificar;
+  - que se pueda **calibrar con un láser, un filtro de densidad y el espectrómetro** (λ conocida, ajuste gaussiano de la emisión, píxel ↔ λ).
+- **Implica:** C-04 no se resuelve eliminando la escritura, sino con un parámetro con procedencia (fecha y método de la última calibración) que se escribe al Shamrock sólo cuando corresponde. Es parte del bloque de PySpectrum.
+
+## 8. Bibliografía de referencia
+
+- **Dato:** la bibliografía de impresión, termometría, pinzas ópticas y temas afines está en `docs/bibliografia/`.
+- **Implica:** para una inconsistencia teórica, el orden de consulta es:
+  1. los artículos cargados;
+  2. el investigador;
+  3. la web.
+
+## 9. Monte Carlo de Debye-Waller
+
+- **Dato:** es un **método en desarrollo**; no hay bibliografía propia publicada. Se pide reunir bibliografía sobre error posicional y factor de Debye-Waller estático.
+- **Implica:**
+  - CAT-307, la Pestaña 3 y los valores σ_MC deben rotularse **experimentales**.
+  - C-11 (σ = 0 por estimadores distintos) es un defecto de un método en desarrollo, no de uno validado.
+  - La bibliografía va a `docs/bibliografia/Debye-Waller estatico y desorden posicional/`.
+
+## 10. Política del watchdog
+
+- **Dato:** el watchdog **nunca debe dispararse en medio de una rutina**, para no arruinarla.
+- **Implica:**
+  - Resuelve la intención de la decisión 8 del consolidado.
+  - Sigue pendiente, a deliberar (nunca exento), cómo proteger ante una rutina **colgada** sin cortar una sana.
+
+## 11. Documentos que describen código inexistente
+
+- **Dato:** deben **archivarse y catalogarse** como:
+  - **implementables**: una mejora que se planteó y se puede hacer;
+  - **desconocidos**: no sabemos su origen ni su razón.
+- **Implica:** resuelve la decisión 9 del consolidado (D-41, S-8).
+
+## 12. Referencia para inconsistencias del sistema
+
+- **Dato:** PySpectrum legacy y PyPrinting legacy funcionaban con normalidad; tenían bugs, pero no eran bloqueantes.
+- **Implica:** ante una inconsistencia de sistema o de hardware, el comportamiento del legado es la referencia de funcionamiento. Una afirmación de la auditoría que implique que el legado no podía funcionar debe revisarse antes de aceptarse.
+
+---
+
+# Segunda ronda (2026-09-27, después de `TRIAGE_TEORICO.md` y `TRIAGE_SISTEMA_VS_LEGADO.md`)
+
+Mismo criterio: son datos de primera mano y prevalecen sobre el informe y sobre los triages.
+
+## R2-1. Líneas de obturadores (X-01)
+
+- **Dato:** la configuración vigente del banco es:
+  - 532 nm → `line11`;
+  - 637 nm → `line8`;
+  - 592 nm → `line9`;
+  - 808 nm → `line10`.
+
+  Sólo la línea 11 tiene la polaridad invertida.
+- **Implica:** coincide exactamente con `config.py` (`SHUTTER_CHANNELS`, `SHUTTER_POLARITY`) desde `b91c743` (2026-08-27).
+  - Los mapas de los dos legados (637 nm en `line11`) corresponden a un cableado anterior.
+  - X-01 queda **cerrado**: 3.0 opera el láser que dice operar.
+
+## R2-2. Versión en producción
+
+- **Dato:** la PC del laboratorio corre el commit **`7f5d10a`** (2026-09-09).
+- **Implica:**
+  - `7f5d10a` es **anterior** a `6abbbfc` (2026-09-19), que introdujo la tarea continua de la traza. **C-01 no está en producción**: la traza del banco hace una lectura finita por tick, la que funciona, y eso explica que "PyPrinting 3.0 imprime bien".
+  - C-01 existe sólo en `main`, que lleva 47 commits sin desplegar.
+  - **Regla: no desplegar `main` en la PC del laboratorio hasta corregir C-01** y pasar el Grupo E de `PRUEBAS_BANCO_PENDIENTES.md` (bloque `DEC-036`).
+
+## R2-3. Obturador de 532 nm al encender (C-09, `BANCO-16`)
+
+- **Dato:** el controlador tiene una sola conexión BNC (se supone que no tiene alimentación aparte). Al encender todo, el obturador parece quedar cerrado; el investigador lo confirma en el banco.
+- **Implica:** `BANCO-16` sigue abierto, pero la observación previa es favorable. Queda por explicar cómo un servo activo en BAJO queda cerrado con la línea sin manejar, que cae a BAJO por el pull-down de 50 kΩ; el banco lo aclara.
+
+## R2-4. Espejo de detección (`line7`)
+
+- **Dato:** el espectrómetro **sólo recibe luz con el espejo abajo**.
+- **Implica:**
+  - Cualquier adquisición de espectro exige el espejo en *down*; la detección confocal y la Canon exigen *up*.
+  - `Luminescence_ps` (baja el espejo para medir) es el uso correcto.
+  - `Growth_ps` y `Luminescence_steps_ps`, que lo suben, sólo funcionaban si el estado guardado en archivo estaba invertido respecto de la posición real.
+
+## R2-5. Estado del espejo desincronizado
+
+- **Dato:** a veces el control del espejo queda "atrasado", sobre todo cuando el programa se cuelga y se cierra a la fuerza; con dos clics se regulariza.
+- **Implica:**
+  - Confirma que el actuador es un **conmutador** (el mismo pulso cambia de posición) y que el software no conoce la posición real.
+  - C-08, reformulado sin la premisa del notch, sigue en pie: hace falta persistir el estado (el legado lo guardaba en `flipper_notch532_status.txt`; 3.0 lo perdió) y ofrecer una resincronización explícita.
+
+## R2-6. Canal `ai3` (C-44)
+
+- **Dato:** el investigador no está seguro; lo revisa en el banco. Pendiente de banco.
+
+## R2-7. Contrapropagante
+
+- **Dato:**
+  - TOP y BOT son los fotodiodos **del láser elegido**.
+  - El objetivo es que un solo movimiento de la platina dé dos escaneos, uno con cada fotodiodo.
+  - Se hará lo más práctico.
+- **Implica:** reutilizar los módulos de confocal, traza y foco en vez de duplicarlos, con la lectura de los dos fotodiodos del láser elegido en una sola pasada. Corrige CP-1, en el que el trigger indexado por canal físico lee el fotodiodo del BS.
+
+## R2-8. Rutina colgada
+
+- **Dato:** preferencia por la opción **(b)**: la rutina emite su propio latido de vida, y el watchdog corta sólo si ese latido se detiene.
+- **Implica:** el mecanismo se diseña en la tanda b1 (política del watchdog, nunca exento).
+
+## R2-9. Offsets del Shamrock
+
+- **Dato:**
+  - Offset del detector = **0**; offset de la red = **87**.
+  - Sería ideal modificar la rutina actual de láser + filtro de densidad para calibrar los dos offsets.
+- **Implica:**
+  - Es el respaldo previo al primer arranque de PySpectrum 3.0. Contrasta con los valores inventados que el código escribe en cada arranque: red 1 = 12, red 2 = −35, detector 5 (C-04).
+  - **Falta saber a qué red corresponde el 87** y cuál es el offset de la otra.
+
+## R2-10. Calibración de λ
+
+- **Dato:** se calibra con el láser de **532 nm**, aproximadamente **cada 2 meses**.
+
+## R2-11. Uso del Shamrock en el legado
+
+- **Dato:**
+  - La ganancia EM no se bajaba a mano antes de ir a orden cero, porque el orden cero casi nunca se usaba.
+  - **Sí se usa la entrada lateral.**
+- **Implica:** C-03 (caminos al orden cero sin diálogo) es de riesgo bajo en la práctica, pero sigue siendo un defecto. El puerto de entrada *Side* coincide con el registro de Solis (C-07).
+
+## R2-12. Termometría (C-12)
+
+- **Dato:** **sí**, la termometría S/AS se calcula siempre relativa a un espectro de referencia a una T₀ conocida.
+- **Implica:**
+  - Con el cociente de cocientes, el prefactor (ω³ o ω⁴) y la respuesta del instrumento η(λ) se cancelan para la misma banda. El punto (a) de C-12 deja de ser un sesgo **si el código implementa el método relativo**.
+  - La auditoría encontró que `calculate_photothermal_temperature` calcula una T absoluta con ω⁴. El código debe implementar el método del laboratorio (relativo a T₀), además de corregir el error de nombres de `static_raman.py:698`.
+
+## R2-13. Deriva
+
+- **Dato:** se usa el valor de Martínez, **30 nm/min** (§3.5, p. 75, medido con PyPrinting), hasta volver a medir en el banco.
+
+## R2-14. Fuerza iónica
+
+- **Dato:** **0.5 mM es el protocolo más actual**; 1.5 mM es el publicado.
+- **Implica:** la longitud de Debye es ≈ 13.6 nm con el protocolo actual y ≈ 7.9 nm con el publicado. Los documentos deben citar ambos, indicando cuál es el vigente.
+
+## R2-15. Honeycomb impreso
+
+- **Dato:** hay muestras honeycomb impresas con la base **(⅓, ⅓)**, diseñadas con la herramienta de esta suite, y salieron bastante bien.
+- **Implica:**
+  - La base canónica del generador es (⅓, ⅔), en `core/lattice_generator.py:59-70`, igual en `7f5d10a` y en `main`, y con γ = 60° arma dímeros. La GUI permite editar u y v, así que esas muestras se hicieron con la base corregida a mano.
+  - **No hace falta revalidarlas.**
+  - Hay que corregir la base canónica y los presets (C-02), en coherencia con la bibliografía: Guo, Hakala y Törmä, *PRB* 95, 155423 (2017).
+
+## R2-16. Longitud de correlación
+
+- **Dato:** **se adopta** ξ = 1/(π·FWHM_f), en frecuencia espacial ordinaria y con la resta del ensanchamiento por tamaño finito, como definición única (C-14, S-5).
+
+## R2-17. Vacancias
+
+- **Dato:** **p se reporta por conteo**, como "eficiencia de impresión", para impresiones de una pasada sin regresar a rellenar.
+- **Implica:** se retira el estimador de Wilson `p_wilson_est` (C-15).
+
+## R2-18. Silicio
+
+- **Dato:** es **sólo verificación**, no patrón de calibración. También se usa **benzenotiol** como muestra de referencia.
+- **Implica:** el valor certificado del Si no bloquea nada. Hay que documentar el benzenotiol como referencia Raman.
+
+## R2-19. Rango de validación del Monte Carlo
+
+- **Dato:** de **0 al límite de Lindemann, 0.3·a**, que es la zona que tiene sentido estudiar.
+- **Implica:** el test de extremo a extremo de C-11 debe cubrir σ ∈ [0, 0.3·a]. El método sigue rotulado **experimental** (§9).
+
+## R2-20. Inventario óptico
+
+- **Datos:**
+  - El objetivo de aire tiene **NA 0.5** (el código dice 0.40).
+  - El láser verde es el **Excelsior-532-150-CDRH**.
+  - El pinhole es de **50 µm con lente de 150 mm** (no 50 mm).
+- **Implica:**
+  - Con el objetivo de agua 60x, NA 1.0 (f = 3 mm con tubo de 180 mm), la magnificación al pinhole es 50 y el disco de Airy mide 32.5 µm a 532 nm: **el pinhole es ≈ 1.5 AU** (≈ 1.3 AU a 637 nm). Los 4.6 AU que resultan de la bibliografía corresponden a la lente de 50 mm.
+  - D-11 se resuelve a favor de SYS-203 (Excelsior).
+
+## Decisiones que siguen abiertas después de la segunda ronda
+
+- **Offsets:** a qué red corresponde el offset 87 y cuál es el de la otra red.
+- **Banco:**
+  - canal `ai3` (R2-6);
+  - estado del obturador de 532 nm al encender (R2-3);
+  - posición del espejo al encender;
+  - deriva;
+  - demás ítems de `PRUEBAS_BANCO_PENDIENTES.md`.
+- **Autorización** de las sesiones de banco.

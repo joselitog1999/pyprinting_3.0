@@ -204,5 +204,33 @@ class TestNanopositioningRegimes(unittest.TestCase):
                 _ACTIVE_FRONTENDS.remove(fe2)
 
 
+
+class TestMoveNotConfirmed(unittest.TestCase):
+    """DEC-036: si la platina no confirma on-target y está en falla, se cierran los obturadores;
+    si está sana y sólo demoró, se registra y se sigue."""
+
+    def _run(self, stage):
+        import core.nanopositioning as nano_mod
+        import core.nidaq as nidaq_mod
+        closes = []
+        backend = Backend()  # el constructor conecta la platina global: antes de sustituirla
+        saved = (nano_mod.pi, nidaq_mod.close_all_shutters)
+        nano_mod.pi = stage
+        nidaq_mod.close_all_shutters = lambda: closes.append(1) or True
+        try:
+            backend._on_move_not_confirmed("eje x")
+        finally:
+            nano_mod.pi, nidaq_mod.close_all_shutters = saved
+        return closes
+
+    def test_stage_fault_closes_shutters(self):
+        stage = type("S", (), {"is_mock": False, "connected": False, "_isolated": False})()
+        self.assertEqual(self._run(stage), [1])
+
+    def test_slow_healthy_stage_does_not_close(self):
+        stage = type("S", (), {"is_mock": False, "connected": True, "_isolated": False})()
+        self.assertEqual(self._run(stage), [])
+
+
 if __name__ == "__main__":
     unittest.main()

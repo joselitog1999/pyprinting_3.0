@@ -48,7 +48,7 @@ from config import (pi, SAFE_MODE, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE,
                     DEFAULT_PRINTING_STEPS_AFTER, DEFAULT_PRINTING_AUTOFOCUS_EVERY,
                     DEFAULT_PRINTING_SHIFT_X, DEFAULT_PRINTING_SHIFT_Y,
                     DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY,
-                    DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, PI_STAGE_RANGE_UM)
+                    DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, PI_STAGE_RANGE_UM, wait_on_target)
 from nidaq  import (open_shutter, close_shutter, close_all_shutters,
                     up_flipper, down_flipper, heartbeat_shutter)
 
@@ -1781,8 +1781,9 @@ class Backend(QObject):
         axes = [1, 2] if z is None else [1, 2, 3]
         targets = [x, y] if z is None else [x, y, z]
         pi.MOV(axes, targets)
-        while not all(pi.qONT(axes).values()):
-            time.sleep(0.01)
+        if not wait_on_target(axes):
+            close_all_shutters()
+            print("[Measurements] La platina no confirmó la llegada: obturadores cerrados (DEC-036).")
 
     @pyqtSlot(str)
     def grid_read(self, name: str = ""):
@@ -2088,8 +2089,8 @@ class Backend(QObject):
         """Chequeo de resiliencia ante pérdida real de comunicación con la platina en medio
         de un experimento no supervisado. config.py::_PIController ya NO desconecta ante un
         simple GCSError de firmware (comando rechazado) — solo `pi.connected` pasa a False
-        tras un fallo de comunicación de bajo nivel genuino que sobrevivió a un intento de
-        reconexión automática (ver _PIController.MOV/try_auto_reconnect). Si eso ocurre,
+        tras un fallo de comunicación de bajo nivel genuino; desde DEC-036 no hay reconexión
+        automática (reconectar lo decide el operador). Si eso ocurre,
         protege la muestra y pausa sin perder progreso, en vez de seguir emitiendo comandos
         MOV al vacío en Modo Virtual mientras la platina física está congelada. Devuelve
         False si se pausó — el llamador debe abortar su transición de etapa actual."""
@@ -2140,11 +2141,20 @@ class Backend(QObject):
                    self.grid_y[self.i_global] + self.startY]
         pi.MOV(axes, targets)
         if not SAFE_MODE:
-            try:
-                while not all(pi.qONT(axes).values()):
-                    time.sleep(0.01)
-            except Exception:
-                time.sleep(0.1)
+            # DEC-036: espera acotada y confirmada. Antes esperaba sin límite y, ante una
+            # excepción de qONT, seguía como si la platina hubiera llegado.
+            if not wait_on_target(axes):
+                if not self._check_physical_connection_or_pause():
+                    return
+                close_all_shutters()
+                self.is_paused = True
+                self.mode_printing = "none"
+                msg = (f"La platina no confirmó la llegada a la partícula {self.i_global}. Se cerraron "
+                       f"los obturadores y se pausó el experimento. Verifique el equipo y presione "
+                       f"'Reconectar y Reanudar' para continuar.")
+                print(f"[Measurements] {msg}")
+                self.stageDisconnectedSignal.emit(msg)
+                return
         else:
             time.sleep(0.05)
         self.grid_move_finishSignal.emit()

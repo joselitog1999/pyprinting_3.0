@@ -39,8 +39,8 @@ from config  import (pi, SHUTTERS, DEFAULT_DATA_PATH,
                      DEFAULT_CONFOCAL_PIXELS_X, DEFAULT_CONFOCAL_PIXELS_Y,
                      DEFAULT_CONFOCAL_FILTER_PERCENT,
                      DEFAULT_DRIFT_TOTAL_MINUTES, DEFAULT_DRIFT_REFRESH_SECONDS,
-                     DEFAULT_COORDINATE_REGIME, REGIME_LEGACY)
-from nidaq   import (open_shutter, close_shutter, heartbeat_shutter, channels_photodiodos,
+                     DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, wait_on_target)
+from nidaq   import (open_shutter, close_shutter, close_all_shutters, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, PD_CHANNELS, PD_CHANS_LIST,
                      RATE_MULTICHANNEL)
 from psf    import (center_of_mass, center_of_gauss2D, center_of_donut2D,
@@ -981,7 +981,19 @@ class Backend(QObject):
         back = ph[sa:sd] if sd > sa else ph[L//2:]
         return gone, back
 
-    def _wait_axis_settle(self, axes, timeout_s: float = 0.05):
+    def _abort_scan_on_stage_fault(self):
+        """Falla de la platina a mitad del escaneo (DEC-036): se detiene todo y se cierran los
+        obturadores. No se vuelve a la posición inicial: con la platina en falla, un MOV más
+        no tiene sentido y la reconexión la decide el operador."""
+        self.signal_scan_stop = True
+        for name in ("PDtimer_rampxy", "PDtimer_rampxz", "PDtimer_rampyx", "PDtimer_rampyz", "PDtimer_stepxy"):
+            timer = getattr(self, name, None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+        close_all_shutters()
+        print("[Confocal] Escaneo ABORTADO por falla de la platina: obturadores cerrados.")
+
+    def _wait_axis_settle(self, axes, timeout_s: float = 0.05) -> bool:
         """Confirma asentamiento físico (qONT) del eje/es recién movidos antes de disparar
         la rampa (pi.WGO, dentro de _ramp_x_line/_ramp_y_line) — sin esto, el trigger del
         wave-table puede dispararse mientras el eje todavía está en vuelo inercial de la
@@ -989,15 +1001,17 @@ class Backend(QObject):
         la imagen reconstruida (ANOM-CONFOCAL-04). Acotado a timeout_s: igual que
         ANOM-FOCUS-03 en focus.py, un poll sin límite aquí colgaría el hilo confocal
         compartido ante un fallo real de servo — mejor entrar a la rampa sin confirmación
-        total que colgar el escaneo."""
-        t0 = time.time()
-        try:
-            while not all(pi.qONT(axes).values()):
-                if time.time() - t0 > timeout_s:
-                    break
-                time.sleep(0.002)
-        except Exception:
-            pass
+        total que colgar el escaneo.
+
+        DEC-036: devuelve False sólo ante una FALLA de la platina (desconectada o lectura
+        fallida); en ese caso el escaneo ya quedó abortado con los obturadores cerrados y el
+        llamador debe retornar. Una demora con la platina sana sigue como antes."""
+        if wait_on_target(axes, timeout_s=timeout_s, poll_s=0.002):
+            return True
+        if getattr(pi, "is_mock", False) or getattr(pi, "connected", True) or getattr(pi, "_isolated", False):
+            return True
+        self._abort_scan_on_stage_fault()
+        return False
 
     # ── Scan ramp loops ───────────────────────────────────────────────────────
 
@@ -1009,10 +1023,12 @@ class Backend(QObject):
             if getattr(self, "tilt_correction_enabled", False):
                 target_z = self._evaluate_tilt_z(self.x_pos, target_y)
                 pi.MOV([2, 3], [target_y, target_z])
-                self._wait_axis_settle([2, 3])
+                if not self._wait_axis_settle([2, 3]):
+                    return
             else:
                 pi.MOV(2, target_y)
-                self._wait_axis_settle(2)
+                if not self._wait_axis_settle(2):
+                    return
             gone, back = self._ramp_x_line()
             self.image_gone[self.i, :] = _average(gone, self.Nx)
             self.image_back[self.i, :] = _average(back, self.Nx)
@@ -1035,7 +1051,8 @@ class Backend(QObject):
             heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
             target_z = getattr(self, "z_min", self.z_pos - self.range_y/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
-            self._wait_axis_settle(3)
+            if not self._wait_axis_settle(3):
+                return
             gone, back = self._ramp_x_line()
             self.image_gone[self.i, :] = _average(gone, self.Nx)
             self.image_back[self.i, :] = _average(back, self.Nx)
@@ -1055,7 +1072,8 @@ class Backend(QObject):
             heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
             target_x = getattr(self, "x_min", self.x_pos - self.range_x/2) + dx/2 + self.i*dx
             pi.MOV(1, target_x)
-            self._wait_axis_settle(1)
+            if not self._wait_axis_settle(1):
+                return
             gone, back = self._ramp_y_line()
             self.image_gone[:, self.i] = _average(gone, self.Ny)
             self.image_back[:, self.i] = _average(back, self.Ny)
@@ -1077,7 +1095,8 @@ class Backend(QObject):
             heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
             target_z = getattr(self, "z_min", self.z_pos - self.range_x/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
-            self._wait_axis_settle(3)
+            if not self._wait_axis_settle(3):
+                return
             gone, back = self._ramp_y_line()
             self.image_gone[self.i, :] = _average(gone, self.Ny)
             self.image_back[self.i, :] = _average(back, self.Ny)
@@ -1185,8 +1204,9 @@ class Backend(QObject):
 
     def _moveto(self, x: float, y: float):
         pi.MOV([1, 2], [x, y])
-        while not all(pi.qONT([1, 2]).values()):
-            time.sleep(0.01)
+        if not wait_on_target([1, 2]):
+            close_all_shutters()
+            print("[Confocal] La platina no confirmó la llegada: obturadores cerrados (DEC-036).")
 
     # ── Guardado ──────────────────────────────────────────────────────────────
 

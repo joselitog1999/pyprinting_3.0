@@ -19,6 +19,7 @@ import os
 import sys
 import logging
 import threading
+import time
 from pathlib import Path
 
 # Silenciar advertencia benigna de registro de pipython (GCSTranslator en Windows)
@@ -54,7 +55,18 @@ LASER_532_V_MAX   = 5.0
 PI_SERIAL    = "0119048050"
 PI_AXES      = [1, 2, 3]
 PI_HOME_POS  = [50.0, 50.0, 10.0]
-PI_STAGE_RANGE_UM = 100.0
+PI_STAGE_RANGE_UM = 100.0          # recorrido X e Y en lazo cerrado
+# Recorrido Z en lazo cerrado (DEC-036). La platina declarada es una PI P-517.3CD, cuya hoja de
+# datos da 100 x 100 x 20 µm; antes se acotaba Z a 100 µm como X e Y. Se adopta la cota más
+# restrictiva hasta confirmar con el propio controlador (qTMN/qTMX, prueba BANCO-17): un límite
+# más estricto sólo puede rechazar movimientos, nunca dañar nada.
+PI_Z_RANGE_UM = 20.0
+PI_AXIS_RANGE_UM = {1: PI_STAGE_RANGE_UM, 2: PI_STAGE_RANGE_UM, 3: PI_Z_RANGE_UM}
+
+
+def clamp_axis_um(axis: int, value: float) -> float:
+    """Acota una coordenada al recorrido físico de su eje (1 = X, 2 = Y, 3 = Z)."""
+    return max(0.0, min(PI_AXIS_RANGE_UM.get(int(axis), PI_STAGE_RANGE_UM), float(value)))
 PI_SERVO_TIME = 50e-6
 
 # ── NI-DAQ ────────────────────────────────────────────────────────────────────
@@ -170,6 +182,39 @@ except ImportError:
         pass
 
 
+STAGE_INTERLOCK = "Platina PI"
+
+
+def _is_stage_comm_error(exc: Exception) -> bool:
+    """True si la excepción es una falla de comunicación o de la interfaz, no un rechazo del
+    firmware (DEC-036). pipython usa GCSError también para las fallas del bus: los códigos
+    negativos son de la interfaz (COM_ERROR -1 ... COM_TIMEOUT -7, o PI_UNEXPECTED_RESPONSE
+    -1004); los positivos son del controlador (p.ej. 7, posición fuera de límites). Cualquier
+    excepción que no sea un GCSError es, por definición, una falla de bajo nivel. Un código
+    ausente o no numérico (pipython lo acepta: GCSError("x").val == "x") no se puede clasificar
+    y se trata como falla de comunicación, que es el lado seguro."""
+    if not isinstance(exc, GCSError):
+        return True
+    try:
+        return int(getattr(exc, "val", None)) < 0
+    except (TypeError, ValueError):
+        return True
+
+
+def _close_shutters_for_stage(reason: str, trip: bool) -> None:
+    """Cierra todos los obturadores por una falla de la platina y, si `trip`, activa el
+    interlock que bloquea toda apertura hasta que el operador reconecte (DEC-036). Import
+    diferido: core.nidaq importa este módulo."""
+    try:
+        from core import nidaq
+        if trip:
+            nidaq.trip_shutter_interlock(STAGE_INTERLOCK, reason)
+        else:
+            nidaq.close_all_shutters()
+    except Exception as e:
+        print(f"[PI] No se pudieron cerrar los obturadores tras la falla de la platina: {e}")
+
+
 class _MockPI:
     """
     Simula la platina PI E-517.
@@ -230,17 +275,18 @@ class _MockPI:
             axes = list(axes)
             targets = list(targets)
             clamped_any = False
-            for i, tg in enumerate(targets):
-                clamped = max(0.0, min(PI_STAGE_RANGE_UM, float(tg)))
+            for i, (ax, tg) in enumerate(zip(axes, targets)):
+                clamped = clamp_axis_um(ax, tg)
                 if clamped != float(tg):
                     clamped_any = True
                 targets[i] = clamped
             if clamped_any:
-                print(f"[PI Driver Clamped] MOV solicitado fuera de rango, acotado a [0, {PI_STAGE_RANGE_UM}] µm: {dict(zip(axes, targets))}")
+                print(f"[PI Driver Clamped] MOV solicitado fuera de rango, acotado por eje {PI_AXIS_RANGE_UM} µm: {dict(zip(axes, targets))}")
             for ax, tg in zip(axes, targets):
                 if ax in self._pos:
                     self._pos[ax] = round(float(tg), 4)
             print(f"[PI MOCK] MOV {dict(zip(axes, targets))}")
+            return True
 
     # ── Wave generator (no-op) ────────────────────────────────────────────────
 
@@ -291,6 +337,7 @@ class _PIController:
         self._connected = False
         self._isolated = False
         self._last_error = ""
+        self._idn = ""          # leído una sola vez al conectar (DEC-036: sin *IDN? en cada lectura)
         self._pos = {1: float(PI_HOME_POS[0]),
                      2: float(PI_HOME_POS[1]),
                      3: float(PI_HOME_POS[2])}
@@ -315,8 +362,10 @@ class _PIController:
                 # Fallback si esta versión de pipython no expone IsConnected(): confiar en
                 # el estado en memoria en vez de sondear con qIDN().
                 return self._connected
-            except Exception:
-                self._connected = False
+            except Exception as e:
+                # Misma política que el resto de las fallas de comunicación (DEC-036): antes
+                # sólo se apagaba _connected, sin cerrar los obturadores ni bloquear aperturas.
+                self._stage_fault(f"IsConnected() falló ({e})")
                 return False
 
     def connect(self, serial: str = PI_SERIAL) -> bool:
@@ -362,8 +411,10 @@ class _PIController:
                 except Exception as enum_err:
                     print(f"[PI] Aviso al enumerar USB PI: {enum_err}")
 
-                # 4. Conectar al controlador seleccionado
+                # 4. Conectar al controlador seleccionado. Antes de mandar la platina a home,
+                # cerrar todos los obturadores: el home mueve decenas de µm (DEC-036).
                 self._dev.ConnectUSB(conn_target)
+                _close_shutters_for_stage("conexión de la platina (home)", trip=False)
                 self._dev.SVO(PI_AXES, [True] * 3)
                 self._dev.VCO(PI_AXES, [False] * 3)
                 self._dev.MOV(PI_AXES, PI_HOME_POS)
@@ -383,8 +434,18 @@ class _PIController:
                             self._pos[k] = float(real_pos[k])
                 except Exception:
                     pass
-                print(f"[PI] Conectada exitosamente: {self._dev.qIDN().strip()}")
+                try:
+                    self._idn = self._dev.qIDN().strip()
+                except Exception:
+                    self._idn = "PI E-517"
+                print(f"[PI] Conectada exitosamente: {self._idn}")
                 self._last_error = ""
+                # La reconexión es la acción explícita del operador que libera el interlock.
+                try:
+                    from core import nidaq
+                    nidaq.clear_shutter_interlock(STAGE_INTERLOCK)
+                except Exception:
+                    pass
                 return True
             except Exception as e:
                 self._last_error = str(e)
@@ -403,6 +464,7 @@ class _PIController:
             if not self._connected or self._dev is None:
                 self._connected = False
                 return
+            _close_shutters_for_stage("desconexión de la platina", trip=False)
             try:
                 self._dev.MOV(PI_AXES, [0, 0, 0])
                 time.sleep(0.05)
@@ -437,17 +499,20 @@ class _PIController:
                     time.sleep(delay_s)
         raise last_exc
 
-    def try_auto_reconnect(self) -> bool:
-        """Intenta reabrir la conexión física UNA vez de forma transparente antes de que el
-        llamador (típicamente MOV() ante un fallo de comunicación real) decida declarar la
-        platina desconectada. No bloquea indefinidamente: connect() ya tiene sus propios
-        timeouts internos (enumeración USB, asentamiento de home)."""
-        print("[PI] Intentando reconexión automática transparente...")
-        try:
-            return self.connect(PI_SERIAL)
-        except Exception as e:
-            print(f"[PI] Reconexión automática fallida: {e}")
-            return False
+    def _stage_fault(self, reason: str) -> None:
+        """Pérdida de comunicación con una platina que ESTABA conectada (DEC-036): se declara
+        desconectada, se cierran los obturadores y se activa el interlock. No se reconecta:
+        eso lo decide el operador desde el Dashboard, y connect() cierra los obturadores antes
+        del home. El legado nunca se desconectaba; si pasa, es un evento a investigar."""
+        self._connected = False
+        self._last_error = reason
+        print(f"[PI] FALLA DE COMUNICACIÓN: {reason}. Platina declarada desconectada; obturadores "
+              f"cerrados y aperturas bloqueadas hasta reconectar desde el Dashboard.")
+        _close_shutters_for_stage(f"falla de comunicación con la platina ({reason})", trip=True)
+
+    def _virtual_ok(self) -> bool:
+        """Sólo el aislamiento EXPLÍCITO del operador permite operar la platina en virtual."""
+        return self._isolated
 
     def qPOS(self, axes=None):
         with self._lock:
@@ -460,25 +525,33 @@ class _PIController:
                         elif k in real:
                             self._pos[k] = float(real[k])
                     return real
-                except GCSError as e:
-                    print(f"[PI] qPOS rechazado por firmware (GCSError {e}) — la conexión física se mantiene.")
                 except Exception as e:
-                    print(f"[PI] qPOS: fallo de lectura tras reintentos ({e}) — usando última posición conocida; la conexión física se mantiene (no es evidencia de desconexión real).")
+                    if _is_stage_comm_error(e):
+                        self._stage_fault(f"qPOS falló tras reintentos ({e})")
+                    else:
+                        print(f"[PI] qPOS rechazado por firmware (GCSError {e}) — la conexión física se mantiene.")
+            # Última posición conocida: es un valor en caché, nunca una lectura confirmada.
             return {"1": self._pos[1], "2": self._pos[2], "3": self._pos[3]}
 
     def qONT(self, axes=None):
+        """Estado on-target REAL. Ante cualquier falla devuelve False para todos los ejes: nunca
+        se asume que la platina llegó (DEC-036; antes se asumía on-target y cualquier espera
+        terminaba como si la platina hubiera llegado)."""
         with self._lock:
+            if isinstance(axes, int):
+                axes_list = [axes]
+            else:
+                axes_list = list(axes) if axes else list(PI_AXES)
             if self._connected and not self._isolated and self._dev is not None:
                 try:
                     return self._retry_read(lambda: self._dev.qONT(axes))
-                except GCSError as e:
-                    print(f"[PI] qONT rechazado por firmware (GCSError {e}) — la conexión física se mantiene.")
                 except Exception as e:
-                    print(f"[PI] qONT: fallo de lectura tras reintentos ({e}) — asumiendo on-target; la conexión física se mantiene (no es evidencia de desconexión real).")
-            if isinstance(axes, int):
-                return {axes: True}
-            axes = axes or PI_AXES
-            return {a: True for a in axes}
+                    if _is_stage_comm_error(e):
+                        self._stage_fault(f"qONT falló tras reintentos ({e})")
+                    else:
+                        print(f"[PI] qONT rechazado por firmware (GCSError {e}) — se informa no on-target.")
+                return {a: False for a in axes_list}
+            return {a: self._virtual_ok() for a in axes_list}
 
     def MOV(self, axes, targets):
         with self._lock:
@@ -490,53 +563,53 @@ class _PIController:
                 targets_list = list(targets)
 
             # Clampeo preventivo obligatorio (CLAUDE.md §4): ninguna coordenada sale de este
-            # driver fuera de [0, PI_STAGE_RANGE_UM], sin importar si el llamador ya clampeó
-            # o no. Esto erradica GCSError -1004 (Position out of limits) en la fuente, que
-            # antes se interpretaba erróneamente como una desconexión física del USB.
+            # driver fuera del recorrido de su eje (PI_AXIS_RANGE_UM: X e Y 100 µm, Z 20 µm),
+            # sin importar si el llamador ya clampeó o no. Evita en la fuente el error GCS 7
+            # ("position out of limits"). Nota (auditoría 2026-09-27): el -1004 que se citaba
+            # antes acá es PI_UNEXPECTED_RESPONSE, no un error de límites.
             clamped_any = False
-            for i, tg in enumerate(targets_list):
-                clamped = max(0.0, min(PI_STAGE_RANGE_UM, float(tg)))
+            for i, (ax, tg) in enumerate(zip(axes_list, targets_list)):
+                clamped = clamp_axis_um(ax, tg)
                 if clamped != float(tg):
                     clamped_any = True
                 targets_list[i] = clamped
             if clamped_any:
-                print(f"[PI Driver Clamped] MOV solicitado fuera de rango, acotado a [0, {PI_STAGE_RANGE_UM}] µm: {dict(zip(axes_list, targets_list))}")
-
-            for ax, tg in zip(axes_list, targets_list):
-                if ax in self._pos:
-                    self._pos[ax] = round(float(tg), 4)
+                print(f"[PI Driver Clamped] MOV solicitado fuera de rango, acotado por eje {PI_AXIS_RANGE_UM} µm: {dict(zip(axes_list, targets_list))}")
 
             if self._connected and not self._isolated and self._dev is not None:
                 try:
-                    return self._dev.MOV(axes_list, targets_list)
-                except GCSError as e:
-                    # Rechazo de firmware (parámetro, sintaxis, límite de software residual):
-                    # la conexión física sigue viva, el comando simplemente no se ejecutó.
-                    print(f"[PI] MOV rechazado por firmware (GCSError {e}) — la conexión física se mantiene, comando ignorado.")
+                    self._dev.MOV(axes_list, targets_list)
                 except Exception as e:
-                    # Único camino que puede declarar desconexión real: un fallo que NO es
-                    # un GCSError (típicamente IOError/timeout de bajo nivel del bus USB).
-                    # Antes de rendirse, intenta una reconexión transparente.
-                    print(f"[PI] Error de comunicación de bajo nivel en MOV ({e}). Intentando reconexión automática...")
-                    if self.try_auto_reconnect():
-                        try:
-                            return self._dev.MOV(axes_list, targets_list)
-                        except Exception as e2:
-                            print(f"[PI] MOV sigue fallando tras reconexión automática ({e2}) — Platina desconectada, guardado en posición virtual.")
-                            self._connected = False
+                    if _is_stage_comm_error(e):
+                        # Sin reconexión automática (DEC-036): una reconexión llama a connect(),
+                        # que manda la platina a home a mitad de la rutina y con el láser abierto.
+                        self._stage_fault(f"MOV falló ({e})")
                     else:
-                        print("[PI] Reconexión automática fallida — Platina desconectada, guardado en posición virtual.")
-                        self._connected = False
-            else:
-                print(f"[PI VIRTUAL] MOV {dict(zip(axes_list, targets_list))} (Platina física desconectada)")
+                        # Rechazo del firmware: la conexión sigue viva, el comando no se ejecutó.
+                        print(f"[PI] MOV rechazado por firmware (GCSError {e}) — comando no ejecutado.")
+                    return False
+                for ax, tg in zip(axes_list, targets_list):
+                    if ax in self._pos:
+                        self._pos[ax] = round(float(tg), 4)
+                return True
+            if self._virtual_ok():
+                for ax, tg in zip(axes_list, targets_list):
+                    if ax in self._pos:
+                        self._pos[ax] = round(float(tg), 4)
+                print(f"[PI VIRTUAL] MOV {dict(zip(axes_list, targets_list))} (platina aislada por el operador)")
+                return True
+            # Platina desconectada y NO aislada: sin modo virtual silencioso en producción. No se
+            # activa el interlock si nunca estuvo conectada (p.ej. una sesión sin platina); la
+            # rutina que dependa del movimiento abortará al no confirmarse on-target.
+            print(f"[PI] MOV rechazado: platina desconectada {dict(zip(axes_list, targets_list))}")
+            return False
 
     def qIDN(self):
+        """Identificación leída una vez al conectar. No consulta el bus: el *IDN? en cada lectura
+        saturaba el USB y un solo fallo declaraba desconectada la platina (auditoría 2026-09-27)."""
         with self._lock:
             if self._connected and not self._isolated and self._dev is not None:
-                try:
-                    return self._dev.qIDN()
-                except Exception:
-                    self._connected = False
+                return self._idn or "PI E-517"
             return "PI E-517 [Virtual/Desconectado]"
 
     def __getattr__(self, name: str):
@@ -564,6 +637,43 @@ class _PIController:
 
 # ── Instancia global — el resto del código solo importa `pi` ─────────────────
 pi: _MockPI | _PIController = _MockPI() if SAFE_MODE else _PIController()
+
+STAGE_SETTLE_TIMEOUT_S = 5.0
+
+
+def wait_on_target(axes=None, timeout_s: float = STAGE_SETTLE_TIMEOUT_S, poll_s: float = 0.01,
+                   on_tick=None, stage=None) -> bool:
+    """Espera a que el controlador CONFIRME on-target, con tope de tiempo (DEC-036).
+
+    Devuelve True sólo con la confirmación real del lazo cerrado. Devuelve False si vence el
+    tiempo, si la lectura falla o si la platina está desconectada (y no aislada por el
+    operador): quien llama debe cerrar los obturadores y abortar, nunca seguir como si la
+    platina hubiera llegado. `on_tick` se llama en cada vuelta (p.ej. heartbeat_shutter),
+    para que una espera larga no agote el watchdog."""
+    st = stage if stage is not None else pi
+    axes = axes if axes is not None else PI_AXES
+    t0 = time.time()
+    while True:
+        if (not getattr(st, "is_mock", False) and not getattr(st, "connected", True)
+                and not getattr(st, "_isolated", False)):
+            print(f"[PI] wait_on_target({axes}): platina desconectada — no se confirma la llegada.")
+            return False
+        try:
+            state = st.qONT(axes)
+        except Exception as e:
+            print(f"[PI] wait_on_target({axes}): lectura qONT falló ({e}).")
+            return False
+        if state and all(state.values()):
+            return True
+        if on_tick is not None:
+            try:
+                on_tick()
+            except Exception:
+                pass
+        if time.time() - t0 > timeout_s:
+            print(f"[PI] wait_on_target({axes}): sin confirmación on-target en {timeout_s:.1f} s.")
+            return False
+        time.sleep(poll_s)
 
 if SAFE_MODE:
     print("=" * 60)

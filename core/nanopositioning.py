@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
 from PyQt6.QtGui     import QFont, QKeyEvent
 from pyqtgraph.dockarea import DockArea, Dock
 
-from config import (pi, PI_AXES,
+from config import (pi, PI_AXES, wait_on_target,
                     DEFAULT_NANO_STEP_XY, DEFAULT_NANO_STEP_Z,
                     DEFAULT_NANO_GOTO_X, DEFAULT_NANO_GOTO_Y, DEFAULT_NANO_GOTO_Z,
                     REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF, DEFAULT_COORDINATE_REGIME)
@@ -759,46 +759,43 @@ class Backend(QObject):
 
     @pyqtSlot(str, float)
     def move(self, axis: str, dist: float, timeout_s: float = 10.0):
-        """Movimiento relativo en el eje indicado clampeado al rango físico de la platina (0 a 100 µm)."""
-        from config import PI_STAGE_RANGE_UM
+        """Movimiento relativo en el eje indicado clampeado al recorrido físico de ese eje (X e Y 100 µm, Z 20 µm)."""
+        from config import clamp_axis_um
         x_pos, y_pos, z_pos = self.read_pos()
         axis_map = {"x": (1, x_pos), "y": (2, y_pos), "z": (3, z_pos)}
         if axis not in axis_map:
             print(f"[Nano] Eje desconocido: {axis}")
             return
         ax_num, current = axis_map[axis]
-        target = max(0.0, min(PI_STAGE_RANGE_UM, current + dist))
+        target = clamp_axis_um(ax_num, current + dist)
         pi.MOV(ax_num, target)
-        # Poll acotado en tiempo (antes sin límite — mismo patrón de ANOM-FOCUS-03,
-        # corregido en focus.py::_move_z, pero este archivo no estaba en el alcance de
-        # esa auditoría): un fallo real de servo/piezo colgaba este hilo para siempre.
-        t0 = time.time()
-        while not all(pi.qONT(ax_num).values()):
-            if time.time() - t0 > timeout_s:
-                print(f"[Nano] ⚠️ Timeout ({timeout_s}s) esperando on-target en eje {axis} (Z={ax_num}).")
-                break
-            time.sleep(0.01)
+        # Espera acotada y confirmada (DEC-036). Si la platina está en falla se cierran los
+        # obturadores; una simple demora con la platina sana sólo se registra.
+        if not wait_on_target(ax_num, timeout_s=timeout_s):
+            self._on_move_not_confirmed(f"eje {axis}")
         self.read_pos()
 
     @pyqtSlot(list)
     def goto(self, go_to_pos: list):
-        from config import PI_STAGE_RANGE_UM
-        target = [
-            max(0.0, min(PI_STAGE_RANGE_UM, float(go_to_pos[0]))),
-            max(0.0, min(PI_STAGE_RANGE_UM, float(go_to_pos[1]))),
-            max(0.0, min(PI_STAGE_RANGE_UM, float(go_to_pos[2]))),
-        ]
+        from config import clamp_axis_um
+        target = [clamp_axis_um(ax, v) for ax, v in zip((1, 2, 3), go_to_pos[:3])]
         self._moveto(target)
         self.read_pos()
 
+    def _on_move_not_confirmed(self, what: str):
+        """La platina no confirmó on-target (DEC-036). Si está en falla, se cierran los
+        obturadores; si está sana y sólo demoró, se registra y se sigue."""
+        if getattr(pi, "is_mock", False) or getattr(pi, "connected", True) or getattr(pi, "_isolated", False):
+            print(f"[Nano] Sin confirmación on-target moviendo {what}.")
+            return
+        from core.nidaq import close_all_shutters
+        close_all_shutters()
+        print(f"[Nano] Platina en falla moviendo {what}: obturadores cerrados (DEC-036).")
+
     def _moveto(self, pos: list, timeout_s: float = 10.0):
         pi.MOV(PI_AXES, pos)
-        t0 = time.time()
-        while not all(pi.qONT(PI_AXES).values()):
-            if time.time() - t0 > timeout_s:
-                print(f"[Nano] ⚠️ Timeout ({timeout_s}s) esperando on-target en ejes {PI_AXES}.")
-                break
-            time.sleep(0.01)
+        if not wait_on_target(PI_AXES, timeout_s=timeout_s):
+            self._on_move_not_confirmed(f"ejes {PI_AXES}")
 
     def make_connection(self, frontend: Frontend):
         frontend.read_pos_button_signal.connect(self.read_pos)

@@ -24,19 +24,26 @@ físicas medidas, documentadas en un monográfico) y se verifican leyendo la fue
 
 | Invariante | Valor | Fuente autoritativa | Gate |
 | :--- | :--- | :--- | :--- |
-| Límite de recorrido del piezo PI E-517 (por eje) | `100.0` µm | `config.py::PI_STAGE_RANGE_UM` | ✅ |
+| Límite de recorrido de la platina, ejes X e Y | `100.0` µm | `config.py::PI_STAGE_RANGE_UM` | ✅ |
+| Límite de recorrido de la platina, eje Z | `20.0` µm | `config.py::PI_Z_RANGE_UM` | ✅ |
+| Modelo de la platina | PI P-517.3CD (100 × 100 × 20 µm) con controlador E-517 | README, hoja de datos PI; confirmar con BANCO-17 | 📄 |
 | Deadline por defecto del watchdog de obturadores | `30.0` s | `core/nidaq.py::_default_timeout_s` | ✅ |
 | Intervalo de poll del hilo `ShutterWatchdog` | `0.1` s (100 ms) | `core/nidaq.py::_watchdog_loop` (`time.sleep`) | ✅ |
 | Política "Sin límite" (modo alineación) | `_default_timeout_s = None` | `DEC-010`, `SYS-201` | 📄 |
 
 > El watchdog **no** es de 500 ms. Ese valor viene de `DEC-002` (2026-08-20), superada por
 > `DEC-010` (2026-09-17) y anotada como tal. Ver `DEC-023` para el árbol causal completo.
+>
+> El recorrido de Z **no** es de 100 µm. Hasta `DEC-036` los tres ejes se acotaban a 100 µm,
+> pero la hoja de datos de la P-517.3CD da 20 µm en Z. Se adoptó la cota más restrictiva hasta
+> confirmarla con el controlador.
 
 ## 2. Canales DAQmx
 
 | Invariante | Valor | Fuente autoritativa | Gate |
 | :--- | :--- | :--- | :--- |
-| Obturadores digitales | `Dev1/port0/line0:3` | `core/nidaq.py`, `SYS-202` | 📄 |
+| Obturadores digitales | 532 nm `Dev1/port0/line11` (**activo en BAJO**), 637 nm `line8`, 592 nm `line9`, 808 nm `line10` | `config.py::SHUTTER_CHANNELS`, `SHUTTER_POLARITY` | ✅ (`test_shutter_lines_match_config`) |
+| Flipper notch 532 | `Dev1/port0/line7` | `config.py::FLIPPER_532_CHAN` | ✅ |
 | Flippers de potencia (analógicos, desacoplados) | `Dev1/ao0`, `Dev1/ao1` | `core/nidaq.py`, `DEC-001` | 📄 |
 | Fotodiodo (entrada analógica) | `Dev1/ai0`, ≤ 10 kHz | `core/nidaq.py`, `SYS-203` | 📄 |
 | Canales de láser configurados | 532 / 637 / 592 / 808 nm | `config.py::SHUTTERS` | 📄 |
@@ -77,7 +84,7 @@ físicas medidas, documentadas en un monográfico) y se verifican leyendo la fue
 > `NUMBER_OF_PIXELS` del Shamrock es ahora un alias de `DETECTOR_WIDTH_PX` (por eso ya no tiene
 > fila propia), y `get_shamrock()` le informa esta geometría al SDK y la relee antes de
 > cualquier calibración. Confirmación opcional en el banco: `GetPixelSize` (sección C de
-> `scratch/legacy_console_probe.py`).
+> `tools/bench/legacy_console_probe.py`; prueba BANCO-01 de `docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`).
 
 ## 4. Atajos de teclado globales (PySpectrum)
 

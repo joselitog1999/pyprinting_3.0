@@ -14,7 +14,8 @@ You are the **Senior Metrologist & Data Scientist** for PyPrinting 3.0. Your mis
   * Effective degrees of freedom via the Welch-Satterthwaite equation $\nu_{\text{eff}} = \frac{u_c^4(y)}{\sum \frac{u_i^4(y)}{\nu_i}}$.
   * Expanded uncertainty with coverage factor $k=2$ ($95.45\%$ confidence interval).
 * **Super-Resolution Optical Localization (SMLM / PSF Fitting)**:
-  * Cramér-Rao Lower Bound (CRLB) for 2D Gaussian PSF: $\sigma_{\text{CRLB}}^2 = \frac{\sigma_a^2}{N} \left(1 + \frac{4\tau}{1 + \sqrt{2\tau}}\right)$ where $\tau = \frac{2\pi b^2 \sigma_a^2}{N a^2}$.
+  * Cramér-Rao Lower Bound (CRLB) for 2D Gaussian PSF (Rieger & Stallinga 2014, Eq. 7, doi:10.1002/cphc.201300711): $\sigma_{\text{CRLB}}^2 \approx \frac{\sigma_a^2}{N} \left(1 + 4\tau + \sqrt{\frac{2\tau}{1 + 4\tau}}\right)$ where $\tau = \frac{2\pi b\, \sigma_a^2}{N a^2}$, $\sigma_a^2 = \sigma^2 + a^2/12$, $a$ = pixel size, $b$ = background photons per pixel (linear in $b$; Mortensen et al. 2010, Eq. 5, doi:10.1038/nmeth.1447, writes that same count as $b^2$ — convert, never mix the two notations). It tracks Mortensen's exact integral within 2 % in $\sigma$; sanity anchors: bracket $= 5.63$ at $\tau = 1$, $\to 4\tau$ for $\tau \gg 1$ (background-limited). Reject the variant $1 + 4\tau/(1+\sqrt{2\tau})$: it grows as $\sqrt{\tau}$ and underestimates the bound by 53 % at $\tau = 1$.
+  * EMCCD (iXon3): excess noise $F^2 = 2$ doubles the CRLB variance (Mortensen 2010; Rieger & Stallinga 2014 §2.1). Apply it exactly once: ×2 when $N$ and $b$ are true photon counts, but no extra factor when $N$ comes from a mean–variance gain calibration, because that calibration already absorbs $F^2$ by underestimating $N$ by 2.
   * Sub-pixel localization via Levenberg-Marquardt and maximum likelihood estimation (MLE).
 * **High-Performance Reciprocal Space & Disorder Analysis (`core/lattice_disorder.py`)**:
   * 2D Type-1 Non-Uniform Fast Fourier Transform (NUFFT) accelerated with BLAS/LAPACK (GEMM).

@@ -97,7 +97,7 @@ flowchart TD
             Q -- Sí --> R[🚨 _emergency_shutdown]
         end
         
-        R --> S[Escritura Digital Ceros: line0:3 = 0]
+        R --> S["Escritura de cierre: line8-10 = 0 y line11 = 1 (532 nm activo en BAJO)"]
         R --> T[Independencia de Flipper: Estado de Atenuación Preservado]
         R --> U[Ejecución de Callbacks Registrados]
     end
@@ -202,7 +202,7 @@ Para evitar que la GUI muestre un casillero marcado (`Checked = True`) mientras 
 3. El slot `_on_watchdog_triggered()` bloquea temporalmente las señales de los widgets (`blockSignals(True)`), desmarca las casillas de los obturadores y refresca la leyenda de seguridad.
 
 ### 4.4 Desacoplamiento del Flipper de Potencia (Low/High Power) y Seguridad Óptica
-A diferencia de los obturadores de radiación láser (`Dev1/port0/line0:3`), cuya función es el corte binario completo de fotones ($T \approx 0\%$), el **Flipper de Potencia** es una montura motorizada con un filtro de densidad neutra calibrado ($\text{OD} = 2.0 - 3.0$) gobernada por pulsos analógicos de $5\ \text{V}$ en `Dev1/ao0` y `Dev1/ao1`.
+A diferencia de los obturadores de radiación láser (`Dev1/port0/line8`–`line11`), cuya función es el corte binario completo de fotones ($T \approx 0\%$), el **Flipper de Potencia** es una montura motorizada con un filtro de densidad neutra calibrado ($\text{OD} = 2.0 - 3.0$) gobernada por pulsos analógicos de $5\ \text{V}$ en `Dev1/ao0` y `Dev1/ao1`.
 
 En la arquitectura definitiva de PyPrinting 3.0:
 1. **Desacoplamiento Estricto del Watchdog**: El daemon de seguridad (`_watchdog_loop`) cierra **únicamente** los obturadores activos cuando vence el tiempo límite (`close_all_shutters()`). El flipper **no se modifica de forma forzada**, preservando la configuración elegida por el operador y evitando disparos analógicos concurrentes sobre la tarjeta NI-DAQmx.

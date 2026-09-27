@@ -282,9 +282,18 @@ class TestInspectorAcquisitionAndLiveControls(unittest.TestCase):
         self.assertEqual(single_called, [True])
 
         # Test live sync from inspector to spectrum widget
+        live_requests = []
+        container.spectrum_widget.toggleLiveRamanSignal.connect(live_requests.append)
         container.inspector_widget.btn_live.click()
         self.assertTrue(container.spectrum_widget.btn_live.isChecked())
         self.assertFalse(container.inspector_widget.btn_single.isEnabled())
+        # La orden tiene que LLEGAR al backend, no sólo marcar la casilla. Tras DEC-032 el
+        # contenedor llamaba a _on_toggle_live() sin el argumento `checked`: el TypeError se
+        # perdía dentro del slot, la casilla quedaba marcada y Live nunca arrancaba.
+        self.assertEqual(live_requests, [True])
+        # Llamada directa (fuera de un slot): el error no puede esconderse.
+        container._on_inspector_toggle_live(False)
+        self.assertEqual(live_requests, [True, False])
 
 
 if __name__ == "__main__":

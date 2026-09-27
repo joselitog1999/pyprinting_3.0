@@ -48,6 +48,8 @@ Este módulo es deliberadamente hermético: NO importa PyQt6, nidaqmx ni `core.n
 `core/nidaq.py` como texto para no arrancar el hilo watchdog ni requerir el stack de
 hardware, de modo que el gate corra rápido y en cualquier plataforma.
 """
+import functools
+import os
 import re
 import sys
 from pathlib import Path
@@ -62,11 +64,36 @@ if str(ROOT) not in sys.path:
 # ==============================================================================
 # Recolección del corpus
 # ==============================================================================
+# Árboles que viven dentro del directorio pero NO son este repositorio: otros checkouts (los
+# worktrees de git que Claude Code crea bajo .claude/worktrees/, cada uno una copia completa del
+# repo en otra rama), el entorno virtual y la base de git. Recorrerlos es incorrecto, no sólo
+# lento: una copia del repo trae sus propios CLAUDE.md, ledgers y reserva/ bajo rutas que las
+# exclusiones de este módulo no reconocen (falsos positivos), y una ruta citada podría "resolver"
+# contra un archivo que existe sólo en otra rama (falso negativo).
+_FOREIGN_TREES = (".claude/worktrees", ".venv", ".git")
+
+
+def _in_foreign_tree(path: Path) -> bool:
+    rel = path.relative_to(ROOT).as_posix()
+    return any(rel == d or rel.startswith(d + "/") for d in _FOREIGN_TREES)
+
+
 def _corpus_files():
     """CLAUDE.md + todo prompt bajo .claude/ (agentes, skills, exemplars)."""
     files = [ROOT / "CLAUDE.md"]
-    files.extend(sorted((ROOT / ".claude").glob("**/*.md")))
+    files.extend(f for f in sorted((ROOT / ".claude").glob("**/*.md")) if not _in_foreign_tree(f))
     return [f for f in files if f.is_file()]
+
+
+@functools.lru_cache(maxsize=1)
+def _repo_entry_names():
+    """Nombres de archivos y directorios del repositorio, sin entrar en árboles ajenos."""
+    names = set()
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if not _in_foreign_tree(Path(dirpath) / d)]
+        names.update(dirnames)
+        names.update(filenames)
+    return frozenset(names)
 
 
 CORPUS = _corpus_files()
@@ -264,8 +291,7 @@ def _resolves(token: str, containing: Path) -> bool:
         return True
     # (c) por nombre de archivo en cualquier parte del repo (referencias abreviadas
     #     como `lattice_disorder_gui.py` o `instrumentation.md`)
-    name = Path(token).name
-    return any(ROOT.glob(f"**/{name}"))
+    return Path(token).name in _repo_entry_names()
 
 
 def test_cited_code_paths_exist():
@@ -598,3 +624,80 @@ def test_no_superseded_two_round_protocol_vocabulary():
         "Vocabulario del protocolo de 2 rondas ya superado (usar Rondas 1-4, con la "
         "Ronda 3 obligatoria para cambios de GUI):\n  " + "\n  ".join(offenders)
     )
+
+
+# ==============================================================================
+# Líneas DAQ de los obturadores (DEC-036)
+# ==============================================================================
+def _shutter_channels_ground_truth():
+    """`config.SHUTTER_CHANNELS` leído como texto, sin importar config (que instancia drivers)."""
+    src = (ROOT / "config.py").read_text(encoding="utf-8", errors="ignore")
+    m = re.search(r"^SHUTTER_CHANNELS\s*=\s*\[([^\]]*)\]", src, re.MULTILINE)
+    assert m, "No se encontró SHUTTER_CHANNELS en config.py"
+    return [int(x) for x in re.findall(r"\d+", m.group(1))]
+
+
+def test_shutter_lines_match_config():
+    """CLAUDE.md y lab-invariants.md citan las líneas reales de los obturadores.
+
+    Durante meses el corpus dijo `Dev1/port0/line0:3` mientras el código usaba las líneas
+    11, 8, 9 y 10 (auditoría documental 2026-09-27, DEC-036). En seguridad láser, citar una
+    línea equivocada es un error de procedimiento: este test la ata al código.
+    """
+    channels = _shutter_channels_ground_truth()
+    offenders = []
+    for path in dict.fromkeys(CORPUS + [_INVARIANTS_FILE]):
+        body = _strip_code_fences(path.read_text(encoding="utf-8", errors="ignore"))
+        for lineno, line in enumerate(body.splitlines(), start=1):
+            if re.search(r"port0/line0:3|line0:3", line):
+                offenders.append(f"{path.relative_to(ROOT)}:{lineno}: cita `line0:3`; el código usa {channels}")
+    for path in (ROOT / "CLAUDE.md", _INVARIANTS_FILE):
+        body = path.read_text(encoding="utf-8", errors="ignore")
+        missing = [ch for ch in channels if not re.search(rf"line{ch}\b", body)]
+        if missing:
+            offenders.append(f"{path.relative_to(ROOT)}: no cita las líneas {missing} de config.SHUTTER_CHANNELS")
+    assert not offenders, "Líneas de obturadores desincronizadas del código:\n  " + "\n  ".join(offenders)
+
+
+def _digital_lines_ground_truth() -> set[int]:
+    """Líneas digitales que el código usa: obturadores + flipper del notch de 532 nm."""
+    src = (ROOT / "config.py").read_text(encoding="utf-8", errors="ignore")
+    m = re.search(r"^FLIPPER_532_CHAN\s*=\s*(\d+)", src, re.MULTILINE)
+    assert m, "No se encontró FLIPPER_532_CHAN en config.py"
+    return set(_shutter_channels_ground_truth()) | {int(m.group(1))}
+
+
+def test_documents_cite_only_real_digital_lines():
+    """Ningún documento (CAT/SYS/MOD, manual, ledgers de evidencia, corpus de agentes) cita una
+    línea `port0/lineN` que el código no usa.
+
+    El test anterior sólo miraba CLAUDE.md y .claude/, y sólo la cadena `line0:3`: SYS-305 siguió
+    ubicando el obturador de 532 nm en `port0/line0` después de que DEC-036 lo diera por
+    corregido. Se revisan también los bloques de código (un diagrama ASCII con la línea
+    equivocada engaña igual). Quedan fuera DECISION_LOG.md (historia append-only, con los
+    valores viejos anotados en el punto de reemplazo) y las auditorías fechadas de
+    `docs/evidence/auditoria_*/`, que citan los valores viejos a propósito para documentarlos.
+    """
+    allowed = _digital_lines_ground_truth()
+    ledger = ROOT / "docs" / "decisions" / "DECISION_LOG.md"
+    audits = ROOT / "docs" / "evidence"
+
+    def _is_dated_audit(p: Path) -> bool:
+        rel = p.relative_to(audits).parts if audits in p.parents else ()
+        return bool(rel) and rel[0].startswith("auditoria_")
+
+    paths = [p for base in ("docs", "reportes") for p in sorted((ROOT / base).rglob("*.md"))
+             if not _in_foreign_tree(p) and p != ledger and not _is_dated_audit(p)]
+    paths += [p for p in CORPUS if p.suffix == ".md"]
+    offenders = []
+    for path in dict.fromkeys(paths):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1):
+            for m in re.finditer(r"port0/line(\d+)(?::(\d+))?", line):
+                lo = int(m.group(1))
+                hi = int(m.group(2)) if m.group(2) else lo
+                cited = set(range(min(lo, hi), max(lo, hi) + 1))
+                if not cited <= allowed:
+                    offenders.append(f"{path.relative_to(ROOT)}:{lineno}: `{m.group(0)}` "
+                                     f"(el código usa {sorted(allowed)})")
+    assert not offenders, ("Documentos que citan líneas digitales que el código no usa:\n  "
+                           + "\n  ".join(offenders))

@@ -1,0 +1,10 @@
+LatticeLayer(graphene) defaults: a=2.50 b=3.00 gamma=90.0 basis=[(0.0, 0.0), (0.3333333333333333, 0.6667)]
+composer graphene a=b=2.5 gamma=60 basis (0,0),(1/3,2/3): N=75 d_nn(min)=0.8334 um  d_nn median=0.8334  inner coordination histogram={1: 42}
+composer graphene a=b=2.5 gamma=120 basis (0,0),(1/3,2/3): N=73 d_nn(min)=1.4433 um  d_nn median=1.4434  inner coordination histogram={3: 40}
+preset1 Hexagonal/hexagon: layer type=hexagonal a=2.0 b=3.0 gamma=90.0
+  preset1 Hexagonal/hexagon generated: N=15 d_nn(min)=2.0000 um  d_nn median=2.0000  inner coordination histogram={2: 5}
+preset3 Grafeno disco R=5: layer type=graphene a=2.5 b=3.0 gamma=90.0
+  preset3 Grafeno disco R=5 generated: N=24 d_nn(min)=1.3017 um  d_nn median=1.3017  inner coordination histogram={1: 14}
+combo 'graphene': a=2.5 b=2.5 gamma=60.0 basis=[(0.0, 0.0), (0.3333333333333333, 0.6667)]
+  combo graphene generated: N=33 d_nn(min)=0.8334 um  d_nn median=0.8334  inner coordination histogram={1: 17}
+done

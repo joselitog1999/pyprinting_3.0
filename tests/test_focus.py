@@ -3,7 +3,7 @@
 test_focus.py — Pruebas unitarias para las correcciones de seguridad de modules/focus.py
 (auditoría multi-agente 2026-09-18, hallazgos ANOM-FOCUS-01/02/03):
 
-1. ANOM-FOCUS-02: self.zo se clampea al mismo rango físico [0, PI_STAGE_RANGE_UM] que
+1. ANOM-FOCUS-02: self.zo se clampea al mismo rango físico de Z [0, PI_Z_RANGE_UM] (20 µm, DEC-036) que
    pi.MOV() aplica a nivel de driver, evitando el desfase entre la geometría de trigger
    (WOS/CTO/WAV_LIN, sin clamping propio) y el movimiento físico real cerca de los
    límites de recorrido Z.
@@ -47,19 +47,19 @@ def test_clamped_zo_within_bounds_near_lower_limit(app):
     backend = _make_backend(app)
     zo = backend._clamped_zo(1.0)   # muy cerca del límite inferior de recorrido
     assert zo >= 0.0
-    assert zo + backend.range_total <= focus_mod.PI_STAGE_RANGE_UM + 1e-9
+    assert zo + backend.range_total <= focus_mod.PI_Z_RANGE_UM + 1e-9
 
 
 def test_clamped_zo_within_bounds_near_upper_limit(app):
     backend = _make_backend(app)
-    zo = backend._clamped_zo(99.0)  # muy cerca del límite superior (100 µm)
+    zo = backend._clamped_zo(19.0)  # muy cerca del límite superior de Z (20 µm, DEC-036)
     assert zo >= 0.0
-    assert zo + backend.range_total <= focus_mod.PI_STAGE_RANGE_UM + 1e-9
+    assert zo + backend.range_total <= focus_mod.PI_Z_RANGE_UM + 1e-9
 
 
 def test_clamped_zo_matches_unclamped_formula_in_safe_interior(app):
     backend = _make_backend(app)
-    center = 50.0
+    center = 10.0  # centro del recorrido Z de 20 µm
     zo = backend._clamped_zo(center)
     assert abs(zo - (center - backend.range_total / 2)) < 1e-9
 

@@ -99,14 +99,14 @@ def move_stage_to(x_um: float, y_um: float, z_um: Optional[float] = None, timeou
     diferencia de core/nanopositioning.py, que no tiene timeout en su espera equivalente. Si
     z_um es None, el eje Z no se toca (permite escaneos puramente XY). Devuelve la posición real
     final leída por pi.qPOS()."""
-    from config import pi, PI_STAGE_RANGE_UM
+    from config import pi, PI_STAGE_RANGE_UM, PI_Z_RANGE_UM
 
     x_c = float(np.clip(x_um, 0.0, PI_STAGE_RANGE_UM))
     y_c = float(np.clip(y_um, 0.0, PI_STAGE_RANGE_UM))
     axes = [1, 2]
     targets = [x_c, y_c]
     if z_um is not None:
-        z_c = float(np.clip(z_um, 0.0, PI_STAGE_RANGE_UM))
+        z_c = float(np.clip(z_um, 0.0, PI_Z_RANGE_UM))
         axes.append(3)
         targets.append(z_c)
 

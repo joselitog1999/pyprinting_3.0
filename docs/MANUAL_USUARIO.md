@@ -372,7 +372,7 @@ $$\mathbf{v}_{\text{laser}/\text{sample}} = -\mathbf{v}_{\text{sample}/\text{lab
 ### 3.5 Dock: Shutters / Flipper (Seguridad Óptica & Modo Alineación)
 El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y líneas TTL de las fuentes láser y elementos móviles de la trayectoria óptica:
 
-* **Obturadores Digitales de Excitación (Líneas TTL NI-DAQmx `port0/line0:3`)**:
+* **Obturadores Digitales de Excitación (Líneas TTL NI-DAQmx `port0/line11` (532 nm, activo en BAJO), `line8` (637 nm), `line9` (592 nm) y `line10` (808 nm); `config.SHUTTER_CHANNELS`, DEC-036)**:
   - **`Shutter 532 nm`**: Conmuta el obturador del láser verde ($\lambda = 532\ \text{nm}$, bomba fototérmica).
   - **`Shutter 637 nm`**: Conmuta el obturador del láser rojo ($\lambda = 637\ \text{nm}$, excitación confocal/Raman).
   - **`Shutter 592 nm`**: Conmuta el obturador del láser amarillo ($\lambda = 592\ \text{nm}$).
@@ -421,11 +421,14 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
     - El valor de $\Delta$ respeta el casillero `Step X-Y` o `Step Z`.
 * **Telemetría y Estado Físico en Tiempo Real**:
   - `🟢 PI Física (SN: 0119048050)`: La controladora física responde activamente mediante health-check periódico basado en el estado de conexión en memoria del lado del host, sin saturar el bus USB con consultas de identidad (`*IDN?`) repetidas durante movimiento activo.
-  - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente si el hardware está apagado o desconectado, imprimiendo en consola `[PI VIRTUAL] MOV ...` para no confundir desplazamientos numéricos de GUI con movimiento mecánico real.
-  - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas.
+  - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente si el hardware está apagado o desconectado. Con la platina desconectada, los movimientos **se rechazan** (consola: `[PI] MOV rechazado: platina desconectada ...`): no hay desplazamiento simulado en silencio. El movimiento virtual (`[PI VIRTUAL] MOV ...`) existe sólo si el operador aisló la platina a propósito desde el Tablero de Hardware.
+  - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas. Al conectar, el programa **cierra todos los obturadores antes** de llevar la platina a la posición de inicio.
 
 > [!NOTE]
-> **Resiliencia ante rechazos de comando (`SYS-205`)**: un intento de mover la platina a una coordenada fraccionalmente fuera de $[0, 100]\ \mu\text{m}$ (por ejemplo, por una corrección de deriva acumulada) ya **no** provoca una desconexión — el driver clampea automáticamente el valor al límite físico válido más cercano y continúa operando con normalidad. Del mismo modo, una colisión transitoria de lectura durante un movimiento activo se reintenta automáticamente y nunca conmuta el indicador a `🟡 Modo Virtual` por sí sola. Solo una pérdida de comunicación física genuina (cable USB, alimentación de la controladora) activa ese indicador, y solo después de que el propio software intente una reconexión automática transparente sin éxito.
+> **Resiliencia ante rechazos de comando (`SYS-205`)**: un intento de mover la platina a una coordenada fraccionalmente fuera de su recorrido — $0$–$100\ \mu\text{m}$ en X e Y, $0$–$20\ \mu\text{m}$ en Z (platina P-517.3CD) — por ejemplo por una corrección de deriva acumulada, **no** provoca una desconexión: el driver recorta el valor al límite del eje y sigue operando. Una colisión transitoria de lectura durante un movimiento se reintenta automáticamente y no conmuta el indicador por sí sola.
+
+> [!CAUTION]
+> **Pérdida real de comunicación con la platina (`DEC-036`).** Si la comunicación con la controladora se pierde de verdad (cable USB, alimentación), el programa **no reconecta solo**: reconectar lleva la platina a la posición de inicio, y eso no puede ocurrir a mitad de una rutina. En cambio, declara la platina desconectada, **cierra todos los obturadores y no permite abrir ninguno** hasta que el operador reconecte con `🔌 Reconectar` (o `🔌 Reconectar y Reanudar` en Mediciones). La rutina en curso se detiene: los escaneos confocales se abortan y la impresión de grillas se pausa. En el legado esto nunca ocurrió: si pasa, anótelo antes de seguir.
 * **Perfil de Conexión de Inicio (`pyprinting`)**:
   - Al abrir `PyPrinting 3.0` (`app.py`), el sistema aísla el bus USB activando únicamente la **Platina PI** y la **Tarjeta NI-DAQmx**. Los periféricos pesados (cámara réflex Canon y espectrómetros Andor) se mantienen desconectados por defecto y en espera de activación bajo demanda, garantizando un arranque ultrarrápido y previniendo colisiones de puertos USB.
 
@@ -565,18 +568,25 @@ Si durante un experimento no supervisado (impresión de grilla larga, seguimient
 
 > ⚠️ *"Comunicación con la platina interrumpida en la partícula N. Se cerraron los obturadores por seguridad. Verifique el equipo y presione 'Reconectar y Reanudar' para continuar el experimento."*
 
+El mismo diálogo aparece, con el texto *"La platina no confirmó la llegada a la partícula N..."*, si la platina sigue conectada pero no confirma haber llegado al nodo en 5 s: el programa no avanza a la etapa siguiente sin esa confirmación.
+
 Qué hace el sistema automáticamente, sin intervención del operador, en el instante en que detecta la falla:
-1. **Cierra todos los obturadores** de inmediato, protegiendo la muestra de irradiación desatendida.
+1. **Cierra todos los obturadores** de inmediato, protegiendo la muestra de irradiación desatendida. Si la falla es de comunicación, además **bloquea toda apertura** de obturadores hasta que se reconecte.
 2. **Pausa el experimento** conservando exactamente dónde estaba: el índice de la partícula pendiente, todas las partículas ya impresas exitosamente y los registros de deriva permanecen intactos — nada se reinicia ni se pierde.
+3. **No** intenta reconectar por su cuenta.
 
 Qué debe hacer el operador al ver este diálogo:
 1. Verificar físicamente el cable USB y la alimentación eléctrica de la controladora PI E-517.
-2. Presionar el botón **`🔌 Reconectar y Reanudar`** del propio diálogo.
+2. Presionar el botón **`🔌 Reconectar y Reanudar`** del propio diálogo. La reconexión lleva la platina a la posición de inicio **con los obturadores cerrados** y libera el bloqueo.
 3. Si la reconexión es exitosa, el experimento **continúa automáticamente desde la partícula exacta donde se detuvo** — no es necesario, ni recomendable, volver a crear o cargar la grilla, ni presionar `Play ►` de nuevo.
 4. Si la reconexión falla (el mensaje se repite), revisar la conexión física nuevamente antes de reintentar.
 
 > [!WARNING]
 > No cierre la ventana de Mediciones ni presione `Reset all 🔄` mientras este diálogo esté visible — eso sí descartaría el progreso del lote. El botón `🔌 Reconectar y Reanudar` es la única acción necesaria para retomar el experimento sin pérdidas.
+
+**Errores internos inesperados**
+
+Si un error de programación no previsto ocurre durante la operación, el programa **no se cierra**: cierra todos los obturadores, sigue en ejecución y escribe en la consola una línea `[SEGURIDAD] Excepción no manejada en ...`, con el detalle completo en `logs/excepciones_no_manejadas.log` (`DEC-036`). Si la línea dice `Obturadores SIN CONFIRMAR`, mire el panel de obturadores antes de continuar. Conviene guardar ese archivo y reportarlo: indica un defecto que hay que corregir.
 
 ---
 
@@ -1669,9 +1679,9 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 | **`Ctrl + M`** | Abrir ventana de Mediciones Automatizadas (Printing / Dimers) | Menú `Measurements` |
 | **`Ctrl + P`** | Abrir Caracterizador de PSF Analyzer | Menú `Tools` (`psf_analyzer.py`) |
 | **`Shift + Click`** | Activar Snap magnético en herramientas de medición | Cámara / Analizador de Imágenes |
-| **`F1`** | Iniciar adquisición continua de Trazas dobles (*Play*) | Dock: Trace |
+| **`F1`** | Iniciar adquisición continua de Trazas dobles (*Play*). ⚠️ **Abre el obturador del láser de la traza** | Dock: Trace |
 | **`F2`** | Detener adquisición de Trazas y guardar datos (*Stop*) | Dock: Trace |
-| **`F8`** | Ejecutar Autofoco Z al pico de intensidad (*Go to max*) | Dock: Focus z |
+| **`F8`** | Ejecutar Autofoco Z al pico de intensidad (*Go to max*). ⚠️ **Usa el láser de foco** | Dock: Focus z |
 | **`F9`** | Congelar perfil Z actual como firma de referencia (*Lock*) | Dock: Focus z |
 | **`F10`** | Ejecutar corrección de deriva Z por autocorrelación ($\times 2$) | Dock: Focus z |
 | **`Flechas ↑ / ↓`** | Desplazamiento fino paso a paso en Eje 1 ($\pm \text{Step}$) | Dock: Nanopositioning |
@@ -1711,7 +1721,7 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
   * **Solución**: La arquitectura desacoplada de PyPrinting 3.0 gestiona esto reseteando explícitamente `_task_flipper_up = None` y `_task_flipper_down = None`, invocando `close_all_tasks()` de forma segura y validando el estado con `task.is_task_done()` antes de despachar el pulso de 5V x 100 ms. Para más detalles, consulte [Reporte Técnico: Actuación de Flipper y Watchdog Desacoplado](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx.md).
 * **Causa 2 (Bucle infinito de señales Qt)**: Si el flipper se conmuta mediante `powerbutton.setChecked()`, Qt emite automáticamente la señal `toggled`, disparando un ciclo recursivo si el callback manipula el botón.
   * **Solución**: Utilice siempre la señal de usuario desacoplada `powerbutton.clicked` en lugar de `toggled`.
-* **Causa 3 (Confusión de Canales Flipper vs Shutter)**: El Flipper de Potencia opera por pulsos analógicos de 5V en `ao0`/`ao1` (atenuador OD), mientras que los obturadores de seguridad operan en líneas digitales `port0/line0:3`. Nunca deben mezclarse en el software ni atarse al corte de emergencia del watchdog.
+* **Causa 3 (Confusión de Canales Flipper vs Shutter)**: El Flipper de Potencia opera por pulsos analógicos de 5V en `ao0`/`ao1` (atenuador OD), mientras que los obturadores de seguridad operan en líneas digitales `port0/line8`–`line11`. Nunca deben mezclarse en el software ni atarse al corte de emergencia del watchdog.
 
 ### 22.7 Advertencia "Lock Focus Requerido" al activar Compensación de Inclinación Z (Confocal Tilt)
 * **Causa**: El usuario presiona el botón `📐 Inclinación Z` en el Dock Confocal sin haber calibrado previamente un perfil de enfoque de referencia mediante `Lock Focus` (`F9`).
@@ -1801,7 +1811,7 @@ Cada módulo individual del sistema cuenta con su sección detallada de modos de
 | **`core/`** | [core/hdf5_container.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/hdf5_container.py) | **Contenedor Científico HDF5 (`.h5`)**: Serialización jerárquica de lotes, compresión lossless `shuffle+gzip` y desempaquetado 1-click. |
 | **`core/`** | [core/lattice_generator.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/lattice_generator.py) | **Motor Cristalográfico 2D**: 15 redes canónicas, bases atómicas fraccionales $(u, v)$, exclusión $d_{\text{min}}$ y particionado multi-paso. |
 | **`core/`** | [core/nanopositioning.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nanopositioning.py) | **Platina Piezoeléctrica PI E-517**: Lectura/escritura capacitiva cerrada ($X, Y, Z$) con límites de seguridad $0-100\ \mu\text{m}$. |
-| **`core/`** | [core/shutters.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py) | **Control de Obturadores & Láser 532 nm**: Conmutación TTL de obturadores (`port0/line0:3`), modulación analógica AO2 y flippers desacoplados (`ao0`/`ao1`). |
+| **`core/`** | [core/shutters.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py) | **Control de Obturadores & Láser 532 nm**: Conmutación TTL de obturadores (`port0/line8`–`line11`), modulación analógica AO2 y flippers desacoplados (`ao0`/`ao1`). |
 | **`core/`** | [core/nidaq.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/nidaq.py) | **Capa HAL de National Instruments**: Generación/lectura de formas de onda por NI-DAQmx (multicanal $100\text{ kHz}$) y gestión limpia de tareas. |
 | **`core/`** | [core/canon_edsdk.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/canon_edsdk.py) | **Wrapper C/Python Canon EDSDK**: Integración nativa a bajo nivel con la DLL de Canon (EVF live stream & propiedades ISO/Tv). |
 | **`core/`** | [core/raman_engine.py](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/raman_engine.py) | **Motor Espectral y Quimiometría Raman**: Desespicado MAD, sustracción de línea base (AsLS, AirPLS, ModPoly) y descomposición multivariada PCA SVD. |

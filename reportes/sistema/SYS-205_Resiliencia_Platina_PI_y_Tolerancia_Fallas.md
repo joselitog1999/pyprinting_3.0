@@ -4,7 +4,15 @@
 **Laboratorio de Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)**
 **Autor Principal:** José Luis González Peñafiel (*Becario Doctoral CONICET*)
 **Código del Documento:** `SYS-205` | **Eje Temático:** `[HAL] (Capa de Abstracción de Hardware y Tolerancia a Fallas en Platina PI E-517)`
-**Fecha de Emisión:** Septiembre 2026 | **Estado:** Aprobado / Producción
+**Fecha de Emisión:** Septiembre 2026 | **Estado:** Aprobado · Revisado por `DEC-036` (2026-09-27) · Los cambios de `DEC-036` están pendientes de verificar en el banco (`BANCO-17`, `BANCO-19`)
+
+> [!WARNING]
+> **Revisión 2026-09-27 (`DEC-036`).** Tres piezas de la versión original de este informe (`DEC-011`) ya **no** describen el código y se reemplazaron abajo:
+> 1. **No hay reconexión automática.** `try_auto_reconnect()` se eliminó: reconectar llama a `connect()`, que manda la platina a home, y eso ocurría a mitad de la rutina y con el láser abierto. Ante una falla de comunicación la platina se declara desconectada, se cierran todos los obturadores y se bloquea toda apertura (interlock `"Platina PI"`) hasta que el operador reconecte.
+> 2. **`qONT()` nunca asume que la platina llegó.** Antes devolvía `True` ante una lectura fallida, y toda espera terminaba como si la platina hubiera llegado. Ahora informa `False`, y las esperas usan `config.wait_on_target()`, acotada en tiempo.
+> 3. **Z tiene 20 µm de recorrido, no 100 µm** (platina P-517.3CD, 100 × 100 × 20 µm). El recorte es por eje (`config.PI_AXIS_RANGE_UM`).
+>
+> Además, el código `-1004` es `PI_UNEXPECTED_RESPONSE` ("Controller sent unexpected response"), **no** "Position out of limits", que es el código `7` (verificado con `pipython` 2.13.0.2). Las secciones 2.3 y 3 se corrigieron en consecuencia.
 
 ---
 
@@ -20,24 +28,25 @@
   - `[[CAT-105_Compensacion_Deriva_Termomecanica_Particula_Ancla_P0]]`
 - **Manuales de Usuario Conexos:**
   - `[[MOD-02_Measurements_Printing_y_Dimeros]]`
-- **Decisiones Arquitectónicas:** `DEC-011` (`docs/decisions/DECISION_LOG.md`)
-- **Módulos de Código Fuente:** `config.py`, `modules/measurements.py`, `core/nanopositioning.py`
+- **Decisiones Arquitectónicas:** `DEC-011`, revisada por `DEC-036` (`docs/decisions/DECISION_LOG.md`)
+- **Módulos de Código Fuente:** `config.py`, `core/nidaq.py` (interlocks), `modules/measurements.py`, `core/nanopositioning.py`, `modules/confocal.py`, `contrapropagante.py`, `modules/focus.py`
+- **Pruebas de banco pendientes:** `BANCO-17` y `BANCO-19` (`docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`)
 
 ---
 
 ## 1. 📋 Resumen Ejecutivo
 
-Este informe documenta la reingeniería de la capa de abstracción de hardware (`_PIController` en `config.py`) que gobierna la platina piezoeléctrica triaxial Physik Instrumente E-517 ($0.0 - 100.0\ \mu\text{m}$ por eje), motivada por una regresión que provocaba **desconexiones artificiales e irreversibles** hacia "Modo Virtual" en mediciones nocturnas no supervisadas (impresión de grillas 2D, escaneos confocales largos, seguimiento de deriva térmica).
+Este informe documenta la reingeniería de la capa de abstracción de hardware (`_PIController` en `config.py`) que gobierna la platina piezoeléctrica triaxial Physik Instrumente P-517.3CD con controlador E-517 ($0$–$100\ \mu\text{m}$ en X e Y, $0$–$20\ \mu\text{m}$ en Z), motivada por una regresión que provocaba **desconexiones artificiales e irreversibles** hacia "Modo Virtual" en mediciones nocturnas no supervisadas (impresión de grillas 2D, escaneos confocales largos, seguimiento de deriva térmica).
 
 La causa raíz combinaba tres problemas de diseño independientes pero acumulativos:
 1. Un manejo de excepciones genérico que no distinguía un **rechazo de comando de firmware** (`GCSError`) de una **pérdida física real de comunicación USB**.
 2. Ausencia de un clampeo preventivo de coordenadas, permitiendo que cálculos de grilla con corrección de deriva generaran objetivos fraccionalmente fuera de rango.
 3. Saturación innecesaria del bus serie mediante consultas de identidad (`*IDN?`) repetidas durante movimiento activo.
 
-La solución implementada (`DEC-011`) introduce cuatro capas de defensa — clampeo matemático incondicional, aislamiento de excepciones por tipo, reintentos con degradación segura y auto-reconexión transparente — más una máquina de estados de pausa/reanudación a nivel de aplicación que garantiza **cero pérdida de partículas ya impresas** ante una falla de comunicación genuina.
+La solución original (`DEC-011`) introdujo cuatro capas de defensa — clampeo matemático incondicional, aislamiento de excepciones por tipo, reintentos ante lecturas fallidas y auto-reconexión transparente — más una máquina de estados de pausa/reanudación a nivel de aplicación que preserva las partículas ya impresas ante una falla de comunicación genuina. `DEC-036` reemplazó la auto-reconexión por un **interlock** (una falla de comunicación cierra los obturadores y bloquea toda apertura hasta que el operador reconecte) y agregó la confirmación obligatoria de llegada (`wait_on_target`).
 
 > [!IMPORTANT]
-> Ninguna de estas correcciones relaja el interlock de rango físico $[0, 100]\ \mu\text{m}$ (CLAUDE.md §4) — lo refuerza. El clampeo ahora ocurre en el driver mismo, no solo en cada llamador individual.
+> Ninguna de estas correcciones relaja el límite de recorrido físico (CLAUDE.md §4) — lo refuerza. El recorte ocurre en el driver mismo, eje por eje, y no sólo en cada llamador individual.
 
 ---
 
@@ -63,13 +72,16 @@ def MOV(self, axes, targets):
 
 El problema: `except Exception` captura **indiscriminadamente** tanto una excepción de comunicación de bajo nivel (el cable USB realmente desenchufado) como una excepción de **protocolo de aplicación** — un `GCSError` que el propio firmware de la controladora E-517 devuelve cuando rechaza un comando sintácticamente válido pero semánticamente inválido.
 
-### 2.3 Disparador Dominante: `GCSError -1004` por Límites de Coordenadas
+### 2.3 Disparador Dominante: `GCSError 7` por Límites de Coordenadas
 
-El disparador más frecuente en producción fue el código de error **-1004 ("Position out of limits")**. Un nodo de grilla se calcula como:
+> [!NOTE]
+> **Corrección 2026-09-27.** La versión original atribuía este rechazo al código **-1004**. En `pipython`, `-1004` es `PI_UNEXPECTED_RESPONSE` ("Controller sent unexpected response"), un error de la **interfaz**; el rechazo por límites es el código de firmware **7** ("Position out of limits"). La distinción importa porque `DEC-036` clasifica por el signo del código: negativo = comunicación, positivo = firmware.
+
+El disparador más frecuente que se documentó fue el código de error **7 ("Position out of limits")**. Un nodo de grilla se calcula como:
 
 $$x_{\text{nodo}} = X_0 + x_{\text{grilla},i} + \text{shift}_x + \Delta x_{\text{deriva}}$$
 
-Si $X_0$ (posición de referencia capturada por `Set reference`), el offset de la grilla, el desplazamiento de autofoco (`shiftx`/`shifty`) y la corrección de deriva acumulada suman una coordenada que excede $[0.0, 100.0]\ \mu\text{m}$ por una fracción de micrón, la controladora rechaza el comando `MOV` con `-1004`. El código pre-existente interpretaba esto como "la platina se desconectó", apagaba `self._connected`, y **todos los comandos posteriores** (incluidos los de nodos perfectamente válidos) caían en la rama de Modo Virtual — silenciosa e irreversiblemente, sin que la platina física se hubiera movido en absoluto desde ese instante.
+Si $X_0$ (posición de referencia capturada por `Set reference`), el offset de la grilla, el desplazamiento de autofoco (`shiftx`/`shifty`) y la corrección de deriva acumulada suman una coordenada que excede el recorrido del eje por una fracción de micrón, la controladora rechaza el comando `MOV` con el código 7. El código pre-existente interpretaba esto como "la platina se desconectó", apagaba `self._connected`, y **todos los comandos posteriores** (incluidos los de nodos perfectamente válidos) caían en la rama de Modo Virtual — silenciosa e irreversiblemente, sin que la platina física se hubiera movido en absoluto desde ese instante.
 
 ### 2.4 Disparador Secundario: Colisión de Bus Durante Polling Activo
 
@@ -90,47 +102,41 @@ El chequeo de salud periódico invocado desde el dock de Nanoposicionamiento lla
 
 ## 3. 🏗️ Arquitectura de Resiliencia en `config.py`
 
-### 3.1 Diagrama de Aislamiento de Excepciones
+### 3.1 Diagrama de Aislamiento de Excepciones (vigente desde `DEC-036`)
 
 ```mermaid
 flowchart TD
-    A["Llamada a pi.MOV() / qPOS() / qONT()"] --> B{"¿self._connected?"}
-    B -- No --> Z["Modo Virtual — actualiza self._pos localmente, imprime aviso"]
-    B -- Sí --> C["Ejecuta comando real sobre self._dev"]
+    A["Llamada a pi.MOV() / qPOS() / qONT()"] --> B{"¿Conectada?"}
+    B -- "No, aislada por el operador" --> Z["Modo virtual explícito:\nMOV actualiza self._pos, qONT = True"]
+    B -- "No, desconectada" --> Y["MOV devuelve False, qONT = False.\nSin modo virtual silencioso"]
+    B -- Sí --> C["Comando real sobre self._dev\n(qPOS/qONT: hasta 2 reintentos a 20 ms)"]
     C --> D{"¿Excepción?"}
-    D -- No --> E["Devuelve resultado real, sincroniza self._pos"]
-    D -- Sí --> F{"¿Es pipython.GCSError?"}
-    F -- "Sí (rechazo de firmware:\n-1004, sintaxis, parámetro)" --> G["Log únicamente.\nself._connected NO se toca."]
-    F -- "No (IOError, timeout,\nfallo de bus real)" --> H{"¿Es MOV()?"}
-    H -- "No (qPOS/qONT)" --> I["_retry_read(): hasta 2 reintentos\na 20ms — si persiste, degrada a\ncache sin desconectar"]
-    H -- "Sí" --> J["try_auto_reconnect():\nUN intento transparente de connect()"]
-    J --> K{"¿Reconexión exitosa?"}
-    K -- Sí --> L["Reintenta el MOV() una vez más"]
-    K -- No --> M["self._connected = False\n(única vía real de desconexión)"]
-    G --> N[Retorna]
-    I --> N
-    L --> N
-    M --> N
+    D -- No --> E["Resultado real. MOV actualiza\nself._pos sólo si tuvo éxito"]
+    D -- Sí --> F{"¿GCSError con código > 0?"}
+    F -- "Sí: rechazo del firmware\n(7 = fuera de límites, etc.)" --> G["Conexión intacta.\nMOV → False, qONT → False,\nqPOS → última posición conocida"]
+    F -- "No: código < 0, sin código\no no es GCSError" --> H["_stage_fault():\nplatina desconectada,\nobturadores cerrados,\ninterlock 'Platina PI'"]
+    H --> I["Sin reconexión automática.\nLa rutina aborta o pausa;\nreconecta el operador"]
 ```
 
 ### 3.2 Clampeo Matemático Incondicional
 
-`_PIController.MOV()` (y `_MockPI.MOV()`, para paridad de comportamiento bajo pruebas automatizadas — `pipython` no está instalado en el entorno de desarrollo/CI, por lo que `pi` siempre resuelve a `_MockPI`) clampea **toda** coordenada antes de que llegue al dispositivo:
+`_PIController.MOV()` (y `_MockPI.MOV()`, para paridad de comportamiento bajo pruebas automatizadas: con `SAFE_MODE` activo, `pi` resuelve a `_MockPI`) recorta **toda** coordenada al recorrido de su eje antes de que llegue al dispositivo:
 
-$$x_{\text{enviado}} = \max\big(0.0,\ \min(\text{PI\_STAGE\_RANGE\_UM},\ x_{\text{solicitado}})\big)$$
+$$x_{\text{enviado}} = \max\big(0,\ \min(R_{\text{eje}},\ x_{\text{solicitado}})\big), \qquad R_X = R_Y = 100\ \mu\text{m},\quad R_Z = 20\ \mu\text{m}$$
 
 ```python
-clamped_any = False
-for i, tg in enumerate(targets_list):
-    clamped = max(0.0, min(PI_STAGE_RANGE_UM, float(tg)))
+# config.py — PI_AXIS_RANGE_UM = {1: 100.0, 2: 100.0, 3: PI_Z_RANGE_UM (20.0)}
+for i, (ax, tg) in enumerate(zip(axes_list, targets_list)):
+    clamped = clamp_axis_um(ax, tg)
     if clamped != float(tg):
         clamped_any = True
     targets_list[i] = clamped
-if clamped_any:
-    print(f"[PI Driver Clamped] MOV solicitado fuera de rango, acotado a [0, {PI_STAGE_RANGE_UM}] µm: ...")
 ```
 
-Este único punto de defensa erradica `GCSError -1004` en la fuente, **independientemente de si el código llamador individual recordó clampear** — corrigiendo por diseño la asimetría observada previamente, donde `pyspectrum/modules/routines/linescan_spectroscopy.py` sí clampeaba en el llamador pero `modules/confocal.py`/`modules/measurements.py` no.
+> [!NOTE]
+> Hasta `DEC-036` los tres ejes se recortaban a 100 µm, y un Z entre 20 y 100 µm llegaba al controlador, que lo rechazaba con el código 7. El recorrido de 20 µm en Z sale de la hoja de datos de la P-517.3CD y está pendiente de confirmar en el banco con `tools/bench/pi_stage_probe.py` (`qTMN`/`qTMX`, `BANCO-17`).
+
+Este único punto de defensa erradica el `GCSError 7` en la fuente, **independientemente de si el código llamador individual recordó clampear** — corrigiendo por diseño la asimetría observada previamente, donde `pyspectrum/modules/routines/linescan_spectroscopy.py` sí clampeaba en el llamador pero `modules/confocal.py`/`modules/measurements.py` no.
 
 ### 3.3 Aislamiento de `pipython.GCSError`
 
@@ -143,7 +149,10 @@ except ImportError:
         pass
 ```
 
-`MOV()`, `qPOS()` y `qONT()` capturan `GCSError` en una rama dedicada que **nunca** modifica `self._connected` — un rechazo de firmware es, por definición, evidencia de que la controladora está viva y respondiendo (si no lo estuviera, no habría firmware disponible para *rechazar* nada).
+Un rechazo del firmware (`GCSError` con código **positivo**) **nunca** modifica `self._connected`: es evidencia de que la controladora está viva y respondiendo (si no lo estuviera, no habría firmware disponible para *rechazar* nada).
+
+> [!IMPORTANT]
+> **Precisión de `DEC-036`.** `pipython` usa `GCSError` también para las fallas de la **interfaz**, con códigos negativos (`-1` error de comunicación, `-7` timeout, `-1004` respuesta inesperada). La versión original trataba *todo* `GCSError` como rechazo de firmware, así que un timeout del bus pasaba por una falla benigna. `config._is_stage_comm_error()` clasifica ahora por el código: positivo → firmware; negativo, ausente o no numérico → comunicación (lado seguro).
 
 ### 3.4 Reintentos con Degradación Segura (`_retry_read`)
 
@@ -160,11 +169,12 @@ def _retry_read(self, fn, max_retries: int = 2, delay_s: float = 0.02):
     raise last_exc
 ```
 
-`qPOS()` y `qONT()` envuelven su llamada real en `_retry_read()`. Si los 3 intentos (1 original + 2 reintentos, $\Delta t = 20\ \text{ms}$ cada uno) fallan, **ninguno de los dos métodos desconecta**:
-- `qPOS()` devuelve la última posición conocida en memoria (`self._pos`).
-- `qONT()` asume que el eje llegó a destino (`{axis: True}`).
+`qPOS()` y `qONT()` envuelven su llamada real en `_retry_read()`: un fallo transitorio (Sección 2.4) se absorbe con hasta 2 reintentos a $\Delta t = 20\ \text{ms}$. Si los 3 intentos fallan:
+- con un rechazo de firmware, la conexión se mantiene; `qPOS()` devuelve la última posición conocida y `qONT()` informa **`False`**;
+- con una falla de comunicación, se declara la falla de la platina (`_stage_fault()`, Sección 3.6); `qPOS()` devuelve la última posición conocida y `qONT()` informa **`False`**.
 
-Esta decisión de diseño refleja que un fallo de *lectura* durante movimiento activo (Sección 2.4) no es, por sí solo, evidencia de desconexión — solo un fallo de *escritura* (`MOV`) que sobrevive un intento de reconexión automática lo es (Sección 3.6).
+> [!WARNING]
+> **Cambio de `DEC-036`.** La versión original hacía que `qONT()` *asumiera* que el eje había llegado (`{axis: True}`) ante una lectura fallida. Como todas las esperas eran `while not all(pi.qONT(...))`, cualquier falla de lectura terminaba la espera como si la platina hubiera llegado, y la rutina seguía, láser incluido. Ahora nunca se inventa un on-target, y las esperas pasan por `config.wait_on_target(axes, timeout_s=5.0, poll_s, on_tick)`: devuelve `True` sólo con la confirmación del lazo cerrado y `False` ante timeout, lectura fallida o platina desconectada. `on_tick` permite renovar `heartbeat_shutter()` en cada vuelta de la espera.
 
 ### 3.5 Eliminación del Spam de `*IDN?`
 
@@ -177,26 +187,26 @@ def is_physically_connected(self) -> bool:
             if hasattr(self._dev, "IsConnected"):
                 return bool(self._dev.IsConnected())
             return self._connected  # fallback si esta versión de pipython no lo expone
-        except Exception:
-            self._connected = False
+        except Exception as e:
+            self._stage_fault(f"IsConnected() falló ({e})")   # DEC-036
             return False
 ```
 
-`GCSDevice.IsConnected()` es una consulta de estado del lado del host (verifica si el socket/handle USB sigue abierto) sin generar tráfico hacia el controlador — a diferencia de `qIDN()`, que exige una respuesta activa del firmware por el bus serie.
+`GCSDevice.IsConnected()` es una consulta de estado del lado del host (verifica si el socket/handle USB sigue abierto) sin generar tráfico hacia el controlador — a diferencia de `qIDN()`, que exige una respuesta activa del firmware por el bus serie. Por la misma razón, desde `DEC-036` `qIDN()` devuelve la identificación leída **una sola vez** al conectar y no vuelve a consultar el bus.
 
-### 3.6 Auto-Reconexión Transparente
+### 3.6 Falla de Comunicación: Interlock, sin Reconexión Automática (`DEC-036`)
 
-```python
-def try_auto_reconnect(self) -> bool:
-    print("[PI] Intentando reconexión automática transparente...")
-    try:
-        return self.connect(PI_SERIAL)
-    except Exception as e:
-        print(f"[PI] Reconexión automática fallida: {e}")
-        return False
-```
+> [!WARNING]
+> **Reemplaza a la "auto-reconexión transparente" de `DEC-011`.** `try_auto_reconnect()` llamaba a `connect()`, y `connect()` manda la platina a home (`MOV(PI_HOME_POS)`): una reconexión a mitad de una rutina desplazaba la platina decenas de µm con el láser posiblemente abierto. El operador indicó que en el legado la platina nunca se desconectó: si ocurre, es un evento a investigar, no algo que se deba ocultar.
 
-`MOV()` invoca `try_auto_reconnect()` únicamente en su rama de excepción **no-`GCSError`** (comunicación de bajo nivel genuina). Si la reconexión tiene éxito, se reintenta el comando `MOV` original una única vez antes de continuar. Solo si la reconexión automática también falla se apaga `self._connected` — el disparador más angosto posible, alineado con el comportamiento *legacy* de nunca desconectar ante un simple error de comando.
+Ante una falla de comunicación en `MOV()`, `qPOS()`, `qONT()` o `is_physically_connected()`, `_stage_fault(reason)`:
+1. declara la platina desconectada (`self._connected = False`);
+2. cierra todos los obturadores y activa el interlock `"Platina PI"` (`core.nidaq.trip_shutter_interlock`), que bloquea **toda** apertura;
+3. **no** reconecta.
+
+Quien espera la llegada (`wait_on_target`) recibe `False` y actúa: los escaneos confocales (`modules/confocal.py`, `contrapropagante.py`) se abortan con los obturadores cerrados, sin volver a la posición inicial; la impresión de grillas (`modules/measurements.py`) se pausa (Sección 5); `core/nanopositioning.py` y `modules/focus.py` cierran los obturadores. Sólo el operador, desde el Dashboard o con "🔌 Reconectar y Reanudar", llama a `connect()`, que **cierra los obturadores antes del home** y es la única acción que libera el interlock. `disconnect()` también cierra los obturadores antes de su `MOV [0, 0, 0]`.
+
+Una platina que **nunca** estuvo conectada (sesión sin platina) no es una falla: `MOV()` devuelve `False` sin interlock y sin modo virtual silencioso. El modo virtual queda reservado al aislamiento explícito del operador (`set_isolated(True)`).
 
 ---
 
@@ -225,7 +235,7 @@ con $\delta_{\text{margen}} = 3.0\ \mu\text{m}$ como colchón de seguridad ante 
 
 ## 5. 🔄 Máquina de Estados Pausa/Reanudación
 
-Para el caso residual — una desconexión física **real** que sobrevive el clampeo, el aislamiento de `GCSError` y el auto-reintento — se implementó una máquina de estados a nivel de aplicación que protege la muestra y preserva el progreso del experimento en curso:
+Para el caso residual — una desconexión física **real** que sobrevive el clampeo, el aislamiento de `GCSError` y los reintentos de lectura — se implementó una máquina de estados a nivel de aplicación que protege la muestra y preserva el progreso del experimento en curso:
 
 ```mermaid
 stateDiagram-v2
@@ -269,23 +279,37 @@ Esto garantiza que `resume_after_reconnect() → _grid_move()` retome exactament
 
 `_check_physical_connection_or_pause()` se invoca al inicio de `_grid_move()`, el único punto de la máquina de estados por el que pasa **cada** transición de nodo, independientemente de la etapa del Protocolo de Doble Autofoco (Etapas 1/4 a 4/4, ver `[[MOD-02_Measurements_Printing_y_Dimeros]]` Sección 6) en la que se encuentre el experimento. Esto evita tener que instrumentar por separado cada una de las llamadas `pi.MOV()` dispersas a lo largo del flujo de 4 etapas.
 
+### 5.3 Llegada No Confirmada (`DEC-036`)
+
+Fuera de `SAFE_MODE`, `_grid_move()` espera la llegada con `wait_on_target()` (antes esperaba sin límite y, ante una excepción de `qONT`, seguía como si la platina hubiera llegado). Si la llegada no se confirma:
+- si la platina quedó desconectada, se entra por la pausa de la Sección 5.2;
+- si sigue conectada pero no llegó en 5 s, también se pausa: se cierran los obturadores, `is_paused = True`, `mode_printing = "none"` y se emite `stageDisconnectedSignal` con el mensaje *"La platina no confirmó la llegada a la partícula N"*. `grid_move_finishSignal` **no** se emite, así que la rutina no avanza de etapa. `i_global` se conserva, igual que en la Sección 5.1.
+
 ---
 
 ## 6. 🧪 Batería de Pruebas y Validación Formal
 
-`tests/test_pi_stage_resilience.py` (18 pruebas) ejercita `_PIController` directamente mediante un doble de prueba (`_FakeGCSDevice`) inyectado post-construcción — dado que `pipython` no está instalado en este entorno, `self._dev` sería `None` de otro modo, imposibilitando alcanzar las ramas de código bajo prueba:
+`tests/test_pi_stage_resilience.py` (38 pruebas desde `DEC-036`) ejercita `_PIController` directamente mediante un doble de prueba (`_FakeGCSDevice`) inyectado después de construirlo, de modo que nada toca el bus real:
 
-| Grupo de Pruebas | Casos Verificados | Resultado |
-| :--- | :--- | :--- |
-| Clampeo (`_MockPI`) | `MOV(1, -10.0)` → `0.0`; `MOV(1, 150.0)` → `100.0`; conexión intacta en ambos casos | ✅ 3/3 |
-| Aislamiento `GCSError` | `MOV`/`qPOS`/`qONT` con `GCSError` inyectado — `self._connected` permanece `True` | ✅ 3/3 |
-| Reintentos y degradación | `qPOS`/`qONT` con fallo transitorio (recupera al 3er intento) y fallo persistente (degrada a caché sin desconectar) | ✅ 4/4 |
-| Comunicación real | `MOV` con `IOError` persistente + reconexión fallida → desconecta; `MOV` con fallo único + reconexión exitosa → permanece conectada | ✅ 2/2 |
-| `is_physically_connected()` | No invoca `qIDN()` cuando `IsConnected()` está disponible | ✅ 1/1 |
-| Pre-flight de grilla | Grilla fuera de rango bloqueada antes de mover platina; grilla válida procede; margen de deriva dispara el bloqueo en un caso límite | ✅ 3/3 |
-| Pausa/Reanudación | Desconexión pausa preservando `i_global`; reanudación exitosa retoma en el nodo pendiente | ✅ 2/2 |
+| Grupo de Pruebas | Casos Verificados |
+| :--- | :--- |
+| Recorte (`_MockPI` y `_PIController`) | `MOV(1, -10)` → 0; `MOV(1, 150)` → 100; `MOV(3, 50)` → 20 (Z) |
+| Clasificación de errores | `GCSError(7)` = firmware; `GCSError(-7)`, `GCSError(-1004)`, `GCSError("x")` y excepciones que no son `GCSError` = comunicación |
+| Rechazo del firmware | `MOV`/`qPOS`/`qONT` con `GCSError(7)`: la conexión sigue, sin interlock; `MOV` → `False`; `qONT` → `False` |
+| Falla de comunicación | `MOV`, `qPOS`, `qONT` o `IsConnected()` con falla persistente: platina desconectada e interlock activo; `MOV` sin reconexión y sin MOV extra; la caché de posición no cambia si el MOV falló |
+| Interlock | Con la platina en falla no se abre ningún obturador; `connect()` cierra los obturadores **antes** del home y libera el interlock |
+| Estados sin falla | Nunca conectada: `MOV` → `False` sin interlock; aislada por el operador: movimiento virtual sin tocar el bus |
+| `qIDN()` / `is_physically_connected()` | Ninguno consulta `*IDN?` por el bus |
+| `wait_on_target()` | `True` sólo con confirmación; `False` por timeout, lectura fallida o platina desconectada; `on_tick` en cada vuelta |
+| Pre-flight de grilla | Grilla fuera de rango bloqueada antes de mover la platina; margen de deriva |
+| Pausa/Reanudación | Desconexión pausa preservando `i_global`; reanudación retoma en el nodo pendiente; llegada no confirmada pausa sin avanzar de etapa |
 
-**Validación adicional**: `conda run -n printing3 python tests/test_nanopositioning_regimes.py` — 6/6 `OK` (entorno conda dedicado, Python 3.12, distinto del entorno base usado en el resto de la suite). Suite completa `pytest tests/`: 204 pruebas superadas, sin regresiones atribuibles a este cambio.
+Además, `tests/test_confocal.py` verifica que un escaneo confocal o contrapropagante se aborta con los obturadores cerrados cuando la platina está en falla (y no ante una simple demora con la platina sana), y `tests/test_nanopositioning_regimes.py`, el mismo criterio en el dock de nanoposicionamiento.
+
+**Controles de mutación (`DEC-036`)**: se rompió a propósito cada garantía — `qONT` que asume on-target, código no numérico tratado como firmware, `connect()` sin cerrar los obturadores antes del home, `MOV` sin interlock, `connect()` que no libera el interlock, `wait_on_target` que acepta el timeout o ignora la platina desconectada, `_grid_move` que ignora la falta de confirmación, caché actualizada aunque el `MOV` falle — y en cada caso al menos una prueba falló.
+
+> [!NOTE]
+> Estas pruebas corren sin hardware. El comportamiento con una platina real que pierde la comunicación a mitad de una rutina está pendiente de verificar en el banco con los láseres apagados (`BANCO-19`).
 
 ---
 
@@ -295,5 +319,5 @@ La resiliencia del driver PI E-517 se logró no relajando ninguna validación de
 
 Se recomienda a los operadores:
 1. Verificar la geometría de la grilla contra el diálogo de advertencia pre-vuelo antes de asumir que un rechazo indica un bug — en la mayoría de los casos, ajustar `startX`/`startY` unos pocos micrones resuelve el bloqueo.
-2. Ante el diálogo de recuperación por desconexión real, verificar físicamente el cable USB y la alimentación de la controladora E-517 **antes** de presionar "🔌 Reconectar y Reanudar" — el experimento retomará exactamente donde se detuvo, sin necesidad de reiniciar la grilla ni perder partículas ya impresas.
-3. Para mediciones nocturnas de larga duración, no es necesario ningún cambio de configuración adicional: las cuatro capas de defensa de la Sección 3 y la máquina de estados de la Sección 5 operan de forma transparente y automática.
+2. Ante el diálogo de recuperación por desconexión real, verificar físicamente el cable USB y la alimentación de la controladora E-517 **antes** de presionar "🔌 Reconectar y Reanudar". Al reconectar, la platina vuelve a home con los obturadores cerrados; luego el experimento retoma en el nodo pendiente, sin reiniciar la grilla ni perder partículas ya impresas.
+3. Una desconexión de la platina es un evento anómalo (en el legado nunca ocurrió): anotarla y revisar `logs/` antes de seguir. Mientras dure, el programa no permite abrir ningún obturador; es intencional.

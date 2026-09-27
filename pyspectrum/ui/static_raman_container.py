@@ -44,5 +44,7 @@ class StaticRamanTabContainer(QtWidgets.QWidget):
     def _on_inspector_toggle_live(self, running: bool):
         if self.spectrum_widget.btn_live.isChecked() != running:
             self.spectrum_widget.btn_live.setChecked(running)
-            self.spectrum_widget._on_toggle_live()
+            # DEC-032 cambió la firma a _on_toggle_live(checked); sin el argumento, el TypeError
+            # quedaba dentro del slot y Live nunca arrancaba desde el Inspector.
+            self.spectrum_widget._on_toggle_live(running)
 

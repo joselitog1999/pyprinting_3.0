@@ -1,0 +1,133 @@
+SONDAS DE BANCO — PySpectrum 3.0 / Laboratorio de Nanofotónica (INS-UNSAM / CONICET)
+=====================================================================================
+
+Esta carpeta tiene dos programas de diagnóstico para verificar en el equipo real lo que
+ningún test automático puede comprobar. Cada prueba, su criterio de aceptación y dónde
+anotar el resultado están en:
+
+    docs/evidence/PRUEBAS_BANCO_PENDIENTES.md
+
+Al terminar una prueba, copiá el bloque "RESUMEN" que imprime la sonda y pegalo en la
+prueba correspondiente de ese archivo (campo "Resultado"), con la fecha y tu nombre.
+
+
+REGLAS DE SEGURIDAD
+-------------------
+- Ninguna de las dos sondas acciona obturadores, láseres, la placa NI-DAQ, la platina PI
+  ni el espectrógrafo Shamrock. Sólo hablan con la cámara Andor.
+- Las ejecuta siempre una persona en el laboratorio. No se automatizan.
+- Si algo no se comporta como se describe acá, detenete y anotá lo que viste: no se
+  corrige nada en el momento.
+
+
+-------------------------------------------------------------------------------------
+1) legacy_console_probe.py — SÓLO LECTURA, con el PySpectrum legado ABIERTO
+-------------------------------------------------------------------------------------
+Pruebas: BANCO-01 (geometría del detector) y BANCO-02 (por qué se congelaba el Live).
+
+Qué hace: consulta el estado de la cámara que el programa legado ya tiene abierta. No
+llama a nada que la modifique: no inicializa, no apaga, no arranca ni detiene
+adquisiciones, no cambia parámetros. Se puede correr con datos importantes abiertos.
+
+Cómo se ejecuta:
+  1. En el PySpectrum legado, abrí la consola (menú "Console Widget").
+  2. Pegá esta línea y presioná Enter (ajustá la ruta si el repositorio está en otra
+     carpeta):
+
+     exec(open(r"C:\Users\josel\Documents\Obsidian_Vault\printing3\tools\bench\legacy_console_probe.py", encoding="utf-8").read())
+
+  3. La sonda imprime las secciones A, B y C y al final un bloque "RESUMEN".
+
+Para BANCO-02 (opcional): con el Live del legado ENCENDIDO, escribí en la misma consola
+
+     observar_live()
+
+  Congela la ventana alrededor de un segundo (lee dos veces el contador de cuadros) y
+  dice si el Live realmente está adquiriendo o si muestra un cuadro fijo. Para probar la
+  hipótesis completa, correlo antes y después de usar "REC Liveview Kinetics" en Step &
+  Glue.
+
+IMPORTANTE — respaldo del espectrógrafo (sección D): antes de ejecutar PySpectrum 3.0 contra el
+equipo real por primera vez, corré esta sonda y guardá las líneas "D." del RESUMEN (offsets de
+cada red, offset del detector, cero de las ranuras, geometría y coeficientes de calibración).
+Pegalas en el bloqueo del Grupo C de docs/evidence/PRUEBAS_BANCO_PENDIENTES.md. Corré la sonda
+con el legado en reposo: sin Step & Glue ni barridos en curso.
+
+Qué mirar en el resultado:
+  - C.sdk -> GetPixelSize debe ser 8.00 x 8.00 um, GetDetector 1004x1002 y
+    GetHeadModel 'DU8285_VP'.
+  - D.redN.offset, D.detector_offset, D.ranuraN.cero -> es el respaldo. Un código distinto de
+    20202 en una ranura inexistente es normal.
+  - D.num_pixels -> el legado configura 1002; el eje espectral real tiene 1004 (prueba BANCO-14).
+  - A -> si dice "TAPADO", el programa legado nunca cambió realmente el modo de
+    adquisición cuando creyó hacerlo.
+  - B.modo_pylablib -> modo de adquisición actual de la cámara.
+
+
+-------------------------------------------------------------------------------------
+2) andor_acquisition_mode_probe.py — con el legado, Solis y PySpectrum 3.0 CERRADOS
+-------------------------------------------------------------------------------------
+Prueba: BANCO-03 (protocolo de adquisición del iXon3, pruebas T0 a T4).
+
+Qué hace: abre la cámara por su cuenta (Initialize), toma exposiciones cortas de 0.1 a
+2 s y la libera al final (AbortAcquisition + ShutDown), aunque ocurra un error en el medio.
+La luz de la sala no importa: se analizan estados y contadores, no imágenes.
+
+Requisitos ANTES de correrla:
+  1. Cerrar el PySpectrum legado, Andor Solis y PySpectrum 3.0. La cámara admite un solo
+     programa a la vez; si otro la tiene, la sonda informa que Initialize falló y termina.
+     NO la corras con el legado abierto: le quitaría la cámara.
+  2. Cámara a temperatura ambiente, con el enfriador apagado. Si la sonda lee menos de
+     -20 °C, se niega a continuar: esperá a que se caliente y volvé a intentar.
+  3. Python 3 en Windows. No necesita el entorno .venv del proyecto ni ninguna biblioteca
+     externa: sólo usa ctypes, que viene con Python.
+
+Cómo se ejecuta (desde una terminal en la carpeta raíz del repositorio):
+
+     python tools\bench\andor_acquisition_mode_probe.py
+
+  La sonda busca atmcd64d.dll en pyspectrum\drivers\libs\ y en las carpetas habituales de
+  Andor. Si la DLL está en otro lugar, pasá la ruta como argumento:
+
+     python tools\bench\andor_acquisition_mode_probe.py "C:\ruta\a\atmcd64d.dll"
+
+Duración: alrededor de medio minuto.
+
+Qué responde (el bloque RESUMEN trae un veredicto por línea):
+  T0  Modelo, tamaño y pitch del detector (contraste independiente de BANCO-01).
+  T1  Modo de adquisición por defecto después de Initialize.
+  T2  Si la exposición empieza en StartAcquisition() o recién al leer el primer cuadro.
+  T3  Si releer el buffer devuelve el mismo cuadro viejo o "NO_NEW_DATA".
+  T4  Si funcionan los modos explícitos (Run Till Abort, y Single + espera).
+
+Al terminar debe imprimir "Cámara liberada (AbortAcquisition + ShutDown)". Si no lo hace,
+anotalo antes de abrir otro programa.
+
+
+-------------------------------------------------------------------------------------
+3) pi_stage_probe.py — platina PI, SÓLO LECTURA, con PyPrinting y PIMikroMove CERRADOS
+-------------------------------------------------------------------------------------
+Prueba: BANCO-17 (modelo y recorrido real de la platina).
+
+Qué hace: abre la conexión USB con el controlador E-517 y le pregunta qué platina tiene
+conectada en cada eje (qCST), su recorrido mínimo y máximo (qTMN / qTMX), el estado del servo,
+la posición y el último error. No activa el servo, no manda a home y no mueve ningún eje. Al
+final cierra la conexión.
+
+Requisitos:
+  1. Cerrar PyPrinting, el software legado y PIMikroMove: el controlador admite una sola
+     conexión USB a la vez.
+  2. Python 3 con pipython instalado (el mismo que usa PyPrinting).
+
+Cómo se ejecuta (desde la raíz del repositorio):
+
+     python tools\bench\pi_stage_probe.py
+
+  Usa el número de serie de config.py (0119048050). Si el controlador es otro, pasalo como
+  argumento:  python tools\bench\pi_stage_probe.py <numero_de_serie>
+
+Qué mirar en el resultado:
+  - tipo_platina: modelo de la platina en cada eje (se espera P-517.3CD).
+  - recorrido_max: para una P-517.3CD, alrededor de 100 µm en los ejes 1 y 2, y 20 µm en el 3.
+    PyPrinting acota hoy Z a 20 µm (DEC-036). Si el controlador informa otro valor, anotalo:
+    no se cambia nada en el momento.

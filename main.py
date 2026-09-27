@@ -683,7 +683,7 @@ class MainWindowLauncher(QMainWindow):
         env["PYPRINTING_SAFE"] = "1" if self.chk_safe_mode.isChecked() else "0"
 
         code = (
-            "import sys; from PyQt6.QtWidgets import QApplication; "
+            "import sys; from PyQt6.QtWidgets import QApplication; from core.safety_excepthook import install_safety_excepthook; install_safety_excepthook(); "
             "from modules.camera import Laser532Window, Laser532Backend; "
             "app = QApplication(sys.argv); "
             "win = Laser532Window(); backend = Laser532Backend(); "
@@ -702,7 +702,7 @@ class MainWindowLauncher(QMainWindow):
         env["PYPRINTING_SAFE"] = "1" if self.chk_safe_mode.isChecked() else "0"
 
         code = (
-            "import sys; from PyQt6.QtWidgets import QApplication; "
+            "import sys; from PyQt6.QtWidgets import QApplication; from core.safety_excepthook import install_safety_excepthook; install_safety_excepthook(); "
             "from modules.hardware_dashboard import HardwareDashboardWindow; app = QApplication(sys.argv); "
             "win = HardwareDashboardWindow(); win.show(); sys.exit(app.exec())"
         )
@@ -753,6 +753,9 @@ class MainWindowLauncher(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    # DEC-036: sin esto, una excepción en un slot aborta el proceso sin cerrar los obturadores.
+    from core.safety_excepthook import install_safety_excepthook
+    install_safety_excepthook()
     app.setStyle("Fusion")
     win = MainWindowLauncher()
     win.show()

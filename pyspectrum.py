@@ -14,6 +14,9 @@ from pyspectrum.window import PySpectrumWindow
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    # DEC-036: sin esto, una excepción en un slot aborta el proceso sin cerrar los obturadores.
+    from core.safety_excepthook import install_safety_excepthook
+    install_safety_excepthook()
     win = PySpectrumWindow()
     win.show()
     sys.exit(app.exec())
