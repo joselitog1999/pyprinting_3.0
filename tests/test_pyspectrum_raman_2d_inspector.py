@@ -193,5 +193,100 @@ class TestExport(unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(self.tmp_dir, "empty.txt")))
 
 
+class TestInspectorAcquisitionAndLiveControls(unittest.TestCase):
+
+    def setUp(self):
+        self.w = Raman2DInspectorWidget()
+
+    def test_btn_single_emits_request_acquire_single(self):
+        called = []
+        self.w.requestAcquireSingleSignal.connect(lambda: called.append(True))
+        self.w.btn_single.click()
+        self.assertEqual(called, [True])
+
+    def test_btn_live_emits_toggle_live_raman(self):
+        emitted = []
+        self.w.toggleLiveRamanSignal.connect(lambda val: emitted.append(val))
+        self.w.btn_live.click()
+        self.assertEqual(emitted, [True])
+        self.assertIn("Detener", self.w.btn_live.text())
+        self.assertFalse(self.w.btn_single.isEnabled())
+
+        self.w.btn_live.click()
+        self.assertEqual(emitted, [True, False])
+        self.assertIn("Live Raman", self.w.btn_live.text())
+        self.assertTrue(self.w.btn_single.isEnabled())
+
+    def test_set_live_state_updates_appearance_and_buttons(self):
+        self.w.set_live_state(True)
+        self.assertTrue(self.w.btn_live.isChecked())
+        self.assertIn("Detener", self.w.btn_live.text())
+        self.assertFalse(self.w.btn_single.isEnabled())
+
+        self.w.set_live_state(False)
+        self.assertFalse(self.w.btn_live.isChecked())
+        self.assertIn("Live Raman", self.w.btn_live.text())
+        self.assertTrue(self.w.btn_single.isEnabled())
+
+    def test_autolevels_button(self):
+        from core.sif_processor import compute_robust_contrast_levels
+
+        frame, wl = _make_synthetic_frame(50, 100)
+        self.w.set_frame_2d(wl, frame)
+
+        # Se parte de niveles deliberadamente distintos de los robustos, para que la
+        # aserción distinga "aplicó el contraste" de "no hizo nada": sin esto el test
+        # pasaría igual con un _on_autolevels() vacío.
+        self.w.image_item.setLevels((0.0, 1.0))
+        before = tuple(float(v) for v in self.w.image_item.getLevels())
+
+        self.w.btn_autolevels.click()
+
+        after = tuple(float(v) for v in self.w.image_item.getLevels())
+        self.assertNotEqual(before, after, "btn_autolevels no modificó los niveles del ImageItem")
+        expected = tuple(float(v) for v in compute_robust_contrast_levels(frame))
+        self.assertAlmostEqual(after[0], expected[0], places=6)
+        self.assertAlmostEqual(after[1], expected[1], places=6)
+
+    def test_colormap_reaction_from_spectroscopy_context(self):
+        import numpy as np
+        from pyspectrum.ui.exploration_tab import get_colormap
+
+        emitted = []
+        handler = lambda name: emitted.append(name)  # noqa: E731
+        spectroscopy_context.colormapChanged.connect(handler)
+        try:
+            spectroscopy_context.set_colormap("Inferno")
+            # El setter del contexto emite SÓLO si el valor cambió, así que esta aserción es
+            # lo que impide que el test degenere en un no-op cuando otro test dejó el
+            # colormap fijado en "Inferno" (ver el fixture _isolate_spectroscopy_context en
+            # tests/conftest.py).
+            self.assertEqual(emitted, ["Inferno"])
+
+            # Y el LUT debe haber llegado efectivamente al ImageItem, que es lo que el
+            # comentario original prometía y no verificaba.
+            expected_lut = get_colormap("Inferno").getLookupTable(0.0, 1.0, 256)
+            self.assertTrue(
+                np.array_equal(np.asarray(self.w.image_item.lut), np.asarray(expected_lut)),
+                "El colormap del contexto no se aplicó como LookupTable del ImageItem",
+            )
+        finally:
+            spectroscopy_context.colormapChanged.disconnect(handler)
+
+    def test_container_wires_and_syncs_buttons(self):
+        from pyspectrum.ui.static_raman_container import StaticRamanTabContainer
+        container = StaticRamanTabContainer()
+        single_called = []
+        container.spectrum_widget.btn_single.clicked.connect(lambda: single_called.append(True))
+        container.inspector_widget.btn_single.click()
+        self.assertEqual(single_called, [True])
+
+        # Test live sync from inspector to spectrum widget
+        container.inspector_widget.btn_live.click()
+        self.assertTrue(container.spectrum_widget.btn_live.isChecked())
+        self.assertFalse(container.inspector_widget.btn_single.isEnabled())
+
+
 if __name__ == "__main__":
     unittest.main()
+

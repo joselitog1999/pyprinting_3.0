@@ -20,6 +20,7 @@ To preserve context window efficiency and prevent instruction dilution:
 * **Graphify (`graphify-out/`)**: Semantic, AST, and structural codebase topology.
 * **Subagents (`.claude/agents/`)**: Specialized domain perspectives and multi-agent peer review.
 * **Skills (`.claude/skills/`)**: Deterministic, step-by-step scientific and engineering workflows.
+* **Lab Invariants (`.claude/shared/lab-invariants.md`)**: Single source of truth for the volatile *values* the prompts cite about real hardware — travel limits, watchdog timings, DAQmx channels, detector geometry, keyboard shortcuts, ledger paths, protocol constants. Behavioral rules stay inline in each agent (a subagent needs the rule in context, not a pointer it may not follow); only the numbers are centralized, because behavior does not drift and numbers do. Rows marked ✅ are machine-verified against the actual code symbol by `tests/test_prompt_corpus_integrity.py` on every `pytest` run. **Take any hardware figure from that table; if it is not there, verify it against the code before writing it into a prompt.**
 * **Zotero & Literature MCP**: Primary peer-reviewed sources and empirical references.
 * **Ledgers (`docs/evidence/`, `docs/decisions/`)**: Explicit epistemic claims and architectural decisions.
 * **Compendiums (`reportes/cientificos/` [CAT], `reportes/sistema/` [SYS], `docs/modulos/` [MOD])**: Consolidated laboratory knowledge.
@@ -54,7 +55,7 @@ Blind recursive text searches (`grep -r` across 200 files) are strictly prohibit
 > Never execute raw commands targeting physical instrumentation without explicit human approval and pre-validation in simulation.
 
 * **Nanopositioning (PI E-517)**: Travel limits are strictly restricted to $0 \le X, Y, Z \le 100\ \mu\text{m}$. Never bypass closed-loop sensor checks.
-* **Laser Shutters & Flippers**: Digital lines (`Dev1/port0/line0:3`) require the autonomous 500 ms heartbeat watchdog. Power flippers on analog outputs (`Dev1/ao0`, `ao1`) must remain decoupled from safety shutters.
+* **Laser Shutters & Flippers**: Digital lines (`Dev1/port0/line0:3`) are guarded by the autonomous `ShutterWatchdog` thread (`core/nidaq.py`): a **30 s default deadline** (`_default_timeout_s`; `None` = "Sin límite"), polled every **100 ms**, renewed by `heartbeat_shutter()`. Any loop holding a shutter open must renew the heartbeat *every iteration* — a single long settle or exposure can exhaust the deadline by itself. Power flippers on analog outputs (`Dev1/ao0`, `ao1`) must remain decoupled from safety shutters.
 * **Safe Development**: Default to `SAFE_MODE = True` in mock configurations for all testing and automated verification.
 
 ---
@@ -62,6 +63,26 @@ Blind recursive text searches (`grep -r` across 200 files) are strictly prohibit
 ## 5. Multi-Round Deliberative Implementation Protocol
 
 For any non-trivial implementation, new tool, module, experiment, or architectural modification, NEVER jump directly into coding. Strictly follow the 4-Round deliberation protocol:
+
+### 5.0 Scope — What Requires the Protocol, and What Is Exempt
+
+"Non-trivial" is defined here so that compliance is **checkable rather than a matter of taste**. An undefined threshold has only two outcomes, both bad: the protocol gets skipped silently on changes that needed it, or it gets ceremonially applied to a two-line fix until people stop believing in it. This section is what makes the compliance gate enforceable (`agent-trainer` §1.G).
+
+**Exempt — proceed directly.** The quality gates of §9 (tests, 0 regressions, `graphify update .`) still apply in full:
+* A bug fix that starts from a **failing test** encoding the expected behavior — the test *is* the contract, and it is a stricter one than prose.
+* Documentation, manual, monograph or ledger synchronization that changes no code behavior.
+* Adding or repairing tests without altering production behavior.
+* A mechanical refactor with no public-API change, guarded by numerical parity tests (`assert_allclose`).
+* Reverting a previously deliberated change.
+* Executing a step whose design was already approved in a completed round cycle — e.g. a later phase of an accepted plan. The original approval carries; do not re-deliberate what was already signed off.
+
+**Never exempt, regardless of how small the diff is.** These always require Rounds 1 and 2 at minimum:
+* Anything that moves a stage, opens a shutter, or alters laser power, timing margins, or watchdog policy. A one-line change to a safety interlock is precisely the case this protocol exists for — see the Foundational Directive in §1.
+* Any change to a scientific formula, its physical units, or an uncertainty treatment.
+* Any change to a GUI contract or the exposed parameter set — this additionally requires the Round 3 gate.
+* Any new module, tool, routine, subagent or skill.
+
+When it is genuinely unclear, the deciding question is not *"is this small?"* but **"could this be wrong in a way that no test would catch?"** If yes, deliberate.
 
 ### 🔄 Round 1: Conceptual & Theoretical Exploration (The "Think First" Round)
 1. **User Request Understanding & Paraphrase**: State explicitly and precisely what was understood from the user's prompt, establishing the physical, mathematical, and operational scope.

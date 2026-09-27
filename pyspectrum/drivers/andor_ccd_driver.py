@@ -44,19 +44,36 @@ SHUTTER_MODE_AUTO = 0
 SHUTTER_MODE_OPEN = 1
 SHUTTER_MODE_CLOSED = 2
 
+# ── Geometría física del detector ────────────────────────────────────────────
+# Fuente canónica ÚNICA de la geometría del sensor. Antes estos números estaban
+# transcriptos en cinco lugares que no concordaban entre sí (ver DEC-031); ahora todo
+# consumidor los importa de acá, de modo que corregirlos sea una edición en un solo punto.
+DETECTOR_WIDTH_PX = 1004
+DETECTOR_HEIGHT_PX = 1002
+
+# Pitch físico del píxel, en µm/px. Convierte anchos de ranura (µm) a píxeles del eje
+# espectral (`exploration_tab._update_slit_overlay`) y se le informa al SDK del Shamrock para
+# que calcule λ(píxel) (`shamrock_driver.configure_detector_geometry`).
+#
+# Verificado (DEC-033): el cabezal es un iXon3 885 — `DU8285_VP` según el encabezado de los
+# .sif que Solis escribe leyendo la cámara — con sensor TI TC285SPD. Ambas hojas de datos dan
+# 8 x 8 µm, y el legado calibró λ con `PixelWidth = 8` desde 2020. El 13.0 que hubo acá no
+# tenía fuente y planificaba el Step & Glue con ventanas un 70 % más anchas que las reales.
+DETECTOR_PIXEL_PITCH_UM = 8.0
+
 # Ganancias de pre-amplificador y velocidades de lectura horizontal simuladas en Modo Seguro
 PREAMP_GAINS_MOCK = [1.0, 2.0, 4.3]
 HSSPEEDS_MHZ_MOCK = [5.0, 3.0, 1.0]
 
 
 class _MockAndorCCD:
-    """Simulador transparente de Cámara Andor iXon3 EMCCD (1002x1002 px, 13 µm)."""
+    """Simulador transparente de Cámara Andor iXon3 EMCCD DU8285 (1004x1002 px)."""
     is_mock = True
 
     def __init__(self, temperature: float = -65.0, fan_mode: str = "low"):
         self._lock = threading.RLock()
-        self.width = 1004
-        self.height = 1002
+        self.width = DETECTOR_WIDTH_PX
+        self.height = DETECTOR_HEIGHT_PX
         self._target_temp = float(temperature)
         self._current_temp = 18.5
         self._cooler_on = True
@@ -75,6 +92,8 @@ class _MockAndorCCD:
         self._shutter_mode = SHUTTER_MODE_AUTO
         self._multi_track_params: Tuple[int, int, int] = (1, 5, 0)  # (number, height, offset)
         self._random_track_areas: list = []
+        self._image_vstart: int = 1
+        self._image_vend: int = 1002
         print("[Andor CCD SIM] Cámara Andor virtual inicializada (1004x1002, iXon3 EMCCD DU8285).")
 
     def is_hardware_alive(self) -> bool:
@@ -248,6 +267,8 @@ class _MockAndorCCD:
         return (self._track_center, self._track_height)
 
     def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1004, vstart: int = 1, vend: int = 1002) -> int:
+        self._image_vstart = int(vstart)
+        self._image_vend = int(vend)
         return DRV_SUCCESS
 
     def start_acquisition(self) -> int:
@@ -281,6 +302,11 @@ class _MockAndorCCD:
         # En modo EMCCD (0), aplicar ganancia de multiplicación de electrones
         if self._output_amplifier == 0 and self._emccd_gain > 0:
             frame *= (1.0 + self._emccd_gain * 0.02)
+
+        if self._read_mode == READ_MODE_IMAGE and (self._image_vstart > 1 or self._image_vend < self.height):
+            v0 = max(0, self._image_vstart - 1)
+            v1 = min(self.height, self._image_vend)
+            frame = frame[v0:v1, :]
 
         return frame
 

@@ -38,6 +38,7 @@ from pyspectrum.drivers.shamrock_driver import (
     get_shamrock
 )
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd, READ_MODE_IMAGE
+from pyspectrum.modules.spectroscopy_context import spectroscopy_context
 from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration
 from pyspectrum.calibration.fit_raman_water import fit_signal_raman, calc_r2
 from core.sif_processor import characterize_background_noise
@@ -124,6 +125,7 @@ class CalibrationFrontend(QtWidgets.QFrame):
             }
         """)
         self._setup_ui()
+        spectroscopy_context.slitParametersChanged.connect(self._on_context_slit_changed)
 
     def _setup_ui(self):
         main_layout = QtWidgets.QHBoxLayout(self)
@@ -445,7 +447,10 @@ class CalibrationFrontend(QtWidgets.QFrame):
 
         # ── Gráfico Lateral de Ajuste y Perfil ────────────────────────────────
         self.plot_widget = pg.PlotWidget(title="<b>Perfil Óptico / Ajuste de Calibración</b>")
-        self.plot_widget.setLabels(bottom="Coordenada / Pixel X", left="Intensidad (Cuentas)")
+        self.plot_widget.setBackground("#11111B")
+        self.plot_widget.setLabel('bottom', "Coordenada / Pixel X", color='#CDD6F4')
+        self.plot_widget.setLabel('left', "Intensidad (Cuentas)", color='#CDD6F4')
+        self.plot_widget.setTitle("<b>Perfil Óptico / Ajuste de Calibración</b>", color='#CDD6F4')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
         self.plot_widget.addLegend(offset=(10, 10))
         self.plot_widget.setToolTip("Visualizador del perfil de intensidad 1D medido en el CCD y curva del ajuste Gaussiano del slit.")
@@ -456,6 +461,21 @@ class CalibrationFrontend(QtWidgets.QFrame):
         self.plot_widget.addItem(self.line_center)
 
         main_layout.addWidget(self.plot_widget, stretch=3)
+
+    def _on_context_slit_changed(self, width: float, center_px: float, zero_pos: int):
+        if abs(self.spin_slit_width.value() - width) > 0.05:
+            self.spin_slit_width.blockSignals(True)
+            self.spin_slit_width.setValue(width)
+            self.spin_slit_width.blockSignals(False)
+        if abs(self.spin_pixel_x.value() - center_px) > 0.05:
+            self.spin_pixel_x.blockSignals(True)
+            self.spin_pixel_x.setValue(center_px)
+            self.line_center.setValue(center_px)
+            self.spin_pixel_x.blockSignals(False)
+        if self.spin_slit_zero.value() != zero_pos:
+            self.spin_slit_zero.blockSignals(True)
+            self.spin_slit_zero.setValue(zero_pos)
+            self.spin_slit_zero.blockSignals(False)
 
     def _quick_set_slit(self, val: float):
         self.spin_slit_width.setValue(val)
@@ -667,6 +687,11 @@ class CalibrationBackend(QtCore.QObject):
             if ret_z == SHAMROCK_SUCCESS:
                 self.slit_zero_pos = int(z)
             self.slitInfoUpdatedSignal.emit(self.slit_width, self.slit_zero_pos)
+            spectroscopy_context.set_slit_parameters(
+                slit_width_um=self.slit_width,
+                slit_center_px=self.slit_center_x,
+                slit_zero_pos=self.slit_zero_pos
+            )
 
             ret_g, g = self.spectrometer.ShamrockGetGrating(DEVICE)
             if ret_g == SHAMROCK_SUCCESS:
@@ -696,6 +721,7 @@ class CalibrationBackend(QtCore.QObject):
     def set_slit_width(self, width: float):
         self.slit_width = float(width)
         ret = self.spectrometer.ShamrockSetSlit(DEVICE, INPUT_SLIT_PORT, float(width))
+        spectroscopy_context.set_slit_parameters(slit_width_um=self.slit_width)
         if ret == SHAMROCK_SUCCESS:
             self.statusSignal.emit(f"Ancho de ranura ajustado a {width:.1f} µm.")
         else:
@@ -712,6 +738,7 @@ class CalibrationBackend(QtCore.QObject):
     def set_slit_zero_position(self, index: int, offset: int):
         self.slit_zero_pos = int(offset)
         ret = self.spectrometer.ShamrockSetSlitZeroPosition(DEVICE, index, int(offset))
+        spectroscopy_context.set_slit_parameters(slit_zero_pos=self.slit_zero_pos)
         if ret == SHAMROCK_SUCCESS:
             self.statusSignal.emit(f"Slit Zero Position aplicado: {offset} pasos.")
         else:
@@ -763,6 +790,7 @@ class CalibrationBackend(QtCore.QObject):
         self.slit_center_x = float(pixel_x)
         self._save_calibration_file()
         self.save_calibration_to_txt()
+        spectroscopy_context.set_slit_parameters(slit_center_px=self.slit_center_x)
         self.statusSignal.emit(f"Pixel X central {pixel_x:.2f} px guardado en configuración.")
 
     @pyqtSlot()
@@ -792,6 +820,7 @@ class CalibrationBackend(QtCore.QObject):
             self.slit_fwhm = fwhm
             self._save_calibration_file()
             self.save_calibration_to_txt()
+            spectroscopy_context.set_slit_parameters(slit_center_px=centroid)
 
             self.slitFitResultSignal.emit(float(centroid), float(fwhm), x, y, fit_curve)
         except Exception as e:
@@ -970,6 +999,11 @@ class CalibrationBackend(QtCore.QObject):
 
             # Sincronizar con UI
             self.slitInfoUpdatedSignal.emit(self.slit_width, self.slit_zero_pos)
+            spectroscopy_context.set_slit_parameters(
+                slit_width_um=self.slit_width,
+                slit_center_px=self.slit_center_x,
+                slit_zero_pos=self.slit_zero_pos
+            )
             self.detectorOffsetUpdatedSignal.emit(self.detector_offset)
             self.cubicCoeffsUpdatedSignal.emit(*self.cubic_coeffs)
 

@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
+from pyspectrum.drivers.shamrock_driver import GRATING_150_LINES, nominal_window_nm
+
 try:
     import h5py
     H5PY_AVAILABLE = True
@@ -155,10 +157,6 @@ def glue_steps(wave_py: np.ndarray, spec_py: np.ndarray, number_pixel: int = 100
 
 # ── Fase 4: Cosido Raised-Cosine (cos²/sin²) y Utilidades de Barrido ──────────
 
-# Dispersión lineal real del Shamrock 500i (f=500mm) por red, mismas constantes que
-# pyspectrum/drivers/shamrock_driver.py::_MockShamrock.ShamrockGetCalibration.
-GRATING_DISPERSION_NM_PER_PX = {1: 0.175, 2: 0.022}
-
 
 def raised_cosine_weights(wavelengths: np.ndarray, lambda_a: float, lambda_b: float) -> Tuple[np.ndarray, np.ndarray]:
     """Pesos raised-cosine w1(λ)=cos²(θ), w2(λ)=sin²(θ) con θ=(π/2)·(λ-λa)/(λb-λa), clampeado
@@ -268,43 +266,88 @@ def sigmoidal_step_and_glue_2d(wave_steps: List[np.ndarray], frame_steps: List[n
     return wave_acc, result
 
 
-# Ventana óptica central estimativa por red (StepandGlue_ps.py:1065-1069, código legado de
-# Luciana/CIBION), deliberadamente más conservadora que el span de dispersión teórico
-# completo (GRATING_DISPERSION_NM_PER_PX * num_pixels): produce un solapamiento más profundo,
-# a costa de más pasos por barrido.
+# Ventana por red que el legado usó en el banco (StepandGlue_ps.py:576 y 1065-1069, código de
+# Luciana/CIBION), rotulada allí "estimativa". DEC-033 mostró que no es un núcleo conservador
+# sino la ventana completa real: la dispersión nominal del SR-500i por el detector de 8 µm da
+# 103.05 / 11.57 nm. Se conserva como elección explícita del operador ("Zona Óptica Central").
 OPTICAL_CORE_WINDOW_NM = {1: 103.0, 2: 12.0}
+
+
+def resolve_step_window_nm(
+    grating: int, num_pixels: int = 1004, use_optical_core: bool = False,
+    window_nm: Optional[float] = None,
+) -> Tuple[float, str]:
+    """Ancho de ventana con que se planifica el Step & Glue, y de dónde salió.
+
+    Precedencia (DEC-033): la elección explícita del operador (`optical_core`) > la ventana
+    medida con la calibración del espectrógrafo (`measured`) > la nominal de la hoja de datos
+    (`nominal`). Una medición no finita o no positiva se descarta. El espejo no dispersa, así
+    que su nominal cae a la de 150 l/mm para que el planificador siempre termine.
+    """
+    if use_optical_core:
+        return float(OPTICAL_CORE_WINDOW_NM.get(int(grating), OPTICAL_CORE_WINDOW_NM[1])), "optical_core"
+    if window_nm is not None and np.isfinite(window_nm) and window_nm > 0.0:
+        return float(window_nm), "measured"
+    span = nominal_window_nm(grating, num_pixels)
+    if not span > 0.0:
+        span = nominal_window_nm(GRATING_150_LINES, num_pixels)
+    return float(span), "nominal"
 
 
 def compute_step_centers(
     start_wl: float, end_wl: float, overlap_pct: float, grating: int = 1, num_pixels: int = 1004,
-    use_optical_core: bool = False,
+    use_optical_core: bool = False, window_nm: Optional[float] = None,
 ) -> List[float]:
-    """Calcula las N longitudes de onda centrales necesarias para cubrir [start_wl, end_wl]
-    con el % de solapamiento pedido, según la dispersión real de la red activa del Shamrock
-    500i (150 l/mm: 0.175 nm/px -> ~176 nm de ventana; 1200 l/mm: 0.022 nm/px -> ~22 nm).
+    """Calcula las longitudes de onda centrales necesarias para cubrir [start_wl, end_wl] con el
+    % de solapamiento pedido. El ancho de ventana lo decide `resolve_step_window_nm`.
 
-    use_optical_core=True reproduce fielmente la densidad de pasos de StepandGlue_ps.py,
-    usando la ventana óptica central estimativa (103 nm / 12 nm, OPTICAL_CORE_WINDOW_NM) en
-    vez del span de dispersión teórico completo, para solapamiento más profundo."""
-    if use_optical_core:
-        full_span = OPTICAL_CORE_WINDOW_NM.get(int(grating), OPTICAL_CORE_WINDOW_NM[1])
-    else:
-        dispersion = GRATING_DISPERSION_NM_PER_PX.get(int(grating), GRATING_DISPERSION_NM_PER_PX[1])
-        full_span = dispersion * num_pixels
+    Cada extremo del rango recibe el mismo margen que cada lado de un solapamiento interno (la
+    mitad del solapamiento): la ventana real no es simétrica respecto de su centro (curvatura
+    de la dispersión, exactitud de posicionamiento de la red) y el cosido recorta píxeles de
+    borde, así que sin margen el comienzo y el final del rango quedarían sin medir — verificado
+    con el eje cúbico del mock, que dejaba 0.4 nm afuera. Se agregan ventanas sólo mientras la
+    cobertura no alcance el final: ninguna ventana queda casi entera fuera del rango."""
+    full_span, _ = resolve_step_window_nm(grating, num_pixels, use_optical_core, window_nm)
     overlap_pct = max(0.0, min(0.9, float(overlap_pct)))
     step_span = full_span * (1.0 - overlap_pct)
-    if step_span <= 0.0:
-        step_span = full_span * 0.5
+    margin = 0.5 * overlap_pct * full_span
 
-    centers: List[float] = []
-    c = start_wl + full_span / 2.0
-    while (c - full_span / 2.0) <= end_wl:
-        centers.append(c)
+    if end_wl < start_wl:
+        return [0.5 * (start_wl + end_wl)]
+
+    c = start_wl - margin + full_span / 2.0
+    centers: List[float] = [c]
+    while c + full_span / 2.0 < end_wl + margin:
         c += step_span
-
-    if not centers:
-        centers = [0.5 * (start_wl + end_wl)]
+        centers.append(c)
     return centers
+
+
+def coverage_gaps_nm(
+    wave_steps: List[np.ndarray], start_wl: Optional[float] = None, end_wl: Optional[float] = None,
+) -> List[Tuple[float, float]]:
+    """Tramos de [start_wl, end_wl] que ninguna ventana adquirida cubre, según sus ejes REALES.
+
+    Es la verificación posterior de la planificación (DEC-014 aplicado a la cobertura): si el
+    ancho supuesto al planificar no coincide con el físico, aparecen huecos entre ventanas y
+    acá se ven, en lugar de quedar escondidos por el cosido."""
+    intervals = sorted(
+        (float(np.nanmin(w)), float(np.nanmax(w)))
+        for w in wave_steps
+        if w is not None and np.size(w) > 1 and np.isfinite(np.asarray(w, dtype=np.float64)).any()
+    )
+    if not intervals:
+        return [(float(start_wl), float(end_wl))] if start_wl is not None and end_wl is not None else []
+
+    gaps: List[Tuple[float, float]] = []
+    cursor = float(start_wl) if start_wl is not None else intervals[0][0]
+    for lo, hi in intervals:
+        if lo > cursor:
+            gaps.append((cursor, lo))
+        cursor = max(cursor, hi)
+    if end_wl is not None and cursor < float(end_wl):
+        gaps.append((cursor, float(end_wl)))
+    return gaps
 
 
 def export_step_and_glue_to_hdf5(

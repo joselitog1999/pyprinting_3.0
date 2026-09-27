@@ -41,10 +41,11 @@ import pyqtgraph as pg
 
 from config import SHUTTERS, SAFE_MODE
 from pyspectrum.drivers.shamrock_driver import (
-    DEVICE, GRATING_150_LINES, GRATING_1200_LINES, NAME_GRATINGS, get_shamrock
+    DEVICE, GRATING_150_LINES, GRATING_1200_LINES, NAME_GRATINGS, SHAMROCK_SUCCESS, get_shamrock,
+    nominal_dispersion_nm_per_px,
 )
 from pyspectrum.drivers.andor_ccd_driver import (
-    get_andor_ccd,
+    get_andor_ccd, DRV_SUCCESS, DRV_ACQUIRING, DETECTOR_WIDTH_PX,
     READ_MODE_FVB, READ_MODE_SINGLE_TRACK, READ_MODE_MULTI_TRACK, READ_MODE_IMAGE,
 )
 from pyspectrum.modules.spectroscopy_context import spectroscopy_context
@@ -202,13 +203,13 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.cmb_read_mode.addItem("FVB (1D Spectrum)", READ_MODE_FVB)
         self.cmb_read_mode.addItem("Single-Track (Hardware ROI)", READ_MODE_SINGLE_TRACK)
         self.cmb_read_mode.addItem("Multi-Track", READ_MODE_MULTI_TRACK)
-        self.cmb_read_mode.addItem("Imagen 2D (Full Slit)", READ_MODE_IMAGE)
+        self.cmb_read_mode.addItem("Imagen 2D (Hardware ROI)", READ_MODE_IMAGE)
         self.cmb_read_mode.setToolTip(
             "Modo de lectura del sensor Andor para esta adquisición Raman:\n"
             "• FVB: Binnizado vertical completo en hardware (espectro 1D).\n"
-            "• Single-Track: Lee sólo las filas del ROI heredado automáticamente de la Pestaña 1 (Exploración).\n"
+            "• Single-Track: Lee sólo las filas del ROI vertical heredado automáticamente de la Pestaña 1 (Exploración).\n"
             "• Multi-Track: N pistas paralelas simultáneas (ej. señal vs fondo), visualizadas en el Inspector 2D.\n"
-            "• Imagen 2D: Matriz completa del slit para análisis espacial de modos, en el Inspector 2D."
+            "• Imagen 2D: Matriz 2D acotada estrictamente por hardware al ROI vertical para análisis espacial en el Inspector 2D."
         )
         self.cmb_read_mode.currentIndexChanged.connect(self._on_read_mode_changed)
         row1b.addWidget(self.cmb_read_mode)
@@ -267,6 +268,24 @@ class StaticRamanWidget(QtWidgets.QWidget):
 
         row2.addStretch()
         hw_vlo.addLayout(row2)
+
+        # Fila 2b: Cartel de Rango Espectral Dinámico
+        row2b = QtWidgets.QHBoxLayout()
+        self.lbl_spectral_range = QtWidgets.QLabel("📊 Rango Espectral Cubierto: —")
+        self.lbl_spectral_range.setStyleSheet("""
+            QLabel {
+                color: #A6E3A1;
+                background-color: #11111B;
+                border: 1px solid #313244;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+            }
+        """)
+        self.lbl_spectral_range.setToolTip("Rango espectral cubierto en el detector Andor según la red de difracción y centro seleccionados.")
+        row2b.addWidget(self.lbl_spectral_range)
+        row2b.addStretch()
+        hw_vlo.addLayout(row2b)
 
         main_vlo.addWidget(grp_hw)
 
@@ -411,6 +430,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.btn_apply_spectrometer.clicked.connect(self._on_apply_spectrometer)
 
         self.chk_raman_shift.toggled.connect(self._reprocess_current_spectrum)
+        self.chk_raman_shift.toggled.connect(self._update_spectral_range_badge)
         self.chk_despike.toggled.connect(self._reprocess_current_spectrum)
         self.chk_baseline.toggled.connect(self._reprocess_current_spectrum)
         self.cmb_baseline.currentIndexChanged.connect(self._reprocess_current_spectrum)
@@ -421,12 +441,13 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.cursor_b.sigPositionChanged.connect(self._update_telemetry)
 
         # Mantiene la etiqueta de ROI heredado sincronizada en vivo si el operador mueve el
-        # ROI en la Pestaña 1 (Exploración) mientras Static Raman está en modo Single-Track.
+        # ROI en la Pestaña 1 (Exploración) mientras Static Raman está en modo Single-Track o Imagen 2D.
         spectroscopy_context.verticalRoiChanged.connect(self._on_context_roi_changed)
 
         # Configuración inicial de modo y centro
         self._on_mode_changed()
         self._on_read_mode_changed()
+        self._update_spectral_range_badge()
 
     # ── Manejadores de Interfaz ───────────────────────────────────────────────
     def _on_laser_combo_changed(self, idx: int):
@@ -475,6 +496,39 @@ class StaticRamanWidget(QtWidgets.QWidget):
             shift = float(wavelength_to_raman_shift(wl, self.laser_nm))
             sign = "+" if shift >= 0 else ""
             self.lbl_shift_center.setText(f"≈ {sign}{shift:.1f} cm⁻¹")
+        self._update_spectral_range_badge()
+
+    def _update_spectral_range_badge(self):
+        center_wl = float(self.spin_center_wl.value())
+        grating_data = self.cmb_grating.currentData()
+        grating_idx = int(grating_data) if grating_data is not None else 1
+
+        if len(self.raw_wl) > 1 and math.isclose(self.raw_wl[len(self.raw_wl) // 2], center_wl, abs_tol=2.0):
+            wl_min = float(self.raw_wl[0])
+            wl_max = float(self.raw_wl[-1])
+        else:
+            # Estimación previa a la primera adquisición: dispersión nominal (DEC-033).
+            if grating_idx in (GRATING_150_LINES, GRATING_1200_LINES):
+                dispersion = nominal_dispersion_nm_per_px(grating_idx)
+            else:
+                dispersion = 0.10
+            half_span = (DETECTOR_WIDTH_PX / 2.0) * dispersion
+            wl_min = max(0.0, center_wl - half_span)
+            wl_max = center_wl + half_span
+
+        wl_span = wl_max - wl_min
+
+        if self.chk_raman_shift.isChecked() and self.laser_nm > 0:
+            shift_at_wl_min = float(wavelength_to_raman_shift(wl_min, self.laser_nm))
+            shift_at_wl_max = float(wavelength_to_raman_shift(wl_max, self.laser_nm))
+            s_min, s_max = min(shift_at_wl_min, shift_at_wl_max), max(shift_at_wl_min, shift_at_wl_max)
+            self.lbl_spectral_range.setText(
+                f"📊 Rango Espectral Cubierto: [{s_min:+.0f} a {s_max:+.0f}] cm⁻¹  (λ: {wl_min:.1f} a {wl_max:.1f} nm, Δλ ≈ {wl_span:.1f} nm)"
+            )
+        else:
+            self.lbl_spectral_range.setText(
+                f"📊 Rango Espectral Cubierto: [{wl_min:.1f} a {wl_max:.1f}] nm  (Δλ ≈ {wl_span:.1f} nm)"
+            )
 
     def _on_apply_spectrometer(self):
         grating_idx = int(self.cmb_grating.currentData())
@@ -487,7 +541,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.lbl_multi_track_n.setVisible(is_multi)
         self.spin_multi_track_n.setVisible(is_multi)
 
-        if mode == READ_MODE_SINGLE_TRACK:
+        if mode in (READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE):
             self._update_inherited_roi_label()
         else:
             self.lbl_roi_inherited.setText("")
@@ -500,21 +554,34 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.lbl_roi_inherited.setText(f"ROI heredado: [{y_min}:{y_max}] (Centro: {y_center}, Alto: {y_height} px)")
 
     def _on_context_roi_changed(self, y_min: int, y_max: int, y_center: int, y_height: int):
-        if self.cmb_read_mode.currentData() == READ_MODE_SINGLE_TRACK:
+        if self.cmb_read_mode.currentData() in (READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE):
             self.lbl_roi_inherited.setText(f"ROI heredado: [{y_min}:{y_max}] (Centro: {y_center}, Alto: {y_height} px)")
 
     def _on_acquire_single(self):
         self.requestAcquireSingleSignal.emit()
 
-    def _on_toggle_live(self, checked: bool):
-        if checked:
+    def _apply_live_appearance(self, running: bool):
+        if running:
             self.btn_live.setText("⏹️ Detener Live Raman")
             self.btn_live.setStyleSheet("background-color: #F38BA8; color: #11111B;")
-            self.toggleLiveRamanSignal.emit(True)
         else:
             self.btn_live.setText("▶️ Live Raman (Continuo)")
             self.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4;")
-            self.toggleLiveRamanSignal.emit(False)
+
+    def _on_toggle_live(self, checked: bool):
+        self._apply_live_appearance(checked)
+        self.toggleLiveRamanSignal.emit(bool(checked))
+
+    def set_live_state(self, running: bool):
+        """Refleja el estado REAL de Live informado por el backend, sin re-emitir
+        toggleLiveRamanSignal. Existe para que un arranque fallido pueda devolver el botón a
+        'Live Raman' en vez de dejarlo mostrando 'Detener' con nada corriendo (estado de
+        software adelantado al de hardware — DEC-014). blockSignals evita que el setChecked
+        programático vuelva a disparar _on_toggle_live y rebote hacia el backend."""
+        self.btn_live.blockSignals(True)
+        self.btn_live.setChecked(bool(running))
+        self.btn_live.blockSignals(False)
+        self._apply_live_appearance(bool(running))
 
     # ── Pipeline de Procesamiento en Tiempo Real ──────────────────────────────
     @pyqtSlot(np.ndarray, np.ndarray)
@@ -523,6 +590,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
         self.raw_wl = wl_axis
         self.raw_counts = counts
         self._reprocess_current_spectrum()
+        self._update_spectral_range_badge()
 
     def _reprocess_current_spectrum(self):
         if len(self.raw_wl) == 0 or len(self.raw_counts) == 0:
@@ -675,6 +743,11 @@ class StaticRamanWidget(QtWidgets.QWidget):
             "Despiking": str(self.chk_despike.isChecked()),
             "Linea_Base": f"{self.cmb_baseline.currentText()}" if self.chk_baseline.isChecked() else "Ninguna",
             "Savitzky_Golay": f"Ventana {self.spin_savgol_win.value()}" if self.chk_savgol.isChecked() else "No",
+            "_raw_wl": self.raw_wl.copy(),
+            "_raw_counts": self.raw_counts.copy(),
+            "_processed_x": self.processed_x.copy(),
+            "_processed_y": self.processed_y.copy(),
+            "_baseline_y": self.baseline_y.copy() if len(self.baseline_y) else np.zeros_like(self.raw_counts),
         }
         self.saveSpectrumSignal.emit(path, metadata)
 
@@ -685,6 +758,9 @@ class StaticRamanBackend(QtCore.QObject):
     spectrumAcquiredSignal = pyqtSignal(np.ndarray, np.ndarray)  # wl_axis, counts (FVB/Single-Track)
     frame2DAcquiredSignal = pyqtSignal(np.ndarray, np.ndarray, str)  # wl_axis, frame2d, read_mode_name (Multi-Track/Imagen 2D)
     statusMessageSignal = pyqtSignal(str)
+    # Estado Live efectivamente alcanzado en el hardware (no el pedido por la UI). Es la vía
+    # de retorno que faltaba: sin ella, un arranque fallido dejaba el botón en 'Detener'.
+    liveStateChangedSignal = pyqtSignal(bool)
 
     READ_MODE_NAMES = {
         READ_MODE_FVB: "FVB",
@@ -711,15 +787,18 @@ class StaticRamanBackend(QtCore.QObject):
         widget.setReadModeSignal.connect(self.set_read_mode)
 
         self.spectrumAcquiredSignal.connect(widget.update_spectrum_data)
+        self.liveStateChangedSignal.connect(widget.set_live_state)
 
         if inspector is not None:
             self.frame2DAcquiredSignal.connect(inspector.set_frame_2d)
+            if hasattr(inspector, "set_live_state"):
+                self.liveStateChangedSignal.connect(inspector.set_live_state)
 
     @pyqtSlot(int, int)
     def set_read_mode(self, mode: int, n_tracks: int):
         """Ejecuta la transición segura de modo de lectura (Fase 1: transition_read_mode()
-        envuelto en AcquisitionSetupDialog). En Single-Track hereda automáticamente el centro
-        y alto del ROI vertical publicado por la Pestaña 1 vía SpectroscopyContext."""
+        envuelto en AcquisitionSetupDialog). En Single-Track e Imagen 2D hereda automáticamente
+        el centro, alto o límites del ROI vertical publicado por la Pestaña 1 vía SpectroscopyContext."""
         kwargs: Dict[str, Any] = {}
         if mode == READ_MODE_SINGLE_TRACK:
             _, _, y_center, y_height = spectroscopy_context.vertical_roi
@@ -728,6 +807,11 @@ class StaticRamanBackend(QtCore.QObject):
         elif mode == READ_MODE_MULTI_TRACK:
             kwargs["n_tracks"] = max(1, int(n_tracks))
             kwargs["multi_track_height"] = 5
+        elif mode == READ_MODE_IMAGE:
+            y_min, y_max, _, y_height = spectroscopy_context.vertical_roi
+            if y_height > 0:
+                kwargs["image_vstart"] = y_min + 1
+                kwargs["image_vend"] = y_max
 
         dlg = AcquisitionSetupDialog(message="Configurando modo de lectura Raman...")
         result = dlg.run(transition_read_mode, self.camera, int(mode), **kwargs)
@@ -753,14 +837,20 @@ class StaticRamanBackend(QtCore.QObject):
         wl_arr = self._current_wavelength_axis()
         read_mode = self.camera.get_read_mode()
         if read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
-            spec1d = self.camera.get_1d_spectrum()
-            self.spectrumAcquiredSignal.emit(wl_arr, spec1d)
+            data = self.camera.get_1d_spectrum()
+            self.spectrumAcquiredSignal.emit(wl_arr, data)
         elif read_mode == READ_MODE_MULTI_TRACK:
-            frame2d = self.camera.get_tracks_2d_spectrum()
-            self.frame2DAcquiredSignal.emit(wl_arr, frame2d, self.READ_MODE_NAMES.get(READ_MODE_MULTI_TRACK, "Multi-Track"))
+            data = self.camera.get_tracks_2d_spectrum()
+            self.frame2DAcquiredSignal.emit(wl_arr, data, self.READ_MODE_NAMES.get(READ_MODE_MULTI_TRACK, "Multi-Track"))
         else:  # READ_MODE_IMAGE (o cualquier otro no contemplado)
-            frame2d = self.camera.get_most_recent_image()
-            self.frame2DAcquiredSignal.emit(wl_arr, frame2d, self.READ_MODE_NAMES.get(READ_MODE_IMAGE, "Imagen 2D"))
+            data = self.camera.get_most_recent_image()
+            self.frame2DAcquiredSignal.emit(wl_arr, data, self.READ_MODE_NAMES.get(READ_MODE_IMAGE, "Imagen 2D"))
+        # El driver real no lanza ante un fallo de lectura: devuelve un array de CEROS
+        # (andor_ccd_driver.py, get_1d_spectrum/get_most_recent_image). Un EMCCD real nunca
+        # entrega un cuadro idénticamente nulo — el offset de bias solo ya son cientos de
+        # cuentas —, así que todo-ceros es un centinela fiable de lectura fallida.
+        arr = np.asarray(data)
+        return bool(arr.size) and bool(np.any(arr))
 
     @pyqtSlot(int, float)
     def apply_spectrometer_config(self, grating_idx: int, wl_center: float):
@@ -777,24 +867,126 @@ class StaticRamanBackend(QtCore.QObject):
     @pyqtSlot()
     def acquire_single(self):
         """Adquiere un único cuadro de la cámara, según el modo de lectura activo (FVB/Single-
-        Track hacia el espectro 1D principal, Multi-Track/Imagen 2D hacia el Inspector 2D)."""
+        Track hacia el espectro 1D principal, Multi-Track/Imagen 2D hacia el Inspector 2D).
+
+        El mensaje de estado final es el ÚNICO autoritativo y se emite al terminar, después de
+        cerrar el obturador: la barra de estado muestra sólo el último mensaje, así que emitir
+        advertencias intermedias y luego "exitosamente" las borraba antes de que el operador
+        pudiera leerlas (defecto introducido en DEC-031, corregido en DEC-032). Política de
+        obturador acordada: si no confirma la apertura se adquiere igual, pero se advierte."""
+        shutter_opened = False
+        valid = False
+        error: Optional[Exception] = None
         try:
-            self._acquire_and_emit()
-            self.statusMessageSignal.emit("Espectro único adquirido exitosamente.")
+            shutter_opened = self._set_spectrograph_shutter(True, report=False)
+            valid = self._acquire_and_emit()
         except Exception as e:
-            self.statusMessageSignal.emit(f"Error en adquisición única: {e}")
+            error = e
+        finally:
+            shutter_closed = self._set_spectrograph_shutter(False, report=False)
+
+        if error is not None:
+            parts = [f"❌ Error en adquisición única: {error}"]
+        elif not valid:
+            parts = ["⚠️ El detector devolvió un cuadro vacío (todo ceros): la adquisición NO es "
+                     "válida. Verificar conexión e inicialización de la cámara."]
+        elif not shutter_opened:
+            parts = ["⚠️ Espectro adquirido con el obturador del espectrógrafo SIN confirmar: "
+                     "puede estar oscuro."]
+        else:
+            parts = ["Espectro único adquirido exitosamente."]
+        if not shutter_closed:
+            parts.append("⚠️ Además, el obturador del espectrógrafo no confirmó el cierre.")
+        self.statusMessageSignal.emit(" ".join(parts))
+
+    def _set_spectrograph_shutter(self, open_shutter: bool, report: bool = True) -> bool:
+        """Acciona el obturador del espectrógrafo verificando el código de retorno.
+
+        `DEC-014` y `metrology.md` §5 fijan que un estado de obturador es una afirmación
+        metrológica y no puede darse por válida sin confirmación del hardware: una escritura
+        fallida que se traga en silencio deja al software creyendo que el camino óptico está
+        abierto mientras el espectro sale oscuro, sin nada que lo señale. Devuelve True sólo
+        si el driver confirmó la operación, y avisa por la barra de estado si no.
+
+        Desde `DEC-034` el driver real devuelve `SHAMROCK_COMMUNICATION_ERROR` cuando la DLL
+        lanza (antes respondía `SHAMROCK_SUCCESS` desde su propia rama `except`), así que este
+        chequeo detecta tanto un espectrógrafo no inicializado como una excepción de la DLL.
+
+        `report=False` suprime el aviso propio para que el llamador componga un único mensaje
+        final con el resultado completo, en vez de que cada paso pise al anterior.
+        """
+        if not hasattr(self.spectrometer, "ShamrockSetShutter"):
+            return True
+        action = "apertura" if open_shutter else "cierre"
+        try:
+            ret = self.spectrometer.ShamrockSetShutter(DEVICE, 1 if open_shutter else 0)
+        except Exception as e:
+            if report:
+                self.statusMessageSignal.emit(f"⚠️ Falló la {action} del obturador del espectrógrafo: {e}")
+            return False
+        if ret != SHAMROCK_SUCCESS:
+            if report:
+                self.statusMessageSignal.emit(
+                f"⚠️ El obturador del espectrógrafo no confirmó la {action} (código {ret}). "
+                "El espectro puede no ser válido."
+            )
+            return False
+        return True
 
     @pyqtSlot(bool)
     def toggle_live(self, active: bool):
-        """Inicia o detiene la adquisición Raman continua."""
+        """Inicia o detiene la adquisición Raman continua, verificando cada paso de hardware.
+
+        Orden de arranque (DEC-032): la cámara se arranca PRIMERO y el obturador del
+        espectrógrafo se abre sólo si `start_acquisition()` confirmó. Así un arranque fallido
+        nunca deja el obturador abierto — no hace falta limpieza porque nunca se abrió. Es
+        seguro porque `StartAcquisition()` no integra hasta el primer tick de `live_timer`
+        (confirmado por el operador), así que el primer cuadro ya ve el camino óptico abierto.
+
+        `start_acquisition()` informa fallos por código de retorno, no por excepción: antes
+        ese código se descartaba y el lazo arrancaba igual, con la cámara sin adquirir. Tras
+        cada transición se emite `liveStateChangedSignal` con el estado REAL alcanzado, para
+        que ningún botón de Live quede mostrando 'Detener' con nada corriendo.
+        """
         if active:
-            self.camera.start_acquisition()
+            try:
+                ret = self.camera.start_acquisition()
+            except Exception as e:
+                ret, detail = None, f"excepción del driver: {e}"
+            else:
+                detail = f"código {ret}"
+            if ret != DRV_SUCCESS:
+                self.live_timer.stop()
+                hint = (" El detector ya está adquiriendo: ¿está activo el Live View de Exploración?"
+                        if ret == DRV_ACQUIRING else "")
+                self.statusMessageSignal.emit(
+                    f"❌ La cámara no pudo iniciar la adquisición ({detail}). Live Raman NO se inició "
+                    f"y el obturador del espectrógrafo no se abrió.{hint}"
+                )
+                self.liveStateChangedSignal.emit(False)
+                return
+
+            shutter_ok = self._set_spectrograph_shutter(True, report=False)
             self.live_timer.start()
-            self.statusMessageSignal.emit("Adquisición Live Raman iniciada.")
+            if shutter_ok:
+                self.statusMessageSignal.emit("Adquisición Live Raman iniciada.")
+            else:
+                # Política acordada: seguir en vivo, pero advertirlo en el mensaje final en
+                # lugar de en uno intermedio que sería pisado.
+                self.statusMessageSignal.emit(
+                    "⚠️ Live Raman iniciado con el obturador del espectrógrafo SIN confirmar: "
+                    "los espectros pueden estar oscuros."
+                )
+            self.liveStateChangedSignal.emit(True)
         else:
             self.live_timer.stop()
             self.camera.abort_acquisition()
-            self.statusMessageSignal.emit("Adquisición Live Raman detenida.")
+            shutter_closed = self._set_spectrograph_shutter(False, report=False)
+            msg = "Adquisición Live Raman detenida."
+            if not shutter_closed:
+                msg += " ⚠️ El obturador del espectrógrafo no confirmó el cierre."
+            self.statusMessageSignal.emit(msg)
+            self.liveStateChangedSignal.emit(False)
 
     def _acquire_live_frame(self):
         try:
@@ -806,11 +998,22 @@ class StaticRamanBackend(QtCore.QObject):
     def save_spectrum_to_file(self, filepath: str, metadata: dict):
         """Exporta el espectro con cabecera detallada de metadatos experimentales."""
         try:
-            _, wl_arr = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-            frame = self.camera.get_most_recent_image()
-            spec1d = np.mean(frame[480:520, :], axis=0) if frame.shape[0] >= 520 else np.mean(frame, axis=0)
-
             laser_nm = float(metadata.get("Laser_Excitacion_nm", 532.0))
+            if "_raw_counts" in metadata and len(metadata["_raw_counts"]) > 0:
+                counts = np.asarray(metadata["_raw_counts"], dtype=np.float64)
+                if "_raw_wl" in metadata and len(metadata["_raw_wl"]) == len(counts):
+                    wl_arr = np.asarray(metadata["_raw_wl"], dtype=np.float64)
+                else:
+                    wl_arr = self._current_wavelength_axis()
+            else:
+                wl_arr = self._current_wavelength_axis()
+                read_mode = self.camera.get_read_mode()
+                if read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
+                    counts = np.asarray(self.camera.get_1d_spectrum(), dtype=np.float64)
+                else:
+                    frame = self.camera.get_most_recent_image()
+                    counts = np.mean(frame, axis=0) if frame.ndim > 1 else np.asarray(frame, dtype=np.float64)
+
             raman_shift = wavelength_to_raman_shift(wl_arr, laser_nm)
 
             p = Path(filepath)
@@ -818,10 +1021,11 @@ class StaticRamanBackend(QtCore.QObject):
                 f.write("# PySpectrum 3.0 — Adquisición Raman Estática\n")
                 f.write("# UNSAM Nanofotónica\n")
                 for k, v in metadata.items():
-                    f.write(f"# {k}: {v}\n")
+                    if not k.startswith("_"):
+                        f.write(f"# {k}: {v}\n")
                 f.write("# ------------------------------------------------------------\n")
                 f.write("Wavelength_nm\tRaman_Shift_cm-1\tCounts_ADC\n")
-                for w, rs, c in zip(wl_arr, raman_shift, spec1d):
+                for w, rs, c in zip(wl_arr, raman_shift, counts):
                     f.write(f"{w:.4f}\t{rs:.3f}\t{c:.2f}\n")
 
             self.statusMessageSignal.emit(f"Espectro guardado en: {p.name}")

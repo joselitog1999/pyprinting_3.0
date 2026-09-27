@@ -35,7 +35,7 @@ Categorize the new finding or implementation into its proper institutional conta
 1. If a scientific claim or physical equation was established or verified:
    * Add a structured entry in `docs/evidence/EVIDENCE_LEDGER.md` referencing code lines and source DOI.
 2. If an architectural tradeoff or calibration parameter was chosen:
-   * Create a new record in `docs/decisions/` using `docs/decisions/TEMPLATE_DECISION.md`.
+   * Append a new `### DEC-XXX:` section to the single `docs/decisions/DECISION_LOG.md` ledger (adding its index row too), following the shape of `docs/decisions/TEMPLATE_DECISION.md`. The ledger is one append-only file — never split a decision out into its own `DEC-XXX_*.md`.
 
 ### Step 4: Graphify Graph Synchronization
 Execute the mandatory post-modification AST update:
@@ -54,7 +54,7 @@ Verify that new symbols, classes, or markdown links are parsed without syntax er
 ## 1. Modified & Created Artifacts
 * **Compendium**: Updated `reportes/cientificos/CAT-XXX.md` (Section 3.2 added)
 * **Evidence Ledger**: Added entry `PHY-045` in `docs/evidence/EVIDENCE_LEDGER.md`
-* **Decision Log**: Logged `DEC-014` in `docs/decisions/DEC-014_Piezo_Filter_Cutoff.md`
+* **Decision Log**: Appended `DEC-014` (Piezo Filter Cutoff) to `docs/decisions/DECISION_LOG.md`
 
 ## 2. Graphify AST Synchronization
 * Command: `graphify update .`

@@ -117,13 +117,13 @@ El espectrógrafo cuenta con una torrecilla motorizada de doble red con especifi
 | **Densidad de Ranuras ($N$)** | $150\ \text{l/mm}$ | $1200\ \text{l/mm}$ |
 | **Longitud de Onda de Blaze ($\lambda_B$)** | **$800\ \text{nm}$ (Infrarrojo Cercano)** | **$500\ \text{nm}$ (Visible)** |
 | **Rango de Máxima Eficiencia** | $600 - 1100\ \text{nm}$ ($\eta > 70\%$) | $400 - 750\ \text{nm}$ ($\eta > 75\%$) |
-| **Dispersión Recíproca Nominal** | $\approx 13.33\ \text{nm/mm}$ | $\approx 1.67\ \text{nm/mm}$ |
-| **Dispersión en Píxel de $16\ \mu\text{m}$** | **$0.213\ \text{nm/px}$** | **$0.0267\ \text{nm/px}$** |
-| **Dispersión en Píxel de $13\ \mu\text{m}$** | **$0.173\ \text{nm/px}$** | **$0.0217\ \text{nm/px}$** |
-| **Ventana Espectral Única (Sensor 512 px)** | $\approx 109\ \text{nm}$ | $\approx 13.7\ \text{nm}$ |
-| **Ventana Espectral Única (Sensor 1024 px)** | $\approx 177\ \text{nm}$ | $\approx 22.2\ \text{nm}$ |
-| **Resolución Raman a $532\ \text{nm}$ ($16\mu\text{m}$)** | $\approx 7.5\ \text{cm}^{-1}/\text{px}$ | **$\approx 0.88\ \text{cm}^{-1}/\text{px}$** |
+| **Dispersión Recíproca Nominal** (hoja de datos SR-500i) | $12.83\ \text{nm/mm}$ | $1.44\ \text{nm/mm}$ |
+| **Dispersión por Píxel (iXon3 885, $8\ \mu\text{m}$)** | **$0.1026\ \text{nm/px}$** | **$0.0115\ \text{nm/px}$** |
+| **Ventana Espectral Única (1004 px $= 8.032\ \text{mm}$)** | **$\approx 103\ \text{nm}$** | **$\approx 11.6\ \text{nm}$** |
+| **Dispersión Raman a $532\ \text{nm}$** | $\approx 3.6\ \text{cm}^{-1}/\text{px}$ | **$\approx 0.41\ \text{cm}^{-1}/\text{px}$** |
 | **Rol Experimental Principal** | Extinción LSPR, Step & Glue panorámico | **Raman de Alta Resolución, Anti-Stokes** |
+
+> **Corrección `DEC-033` (2026-09-26).** Esta tabla listaba dispersiones para píxeles de 16 y 13 µm y sensores de 512 y 1024 px, ninguno de los cuales es el detector instalado, y una dispersión recíproca ($13.33 / 1.67\ \text{nm/mm}$) calculada como $1/(G f)$ sin el factor $\cos\beta$. Los valores actuales salen de la hoja de datos del Shamrock 500i ("Nominal dispersion" para las redes 150 l/mm blaze 800 y 1200 l/mm blaze 500) y del iXon3 885 (1004 × 1002 px de $8\ \mu\text{m}$). La ventana de 103 nm coincide con la que el código legado usó en el banco (`StepandGlue_ps.py:576`). La dispersión varía unos pocos % con $\lambda$; el eje de medición siempre sale de `ShamrockGetCalibration`.
 
 ### 3.2 Implicancia del Ángulo de Blaze
 - **Red de 150 l/mm (Blaze 800 nm)**:
@@ -135,7 +135,7 @@ El espectrógrafo cuenta con una torrecilla motorizada de doble red con especifi
 
 El ancho físico de las cuchillas de entrada $w_{\text{rendija}}$ determina directamente el ensanchamiento instrumental geométrico $\delta\lambda_{\text{geom}}$ proyectado sobre el plano focal del detector:
 $$\delta\lambda_{\text{geom}} = w_{\text{rendija}} \cdot D_{\text{linear}}$$
-donde $D_{\text{linear}}$ es la dispersión recíproca lineal ($13.33\ \text{nm/mm} = 0.01333\ \text{nm}/\mu\text{m}$ para 150 l/mm; $1.67\ \text{nm/mm} = 0.00167\ \text{nm}/\mu\text{m}$ para 1200 l/mm).
+donde $D_{\text{linear}}$ es la dispersión recíproca lineal nominal de la hoja de datos ($12.83\ \text{nm/mm} = 0.01283\ \text{nm}/\mu\text{m}$ para 150 l/mm; $1.44\ \text{nm/mm} = 0.00144\ \text{nm}/\mu\text{m}$ para 1200 l/mm). La resolución discreta de píxel es $\delta\lambda_{\text{px}} = D_{\text{linear}} \times 8\ \mu\text{m}$ ($0.103$ y $0.0115\ \text{nm}$); por Nyquist, el límite práctico es de $\sim 2$ píxeles.
 
 La resolución espectral total efectiva $\delta\lambda_{\text{total}}$ resulta de la convolución cuadrática del ensanchamiento geométrico con la resolución discreta de píxel ($\delta\lambda_{\text{px}}$) y el límite difractivo del espectrógrafo ($\delta\lambda_{\text{difr}}$):
 $$\delta\lambda_{\text{total}} = \sqrt{\delta\lambda_{\text{geom}}^2 + \delta\lambda_{\text{px}}^2 + \delta\lambda_{\text{difr}}^2}$$
@@ -144,14 +144,16 @@ A continuación se detalla la matriz de cálculo a través de todo el rango oper
 
 | Ancho Ranura $w_{\text{rendija}}$ | Campo en Muestra $w_{\text{muestra}}$ | Red 150 l/mm: $\delta\lambda$ (nm) | Red 150 l/mm: $\delta\tilde{\nu}$ ($\text{cm}^{-1}$) | Red 1200 l/mm: $\delta\lambda$ (nm) | Red 1200 l/mm: $\delta\tilde{\nu}$ ($\text{cm}^{-1}$) | Aplicación Experimental Sugerida |
 |---|---|---|---|---|---|---|
-| **$10\ \mu\text{m}$** (mínimo) | $0.36\ \mu\text{m}$ | $0.175\ \text{nm}$ (límite px) | $6.2\ \text{cm}^{-1}$ | $0.022\ \text{nm}$ (límite px) | $0.77\ \text{cm}^{-1}$ | Máximo filtrado confocal sub-difractivo |
-| **$36.1\ \mu\text{m}$** (Airy) | $1.30\ \mu\text{m}$ ($d_{\text{Airy}}$) | $0.48\ \text{nm}$ | $17.0\ \text{cm}^{-1}$ | $0.060\ \text{nm}$ | $2.1\ \text{cm}^{-1}$ | Acoplamiento difractivo óptimo (1 Airy Unit) |
-| **$50.0\ \mu\text{m}$** (estándar) | $1.80\ \mu\text{m}$ | $0.67\ \text{nm}$ | $23.6\ \text{cm}^{-1}$ | $0.084\ \text{nm}$ | $2.9\ \text{cm}^{-1}$ | **Raman confocal de rutina y Anti-Stokes** |
-| **$100\ \mu\text{m}$** | $3.60\ \mu\text{m}$ | $1.33\ \text{nm}$ | $47.0\ \text{cm}^{-1}$ | $0.167\ \text{nm}$ | $5.9\ \text{cm}^{-1}$ | Cinética de crecimiento y LSPR extinción |
-| **$250\ \mu\text{m}$** | $9.00\ \mu\text{m}$ | $3.33\ \text{nm}$ | $117.7\ \text{cm}^{-1}$ | $0.417\ \text{nm}$ | $14.7\ \text{cm}^{-1}$ | SERS en agregados y dímeros amplios |
-| **$500\ \mu\text{m}$** | $18.0\ \mu\text{m}$ | $6.67\ \text{nm}$ | $235.6\ \text{cm}^{-1}$ | $0.835\ \text{nm}$ | $29.5\ \text{cm}^{-1}$ | Fotoluminiscencia ultra-débil (*Photon Bucket*) |
-| **$1000\ \mu\text{m}$** ($1.0\text{ mm}$) | $36.0\ \mu\text{m}$ | $13.33\ \text{nm}$ | $471.1\ \text{cm}^{-1}$ | $1.67\ \text{nm}$ | $59.0\ \text{cm}^{-1}$ | Ensayos de absorción transitoria macro |
-| **$2500\ \mu\text{m}$** ($2.5\text{ mm}$) | $\mathbf{90.0\ \mu\text{m}}$ | $\mathbf{33.33\ \text{nm}}$ | $\mathbf{1177.8\ \text{cm}^{-1}}$ | $\mathbf{4.17\ \text{nm}}$ | $\mathbf{147.5\ \text{cm}^{-1}}$ | **Modo Imagen Directa / Alineación Óptica** |
+| **$10\ \mu\text{m}$** (mínimo) | $0.36\ \mu\text{m}$ | $0.128\ \text{nm}$ ($\approx 1.25$ px) | $4.5\ \text{cm}^{-1}$ | $0.0144\ \text{nm}$ ($\approx 1.25$ px) | $0.51\ \text{cm}^{-1}$ | Máximo filtrado confocal sub-difractivo (limitado por píxel) |
+| **$36.1\ \mu\text{m}$** (Airy) | $1.30\ \mu\text{m}$ ($d_{\text{Airy}}$) | $0.46\ \text{nm}$ | $16.4\ \text{cm}^{-1}$ | $0.052\ \text{nm}$ | $1.8\ \text{cm}^{-1}$ | Acoplamiento difractivo óptimo (1 Airy Unit) |
+| **$50.0\ \mu\text{m}$** (estándar) | $1.80\ \mu\text{m}$ | $0.64\ \text{nm}$ | $22.7\ \text{cm}^{-1}$ | $0.072\ \text{nm}$ | $2.5\ \text{cm}^{-1}$ | **Raman confocal de rutina y Anti-Stokes** |
+| **$100\ \mu\text{m}$** | $3.60\ \mu\text{m}$ | $1.28\ \text{nm}$ | $45.3\ \text{cm}^{-1}$ | $0.144\ \text{nm}$ | $5.1\ \text{cm}^{-1}$ | Cinética de crecimiento y LSPR extinción |
+| **$250\ \mu\text{m}$** | $9.00\ \mu\text{m}$ | $3.21\ \text{nm}$ | $113.3\ \text{cm}^{-1}$ | $0.360\ \text{nm}$ | $12.7\ \text{cm}^{-1}$ | SERS en agregados y dímeros amplios |
+| **$500\ \mu\text{m}$** | $18.0\ \mu\text{m}$ | $6.42\ \text{nm}$ | $226.7\ \text{cm}^{-1}$ | $0.720\ \text{nm}$ | $25.4\ \text{cm}^{-1}$ | Fotoluminiscencia ultra-débil (*Photon Bucket*) |
+| **$1000\ \mu\text{m}$** ($1.0\text{ mm}$) | $36.0\ \mu\text{m}$ | $12.83\ \text{nm}$ | $453.3\ \text{cm}^{-1}$ | $1.44\ \text{nm}$ | $50.9\ \text{cm}^{-1}$ | Ensayos de absorción transitoria macro |
+| **$2500\ \mu\text{m}$** ($2.5\text{ mm}$) | $\mathbf{90.0\ \mu\text{m}}$ | $\mathbf{32.08\ \text{nm}}$ | $\mathbf{1133.4\ \text{cm}^{-1}}$ | $\mathbf{3.60\ \text{nm}}$ | $\mathbf{127.2\ \text{cm}^{-1}}$ | **Modo Imagen Directa / Alineación Óptica** |
+
+> Recalculada en `DEC-033` con $D_{\text{linear}}$ de la hoja de datos ($\delta\lambda_{\text{geom}} = w \cdot D$; $\delta\tilde{\nu} = \delta\lambda \cdot 10^7/532^2$). La versión anterior usaba $13.33 / 1.67\ \text{nm/mm}$ y un límite de píxel de $13\ \mu\text{m}$.
 
 ### 3.4 Modo Microscopía de Imagen Directa / Orden Cero (Espejo) a Rendija Abierta ($2500\ \mu\text{m}$)
 
@@ -160,13 +162,13 @@ Una capacidad única de la arquitectura del Shamrock 500i con ranura motorizada 
 1. **Configuración Óptica**:
    - Red en posición de **Espejo / Orden Cero ($\lambda = 0\ \text{nm}$)**: Los espejos colimador y focalizador actúan como un relé óptico 1:1 sin dispersión cromática.
    - Rendija abierta a su máximo mecánico: **$w_{\text{rendija}} = 2500\ \mu\text{m}$ ($2.5\ \text{mm}$)**.
-2. **Proyección en el Sensor iXon3 EMCCD ($1004 \times 1002\text{ px}$, píxel $13\ \mu\text{m}$)**:
+2. **Proyección en el Sensor iXon3 EMCCD ($1004 \times 1002\text{ px}$, píxel $8\ \mu\text{m}$ — `DEC-033`)**:
    - Ancho activo proyectado en píxeles del detector:
-     $$N_{\text{px, ancho}} = \frac{2500\ \mu\text{m}}{13\ \mu\text{m/px}} \approx 192\ \text{píxeles}$$
-   - Alto activo proyectado (limitado por la altura física del sensor de $13.03\text{ mm}$):
+     $$N_{\text{px, ancho}} = \frac{2500\ \mu\text{m}}{8\ \mu\text{m/px}} \approx 312\ \text{píxeles}$$
+   - Alto activo proyectado (limitado por la altura física del sensor de $1002 \times 8\ \mu\text{m} = 8.02\text{ mm}$):
      $$N_{\text{px, alto}} = 1002\ \text{píxeles}$$
    - **Campo visual directo sobre la muestra**:
-     $$\text{FOV}_{\text{muestra}} = \frac{192 \times 13\ \mu\text{m}}{27.78} \times \frac{1002 \times 13\ \mu\text{m}}{27.78} \approx \mathbf{90.0\ \mu\text{m} \times 468.9\ \mu\text{m}}$$
+     $$\text{FOV}_{\text{muestra}} = \frac{312.5 \times 8\ \mu\text{m}}{27.78} \times \frac{1002 \times 8\ \mu\text{m}}{27.78} \approx \mathbf{90.0\ \mu\text{m} \times 288.6\ \mu\text{m}}$$
 3. **Casos de Uso Críticos en el Laboratorio**:
    - **Alineación Rápida del Spot Láser**: Permite observar en pantalla la imagen bidimensional del spot láser reflejado en el sustrato y centrarlo visualmente sobre el eje de las cuchillas con precisión micrométrica antes de cerrar la ranura a $40\ \mu\text{m}$.
    - **Búsqueda Visual de Nanopartículas Impresas**: Utilizando la ultra-alta sensibilidad de la ganancia EM, se pueden localizar nanopartículas individuales o dímeros impresos directamente en la imagen 2D sin necesidad de conmutar puertos ni usar cámaras de búsqueda secundarias.
@@ -179,7 +181,7 @@ Una capacidad única de la arquitectura del Shamrock 500i con ranura motorizada 
 La cámara **iXon3** no es un CCD convencional; incorpora una etapa de **ganancia por multiplicación de electrones (*Electron Multiplying*)** en estado sólido:
 
 ```
-[ Matriz Fotosensible Activa (Back-Illuminated, QE > 90%) ]
+[ Matriz Fotosensible Activa (Front-Illuminated "Virtual Phase", 8 µm) ]
                           │  (Transferencia vertical de carga)
                           ▼
 [ Registro Serie Convencional ] ──▶ [ Registro EM de Ganancia (500+ etapas) ] ──▶ [ Amplificador EM ]

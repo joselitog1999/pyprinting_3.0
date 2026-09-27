@@ -188,7 +188,7 @@ La tarjeta de adquisición **National Instruments NI-DAQmx USB-6341 / PCIe-6323 
 
 ### 6.2 Cámara EMCCD Andor iXon3 (DU8285_VP / TC285)
 - **Sensor:** Transferencia de cuadro con multiplicación electrónica de electrones (EMCCD, Texas Instruments TC285).
-- **Matriz activa:** $1004\ (\text{H, dispersión}) \times 1002\ (\text{V, ranura})\ \text{píxeles}$, tamaño de píxel de $13.0 \times 13.0\ \mu\text{m}$.
+- **Matriz activa:** $1004\ (\text{H, dispersión}) \times 1002\ (\text{V, ranura})\ \text{píxeles}$, tamaño de píxel de $8.0 \times 8.0\ \mu\text{m}$ (área $\approx 8.0 \times 8.0\ \text{mm}$; hojas de datos del iXon3 885 y del TI TC285SPD — corregido en `DEC-033`, antes decía $13.0\ \mu\text{m}$ sin fuente).
 - **Enfriamiento Termoeléctrico Peltier:**
   - Rango operativo: $+20^\circ\text{C}$ a **$-70^\circ\text{C}$** (enfriamiento por aire) o **$-85^\circ\text{C}$** (con recirculador de agua).
   - Corriente oscura (*dark current*): $\approx 0.001\ e^-/\text{píxel}/\text{s}$ a $-70^\circ\text{C}$.

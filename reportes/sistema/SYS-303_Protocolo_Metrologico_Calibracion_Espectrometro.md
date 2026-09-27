@@ -70,13 +70,13 @@ El objetivo primario de este procedimiento es garantizar:
 * **Apertura Numérica de Entrada:** $F / 6.5$.
 * **Ranura de Entrada:** Motorizada y bilateralmente continua, ajustable entre $10\,\mu\text{m}$ y $2500\,\mu\text{m}$ con precisión de $\pm 1\,\mu\text{m}$.
 * **Torreta de Rejillas:** Triple torreta motorizada indexada con codificador óptico absoluto.
-  * **Rejilla 1:** $150\text{ líneas/mm}$, ángulo de blaze $800\text{ nm}$ (Rango amplio exploratorio UV-Vis-NIR, dispersión recíproca lineal $\approx 0.301\text{ nm/px}$).
-  * **Rejilla 2:** $1200\text{ líneas/mm}$, ángulo de blaze $500\text{ nm}$ (Alta resolución Raman, dispersión recíproca lineal $\approx 0.035\text{ nm/px}$).
+  * **Rejilla 1:** $150\text{ líneas/mm}$, ángulo de blaze $800\text{ nm}$ (Rango amplio exploratorio UV-Vis-NIR, dispersión nominal $12.83\text{ nm/mm} \approx 0.1026\text{ nm/px}$ con píxel de $8\,\mu\text{m}$, ventana $\approx 103\text{ nm}$).
+  * **Rejilla 2:** $1200\text{ líneas/mm}$, ángulo de blaze $500\text{ nm}$ (Alta resolución Raman, dispersión nominal $1.44\text{ nm/mm} \approx 0.0115\text{ nm/px}$, ventana $\approx 11.6\text{ nm}$).
   * **Rejilla 3:** Espejo plano reflectivo protegido de aluminio (Modo reflexión directa/imagen confocal).
 
-### 2.2. Detector Andor iXon3 EMCCD (Sensor Megapíxel Back-Illuminated DU8285_VP)
+### 2.2. Detector Andor iXon3 EMCCD (iXon3 885, cabezal DU8285_VP, sensor front-illuminated "Virtual Phase")
 * **Arreglo del Sensor:** $1004\ (\text{Horizontal, Dispersión}) \times 1002\ (\text{Vertical, Ranura})$ píxeles activos en plano focal (sensor Texas Instruments TC285).
-* **Tamaño de Píxel:** $13.0\,\mu\text{m} \times 13.0\,\mu\text{m}$ ($100\%$ fill-factor, área fotosensible $\approx 13.05\,\text{mm} \times 13.03\,\text{mm}$).
+* **Tamaño de Píxel:** $8.0\,\mu\text{m} \times 8.0\,\mu\text{m}$ ($100\%$ fill-factor, área fotosensible $\approx 8.03\,\text{mm} \times 8.02\,\text{mm}$) — hojas de datos del iXon3 885 y del TI TC285SPD; corregido en `DEC-033` (antes decía $13\,\mu\text{m}$, sin fuente).
 * **Canales de Salida y Amplificación:**
   * **Modo EMCCD (Multiplicación por Impacto):** Ganancia $1\times$ a $1000\times$, ruido de lectura efectivo $< 0.1\,\text{e}^-$ (esencial para Anti-Stokes, SERS ultra-diluido y fotón único).
   * **Modo Convencional CCD:** Lectura de ultra-bajo ruido ($\approx 3 - 5\,\text{e}^-$) sin ruido multiplicativo de exceso ($F=1$), óptimo para integración prolongada y alta señal.
@@ -156,14 +156,14 @@ Debido a tolerancias micrométricas en el montaje de cada una de las tres redes 
 4. Localizar el pico de la línea $546.074\text{ nm}$ en el visor de espectro.
 5. El pico debe posicionarse exactamente en el pixel central $p_0 = 501.25\text{ px}$.
 6. Si el pico aparece desplazado en $\Delta p = p_{\text{medido}} - p_0$:
-   $$\Delta\lambda = \Delta p \times 0.30145\text{ nm/px}$$
+   $$\Delta\lambda = \Delta p \times 0.1026\text{ nm/px}$$
    $$\Delta\text{pasos} = \frac{\Delta\lambda}{\text{resolución angular por paso}} \approx \Delta p \times 1.25\text{ pasos/px}$$
 7. Ingresar el valor en `Grating Offset (pasos)` (típicamente $+12\text{ pasos}$) y presionar `💾 Escribir Rejilla` (`ShamrockSetGratingOffset(DEVICE, 1, offset)`).
 
 #### Paso 2.3: Calibración de Rejilla 2 ($1200\text{ líneas/mm}$)
 1. Seleccionar `2: 1200 l/mm (Blaze 500 nm)`.
 2. Fijar $\lambda_{\text{nominal}} = 546.07\text{ nm}$.
-3. Adquirir espectro y verificar la posición de la línea. Debido a la mayor dispersión ($\approx 0.035\text{ nm/px}$), el ajuste requiere alta precisión.
+3. Adquirir espectro y verificar la posición de la línea. Debido a la mayor dispersión ($\approx 0.0115\text{ nm/px}$), el ajuste requiere alta precisión.
 4. Ajustar el valor en `Grating Offset` (típicamente $-35\text{ pasos}$) y presionar `💾 Escribir Rejilla`.
 
 #### Paso 2.4: Offset del Detector
@@ -199,8 +199,8 @@ Donde:
 #### Paso 3.2: Lectura y Validación de Coeficientes EEPROM
 * Presionar el botón `📥 Leer Coeficientes EEPROM` en la ventanita 3.
 * El software consulta la memoria interna del Shamrock:
-  * **$a = 450.124500\text{ nm}$** (para centroide a 600 nm)
-  * **$b = 0.301450\text{ nm/px}$**
+  * **$a = 548.260000\text{ nm}$** (para centroide a 600 nm)
+  * **$b = 0.102640\text{ nm/px}$**
   * **$c = 1.250000 \times 10^{-6}\text{ nm/px}^2$**
   * **$d = -8.120000 \times 10^{-10}\text{ nm/px}^3$**
 * Criterio de Aceptación: El residuo cuadrático medio ($R^2$) del ajuste debe satisfacer $R^2 \ge 0.99999$.
@@ -289,19 +289,22 @@ Para asegurar portabilidad completa, transparencia de auditoría y evitar la cor
 **Ruta Maestro:** `pyspectrum/calibration/pyspectrum_calibration_last.txt`
 
 ### 4.1. Ejemplo del Archivo Maestro Generado
+
+> **Valores ilustrativos, no una medición.** La estructura es la que escribe PySpectrum; los números de este ejemplo (offsets, coeficientes) no provienen de una calibración real. Tras `DEC-033` se ajustaron a la geometría verificada del detector ($8\,\mu\text{m}$) y a la dispersión nominal de la hoja de datos, para que el orden de magnitud sea el correcto: $b \approx 0.1026\text{ nm/px}$ con la red de 150 l/mm, no $0.301$.
+
 ```ini
 # ==============================================================================
 # PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
 # Laboratorio de Nanofotónica — UNSAM
-# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD DU8285 (1004x1002, 13 µm)
+# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 885 EMCCD DU8285_VP (1004x1002, 8 µm)
 # Última actualización: 2026-09-09 09:15:00
 # Operador / Responsable: Ingeniero de Instrumentación y Software
 # ==============================================================================
 
 [METADATOS]
 instrumento = Andor Shamrock SR-500i
-detector = Andor iXon3 EMCCD DU8285 (1004x1002 px, 13.0 µm)
-tamano_pixel_um = 13.0
+detector = Andor iXon3 885 EMCCD DU8285_VP (1004x1002 px, 8.0 µm)
+tamano_pixel_um = 8.0
 resolucion_horizontal_px = 1004
 fecha_calibracion = 2026-09-09 09:15:00
 estado = CALIBRADO_VALIDADO
@@ -331,9 +334,9 @@ detector_offset_steps = 5
 # Polinomio de calibración de longitud de onda: lambda(p) = a + b*p + c*p^2 + d*p^3
 # donde 'p' es el índice de pixel horizontal (0 a 1001)
 # Coeficiente a (Offset de longitud de onda en nm al pixel 0)
-coeff_a = 450.124500
+coeff_a = 548.260000
 # Coeficiente b (Dispersión lineal principal nm/pixel)
-coeff_b = 0.301450
+coeff_b = 0.102640
 # Coeficiente c (Término cuadrático de aberración cromática)
 coeff_c = 1.250000e-06
 # Coeficiente d (Término cúbico de corrección geométrica Czerny-Turner)

@@ -29,9 +29,20 @@ class StaticRamanTabContainer(QtWidgets.QWidget):
         self.inner_tabs.addTab(self.inspector_widget, "🗺️ Resultado Medición / Inspector 2D")
         self.inspector_widget.frameReceivedSignal.connect(self._on_inspector_frame_received)
 
+        # Sincronización de disparos de medición e inicio/parada Live
+        self.inspector_widget.requestAcquireSingleSignal.connect(self.spectrum_widget.btn_single.click)
+        self.inspector_widget.toggleLiveRamanSignal.connect(self._on_inspector_toggle_live)
+        self.spectrum_widget.toggleLiveRamanSignal.connect(self.inspector_widget.set_live_state)
+
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.inner_tabs)
 
     def _on_inspector_frame_received(self):
         self.inner_tabs.setCurrentIndex(1)
+
+    def _on_inspector_toggle_live(self, running: bool):
+        if self.spectrum_widget.btn_live.isChecked() != running:
+            self.spectrum_widget.btn_live.setChecked(running)
+            self.spectrum_widget._on_toggle_live()
+

@@ -27,19 +27,22 @@ from pyspectrum.drivers.andor_ccd_driver import (
 )
 
 
-def compute_buffer_shape(read_mode: int, width: int = 1004, height: int = 1002, n_tracks: int = 1) -> Tuple[int, ...]:
+def compute_buffer_shape(read_mode: int, width: int = 1004, height: int = 1002, n_tracks: int = 1,
+                         v_height: Optional[int] = None) -> Tuple[int, ...]:
     """Calcula la forma exacta (NumPy shape) del buffer de captura para cada modo de lectura."""
     if read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
         return (int(width),)
     if read_mode in (READ_MODE_MULTI_TRACK, READ_MODE_RANDOM_TRACK):
         return (max(1, int(n_tracks)), int(width))
-    return (int(height), int(width))  # READ_MODE_IMAGE (o cualquier otro: cuadro completo)
+    eff_h = int(v_height) if v_height is not None else int(height)
+    return (eff_h, int(width))  # READ_MODE_IMAGE (o sub-área 2D acotada a ROI)
 
 
 def transition_read_mode(camera, new_mode: int, *, width: int = 1004, height: int = 1002,
                           single_track_center: Optional[int] = None, single_track_height: int = 40,
                           multi_track_height: int = 5, multi_track_offset: int = 0, n_tracks: int = 1,
                           random_track_areas: Optional[List[Tuple[int, int]]] = None,
+                          image_vstart: Optional[int] = None, image_vend: Optional[int] = None,
                           idle_timeout_s: float = 2.0) -> Dict[str, Any]:
     """Ejecuta el protocolo de transición segura de modo de lectura:
     1) Aborta cualquier adquisición en curso y espera a que el driver reporte DRV_IDLE.
@@ -63,6 +66,7 @@ def transition_read_mode(camera, new_mode: int, *, width: int = 1004, height: in
     camera.set_read_mode(new_mode)
 
     effective_n_tracks = 1
+    eff_height = height
     if new_mode == READ_MODE_SINGLE_TRACK:
         center = int(single_track_center) if single_track_center is not None else height // 2
         camera.set_single_track(center, int(single_track_height))
@@ -74,9 +78,17 @@ def transition_read_mode(camera, new_mode: int, *, width: int = 1004, height: in
         camera.set_random_track(areas)
         effective_n_tracks = max(1, len(areas))
     elif new_mode == READ_MODE_IMAGE:
-        camera.set_image(1, 1, 1, width, 1, height)
+        if image_vstart is not None and image_vend is not None:
+            vstart = max(1, min(height, int(image_vstart)))
+            vend = max(vstart, min(height, int(image_vend)))
+            eff_height = vend - vstart + 1
+        else:
+            vstart, vend = 1, height
+            eff_height = height
+        camera.set_image(1, 1, 1, width, vstart, vend)
 
-    buffer_shape = compute_buffer_shape(new_mode, width=width, height=height, n_tracks=effective_n_tracks)
+    buffer_shape = compute_buffer_shape(new_mode, width=width, height=height, n_tracks=effective_n_tracks,
+                                        v_height=eff_height if new_mode == READ_MODE_IMAGE else None)
     return {"applied_mode": new_mode, "buffer_shape": buffer_shape, "n_tracks": effective_n_tracks}
 
 

@@ -1,6 +1,6 @@
 ---
 name: physicist
-description: Theoretical physicist specializing in nanophotonics, plasmonics, optical forces, and light-matter interactions. Use when deriving or auditing mathematical models, checking dimensional consistency, validating asymptotic limits, or reviewing physical approximations (DLVO, Debye-Waller, thermoplasmonics).
+description: Theoretical physicist specializing in nanophotonics, plasmonics, optical forces, and light-matter interactions. Use when deriving or auditing mathematical models, checking dimensional consistency, validating asymptotic limits, or reviewing physical approximations (DLVO, Debye-Waller, thermoplasmonics). Do NOT use for implementing or tuning numerical simulations (use computational-physicist), uncertainty budgets and statistical validity (use metrology), or whether something is achievable on the optical bench (use experimentalist).
 ---
 
 # Theoretical Physicist — Nanophotonics & Plasmonics Specialist

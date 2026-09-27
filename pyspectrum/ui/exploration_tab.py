@@ -23,7 +23,12 @@ from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer
 import pyqtgraph as pg
 
 from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from core.sif_processor import compute_robust_contrast_levels
+
+# El pitch del detector se importa de su driver (fuente canónica única, DEC-031) en vez
+# de transcribirlo acá: era una de las cinco copias que no concordaban.
+from pyspectrum.drivers.andor_ccd_driver import DETECTOR_PIXEL_PITCH_UM  # noqa: E402
 
 # (nombre visible, nombre interno de pyqtgraph, fuente ["" = built-in, "matplotlib" = vía mpl])
 COLORMAP_OPTIONS = [
@@ -69,9 +74,10 @@ class ExplorationWorker(QtCore.QObject):
 
     imageUpdatedSignal = pyqtSignal(np.ndarray)
 
-    def __init__(self, camera: Any, parent=None):
+    def __init__(self, camera: Any, spectrometer: Optional[Any] = None, parent=None):
         super().__init__(parent)
         self.camera = camera
+        self.spectrometer = spectrometer if spectrometer is not None else get_shamrock()
         self._timer: Optional[QTimer] = None
 
     @pyqtSlot()
@@ -80,6 +86,11 @@ class ExplorationWorker(QtCore.QObject):
             self._timer = QTimer(self)
             self._timer.setInterval(35)  # ~28 fps, mismo intervalo que camera_andor.py::Backend
             self._timer.timeout.connect(self._acquire_frame)
+        try:
+            if hasattr(self.spectrometer, "ShamrockSetShutter"):
+                self.spectrometer.ShamrockSetShutter(DEVICE, 1)
+        except Exception:
+            pass
         self.camera.start_acquisition()
         self._timer.start()
 
@@ -88,6 +99,11 @@ class ExplorationWorker(QtCore.QObject):
         if self._timer is not None:
             self._timer.stop()
         self.camera.abort_acquisition()
+        try:
+            if hasattr(self.spectrometer, "ShamrockSetShutter"):
+                self.spectrometer.ShamrockSetShutter(DEVICE, 0)
+        except Exception:
+            pass
 
     @pyqtSlot(bool)
     def set_live(self, active: bool):
@@ -148,11 +164,23 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         self.btn_autolevels.clicked.connect(self._on_autolevels)
         header.addWidget(self.btn_autolevels)
 
-        self.btn_crosshair = QtWidgets.QPushButton("✛ Retícula")
+        self.btn_crosshair = QtWidgets.QPushButton("✛ Retícula Slit")
         self.btn_crosshair.setCheckable(True)
-        self.btn_crosshair.setToolTip("Muestra u oculta la retícula central guía para alineación de la ranura.")
+        self.btn_crosshair.setToolTip("Muestra u oculta la retícula central guía y la zona de apertura proyectada de la ranura.")
         self.btn_crosshair.clicked.connect(self._on_toggle_crosshair)
         header.addWidget(self.btn_crosshair)
+
+        header.addWidget(QtWidgets.QLabel("🎯 Slit Objetivo:"))
+        self.spin_target_slit = QtWidgets.QDoubleSpinBox()
+        self.spin_target_slit.setRange(10.0, 2500.0)
+        self.spin_target_slit.setValue(spectroscopy_context.slit_width_um)
+        self.spin_target_slit.setSuffix(" µm")
+        self.spin_target_slit.setToolTip(
+            "Ancho de ranura objetivo para el experimento.\n"
+            "Permite visualizar la zona donde se cerrará el slit mientras se opera con apertura amplia (ej. 2500 µm) en Orden Cero."
+        )
+        self.spin_target_slit.valueChanged.connect(self._on_target_slit_changed)
+        header.addWidget(self.spin_target_slit)
 
         header.addStretch()
         layout.addLayout(header)
@@ -165,10 +193,12 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         viewer_row = QtWidgets.QHBoxLayout()
 
         self.graphics_widget = pg.GraphicsLayoutWidget()
+        self.graphics_widget.setBackground("#11111B")
         self.plot_item = self.graphics_widget.addPlot()
         self.plot_item.setAspectLocked(False)
         self.plot_item.invertY(True)
-        self.plot_item.setLabels(bottom="Pixel X (eje espectral)", left="Pixel Y (altura de ranura)")
+        self.plot_item.setLabel('bottom', "Pixel X (eje espectral)", color='#CDD6F4')
+        self.plot_item.setLabel('left', "Pixel Y (altura de ranura)", color='#CDD6F4')
 
         self.image_item = pg.ImageItem()
         self.plot_item.addItem(self.image_item)
@@ -181,25 +211,40 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         self.plot_item.addItem(self.roi_region)
         self.roi_region.sigRegionChanged.connect(self._on_roi_changed)
 
-        # Retícula central guía (oculta por defecto)
-        self.crosshair_v = pg.InfiniteLine(pos=502, angle=90, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
+        # Visualización de Slit Objetivo (franja sombreada proyectada) y Retícula central guía
+        c_x = spectroscopy_context.slit_center_px
+        self.slit_region = pg.LinearRegionItem(
+            values=[c_x - 2, c_x + 2],
+            orientation=pg.LinearRegionItem.Vertical,
+            brush=pg.mkBrush(243, 139, 168, 35),
+            pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DotLine),
+            movable=False
+        )
+        self.crosshair_v = pg.InfiniteLine(pos=c_x, angle=90, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
         self.crosshair_h = pg.InfiniteLine(pos=501, angle=0, pen=pg.mkPen('#F38BA8', width=1, style=QtCore.Qt.PenStyle.DashLine))
+        self.slit_region.hide()
         self.crosshair_v.hide()
         self.crosshair_h.hide()
+        self.plot_item.addItem(self.slit_region)
         self.plot_item.addItem(self.crosshair_v)
         self.plot_item.addItem(self.crosshair_h)
 
         viewer_row.addWidget(self.graphics_widget, stretch=1)
 
         self.histogram = pg.HistogramLUTWidget()
+        self.histogram.setBackground("#11111B")
         self.histogram.setImageItem(self.image_item)
         self.histogram.setFixedWidth(110)
         viewer_row.addWidget(self.histogram)
 
         layout.addLayout(viewer_row, stretch=1)
 
+        spectroscopy_context.slitParametersChanged.connect(self._on_context_slit_changed)
+        spectroscopy_context.colormapChanged.connect(self._on_context_colormap_changed)
+
         self._on_roi_changed()
         self._on_colormap_changed(self.cmb_colormap.currentText())
+        self._update_slit_overlay()
 
     # ── Live View ──────────────────────────────────────────────────────────
 
@@ -222,6 +267,15 @@ class ExplorationTabWidget(QtWidgets.QWidget):
     def _on_colormap_changed(self, name: str):
         cmap = get_colormap(name)
         self.histogram.gradient.setColorMap(cmap)
+        spectroscopy_context.set_colormap(name)
+
+    def _on_context_colormap_changed(self, name: str):
+        if self.cmb_colormap.currentText() != name:
+            self.cmb_colormap.blockSignals(True)
+            self.cmb_colormap.setCurrentText(name)
+            self.cmb_colormap.blockSignals(False)
+            cmap = get_colormap(name)
+            self.histogram.gradient.setColorMap(cmap)
 
     def _on_autorange(self):
         self.plot_item.getViewBox().autoRange()
@@ -236,11 +290,27 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         if checked:
             self.crosshair_v.show()
             self.crosshair_h.show()
+            self.slit_region.show()
             self.btn_crosshair.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold;")
         else:
             self.crosshair_v.hide()
             self.crosshair_h.hide()
+            self.slit_region.hide()
             self.btn_crosshair.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+
+    def _update_slit_overlay(self):
+        w_um = float(self.spin_target_slit.value())
+        center_x = float(self.crosshair_v.value())
+        w_px = max(1.0, w_um / DETECTOR_PIXEL_PITCH_UM)
+        half_w = w_px / 2.0
+        self.slit_region.setRegion([center_x - half_w, center_x + half_w])
+
+    def _on_target_slit_changed(self, val: float):
+        self._update_slit_overlay()
+
+    def _on_context_slit_changed(self, width_um: float, center_px: float, zero_pos: int):
+        self.crosshair_v.setValue(center_px)
+        self._update_slit_overlay()
 
     # ── ROI vertical: propagación automática y silenciosa ─────────────────
 

@@ -1,6 +1,6 @@
 ---
 name: experimentalist
-description: Experimental physicist specializing in optical microscopy, alignment, colloidal stability, thermal drift, and real-world laboratory constraints. Use when evaluating optical paths, noise sources, laser damage thresholds, alignment protocols, sample preparation, or practical experimental feasibility.
+description: Experimental physicist specializing in optical microscopy, alignment, colloidal stability, thermal drift, and real-world laboratory constraints. Use when evaluating optical paths, noise sources, laser damage thresholds, alignment protocols, sample preparation, or practical experimental feasibility. Do NOT use for driver, DAQmx or timing code (use instrumentation), interfacial chemistry mechanisms (use colloidal-chemist), or deriving the mathematical model itself (use physicist).
 ---
 
 # Experimental Physicist — Optical Instrumentation & Lab Reality Specialist

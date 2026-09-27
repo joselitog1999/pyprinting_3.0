@@ -22,7 +22,7 @@ os.environ["PYPRINTING_SAFE"] = "1"
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 import numpy as np
-from PyQt6 import QtWidgets
+from PyQt6 import QtWidgets, QtGui
 app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
 
 from pyspectrum.drivers.andor_ccd_driver import (
@@ -83,6 +83,28 @@ class TestReadModeSelectorUI(unittest.TestCase):
         self.assertEqual(received[-1], (READ_MODE_MULTI_TRACK, 4))
 
 
+    def test_spectral_range_badge_updates_on_raman_shift_toggle(self):
+        self.widget.chk_raman_shift.setChecked(False)
+        self.widget._update_spectral_range_badge()
+        text_nm = self.widget.lbl_spectral_range.text()
+        self.assertIn("Rango Espectral Cubierto:", text_nm)
+        self.assertIn("nm", text_nm)
+
+        self.widget.chk_raman_shift.setChecked(True)
+        self.widget._update_spectral_range_badge()
+        text_cm1 = self.widget.lbl_spectral_range.text()
+        self.assertIn("cm⁻¹", text_cm1)
+        self.assertIn("λ:", text_cm1)
+
+    def test_image_2d_selection_inherits_roi_from_context(self):
+        spectroscopy_context.set_vertical_roi(200, 260)
+        idx = self.widget.cmb_read_mode.findData(READ_MODE_IMAGE)
+        self.widget.cmb_read_mode.setCurrentIndex(idx)
+        self.assertIn("[200:260]", self.widget.lbl_roi_inherited.text())
+        self.assertIn("Centro: 230", self.widget.lbl_roi_inherited.text())
+        self.assertIn("Alto: 60 px", self.widget.lbl_roi_inherited.text())
+
+
 class TestReadModeBackendTransition(unittest.TestCase):
 
     def setUp(self):
@@ -115,6 +137,13 @@ class TestReadModeBackendTransition(unittest.TestCase):
         self.backend.set_read_mode(READ_MODE_IMAGE, 1)
         self.assertEqual(self.camera.get_read_mode(), READ_MODE_IMAGE)
 
+    def test_transition_to_image_2d_inherits_context_roi(self):
+        spectroscopy_context.set_vertical_roi(200, 280)
+        self.backend.set_read_mode(READ_MODE_IMAGE, 1)
+        self.assertEqual(self.camera.get_read_mode(), READ_MODE_IMAGE)
+        self.assertEqual(self.camera._image_vstart, 201)
+        self.assertEqual(self.camera._image_vend, 280)
+
     def test_all_four_modes_transition_without_raising(self):
         for mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK, READ_MODE_MULTI_TRACK, READ_MODE_IMAGE):
             self.backend.set_read_mode(mode, 2)
@@ -146,6 +175,7 @@ class TestAcquisitionRoutingByMode(unittest.TestCase):
         self.assertEqual(self.inspector.frame_2d.shape[0], 3)
 
     def test_image_2d_acquisition_emits_2d_frame_to_inspector_and_switches_view(self):
+        spectroscopy_context.set_vertical_roi(0, 0)
         self.backend.set_read_mode(READ_MODE_IMAGE, 1)
         switched = []
         self.inspector.frameReceivedSignal.connect(lambda: switched.append(True))
@@ -153,6 +183,96 @@ class TestAcquisitionRoutingByMode(unittest.TestCase):
         self.assertIsNotNone(self.inspector.frame_2d)
         self.assertEqual(self.inspector.frame_2d.shape, (self.camera.height, self.camera.width))
         self.assertEqual(switched, [True])
+
+    def test_image_2d_acquisition_with_roi_bounds_inspector_frame(self):
+        spectroscopy_context.set_vertical_roi(100, 160)
+        self.backend.set_read_mode(READ_MODE_IMAGE, 1)
+        self.backend.acquire_single()
+        self.assertIsNotNone(self.inspector.frame_2d)
+        self.assertEqual(self.inspector.frame_2d.shape, (60, self.camera.width))
+
+
+class TestAutomatedShutterAndFileExport(unittest.TestCase):
+    def setUp(self):
+        self.camera = get_andor_ccd(force_mock=True)
+        self.spectrometer = get_shamrock(force_mock=True)
+        self.widget = StaticRamanWidget()
+        self.backend = StaticRamanBackend(self.camera, self.spectrometer)
+        self.backend.make_connection(self.widget)
+
+    def test_acquire_single_automates_shamrock_shutter(self):
+        shutter_calls = []
+        orig_shutter = getattr(self.spectrometer, "ShamrockSetShutter", None)
+        self.spectrometer.ShamrockSetShutter = lambda dev, mode: shutter_calls.append(mode)
+        try:
+            self.backend.acquire_single()
+            self.assertEqual(shutter_calls, [1, 0])
+        finally:
+            if orig_shutter:
+                self.spectrometer.ShamrockSetShutter = orig_shutter
+
+    def test_toggle_live_automates_shamrock_shutter(self):
+        shutter_calls = []
+        orig_shutter = getattr(self.spectrometer, "ShamrockSetShutter", None)
+        self.spectrometer.ShamrockSetShutter = lambda dev, mode: shutter_calls.append(mode)
+        try:
+            self.backend.toggle_live(True)
+            self.assertEqual(shutter_calls, [1])
+            self.backend.toggle_live(False)
+            self.assertEqual(shutter_calls, [1, 0])
+        finally:
+            if orig_shutter:
+                self.spectrometer.ShamrockSetShutter = orig_shutter
+
+    def test_save_spectrum_to_file_in_memory_and_parses(self):
+        import tempfile
+        from core.raman_engine import parse_andor_solis_file
+
+        self.backend.set_read_mode(READ_MODE_IMAGE, 1)
+
+        test_wl = np.linspace(540.0, 580.0, 1004)
+        test_cnt = np.ones(1004) * 150.0
+        metadata = {
+            "Fecha": "2026-09-26 12:00:00",
+            "Laser_Excitacion_nm": "532.00",
+            "Red_Difraccion": "Grating 2 (600 l/mm)",
+            "Centro_Espectrografo_nm": "550.00",
+            "Modo_Ventana": "Raman Shift (cm-1)",
+            "_raw_wl": test_wl,
+            "_raw_counts": test_cnt,
+            "_processed_x": test_wl,
+            "_processed_y": test_cnt,
+            "_baseline_y": np.zeros(1004),
+        }
+
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            self.backend.save_spectrum_to_file(tmp_path, metadata)
+            self.assertTrue(os.path.exists(tmp_path))
+            parsed_meta, parsed_wl, parsed_cnt = parse_andor_solis_file(tmp_path)
+            self.assertEqual(len(parsed_wl), 1004)
+            self.assertEqual(len(parsed_cnt), 1004)
+            self.assertAlmostEqual(parsed_cnt[0], 150.0, places=1)
+            self.assertEqual(parsed_meta.get("Laser_Excitacion_nm"), "532.00")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+
+class TestPySpectrumWindowTools(unittest.TestCase):
+    def test_microscopio_derecho_action_exists(self):
+        from pyspectrum.window import PySpectrumWindow
+        orig_q = QtWidgets.QMessageBox.question
+        QtWidgets.QMessageBox.question = lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes
+        try:
+            win = PySpectrumWindow()
+            actions = [a.text() for a in win.findChildren(QtGui.QAction)]
+            self.assertTrue(any("Microscopio Derecho" in a for a in actions))
+            win.close()
+        finally:
+            QtWidgets.QMessageBox.question = orig_q
 
 
 class TestAsLSAndThermometryPreserved(unittest.TestCase):
@@ -194,3 +314,4 @@ class TestAsLSAndThermometryPreserved(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

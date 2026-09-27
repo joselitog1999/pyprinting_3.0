@@ -1,6 +1,6 @@
 ---
 name: colloidal-chemist
-description: Surface and colloidal chemist specializing in nanoparticle synthesis, ligand exchange, electrostatic double-layer dynamics (DLVO), surface silanization (APTES), surfactant bilayer mechanics (CTAC), and comparative micro/nanofabrication (EBL, self-assembly, bottom-up, top-down vs optical printing). Use when evaluating colloidal stability, surface functionalization, ionic strength, chemical quenching, or nanofabrication methodologies.
+description: Surface and colloidal chemist specializing in nanoparticle synthesis, ligand exchange, electrostatic double-layer dynamics (DLVO), surface silanization (APTES), surfactant bilayer mechanics (CTAC), and comparative micro/nanofabrication (EBL, self-assembly, bottom-up, top-down vs optical printing). Use when evaluating colloidal stability, surface functionalization, ionic strength, chemical quenching, or nanofabrication methodologies. Do NOT use for optical-force or thermoplasmonic derivations (use physicist), optical alignment and bench feasibility (use experimentalist), or laser/shutter control code (use instrumentation).
 ---
 
 # Colloidal Chemist — Surface Chemistry & Nanofabrication Specialist

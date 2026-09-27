@@ -59,21 +59,23 @@ class TestShamrockHardware(unittest.TestCase):
         self.assertEqual(blaze2, "500nm")
 
     def test_dispersion_shamrock_500i(self):
-        """Verifica la dispersión física del Shamrock 500i (f = 500 mm)."""
+        """Verifica la dispersión física del Shamrock 500i (f = 500 mm) con el iXon3 885.
+
+        Oráculo: hoja de datos del SR-500i ("Nominal dispersion" 12.83 nm/mm para 150 l/mm
+        blaze 800 y 1.44 nm/mm para 1200 l/mm blaze 500) por el ancho del detector (1004 px x
+        8 µm = 8.032 mm). Los límites anteriores (160-190 / 18-26 nm) codificaban un pitch de
+        13 µm sin fuente y convalidaban el mismo número equivocado del mock (DEC-033).
+        """
         self.shamrock.ShamrockSetGrating(DEVICE, 1)  # 150 l/mm
         self.shamrock.ShamrockSetWavelength(DEVICE, 532.0)
         _, wl1 = self.shamrock.ShamrockGetCalibration(DEVICE, 1004)
         span1 = wl1[-1] - wl1[0]
-        # ~175 nm span total en el detector
-        self.assertGreater(span1, 160.0)
-        self.assertLess(span1, 190.0)
+        self.assertAlmostEqual(span1, 12.83 * 8.032, delta=0.02 * 103.05)  # ~103 nm
 
         self.shamrock.ShamrockSetGrating(DEVICE, 2)  # 1200 l/mm
         _, wl2 = self.shamrock.ShamrockGetCalibration(DEVICE, 1004)
         span2 = wl2[-1] - wl2[0]
-        # ~22 nm span total en el detector
-        self.assertGreater(span2, 18.0)
-        self.assertLess(span2, 26.0)
+        self.assertAlmostEqual(span2, 1.44 * 8.032, delta=0.02 * 11.57)  # ~11.6 nm
 
     def test_motorized_slit_range(self):
         """Verifica que la ranura motorizada admita aperturas desde 10 µm hasta 2500 µm."""

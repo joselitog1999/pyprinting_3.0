@@ -23,6 +23,8 @@ class SpectroscopyContext(QObject):
     readModeChanged = pyqtSignal(int)                     # modo de lectura actual de la cámara
     spectrographMoved = pyqtSignal(float, int)             # (wavelength_nm, grating)
     subjugatedModeChanged = pyqtSignal(bool)                # True: control exclusivo de platina/DAQ
+    slitParametersChanged = pyqtSignal(float, float, int)  # (slit_width_um, slit_center_px, slit_zero_pos)
+    colormapChanged = pyqtSignal(str)                     # nombre visible del colormap ("Viridis", etc.)
 
     _instance: Optional["SpectroscopyContext"] = None
     _lock = threading.RLock()
@@ -41,6 +43,10 @@ class SpectroscopyContext(QObject):
         self._wavelength = 0.0
         self._grating = 1
         self._subjugated = False
+        self._slit_width_um = 50.0
+        self._slit_center_px = 501.25
+        self._slit_zero_pos = 0
+        self._colormap = "Viridis"
 
     @property
     def vertical_roi(self) -> tuple:
@@ -62,10 +68,26 @@ class SpectroscopyContext(QObject):
     def is_subjugated(self) -> bool:
         return self._subjugated
 
+    @property
+    def slit_width_um(self) -> float:
+        return self._slit_width_um
+
+    @property
+    def slit_center_px(self) -> float:
+        return self._slit_center_px
+
+    @property
+    def slit_zero_pos(self) -> int:
+        return self._slit_zero_pos
+
+    @property
+    def colormap(self) -> str:
+        return self._colormap
+
     def set_vertical_roi(self, y_min: int, y_max: int) -> None:
         y_min, y_max = int(min(y_min, y_max)), int(max(y_min, y_max))
         y_center = (y_min + y_max) // 2
-        y_height = max(1, y_max - y_min)
+        y_height = max(0, y_max - y_min)
         self._roi = (y_min, y_max, y_center, y_height)
         self.verticalRoiChanged.emit(y_min, y_max, y_center, y_height)
 
@@ -81,6 +103,30 @@ class SpectroscopyContext(QObject):
     def set_subjugated(self, active: bool) -> None:
         self._subjugated = bool(active)
         self.subjugatedModeChanged.emit(self._subjugated)
+
+    def set_slit_parameters(
+        self,
+        slit_width_um: Optional[float] = None,
+        slit_center_px: Optional[float] = None,
+        slit_zero_pos: Optional[int] = None,
+    ) -> None:
+        changed = False
+        if slit_width_um is not None and abs(self._slit_width_um - float(slit_width_um)) > 1e-4:
+            self._slit_width_um = float(slit_width_um)
+            changed = True
+        if slit_center_px is not None and abs(self._slit_center_px - float(slit_center_px)) > 1e-4:
+            self._slit_center_px = float(slit_center_px)
+            changed = True
+        if slit_zero_pos is not None and self._slit_zero_pos != int(slit_zero_pos):
+            self._slit_zero_pos = int(slit_zero_pos)
+            changed = True
+        if changed:
+            self.slitParametersChanged.emit(self._slit_width_um, self._slit_center_px, self._slit_zero_pos)
+
+    def set_colormap(self, colormap_name: str) -> None:
+        if colormap_name and colormap_name != self._colormap:
+            self._colormap = str(colormap_name)
+            self.colormapChanged.emit(self._colormap)
 
 
 # Instancia singleton para importación directa

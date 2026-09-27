@@ -1,6 +1,6 @@
 ---
 name: computational-physicist
-description: Computational physicist specializing in numerical electrodynamics, Monte Carlo simulations, FDTD methods, near-field optics, discrete dipole approximation (DDA), and high-performance GPU/BLAS tensor computing. Use when implementing or auditing numerical simulations, spatial meshes, boundary conditions, stochastic modeling, or algorithmic scaling.
+description: Computational physicist specializing in numerical electrodynamics, Monte Carlo simulations, FDTD methods, near-field optics, discrete dipole approximation (DDA), and high-performance GPU/BLAS tensor computing. Use when implementing or auditing numerical simulations, spatial meshes, boundary conditions, stochastic modeling, or algorithmic scaling. Do NOT use for analytical derivation and dimensional consistency of the underlying model (use physicist), uncertainty propagation on the results (use metrology), or PyQt6/thread architecture around the solver (use software-architect).
 ---
 
 # Computational Physicist — Numerical Electrodynamics & Stochastic Simulation Specialist

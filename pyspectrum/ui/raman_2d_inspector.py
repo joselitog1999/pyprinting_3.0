@@ -15,8 +15,9 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot
 import pyqtgraph as pg
-
 from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+from core.sif_processor import compute_robust_contrast_levels
+from pyspectrum.ui.exploration_tab import get_colormap
 
 try:
     import h5py
@@ -71,6 +72,8 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
     promedio espacial ± σ del ROI."""
 
     frameReceivedSignal = pyqtSignal()
+    requestAcquireSingleSignal = pyqtSignal()
+    toggleLiveRamanSignal = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -92,6 +95,8 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
             QCheckBox { color: #CDD6F4; spacing: 6px; }
         """)
         self._setup_ui()
+        spectroscopy_context.colormapChanged.connect(self._apply_colormap)
+        self._apply_colormap(spectroscopy_context.colormap)
 
     def _setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -99,6 +104,23 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
         layout.setSpacing(6)
 
         header = QtWidgets.QHBoxLayout()
+
+        self.btn_single = QtWidgets.QPushButton("📸 Adquirir")
+        self.btn_single.setToolTip("Adquiere un único cuadro 2D en el modo de lectura configurado (Multi-Track o Imagen 2D).")
+        self.btn_single.clicked.connect(self.requestAcquireSingleSignal.emit)
+        header.addWidget(self.btn_single)
+
+        self.btn_live = QtWidgets.QPushButton("▶️ Live Raman")
+        self.btn_live.setCheckable(True)
+        self.btn_live.setToolTip("Inicia o detiene la adquisición continua (Live) actualizando el cuadro 2D en tiempo real.")
+        self.btn_live.clicked.connect(self._on_live_clicked)
+        header.addWidget(self.btn_live)
+
+        self.btn_autolevels = QtWidgets.QPushButton("🎚️ Auto-Contraste")
+        self.btn_autolevels.setToolTip("Ajusta los niveles de contraste con percentiles robustos (1–99%) para evitar saturación y deslumbramiento.")
+        self.btn_autolevels.clicked.connect(self._on_autolevels)
+        header.addWidget(self.btn_autolevels)
+
         self.chk_spatial_mean = QtWidgets.QCheckBox("Promedio Espacial ROI ± σ")
         self.chk_spatial_mean.setToolTip("Reemplaza la fila individual por el promedio espacial y la desviación estándar entre píxeles del ROI vertical heredado de la Pestaña 1.")
         self.chk_spatial_mean.toggled.connect(self._on_spatial_mean_toggled)
@@ -120,10 +142,12 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
         top_row = QtWidgets.QHBoxLayout()
 
         self.graphics_widget = pg.GraphicsLayoutWidget()
+        self.graphics_widget.setBackground("#11111B")
         self.plot_2d = self.graphics_widget.addPlot()
         self.plot_2d.setAspectLocked(False)
         self.plot_2d.invertY(True)
-        self.plot_2d.setLabels(bottom="Pixel X (eje espectral)", left="Pixel Y (fila)")
+        self.plot_2d.setLabel('bottom', "Pixel X (eje espectral)", color='#CDD6F4')
+        self.plot_2d.setLabel('left', "Pixel Y (fila)", color='#CDD6F4')
         self.image_item = pg.ImageItem()
         self.plot_2d.addItem(self.image_item)
 
@@ -145,8 +169,9 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
         self.plot_1d = pg.PlotWidget(title="Espectro Extraído")
         self.plot_1d.setBackground("#11111B")
         self.plot_1d.showGrid(x=True, y=True, alpha=0.3)
-        self.plot_1d.setLabel('bottom', "Longitud de Onda (nm)")
-        self.plot_1d.setLabel('left', "Intensidad (cts)")
+        self.plot_1d.setLabel('bottom', "Longitud de Onda (nm)", color='#CDD6F4')
+        self.plot_1d.setLabel('left', "Intensidad (cts)", color='#CDD6F4')
+        self.plot_1d.setTitle("Espectro Extraído", color='#CDD6F4')
         self.curve_1d = self.plot_1d.plot(pen=pg.mkPen("#A6E3A1", width=2))
         self.curve_upper = self.plot_1d.plot(pen=None)
         self.curve_lower = self.plot_1d.plot(pen=None)
@@ -154,6 +179,33 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
         self.plot_1d.addItem(self.fill)
         self.fill.hide()
         layout.addWidget(self.plot_1d, stretch=1)
+
+    def _apply_colormap(self, name: str):
+        cmap = get_colormap(name)
+        lut = cmap.getLookupTable(0.0, 1.0, 256)
+        self.image_item.setLookupTable(lut)
+
+    def _on_live_clicked(self):
+        running = self.btn_live.isChecked()
+        self.set_live_state(running)
+        self.toggleLiveRamanSignal.emit(running)
+
+    def set_live_state(self, running: bool):
+        self.btn_live.blockSignals(True)
+        self.btn_live.setChecked(running)
+        self.btn_live.setText("⏹️ Detener Live" if running else "▶️ Live Raman")
+        self.btn_live.setStyleSheet(
+            "background-color: #F38BA8; color: #11111B; font-weight: bold;"
+            if running else
+            "background-color: #313244; color: #CDD6F4; font-weight: bold;"
+        )
+        self.btn_single.setEnabled(not running)
+        self.btn_live.blockSignals(False)
+
+    def _on_autolevels(self):
+        if self.frame_2d is not None:
+            levels = compute_robust_contrast_levels(self.frame_2d)
+            self.image_item.setLevels(levels)
 
     def set_extra_metadata(self, laser_nm: Optional[float] = None, grating_name: Optional[str] = None):
         if laser_nm is not None:
@@ -169,11 +221,13 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
         self.acquired_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
         y_min, y_max, _, _ = spectroscopy_context.vertical_roi
-        if y_max <= y_min:
-            y_min, y_max = 0, frame2d.shape[0]
-        self.roi_rows = (y_min, min(y_max, frame2d.shape[0]))
+        if y_max <= y_min or frame2d.shape[0] <= y_max - y_min + 5:
+            self.roi_rows = (0, frame2d.shape[0])
+        else:
+            self.roi_rows = (max(0, y_min), min(y_max, frame2d.shape[0]))
 
-        self.image_item.setImage(frame2d.T, autoLevels=True)
+        levels = compute_robust_contrast_levels(frame2d)
+        self.image_item.setImage(frame2d.T, levels=levels, autoLevels=False)
 
         h = frame2d.shape[0]
         self.slider_row.blockSignals(True)

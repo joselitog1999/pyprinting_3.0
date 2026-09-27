@@ -35,6 +35,67 @@ import config  # noqa: F401
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_spectroscopy_context():
+    """Aísla el singleton global `spectroscopy_context` entre tests.
+
+    `SpectroscopyContext` es un singleton de proceso (el bus de parámetros ópticos compartido
+    entre pestañas) y sus setters emiten SÓLO si el valor difiere del actual. Por eso un test
+    que deja el contexto mutado convierte el `set_*` de un test posterior en un no-op
+    silencioso: el segundo test cree ejercitar la propagación señal→slot, no se emite nada, y
+    pasa en verde sin haber probado lo que declara probar.
+
+    Eso estaba ocurriendo de hecho: `test_pyspectrum_calibration_and_fixes.py` dejaba el
+    colormap en "Inferno", y como pytest colecciona ese archivo antes que
+    `test_pyspectrum_raman_2d_inspector.py` (orden alfabético),
+    `test_colormap_reaction_from_spectroscopy_context` era un no-op. Verificado
+    empíricamente antes de escribir este fixture, no deducido.
+
+    La restauración es deliberadamente **silenciosa** — escribe los atributos en vez de llamar
+    a los setters — para no emitir señales hacia widgets que ya están siendo destruidos al
+    final del test. Se usa `update()` y no `clear()` porque el `__dict__` de un QObject no es
+    exclusivamente nuestro.
+    """
+    from pyspectrum.modules.spectroscopy_context import spectroscopy_context as ctx
+    snapshot = dict(ctx.__dict__)
+    yield
+    ctx.__dict__.update(snapshot)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_andor_mock_geometry():
+    """Aísla la geometría de adquisición del mock de cámara Andor entre tests.
+
+    `get_andor_ccd()` devuelve un SINGLETON de proceso, y `_MockAndorCCD.set_image()` pasó a
+    registrar el sub-área vertical (`_image_vstart`/`_image_vend`) para honrarlo en
+    `get_most_recent_image()`, igual que el hardware real. Eso es correcto, pero convierte a
+    esos atributos en estado global persistente: `test_linescan_h5.py` configura el sub-área
+    [482:521] en `acquire_reference()` y nunca lo deshace, así que
+    `test_pyspectrum_exploration_tab.py` (que corre después por orden alfabético) recibía un
+    cuadro de 40 filas en vez de las 1002 del sensor y fallaba. Verificado empíricamente:
+    aislado pasa 21/21, junto a linescan falla.
+
+    Deliberadamente NO se resetea el sub-área dentro de `set_read_mode()` del mock: en el SDK
+    de Andor la configuración de `SetImage` persiste hasta que se la cambia, así que hacer que
+    el mock la olvide al cambiar de modo reintroduciría una divergencia de paridad con el
+    hardware — exactamente el problema que el cambio del mock vino a arreglar. La fuga es un
+    problema de aislamiento de tests y se resuelve en la capa de tests.
+
+    Sólo actúa si el singleton ya existe, para no instanciar el mock (ni imprimir su banner)
+    en los cientos de tests que no usan la cámara.
+    """
+    from pyspectrum.drivers import andor_ccd_driver as drv
+
+    cam = getattr(drv, "_andor_instance", None)
+    attrs = ("_read_mode", "_image_vstart", "_image_vend")
+    snapshot = {a: getattr(cam, a) for a in attrs if cam is not None and hasattr(cam, a)}
+    yield
+    cam_after = getattr(drv, "_andor_instance", None)
+    if cam_after is not None and cam_after is cam:
+        for a, v in snapshot.items():
+            setattr(cam_after, a, v)
+
+
 @pytest.fixture(scope="session")
 def app():
     """QApplication compartida para toda la sesión de pytest. Requerida por

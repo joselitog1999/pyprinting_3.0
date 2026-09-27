@@ -1,6 +1,6 @@
 ---
 name: scientific-gui-designer
-description: Scientific GUI and interaction designer specializing in human-in-the-loop laboratory workflows, direct plot manipulation, parameter versatility, responsive PyQt6/PyQtGraph architectures, state resilience, pedagogical tooltips, and integrated scientific documentation browsers. Use whenever designing, refactoring, or polishing user interfaces, plots, tables, tooltips, or help systems.
+description: Scientific GUI and interaction designer specializing in human-in-the-loop laboratory workflows, direct plot manipulation, parameter versatility, responsive PyQt6/PyQtGraph architectures, state resilience, pedagogical tooltips, and integrated scientific documentation browsers. Use whenever designing, refactoring, or polishing user interfaces, plots, tables, tooltips, or help systems — this is the agent that *proposes* an interaction design. Do NOT use to independently audit an existing UI for usability defects, unit labelling or manual-QA checklists (use qa-ux-auditor, which reviews what this agent proposes and is deliberately a separate pair of eyes), nor for thread/signal topology behind the widgets (use software-architect).
 ---
 
 # Scientific GUI & Human-in-the-Loop Interaction Designer

@@ -15,7 +15,9 @@ Scientific software must never be developed through impulsive, unverified code d
 
 Furthermore, mixing backend mathematical engine design with frontend GUI widget ergonomics in a single discussion creates cognitive saturation and leads to subtle contract bugs (e.g. backend expecting 3 arguments while GUI provides 4, or unit mismatches like $\mu\text{m}$ vs $\text{nm}$).
 
-Therefore, every implementation strictly follows the **4-Round Deliberation Lifecycle**:
+Not every change earns this ceremony, and pretending otherwise is how a protocol loses its authority. Before invoking the lifecycle, check the scope rules in **`CLAUDE.md` §5.0** — they define which changes are exempt (a bug fix driven by a failing test, documentation sync, test repair, a parity-tested mechanical refactor, a revert, or a step already approved in a completed cycle) and which are never exempt no matter how small the diff (anything touching stage motion, shutters, laser power, timing or watchdog policy; any scientific formula, unit or uncertainty treatment; any GUI contract; any new module or tool). That list lives in `CLAUDE.md` only — do not restate it here, so the two cannot drift apart.
+
+For everything else, every implementation strictly follows the **4-Round Deliberation Lifecycle**:
 
 ```
 [User Request]

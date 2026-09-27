@@ -193,6 +193,60 @@ class TestCalibrationDock(unittest.TestCase):
         self.assertEqual(wl, 0.0)
 
 
+class TestSlitSynchronization(unittest.TestCase):
+    """Verificación de la sincronización de parámetros de la ranura y colormap."""
+
+    def setUp(self):
+        from pyspectrum.modules.calibration_dock import CALIBRATION_TXT_FILE
+        self._calib_txt_backup = CALIBRATION_TXT_FILE.read_text(encoding="utf-8") if CALIBRATION_TXT_FILE.exists() else None
+        self.mock_cam = get_andor_ccd(force_mock=True)
+        self.mock_spec = get_shamrock(force_mock=True)
+        self.be = CalibrationBackend(self.mock_cam, self.mock_spec)
+        self.fe = CalibrationFrontend()
+        self.be.make_connection(self.fe)
+
+    def tearDown(self):
+        from pyspectrum.modules.calibration_dock import CALIBRATION_TXT_FILE
+        if self._calib_txt_backup is not None:
+            CALIBRATION_TXT_FILE.write_text(self._calib_txt_backup, encoding="utf-8")
+
+    def test_backend_set_slit_width_propagates_to_context(self):
+        self.be.set_slit_width(85.0)
+        from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+        self.assertEqual(spectroscopy_context.slit_width_um, 85.0)
+
+    def test_backend_set_slit_zero_pos_propagates_to_context(self):
+        self.be.set_slit_zero_position(INPUT_SLIT_PORT, -25)
+        from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+        self.assertEqual(spectroscopy_context.slit_zero_pos, -25)
+
+    def test_backend_save_slit_pixel_propagates_to_context(self):
+        # Mock disk saves to avoid altering default calibration file
+        self.be._save_calibration_file = lambda *a, **k: True
+        self.be.save_calibration_to_txt = lambda *a, **k: True
+        self.be.save_slit_pixel(505.5)
+        from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+        self.assertEqual(spectroscopy_context.slit_center_px, 505.5)
+
+    def test_frontend_updates_from_context_slit_changed(self):
+        from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+        spectroscopy_context.set_slit_parameters(slit_width_um=120.0, slit_center_px=499.0, slit_zero_pos=15)
+        self.assertAlmostEqual(self.fe.spin_slit_width.value(), 120.0, places=2)
+        self.assertAlmostEqual(self.fe.spin_pixel_x.value(), 499.0, places=2)
+        self.assertEqual(self.fe.spin_slit_zero.value(), 15)
+
+    def test_left_hardware_panel_slit_and_colormap_sync(self):
+        from pyspectrum.ui.left_hardware_panel import LeftHardwarePanel
+        from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+        panel = LeftHardwarePanel(self.mock_cam, self.mock_spec)
+        panel.spin_slit.setValue(75.0)
+        panel._on_slit_changed()
+        self.assertAlmostEqual(spectroscopy_context.slit_width_um, 75.0, places=2)
+
+        panel.cmb_colormap.setCurrentText("Inferno")
+        self.assertEqual(spectroscopy_context.colormap, "Inferno")
+
+
 class TestWindowIntegration(unittest.TestCase):
     """Verificación de que el dock se integra a la ventana principal de PySpectrum."""
 

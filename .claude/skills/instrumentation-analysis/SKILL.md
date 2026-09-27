@@ -33,7 +33,7 @@ Hardware control code interfaces with real, physical instruments. Software delay
 ### Step 3: Safety Interlocks & Watchdog Auditing
 1. Confirm fail-safe defaults:
    * In the event of an unhandled Python exception, do digital lines drop to 0V (shutter closed)?
-   * Is the autonomous 500 ms heartbeat watchdog active?
+   * Is the `ShutterWatchdog` thread armed, and does every shutter-holding loop renew `heartbeat_shutter()` per iteration within the 30 s default deadline (`core/nidaq.py::_default_timeout_s`)?
 2. Verify boundary checks on physical stages:
    * Are piezo axes clamped to $0.0 \le X,Y,Z \le 100.0\ \mu\text{m}$?
    * Does the routine check controller status bits before initiating moves?
@@ -62,7 +62,7 @@ Hardware control code interfaces with real, physical instruments. Software delay
 ## 3. Safety Interlock Checklist
 - [x] Piezo coordinate bounding enforced ($0-100\ \mu\text{m}$)
 - [x] Emergency stop disconnects all active tasks
-- [x] Watchdog heartbeat active (500 ms timeout)
+- [x] Watchdog armed; heartbeat renewed per loop iteration (30 s default deadline)
 - [x] Mock mode parity verified for offline development
 
 ## 4. Verdict & Actionable Fixes

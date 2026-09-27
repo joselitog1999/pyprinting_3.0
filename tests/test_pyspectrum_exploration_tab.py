@@ -136,10 +136,39 @@ class TestExplorationTabColormapAndContrast(unittest.TestCase):
 
     def test_crosshair_toggle(self):
         self.assertFalse(self.w.crosshair_v.isVisible())
+        self.assertFalse(self.w.slit_region.isVisible())
         self.w.btn_crosshair.setChecked(True)
         self.w._on_toggle_crosshair(True)
         self.assertTrue(self.w.crosshair_v.isVisible())
         self.assertTrue(self.w.crosshair_h.isVisible())
+        self.assertTrue(self.w.slit_region.isVisible())
+
+    def test_target_slit_width_updates_region(self):
+        from pyspectrum.ui.exploration_tab import DETECTOR_PIXEL_PITCH_UM
+
+        # La expectativa se deriva de la MISMA constante que usa el código en vez de
+        # transcribir el resultado (130/13 = 10 px). Así el test no fija un pitch de
+        # detector por su cuenta: si el valor se corrige en producción —hoy hay una
+        # discrepancia abierta de 8.0 vs 13.0 µm/px, documentada junto a la constante—
+        # este test sigue siendo correcto en lugar de fallar con un número confuso.
+        target_um = 130.0
+        self.w.spin_target_slit.setValue(target_um)
+        r_min, r_max = self.w.slit_region.getRegion()
+        width_px = r_max - r_min
+        self.assertAlmostEqual(width_px, target_um / DETECTOR_PIXEL_PITCH_UM, places=2)
+
+    def test_context_slit_changed_moves_crosshair_and_region(self):
+        spectroscopy_context.set_slit_parameters(slit_width_um=52.0, slit_center_px=510.0)
+        self.assertAlmostEqual(self.w.crosshair_v.value(), 510.0, places=2)
+        r_min, r_max = self.w.slit_region.getRegion()
+        center = (r_min + r_max) / 2.0
+        self.assertAlmostEqual(center, 510.0, places=2)
+
+    def test_context_colormap_changed_updates_exploration(self):
+        spectroscopy_context.set_colormap("Jet")
+        self.assertEqual(self.w.cmb_colormap.currentText(), "Jet")
+        spectroscopy_context.set_colormap("Viridis")
+        self.assertEqual(self.w.cmb_colormap.currentText(), "Viridis")
 
 
 class TestExplorationWorker(unittest.TestCase):

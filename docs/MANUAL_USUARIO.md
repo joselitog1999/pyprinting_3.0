@@ -679,7 +679,8 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 │   Pre-Amp Gain: [ 1.0x ▼ ]      │                                                                                │
 │   Velocidad Lectura: [5.0MHz▼]  │                                                                                │
 │   Exposición (s): [ 0.05 ]      │                                                                                │
-│   Obturador Cámara: [ Auto ▼ ]  │                                                                                │
+│   Obturador Cámara: [ Auto ▼ ]  │
+│   Paleta 2D: [ Viridis ▼ ]      │                                                                                │
 │  🌈 Espectrógrafo Shamrock 500i │                                                                                │
 │   Red: [ 150 líneas/mm ▼ ]      │                                                                                │
 │   Ranura Entrada: [ 50.0 ] µm   │                                                                                │
@@ -709,15 +710,26 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 #### 1️⃣ Pestaña 1: Exploración y Live View 2D
 - **Visualizador 2D de Alta Velocidad**: Implementado en PyQtGraph con worker en `QThread` dedicado (`ExplorationWorker`). Mantiene entre 20 y 30 fps estables en modo continuo sin congelar eventos de la GUI.
 - **ROI Vertical Interactivo con Propagación Automática**: Región lineal horizontal arrastrable (`LinearRegionItem`) para definir los límites de ranura ($y_{\min}, y_{\max}$). Al modificarla, el centroide y la altura se propagan en tiempo real a través del bus global `SpectroscopyContext.verticalRoiChanged`, siendo heredados automáticamente por el resto de los módulos sin requerir clics adicionales.
-- **Herramientas de Visión**: Paletas Viridis, Inferno, Greys y Jet, auto-contraste robusto por percentiles (1%–99%) y crosshair central para alineación micrométrica.
+- **Herramientas de Visión**: Auto-contraste robusto por percentiles (1%–99%) y retícula central para alineación micrométrica.
+- **Paleta 2D Centralizada**: El selector de falso color (Viridis, Inferno, Greys, Jet) vive en el **Panel Izquierdo Permanente**, no en la pestaña. Al cambiarlo se propaga por el bus global `SpectroscopyContext.colormapChanged` y se aplica simultáneamente al visor de Exploración y al Inspector 2D de Static Raman, de modo que ambos visualizadores nunca muestran la misma matriz con paletas distintas.
+- **Banda de Ranura Objetivo (`✛ Retícula Slit`)**: El campo `🎯 Slit Objetivo` (10–2500 µm) dibuja sobre la imagen en vivo la zona que ocupará la ranura al cerrarse al ancho de trabajo, mientras se opera con apertura amplia en Orden Cero. La conversión µm → píxeles usa el pitch del detector declarado en `andor_ccd_driver.DETECTOR_PIXEL_PITCH_UM`.
+
+> ✅ **Pitch verificado (`DEC-033`)**: el detector es un iXon3 885 (cabezal `DU8285_VP`) con píxeles de **8 µm**, según las hojas de datos de Andor y del sensor TI TC285SPD, los encabezados de los `.sif` de Solis y el código legado. Hasta el 2026-09-26 la banda se dibujaba con 13 µm, un 38 % más angosta que la ranura real. En Orden Cero el espectrógrafo forma imagen 1:1, así que la banda representa el ancho físico. Aun así es una **guía de alineación**: el ancho que vale es el que se fija por hardware en `Ranura Entrada`.
 
 #### 2️⃣ Pestaña 2: Static Raman e Inspector 2D
-- **Modos de Adquisición**: Full Vertical Binning (FVB, Modo 0), Single-Track por hardware (Modo 1, con límites cargados automáticamente desde el ROI de Pestaña 1), Multi-Track (Modo 2) e Imagen 2D completa (Modo 4).
+- **Modos de Adquisición**: Full Vertical Binning (FVB, Modo 0), Single-Track por hardware (Modo 1), Multi-Track (Modo 2) e **Imagen 2D acotada por hardware al ROI** (Modo 4). Tanto Single-Track como Imagen 2D heredan automáticamente los límites del ROI vertical definido en la Pestaña 1: en Imagen 2D el sub-área se programa en el sensor (`SetImage`), así que la cámara **lee y transfiere únicamente las filas del ROI**, reduciendo el tiempo de lectura y el volumen de datos en vez de recortar un cuadro completo por software. La etiqueta `ROI heredado: [y_min:y_max]` confirma en pantalla qué rango está activo.
+- **Cartel de Rango Espectral Cubierto**: Debajo del selector de λ central, un indicador reactivo muestra el intervalo que el detector cubre con la red y el centro elegidos, en nm y —si `Eje en Raman Shift` está activo— también en cm⁻¹. Se recalcula al cambiar red, centro o modo de eje.
+
+  > Antes de la primera adquisición el valor es una **estimación analítica** a partir de la dispersión nominal de la red; después de adquirir se recalcula sobre el eje de longitudes de onda real devuelto por el espectrógrafo. Para trabajo metrológico, tomar el valor posterior a la adquisición.
+- **Obturador del Espectrógrafo Automatizado**: Tanto `Adquirir` como `Live Raman` abren el obturador Shamrock antes de exponer y lo cierran al terminar, sin intervención del operador. La operación se verifica contra el código de retorno del driver: si el obturador no confirma, aparece una advertencia en la barra de estado y el espectro debe considerarse sospechoso (`DEC-014`).
+- **Arranque Verificado de Live Raman**: la cámara se arranca primero y el obturador del espectrógrafo se abre sólo si el detector confirmó. Si la cámara no arranca, Live **no se inicia**, el obturador no se abre y el botón vuelve solo a `▶️ Live Raman` en ambas sub-pestañas, con el motivo en la barra de estado. El caso más frecuente es que el **Live View de Exploración ya esté activo**: el detector es uno solo y no admite dos adquisiciones continuas a la vez — detener primero el Live de la Pestaña 1. Si en cambio la cámara arranca pero el obturador no confirma, Live **sí** continúa y la advertencia queda como mensaje final de la barra de estado (`DEC-032`).
+- **Adquisición Única Verificada**: un cuadro devuelto íntegramente en ceros —la forma en que el driver informa una lectura fallida— se reporta como adquisición **no válida** en lugar de como éxito.
 - **Sub-pestaña "Resultado Medición" / Inspector 2D**:
   - Panel superior: Heatmap bidimensional $[H \times W]$ con cursor horizontal móvil.
   - Panel inferior: Perfil espectral 1D interactivo acoplado.
   - **Slider Fila por Fila**: Desplazamiento ergonómico pixel a pixel por la ranura con guardas `blockSignals`.
   - **Conmutador a Promedio Espacial**: Alterna a la media espacial del ROI $\mu(\lambda)$, graficando una banda sombreada semitransparente con la desviación estándar $\pm \sigma(\lambda)$ entre filas (`FillBetweenItem`).
+  - **Controles de Adquisición Propios**: `📸 Adquirir`, `▶️ Live Raman` y `🎚️ Auto-Contraste` están disponibles directamente en el Inspector, sin volver a la sub-pestaña de espectro. Los botones de Live quedan sincronizados en ambos sentidos entre las dos sub-pestañas: iniciar o detener desde cualquiera deja la otra reflejando el estado real, y `Adquirir` se deshabilita mientras Live está corriendo para evitar disparos concurrentes sobre el detector.
 - **Herramientas Espectroscópicas**: Sustracción de fluorescencia AsLS (Whittaker), cursores duales Stokes y anti-Stokes para cálculo directo de temperatura fototérmica local $T$, y exportación FAIR estructurada en HDF5 / CSV.
 
 #### 3️⃣ Pestaña 3: Step & Glue Espectral (Cosido de Banda Ancha)
@@ -726,7 +738,10 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
   Garantiza $w_1 + w_2 = 1.0$ estricto a precisión de punto flotante de máquina ($\sim 2.2 \times 10^{-16}$), eliminando artefactos y saltos de discontinuidad en las uniones espectrales.
 - **Paridad con Código Legado de Nanofotónica**:
   - Recorte de bordes de 15 píxeles (`edge_crop_pixels=15`, paridad exacta con `Lampara_ps.py`).
-  - Núcleo óptico central: $103\text{ nm}$ para la red de 150 l/mm y $12\text{ nm}$ para la red de 1200 l/mm (`StepandGlue_ps.py:1062-1072`).
+  - Zona Óptica Central: $103\text{ nm}$ para la red de 150 l/mm y $12\text{ nm}$ para la red de 1200 l/mm (`StepandGlue_ps.py:1062-1072`). Con el detector de 8 µm es prácticamente la ventana completa (103.05 / 11.57 nm).
+- **Planificación de Ventanas (`DEC-033`)**: sin tildar la Zona Óptica Central, el ancho de cada ventana se **mide** con la calibración real del espectrógrafo antes de empezar (si la geometría del detector no se pudo verificar, se usa la nominal de la hoja de datos). Cada extremo del rango lleva un margen de medio solapamiento, así que el primer y el último nm pedidos quedan medidos aunque el cosido recorte bordes.
+  - *Qué cambia para el operador*: antes el barrido suponía ventanas de 176 nm cuando las reales son de 103 nm; en el equipo real habría dejado ~30 % del rango sin medir. Ahora un barrido de 400–900 nm con 20 % de solapamiento usa **7 ventanas en vez de 4** y tarda proporcionalmente más.
+  - Al terminar se verifica la cobertura con los ejes reales de cada ventana. Si quedara algún tramo sin medir, se informa en la consola y queda registrado en el HDF5 exportado (`coverage_gaps_nm`, junto con `window_nm` y `window_source`).
 - **Soporte Multimodal**: Cosido tanto en perfiles 1D como en matrices 2D espaciales preservadas fila a fila.
 - **Correcciones Ópticas**: Bloqueo de sustrato (*Substrate Lock*), normalización por lámpara halógena trazable NIST y verificación de calibración con pico Raman del agua pura a $649\text{ nm}$ ($3400\text{ cm}^{-1}$).
 

@@ -44,6 +44,7 @@ import time
 from pathlib import Path
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThread
+import pyqtgraph as pg
 
 from config import SAFE_MODE, PI_SERIAL
 from core.nanopositioning import Frontend as NanoFrontend, Backend as NanoBackend
@@ -98,6 +99,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self._setup_threads_and_backends()
 
     def _setup_styles(self):
+        pg.setConfigOption('background', '#11111B')
+        pg.setConfigOption('foreground', '#CDD6F4')
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #11111B;
@@ -201,6 +204,14 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         )
         act_contrapropagante.triggered.connect(self._open_contrapropagante)
         tools_menu.addAction(act_contrapropagante)
+
+        act_microscopio_derecho = QtGui.QAction("Microscopio Derecho / PyPrinting (Ventana Satélite Subyugada)", self)
+        act_microscopio_derecho.setToolTip(
+            "Abre el Microscopio Derecho (app.py) como ventana satélite subyugada compartiendo el proceso de PySpectrum "
+            "y evitando colisiones de bus USB con la platina piezoeléctrica PI."
+        )
+        act_microscopio_derecho.triggered.connect(self._open_microscopio_derecho)
+        tools_menu.addAction(act_microscopio_derecho)
 
         # ── Menú Rutinas Especializadas ───────────────────────────────────────
         routines_menu = menubar.addMenu("🧪 Rutinas")
@@ -683,6 +694,11 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         hardware_session.sessionChangedSignal.connect(lambda owner, busy: spectroscopy_context.set_subjugated(busy))
         spectroscopy_context.subjugatedModeChanged.connect(self._on_subjugation_status_changed)
         self.contrapropagante_satellite = None
+        self._contrapropagante_backend = None
+        self._contrapropagante_threads = []
+        self.microscopio_derecho_satellite = None
+        self._microscopio_derecho_backend = None
+        self._microscopio_derecho_threads = []
 
     def _select_directory(self):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta de Trabajo", str(self.work_dir))
@@ -738,6 +754,19 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.contrapropagante_satellite.raise_()
         self.contrapropagante_satellite.activateWindow()
 
+    def _open_microscopio_derecho(self):
+        """Abre (o trae al frente) el Microscopio Derecho (PyPrinting / app.py) como ventana satélite
+        subyugada, compartiendo la misma sesión y evitando conflictos con la platina PI (DEC-019)."""
+        if self.microscopio_derecho_satellite is None:
+            import app
+            win, backend, threads = app.create_app_satellite(parent=self)
+            self.microscopio_derecho_satellite = win
+            self._microscopio_derecho_backend = backend
+            self._microscopio_derecho_threads = threads
+        self.microscopio_derecho_satellite.show()
+        self.microscopio_derecho_satellite.raise_()
+        self.microscopio_derecho_satellite.activateWindow()
+
     def closeEvent(self, event):
         reply = QtWidgets.QMessageBox.question(
             self, 'Cerrar PySpectrum 3.0',
@@ -779,6 +808,12 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
                 for t in self._contrapropagante_threads:
                     t.wait(3000)
                 self.contrapropagante_satellite.close()
+            if self.microscopio_derecho_satellite is not None:
+                for t in self._microscopio_derecho_threads:
+                    t.quit()
+                for t in self._microscopio_derecho_threads:
+                    t.wait(3000)
+                self.microscopio_derecho_satellite.close()
             from core.nidaq import close_all_shutters
             close_all_shutters()
             event.accept()

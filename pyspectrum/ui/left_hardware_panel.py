@@ -54,6 +54,8 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         """)
         self._setup_ui()
         self._populate_hardware_dependent_combos()
+        spectroscopy_context.slitParametersChanged.connect(self._on_context_slit_changed)
+        spectroscopy_context.colormapChanged.connect(self._on_context_colormap_changed)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(1000)
         self._refresh_timer.timeout.connect(self._refresh_status)
@@ -149,6 +151,14 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         self.cmb_shutter_mode.addItems(SHUTTER_MODE_NAMES)
         self.cmb_shutter_mode.currentIndexChanged.connect(self._on_shutter_mode_changed)
         grid.addWidget(self.cmb_shutter_mode, row, 1)
+        row += 1
+
+        grid.addWidget(QtWidgets.QLabel("Paleta 2D:"), row, 0)
+        self.cmb_colormap = QtWidgets.QComboBox()
+        self.cmb_colormap.addItems(["Viridis", "Inferno", "Greys", "Jet"])
+        self.cmb_colormap.currentTextChanged.connect(self._on_colormap_changed)
+        self.cmb_colormap.setToolTip("Mapa de falso color para visualizadores 2D (Exploración e Inspector Raman).")
+        grid.addWidget(self.cmb_colormap, row, 1)
 
         return grp
 
@@ -280,6 +290,21 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         if idx >= 0 and hasattr(self.camera, "set_shutter_mode"):
             self.camera.set_shutter_mode(idx)
 
+    def _on_colormap_changed(self, name: str):
+        spectroscopy_context.set_colormap(name)
+
+    def _on_context_colormap_changed(self, name: str):
+        if self.cmb_colormap.currentText() != name:
+            self.cmb_colormap.blockSignals(True)
+            self.cmb_colormap.setCurrentText(name)
+            self.cmb_colormap.blockSignals(False)
+
+    def _on_context_slit_changed(self, width_um: float, center_px: float, zero_pos: int):
+        if abs(self.spin_slit.value() - width_um) > 0.05:
+            self.spin_slit.blockSignals(True)
+            self.spin_slit.setValue(width_um)
+            self.spin_slit.blockSignals(False)
+
     # ── Handlers Shamrock ─────────────────────────────────────────────────────
 
     def _on_grating_changed(self, idx: int):
@@ -288,7 +313,9 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         spectroscopy_context.set_spectrograph_position(spectroscopy_context.wavelength_nm, grating)
 
     def _on_slit_changed(self):
-        self.spectrometer.ShamrockSetSlit(DEVICE, 1, float(self.spin_slit.value()))
+        val = float(self.spin_slit.value())
+        self.spectrometer.ShamrockSetSlit(DEVICE, 1, val)
+        spectroscopy_context.set_slit_parameters(slit_width_um=val)
 
     def _on_goto_wavelength(self):
         wl = float(self.edit_wavelength.value())

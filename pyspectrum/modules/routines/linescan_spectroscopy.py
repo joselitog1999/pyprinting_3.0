@@ -637,9 +637,18 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
 
     def _acquire_2d_roi(self, roi_ymin: int, roi_ymax: int, width: int = 1004) -> np.ndarray:
         """Resuelve la inconsistencia de firma mock/real de get_most_recent_image()
-        (hallazgo de instrumentation): el mock no acepta width/height."""
+        (hallazgo de instrumentation): el mock no acepta width/height.
+
+        El mock pasó a honrar `set_image()` igual que el hardware real, así que cuando
+        `acquire_reference()` ya configuró el sub-área vertical el cuadro llega recortado y
+        volver a recortarlo lo dejaba VACÍO (`np.std(..., axis=1)` sobre un array 1-D vacío →
+        AxisError). Por eso se compara la altura recibida contra la esperada en lugar de
+        recortar a ciegas: así funciona tanto si el sub-área fue aplicado como si se pide el
+        cuadro completo (p. ej. un test que llama a este método sin `set_image()` previo)."""
         if getattr(self.camera, 'is_mock', False):
-            frame = self.camera.get_most_recent_image()
+            frame = np.asarray(self.camera.get_most_recent_image(), dtype=np.float64)
+            if frame.ndim >= 2 and frame.shape[0] == (roi_ymax - roi_ymin):
+                return frame
             return np.asarray(frame[roi_ymin:roi_ymax, :], dtype=np.float64)
         return np.asarray(self.camera.get_most_recent_image(width, roi_ymax - roi_ymin), dtype=np.float64)
 

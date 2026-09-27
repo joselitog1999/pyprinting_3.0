@@ -20,13 +20,14 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer
 import pyqtgraph as pg
 
-from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock, NAME_GRATINGS
+from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock, NAME_GRATINGS, SHAMROCK_SUCCESS
 from pyspectrum.drivers.andor_ccd_driver import (
-    get_andor_ccd, READ_MODE_FVB, READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE,
+    get_andor_ccd, READ_MODE_FVB, READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE, DETECTOR_WIDTH_PX,
 )
 from pyspectrum.calibration.halogen_lamp import (
     HalogenLampCalibration, glue_steps,
-    compute_step_centers, sigmoidal_step_and_glue, sigmoidal_step_and_glue_2d,
+    compute_step_centers, resolve_step_window_nm, coverage_gaps_nm,
+    sigmoidal_step_and_glue, sigmoidal_step_and_glue_2d,
     export_step_and_glue_to_hdf5,
 )
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
@@ -149,10 +150,10 @@ class Frontend(QtWidgets.QFrame):
 
         self.chk_optical_core = QtWidgets.QCheckBox("🎯 Usar Zona Óptica Central (103 nm / 12 nm)")
         self.chk_optical_core.setToolTip(
-            "En vez del span de dispersión teórico completo, usa la ventana óptica central "
-            "estimativa por red (103 nm para 150 l/mm, 12 nm para 1200 l/mm — código legado "
-            "StepandGlue_ps.py de Luciana/CIBION) para un solapamiento más profundo, a costa "
-            "de más pasos por barrido."
+            "Planifica con la ventana fija que usaba el código legado (103 nm para 150 l/mm, "
+            "12 nm para 1200 l/mm — StepandGlue_ps.py de Luciana/CIBION). Sin tildar, la ventana "
+            "se mide con la calibración real del espectrógrafo, que para este detector de 8 µm "
+            "da prácticamente lo mismo (103.05 / 11.57 nm, hoja de datos del SR-500i)."
         )
         sandg_grid.addWidget(self.chk_optical_core, 3, 0, 1, 2)
 
@@ -235,7 +236,10 @@ class Frontend(QtWidgets.QFrame):
 
         # ── Gráfico Espectral Derecho ─────────────────────────────────────────
         self.plot_widget = pg.PlotWidget(title="<b>Espectro Adquirido / Step & Glue</b>")
-        self.plot_widget.setLabels(bottom="Longitud de Onda (nm)", left="Intensidad (Cuentas / Normalizado)")
+        self.plot_widget.setBackground("#11111B")
+        self.plot_widget.setLabel('bottom', "Longitud de Onda (nm)", color='#CDD6F4')
+        self.plot_widget.setLabel('left', "Intensidad (Cuentas / Normalizado)", color='#CDD6F4')
+        self.plot_widget.setTitle("<b>Espectro Adquirido / Step & Glue</b>", color='#CDD6F4')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
         self.plot_widget.addLegend(offset=(10, 10))
 
@@ -343,6 +347,10 @@ class Backend(QtCore.QObject):
         self._raw_spec_steps: List[np.ndarray] = []
         self._last_frame_2d: Optional[np.ndarray] = None  # matriz cosida (H, W_total) en modo Imagen 2D
         self._substrate_signal: Optional[np.ndarray] = None  # fondo de sustrato fijado ("Lock Sustrato")
+        # Trazabilidad de la planificación del último barrido (DEC-033), exportada al HDF5.
+        self._last_window_nm: Optional[float] = None
+        self._last_window_source: str = ""
+        self._last_coverage_gaps: List[tuple] = []
 
     def make_connection(self, frontend: Frontend):
         frontend.measureSingleSignal.connect(self.measure_single_spectrum)
@@ -371,6 +379,30 @@ class Backend(QtCore.QObject):
         else:
             self._substrate_signal = self.camera.get_1d_spectrum().copy()
         print(f"[Step & Glue] Fondo de sustrato fijado (forma {self._substrate_signal.shape}).")
+
+    def _measured_window_nm(self) -> Optional[float]:
+        """Ancho espectral real que cubre el detector, leído de la calibración del espectrógrafo
+        en la posición actual. None si no se puede confiar en ella: geometría del detector no
+        verificada en el SDK, código de error, o un eje no finito o degenerado (p. ej. espejo).
+
+        Planificar con la ventana medida y no con una constante es lo que evita que un número
+        equivocado deje huecos en hardware mientras el mock, que comparte ese número, los tapa
+        (DEC-033). Una variación de la dispersión con λ de pocos % la absorbe el solapamiento."""
+        if getattr(self.spectrometer, "geometry_verified", True) is False:
+            return None
+        try:
+            if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
+                ret, axis = self.spectrometer.get_wavelength_axis_cubic(DEVICE, DETECTOR_WIDTH_PX)
+            else:
+                ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, DETECTOR_WIDTH_PX)
+        except Exception as e:
+            print(f"[Step & Glue] No se pudo leer la calibración para planificar: {e}")
+            return None
+        axis = np.asarray(axis, dtype=np.float64)
+        if ret != SHAMROCK_SUCCESS or axis.size < 2 or not np.all(np.isfinite(axis)):
+            return None
+        span = float(axis.max() - axis.min())
+        return span if span > 0.0 else None
 
     def _settle_wavelength(self, wl_center: float, timeout_s: float = GRATING_SETTLE_TIMEOUT_S) -> bool:
         """Settle del grating SIN sleep fijo: polling real de is_moving()/wait_until_ready()
@@ -424,6 +456,9 @@ class Backend(QtCore.QObject):
                 "grating": int(grating),
                 "grating_name": NAME_GRATINGS[grating - 1] if 1 <= grating <= len(NAME_GRATINGS) else str(grating),
                 "slit_width_um": float(slit_width),
+                "window_nm": self._last_window_nm,
+                "window_source": self._last_window_source or None,
+                "coverage_gaps_nm": np.asarray(self._last_coverage_gaps, dtype=np.float64).reshape(-1),
             }
             # /glued_spectrum es la matriz 2D completa (H, W_total) cuando el barrido se hizo en
             # modo Imagen; de lo contrario, el vector 1D cosido.
@@ -491,12 +526,18 @@ class Backend(QtCore.QObject):
             return
 
         try:
-            # Centros espectrales según la dispersión real de la red activa (Fase 4), o según la
-            # ventana óptica central estimativa (103/12 nm, código legado) si use_optical_core.
+            # Centros espectrales con la ventana medida en la calibración real (DEC-033); la
+            # ventana fija del legado si el operador eligió la Zona Óptica Central, o la nominal
+            # de la hoja de datos si la calibración no es confiable.
             ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+            measured = None if use_optical_core else self._measured_window_nm()
+            self._last_window_nm, self._last_window_source = resolve_step_window_nm(
+                grating, DETECTOR_WIDTH_PX, use_optical_core, measured,
+            )
+            self._last_coverage_gaps = []
             centers = compute_step_centers(
-                start_wl, end_wl, overlap_pct, grating=grating, num_pixels=1004,
-                use_optical_core=use_optical_core,
+                start_wl, end_wl, overlap_pct, grating=grating, num_pixels=DETECTOR_WIDTH_PX,
+                use_optical_core=use_optical_core, window_nm=measured,
             )
             n_steps = len(centers)
 
@@ -557,6 +598,15 @@ class Backend(QtCore.QObject):
             if not raw_waves:
                 print("[Step & Glue] Adquisición abortada sin datos.")
                 return
+
+            # Verificación posterior con los ejes REALES de cada ventana. Un barrido abortado no
+            # cubre el rango por diseño, así que sólo se evalúa si terminó completo.
+            if len(raw_waves) == n_steps:
+                self._last_coverage_gaps = coverage_gaps_nm(raw_waves, start_wl, end_wl)
+                if self._last_coverage_gaps:
+                    tramos = ", ".join(f"{a:.1f}-{b:.1f} nm" for a, b in self._last_coverage_gaps)
+                    print(f"[Step & Glue] ADVERTENCIA: rango sin medir entre ventanas: {tramos} "
+                          f"(ventana planificada {self._last_window_nm:.2f} nm, {self._last_window_source}).")
 
             if is_2d_mode:
                 glued_w, glued_frame = sigmoidal_step_and_glue_2d(raw_waves, raw_data)

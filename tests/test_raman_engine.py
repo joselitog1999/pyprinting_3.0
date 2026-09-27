@@ -184,6 +184,24 @@ def test_dual_cursor_and_temperature():
     assert not math.isnan(t_k)
     assert t_k > 0
     print(f"PASS: Métricas duales e inferencia fototérmica Anti-Stokes / Stokes (T = {t_k:.1f} K = {t_c:.1f} °C).")
+def test_parse_three_column_pyspectrum_file(tmp_path):
+    p = tmp_path / "test_pyspectrum_export.txt"
+    content = (
+        "# PySpectrum 3.0 — Adquisición Raman Estática\n"
+        "# Laser_Excitacion_nm: 532.00\n"
+        "# ------------------------------------------------------------\n"
+        "Wavelength_nm\tRaman_Shift_cm-1\tCounts_ADC\n"
+        "547.0719\t518.234\t12345.67\n"
+        "549.4536\t598.112\t23456.78\n"
+    )
+    p.write_text(content, encoding="utf-8")
+    meta, wls, cnts = parse_andor_solis_file(p)
+    assert len(wls) == 2
+    assert len(cnts) == 2
+    assert math.isclose(wls[0], 547.0719, rel_tol=1e-4)
+    assert math.isclose(cnts[0], 12345.67, rel_tol=1e-4)
+    assert math.isclose(cnts[1], 23456.78, rel_tol=1e-4)
+    assert meta["Laser_Excitacion_nm"] == "532.00"
 
 if __name__ == "__main__":
     test_parse_real_andor_file()

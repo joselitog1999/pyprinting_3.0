@@ -20,6 +20,8 @@
 | `SW-001` | Software/Metrology | LoG (Laplacian-of-Gaussian) morphological clustering selected in `lattice_disorder_gui.py` combo actually executes in the backend | `CORRECTED` (2026-09-16) | Internal audit — computational-physicist, metrology, qa-ux-auditor | `analysis/lattice_disorder_gui.py`, `core/lattice_disorder.py` |
 | `SW-002` | Instrumentation | `ShamrockDriver.wait_until_ready()` confirms grating/wavelength settle via a software timestamp (`_settling_until`), not a real hardware query — residual risk of undetected stall, accepted with a conservative timeout | `OPEN` (residual risk, 2026-09-16) | Internal audit — instrumentation | `pyspectrum/drivers/shamrock_driver.py`, `pyspectrum/modules/routines/linescan_spectroscopy.py` |
 | `PHY-009` | Crystallography | Honeycomb closed-form $\sigma_{\text{pos}}$ inversion (1st/2nd shell Bragg ratio) — CAT-315 §7.1 had a spurious $\sqrt{2}$ factor vs. the codebase's own established Debye-Waller convention | `CORRECTED` (2026-09-23) | Numerical verification, this session; CAT-308 §3.1 (original, correct) | `core/lattice_disorder.py::compute_hexagonal_bragg_indexing` |
+| `SW-003` | Instrumentation/Metrology | Spectroscopy detector is an iXon3 885 (`DU8285_VP`, TI TC285SPD) with 8.0 µm pixels, not 13 µm; with the SR-500i nominal dispersion a detector window spans 103.05 / 11.57 nm (150 / 1200 l/mm) | `CORRECTED` (2026-09-26) | Andor iXon3 885 and TI TC285SPD-30 datasheets; Andor Shamrock 500i datasheet p. 6; Solis `.sif` headers; legacy code; DEC-033 | `pyspectrum/drivers/andor_ccd_driver.py`, `pyspectrum/drivers/shamrock_driver.py`, `pyspectrum/calibration/halogen_lamp.py` |
+| `SW-004` | Instrumentation | Legacy PySpectrum passes 1002 (vertical axis) as the Shamrock's pixel count; its wavelength axes are probably shifted by ~1 px | `OPEN` (inference, 2026-09-26) | Legacy code reading; DEC-033 | `scratch/pyspectrum-legacy/Instrument_Shamrock_ps.py`, `Spectrum_ps.py` |
 
 ---
 
@@ -244,4 +246,59 @@ validation:
   test_suite: "tests/test_honeycomb_reciprocal_metrology.py::TestClosedFormSigmaInversion (recovers sigma_in=12nm within <15% averaged over 5 seeds, large-N cross-check within 1.5-2.5%)"
   last_verified: "2026-09-23"
   verified_by: "Numerical simulation (this session) — recommend independent physicist/metrology review before citing sigma_pos values from this formula in a publication."
+```
+
+### SW-003: Detector Pixel Pitch Is 8 µm — Spectral Window 103 / 11.6 nm
+```yaml
+claim_id: "SW-003"
+statement: "The spectroscopy detector is an Andor iXon3 885 (head model DU8285_VP, Texas Instruments TC285SPD sensor, front-illuminated 'Virtual Phase') with 1004 x 1002 active pixels of 8.0 x 8.0 µm. The 13 µm previously declared in DETECTOR_PIXEL_PITCH_UM and in SYS-301/303/305 had no source. With the Shamrock 500i nominal reciprocal dispersion (12.83 nm/mm for the 150 l/mm blaze-800 grating; 1.44 nm/mm for the 1200 l/mm blaze-500 grating) one detector window spans 103.05 / 11.57 nm, not the 176 / 22 nm that planned Step & Glue."
+status: "CORRECTED"
+domain: "instrumentation / metrology"
+sources:
+  manufacturer_datasheets:
+    - "Andor iXon3 885 Specifications — active pixels 1004 x 1002; pixel size 8 x 8 µm; sensor option VP, front illuminated (https://biochimie.umontreal.ca/wp-content/uploads/sites/37/2016/02/Andor_iXon3_885_Specifications.pdf)"
+    - "Texas Instruments TC285SPD-30 — 1004 (H) x 1002 (V) active pixels; 8.0 µm square pixels (https://vikdhillon.staff.shef.ac.uk/ultraspec/heidelberg/TC285SPD-30_DS.pdf)"
+    - "Andor Shamrock 500i Specifications, p. 6 — nominal dispersion 12.83 nm/mm (150 l/mm, blaze 800) and 1.44 nm/mm (1200 l/mm, blaze 500) (https://andor.oxinst.com/assets/uploads/products/andor/documents/andor-shamrock-500-specifications.pdf)"
+  local_copies:
+    - "docs/bibliografia/Andor_iXon3_885_Specifications.pdf"
+    - "docs/bibliografia/andor-shamrock-500-specifications.pdf"
+  hardware_records:
+    - "reserva/Fbin_hex_100umslit_50ms_nopol_pos_0.sif and reserva/oblicua_100umslit_1seg_176deg.sif — Solis headers: DetectorType 'DU8285_VP', DetectorDimensions (1004, 1002), spectrograph SR500i, grating 150 l/mm blaze 800; Solis Step & Glue output of 5020 = 5 x 1004 points over 400-900 nm (~100 nm per window)"
+  legacy_code:
+    - "scratch/pyspectrum-legacy/Instrument_Shamrock_ps.py:22-24 — '#Camera Andor 885', PixelWidth = 8, passed to ShamrockSetPixelWidth at Spectrum_ps.py:158 (wavelength calibration since 2020)"
+    - "scratch/pyspectrum-legacy/StepandGlue_ps.py:576 — wavelength_window = 103 nm for 150 l/mm = 12.83 nm/mm x 8.032 mm"
+consequences_of_the_wrong_value:
+  - "Step & Glue planned with 176 / 22 nm windows against real 103 / 11.6 nm: at the default 20 % overlap, 29.8 % (150 l/mm) and 39.3 % (1200 l/mm) of the requested range would never have been measured on hardware. Invisible in simulation because the mock used the same wrong dispersion."
+  - "PySpectrum 3.0 never configured the Shamrock SDK's pixel geometry (ShamrockSetNumberPixels / ShamrockSetPixelWidth), so every real wavelength axis depended on unset state."
+  - "Slit overlay band drawn 38 % too narrow."
+implementation:
+  code_files:
+    - path: "pyspectrum/drivers/andor_ccd_driver.py"
+      symbol: "DETECTOR_PIXEL_PITCH_UM = 8.0"
+    - path: "pyspectrum/drivers/shamrock_driver.py"
+      symbol: "NOMINAL_DISPERSION_150_NM_PER_MM, NOMINAL_DISPERSION_1200_NM_PER_MM, configure_detector_geometry()"
+    - path: "pyspectrum/calibration/halogen_lamp.py"
+      symbol: "resolve_step_window_nm(), compute_step_centers(), coverage_gaps_nm()"
+decision: "DEC-033"
+validation:
+  test_suite: "tests/test_spectral_geometry_and_step_coverage.py (30 tests; oracle = datasheet values written as literals, independent of the code constants)"
+  pending_bench_confirmation: "Optional: GetPixelSize on the live camera (scratch/legacy_console_probe.py, section C). Not required by the decision."
+  last_verified: "2026-09-26"
+  verified_by: "Datasheets + Solis hardware records + legacy code cross-check (this session)"
+```
+
+### SW-004: Legacy Wavelength Axes Probably Shifted by ~1 Pixel
+```yaml
+claim_id: "SW-004"
+statement: "The legacy PySpectrum passes NumberofPixel = 1002 — the detector's vertical dimension — to ShamrockSetNumberPixels and ShamrockGetCalibration, while the spectral (horizontal) axis has 1004 pixels. If the Shamrock SDK places the centre wavelength at NumberPixels/2, legacy wavelength axes are shifted by about one pixel (~0.10 nm with 150 l/mm; ~0.012 nm, about 0.4 cm-1 at 532 nm, with 1200 l/mm), and 1004-point spectra are paired with a 1002-point axis."
+status: "OPEN"
+domain: "instrumentation"
+assumptions:
+  - "The SDK's centre-pixel convention (not verified against the Shamrock SDK manual)."
+  - "How the legacy code aligns 1004-point spectra with a 1002-point calibration array (not traced)."
+relevance: "Only when comparing legacy and PySpectrum 3.0 spectra quantitatively. PySpectrum 3.0 passes 1004 (DEC-033)."
+next_step: "Measure the position of a known line (Hg/Ne lamp, or the Si 520.7 cm-1 phonon) with the legacy software and with 3.0 at the same grating and centre wavelength."
+validation:
+  last_verified: "2026-09-26"
+  verified_by: "Legacy code reading (this session) — inference, not measured"
 ```

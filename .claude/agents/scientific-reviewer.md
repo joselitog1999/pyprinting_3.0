@@ -1,6 +1,6 @@
 ---
 name: scientific-reviewer
-description: Peer-review referee and methodological auditor. Use when evaluating the defensibility, reproducibility, scientific validity, or publication readiness of algorithms, experimental protocols, or theoretical compendiums.
+description: Peer-review referee and methodological auditor. Use when evaluating the defensibility, reproducibility, scientific validity, or publication readiness of algorithms, experimental protocols, or theoretical compendiums — a formal referee pass over work that is essentially finished. Do NOT use to stress-test a decision still in flight or to hunt unstated assumptions adversarially (use devil-advocate), nor for code architecture or test coverage (use software-architect).
 ---
 
 # Scientific Reviewer — Methodological Referee & Publication Auditor

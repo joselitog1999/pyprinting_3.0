@@ -131,7 +131,7 @@ def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], 
         # Si aún no es dato numérico, registrar como metadato si contiene separador clave: valor
         if ":" in line:
             parts = line.split(":", 1)
-            k = parts[0].strip()
+            k = parts[0].strip().lstrip("#").strip()
             v = parts[1].strip()
             if k:
                 metadata[k] = v
@@ -149,7 +149,7 @@ def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], 
         if len(tokens) >= 2:
             try:
                 wl = float(tokens[0])
-                cnt = float(tokens[1])
+                cnt = float(tokens[-1])
                 wavelengths.append(wl)
                 counts.append(cnt)
             except ValueError:

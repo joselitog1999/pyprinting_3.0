@@ -112,10 +112,15 @@ class TestStepCenterCalculation(unittest.TestCase):
         self.assertGreater(len(centers), 1)
         self.assertLessEqual(centers[0] - 90.0, 450.0)  # cubre el inicio del rango pedido
 
-    def test_custom_30_percent_overlap_yields_more_steps(self):
+    def test_custom_30_percent_overlap_packs_steps_denser(self):
+        # Más solapamiento acorta el paso; el NÚMERO de ventanas es una discretización y puede
+        # coincidir (con la ventana real de 103 nm, 20 % y 30 % dan 7 en 450-950 nm). La
+        # versión anterior exigía "más ventanas", que sólo valía con la ventana errónea de
+        # 176 nm (DEC-033).
         centers_20 = compute_step_centers(450.0, 950.0, 0.20, grating=1)
         centers_30 = compute_step_centers(450.0, 950.0, 0.30, grating=1)
-        self.assertGreater(len(centers_30), len(centers_20))
+        self.assertLess(np.diff(centers_30)[0], np.diff(centers_20)[0])
+        self.assertGreaterEqual(len(centers_30), len(centers_20))
 
     def test_grating_1200_needs_many_more_steps_than_grating_150(self):
         centers_150 = compute_step_centers(450.0, 950.0, 0.20, grating=1)
@@ -420,33 +425,35 @@ class TestEdgeCropOpticalCoreAndSubstrate(unittest.TestCase):
 
     # ── 2. Ventana óptica central (103 nm / 12 nm) ────────────────────────
 
+    # Con el pitch real de 8 µm, la ventana "central" del legado (103 / 12 nm) ES la ventana
+    # completa (103.05 / 11.57 nm): el modo core ya no significa "más pasos", sólo "ventana fija
+    # del legado en vez de la medida". Los tests verifican eso y no la premisa anterior, que
+    # dependía de la ventana errónea de 176 / 22 nm (DEC-033).
+
     def test_optical_core_grating_150_uses_103nm_window(self):
-        centers_default = compute_step_centers(450.0, 950.0, 0.20, grating=1, use_optical_core=False)
         centers_core = compute_step_centers(450.0, 950.0, 0.20, grating=1, use_optical_core=True)
-        # 103 nm (core) < ~176 nm (dispersión teórica completa) -> más pasos con el modo core.
-        self.assertGreater(len(centers_core), len(centers_default))
+        np.testing.assert_allclose(np.diff(centers_core), 103.0 * 0.8)
 
     def test_optical_core_grating_1200_uses_12nm_window(self):
-        centers_default = compute_step_centers(500.0, 520.0, 0.20, grating=2, use_optical_core=False)
         centers_core = compute_step_centers(500.0, 520.0, 0.20, grating=2, use_optical_core=True)
-        self.assertGreaterEqual(len(centers_core), len(centers_default))
+        np.testing.assert_allclose(np.diff(centers_core), 12.0 * 0.8)
 
     def test_optical_core_flag_reaches_backend_step_calculation(self):
         self.camera.set_read_mode(READ_MODE_FVB)
+        self.spectrometer.ShamrockSetGrating(0, 1)
         progress_calls = []
-        self.be.stepProgressSignal.connect(lambda i, n, wl: progress_calls.append(n))
-        finished = []
-        self.be.spectrumFinishedSignal.connect(lambda *args: finished.append(args))
+        self.be.stepProgressSignal.connect(lambda i, n, wl: progress_calls.append((n, wl)))
 
         self.be.measure_step_and_glue(450.0, 950.0, 0.20, 0.05, normalize=False, check_water=False, use_optical_core=True)
-        n_with_core = progress_calls[0]
+        self.assertEqual(self.be._last_window_source, "optical_core")
+        self.assertEqual(self.be._last_window_nm, 103.0)
+        expected = compute_step_centers(450.0, 950.0, 0.20, grating=1, use_optical_core=True)
+        self.assertEqual(progress_calls[0][0], len(expected))
+        np.testing.assert_allclose([wl for _, wl in progress_calls], expected)
 
         progress_calls.clear()
-        finished.clear()
         self.be.measure_step_and_glue(450.0, 950.0, 0.20, 0.05, normalize=False, check_water=False, use_optical_core=False)
-        n_without_core = progress_calls[0]
-
-        self.assertGreater(n_with_core, n_without_core)
+        self.assertEqual(self.be._last_window_source, "measured")
 
     # ── 3. Fijar y restar fondo de sustrato ───────────────────────────────
 

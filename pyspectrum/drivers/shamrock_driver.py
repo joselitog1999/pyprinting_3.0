@@ -14,6 +14,7 @@ from typing import Tuple, List, Optional
 import numpy as np
 
 from config import SAFE_MODE
+from pyspectrum.drivers.andor_ccd_driver import DETECTOR_WIDTH_PX, DETECTOR_PIXEL_PITCH_UM
 
 # Constantes del espectrógrafo
 DEVICE = 0
@@ -33,8 +34,17 @@ SHAMROCK_SIDE_PORT = 1
 INPUT_SLIT_PORT = 1
 SHAMROCK_SHUTTER = 1
 
-NUMBER_OF_PIXELS = 1004
-PIXEL_WIDTH_UM = 8.0
+# Geometría del detector: alias de la fuente única en `andor_ccd_driver` (DEC-031/DEC-033).
+NUMBER_OF_PIXELS = DETECTOR_WIDTH_PX
+
+# Dispersión recíproca lineal nominal del Shamrock 500i para las dos redes instaladas, en nm/mm,
+# de la hoja de datos de Andor ("Nominal dispersion"): 150 l/mm blaze 800 nm y 1200 l/mm blaze
+# 500 nm. Multiplicada por el ancho del detector (1004 x 8 µm = 8.032 mm) da ventanas de
+# 103.05 / 11.57 nm — las mismas 103 / 12 nm que el legado midió en el banco. El eje de
+# medición NO sale de acá sino de `ShamrockGetCalibration`; estos valores alimentan el mock, la
+# planificación de respaldo del Step & Glue y los indicadores previos a la primera adquisición.
+NOMINAL_DISPERSION_150_NM_PER_MM = 12.83
+NOMINAL_DISPERSION_1200_NM_PER_MM = 1.44
 
 NAME_PORTS_IN = ['Port 0: Fibra Óptica', 'Port 1: Ranura (Slit)']
 NAME_PORTS_OUT = ['Port 0: Cámara Andor', 'Port 1: No Usado']
@@ -48,6 +58,53 @@ SHAMROCK_P2INVALID = 20267
 SHAMROCK_P3INVALID = 20268
 SHAMROCK_NOT_INITIALIZED = 20275
 SHAMROCK_NOT_AVAILABLE = 20292
+
+# Código propio (no del SDK): la geometría se configuró sin error pero la relectura no coincide.
+GEOMETRY_READBACK_MISMATCH = -1
+PIXEL_WIDTH_READBACK_TOL_UM = 1e-3
+
+NOMINAL_DISPERSION_NM_PER_MM = {
+    GRATING_150_LINES: NOMINAL_DISPERSION_150_NM_PER_MM,
+    GRATING_1200_LINES: NOMINAL_DISPERSION_1200_NM_PER_MM,
+    GRATING_MIRROR: 0.0,  # el espejo forma imagen: no dispersa
+}
+
+
+def nominal_dispersion_nm_per_px(grating: int, pixel_width_um: float = DETECTOR_PIXEL_PITCH_UM) -> float:
+    """Dispersión nominal en nm/px: la de la red (hoja de datos) por el ancho de píxel."""
+    per_mm = NOMINAL_DISPERSION_NM_PER_MM.get(int(grating), NOMINAL_DISPERSION_150_NM_PER_MM)
+    return per_mm * float(pixel_width_um) / 1000.0
+
+
+def nominal_window_nm(grating: int, num_pixels: int = DETECTOR_WIDTH_PX,
+                      pixel_width_um: float = DETECTOR_PIXEL_PITCH_UM) -> float:
+    """Ancho espectral nominal que cubre el detector completo con la red dada."""
+    return nominal_dispersion_nm_per_px(grating, pixel_width_um) * int(num_pixels)
+
+
+def _configure_and_verify_geometry(spec, device: int, num_pixels: int, pixel_width_um: float) -> int:
+    """Le informa al espectrógrafo la geometría del detector y la relee antes de darla por buena.
+
+    El SDK del Shamrock calcula λ(píxel) con el número de píxeles y su ancho: sin ellos,
+    `ShamrockGetCalibration` no tiene con qué construir el eje. Siguiendo `DEC-014`, el
+    resultado sólo es SUCCESS si lo configurado vuelve idéntico al releerlo; `geometry_verified`
+    registra ese veredicto para que los consumidores puedan desconfiar del eje. Compartido por
+    el driver real y el mock para que ambos recorran exactamente el mismo protocolo.
+    """
+    spec.geometry_verified = False
+    for ret in (spec.set_number_pixels(device, num_pixels), spec.set_pixel_width(device, pixel_width_um)):
+        if ret != SHAMROCK_SUCCESS:
+            return ret
+    ret_n, n_read = spec.get_number_pixels(device)
+    if ret_n != SHAMROCK_SUCCESS:
+        return ret_n
+    ret_w, w_read = spec.get_pixel_width(device)
+    if ret_w != SHAMROCK_SUCCESS:
+        return ret_w
+    if int(n_read) != int(num_pixels) or abs(float(w_read) - float(pixel_width_um)) > PIXEL_WIDTH_READBACK_TOL_UM:
+        return GEOMETRY_READBACK_MISMATCH
+    spec.geometry_verified = True
+    return SHAMROCK_SUCCESS
 
 
 class _MockShamrock:
@@ -69,6 +126,12 @@ class _MockShamrock:
         self._slit_zero_pos = 0
         self._settling_until = 0.0
         self._last_motion_type = ""
+        # Geometría del detector tal como la conoce el espectrógrafo. La calibración simulada se
+        # deriva de acá (paridad con el SDK real, que calcula λ(píxel) con estos dos valores),
+        # así que un pitch equivocado se ve en simulación en vez de esconderse.
+        self._number_pixels = DETECTOR_WIDTH_PX
+        self._pixel_width_um = DETECTOR_PIXEL_PITCH_UM
+        self.geometry_verified = False
         print("[Shamrock SIM] Inicializado controlador virtual de espectrógrafo.")
 
     def is_moving(self) -> bool:
@@ -159,19 +222,54 @@ class _MockShamrock:
             self._flipper_out = int(port)
         return SHAMROCK_SUCCESS
 
+    def set_number_pixels(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> int:
+        if int(num_pixels) <= 0:
+            return SHAMROCK_P2INVALID
+        with self._lock:
+            self._number_pixels = int(num_pixels)
+        return SHAMROCK_SUCCESS
+
+    def get_number_pixels(self, device: int = DEVICE) -> Tuple[int, int]:
+        return (SHAMROCK_SUCCESS, int(self._number_pixels))
+
+    def set_pixel_width(self, device: int = DEVICE, width_um: float = DETECTOR_PIXEL_PITCH_UM) -> int:
+        if not float(width_um) > 0.0:
+            return SHAMROCK_P2INVALID
+        with self._lock:
+            self._pixel_width_um = float(width_um)
+        return SHAMROCK_SUCCESS
+
+    def get_pixel_width(self, device: int = DEVICE) -> Tuple[int, float]:
+        return (SHAMROCK_SUCCESS, float(self._pixel_width_um))
+
+    def ShamrockSetNumberPixels(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> int:
+        return self.set_number_pixels(device, num_pixels)
+
+    def ShamrockGetNumberPixels(self, device: int = DEVICE) -> Tuple[int, int]:
+        return self.get_number_pixels(device)
+
+    def ShamrockSetPixelWidth(self, device: int = DEVICE, width_um: float = DETECTOR_PIXEL_PITCH_UM) -> int:
+        return self.set_pixel_width(device, width_um)
+
+    def ShamrockGetPixelWidth(self, device: int = DEVICE) -> Tuple[int, float]:
+        return self.get_pixel_width(device)
+
+    def configure_detector_geometry(self, device: int = DEVICE, num_pixels: int = DETECTOR_WIDTH_PX,
+                                    pixel_width_um: float = DETECTOR_PIXEL_PITCH_UM) -> int:
+        return _configure_and_verify_geometry(self, device, num_pixels, pixel_width_um)
+
     def ShamrockGetCalibration(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
-        # Dispersión física para Shamrock SR-500i (f = 500 mm)
-        # 150 l/mm -> ~13.33 nm/mm (~0.175 nm/px con pixel de 13µm)
-        # 1200 l/mm -> ~1.67 nm/mm (~0.022 nm/px con pixel de 13µm)
-        dispersion = 0.175 if self._grating == 1 else (0.022 if self._grating == 2 else 0.0)
+        # Dispersión nominal del SR-500i (hoja de datos) por el ancho de píxel configurado:
+        # 150 l/mm -> 12.83 nm/mm (0.1026 nm/px con 8 µm); 1200 l/mm -> 1.44 nm/mm (0.0115 nm/px).
+        dispersion = nominal_dispersion_nm_per_px(self._grating, self._pixel_width_um)
         half_span = (num_pixels / 2.0) * dispersion
         wl_axis = np.linspace(self._wavelength - half_span, self._wavelength + half_span, num_pixels)
         return (SHAMROCK_SUCCESS, wl_axis)
 
     def ShamrockGetPixelCalibrationCoefficients(self, device: int = DEVICE) -> Tuple[int, float, float, float, float]:
         """Simula los coeficientes cúbicos de la EEPROM de Shamrock para λ(p) = a + b*p + c*p^2 + d*p^3."""
-        dispersion = 0.175 if self._grating == 1 else (0.022 if self._grating == 2 else 0.0)
-        a = float(self._wavelength - (NUMBER_OF_PIXELS / 2.0) * dispersion)
+        dispersion = nominal_dispersion_nm_per_px(self._grating, self._pixel_width_um)
+        a = float(self._wavelength - (self._number_pixels / 2.0) * dispersion)
         b = float(dispersion)
         c = 1e-6 if dispersion > 0 else 0.0
         d = -1e-10 if dispersion > 0 else 0.0
@@ -244,6 +342,7 @@ class ShamrockDriver:
         self._connected = False
         self._settling_until = 0.0
         self._last_motion_type = ""
+        self.geometry_verified = False
         self._init_dll()
 
     def is_moving(self) -> bool:
@@ -422,16 +521,20 @@ class ShamrockDriver:
         try:
             ret = self._dll.ShamrockGetShutter(c_int(device), byref(c_mode))
             return (ret, c_mode.value)
-        except Exception:
-            return (SHAMROCK_SUCCESS, 1)
+        except Exception as e:
+            # DEC-034: una excepción de la DLL es un fallo, nunca un éxito. El valor de relleno
+            # no se interpreta: el contrato es el código de retorno.
+            print(f"[Shamrock] Error ShamrockGetShutter: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 1)
 
     def ShamrockSetShutter(self, device: int = DEVICE, mode: int = 1) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
         try:
             return self._dll.ShamrockSetShutter(c_int(device), c_int(mode))
-        except Exception:
-            return SHAMROCK_SUCCESS
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockSetShutter: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
 
     def ShamrockGetFlipper(self, device: int = DEVICE, flipper: int = 1) -> Tuple[int, int]:
         if not self._connected or self._dll is None:
@@ -440,16 +543,84 @@ class ShamrockDriver:
         try:
             ret = self._dll.ShamrockGetFlipper(c_int(device), c_int(flipper), byref(c_port))
             return (ret, c_port.value)
-        except Exception:
-            return (SHAMROCK_SUCCESS, 0)
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGetFlipper: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 0)
 
     def ShamrockSetFlipper(self, device: int = DEVICE, flipper: int = 1, port: int = 0) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
         try:
             return self._dll.ShamrockSetFlipper(c_int(device), c_int(flipper), c_int(port))
-        except Exception:
-            return SHAMROCK_SUCCESS
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockSetFlipper: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
+
+    def set_number_pixels(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> int:
+        if not self._connected or self._dll is None:
+            return SHAMROCK_NOT_INITIALIZED
+        try:
+            return self._dll.ShamrockSetNumberPixels(c_int(device), c_int(int(num_pixels)))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockSetNumberPixels: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
+
+    def get_number_pixels(self, device: int = DEVICE) -> Tuple[int, int]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0)
+        c_n = c_int()
+        try:
+            ret = self._dll.ShamrockGetNumberPixels(c_int(device), byref(c_n))
+            return (ret, int(c_n.value))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGetNumberPixels: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 0)
+
+    def set_pixel_width(self, device: int = DEVICE, width_um: float = DETECTOR_PIXEL_PITCH_UM) -> int:
+        """Ancho de píxel del detector acoplado, en micrones (unidad del SDK)."""
+        if not self._connected or self._dll is None:
+            return SHAMROCK_NOT_INITIALIZED
+        try:
+            return self._dll.ShamrockSetPixelWidth(c_int(device), c_float(float(width_um)))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockSetPixelWidth: {e}")
+            return SHAMROCK_COMMUNICATION_ERROR
+
+    def get_pixel_width(self, device: int = DEVICE) -> Tuple[int, float]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0.0)
+        c_w = c_float()
+        try:
+            ret = self._dll.ShamrockGetPixelWidth(c_int(device), byref(c_w))
+            return (ret, float(c_w.value))
+        except Exception as e:
+            print(f"[Shamrock] Error ShamrockGetPixelWidth: {e}")
+            return (SHAMROCK_COMMUNICATION_ERROR, 0.0)
+
+    def ShamrockSetNumberPixels(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> int:
+        return self.set_number_pixels(device, num_pixels)
+
+    def ShamrockGetNumberPixels(self, device: int = DEVICE) -> Tuple[int, int]:
+        return self.get_number_pixels(device)
+
+    def ShamrockSetPixelWidth(self, device: int = DEVICE, width_um: float = DETECTOR_PIXEL_PITCH_UM) -> int:
+        return self.set_pixel_width(device, width_um)
+
+    def ShamrockGetPixelWidth(self, device: int = DEVICE) -> Tuple[int, float]:
+        return self.get_pixel_width(device)
+
+    def configure_detector_geometry(self, device: int = DEVICE, num_pixels: int = DETECTOR_WIDTH_PX,
+                                    pixel_width_um: float = DETECTOR_PIXEL_PITCH_UM) -> int:
+        """Configura y verifica la geometría del detector en el SDK (DEC-033).
+
+        El legado lo hacía al arrancar (`Spectrum_ps.py:157-158`); PySpectrum 3.0 nunca lo había
+        hecho, así que `ShamrockGetCalibration` dependía de un estado que nadie fijaba.
+        """
+        ret = _configure_and_verify_geometry(self, device, num_pixels, pixel_width_um)
+        if ret != SHAMROCK_SUCCESS:
+            print(f"[Shamrock] ADVERTENCIA: geometría del detector NO verificada (código {ret}). "
+                  f"El eje de longitudes de onda de ShamrockGetCalibration no es confiable.")
+        return ret
 
     def get_calibration(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
         if not self._connected or self._dll is None:
@@ -614,4 +785,8 @@ def get_shamrock(force_mock: bool = False, reset: bool = False) -> _MockShamrock
             else:
                 print("[Shamrock] No fue posible inicializar hardware físico. Recurriendo a _MockShamrock.")
                 _shamrock_instance = _MockShamrock()
+        # Antes de que nadie pida una calibración: todo camino de inicialización (incluida la
+        # reconexión de core/hardware_manager.py) pasa por acá. Si falla, el driver real se
+        # conserva con geometry_verified=False — esconderlo detrás del mock sería peor.
+        _shamrock_instance.configure_detector_geometry()
     return _shamrock_instance
