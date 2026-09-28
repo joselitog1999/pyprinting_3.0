@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import sys
 import time
-from ctypes import c_int, c_float, byref, create_string_buffer, cdll, windll
+from ctypes import POINTER, c_int, c_float, byref, create_string_buffer, cdll, windll
 from pathlib import Path
 import threading
 from typing import Tuple, List, Optional
@@ -105,6 +105,25 @@ def _configure_and_verify_geometry(spec, device: int, num_pixels: int, pixel_wid
         return GEOMETRY_READBACK_MISMATCH
     spec.geometry_verified = True
     return SHAMROCK_SUCCESS
+
+
+# Firmas del SDK del Shamrock (docstrings del SDK en scratch/pyspectrum-legacy/Shamrock_ps.py). Con
+# `argtypes` declarados, una llamada con otra cantidad de argumentos da un error de Python en vez de
+# que la DLL escriba en una dirección arbitraria, que es lo que pasaba con ShamrockGetSlit (C-06).
+_SHAMROCK_ARGTYPES = {
+    "ShamrockGetAutoSlitWidth": (c_int, c_int, POINTER(c_float)),
+    "ShamrockSetAutoSlitWidth": (c_int, c_int, c_float),
+    "ShamrockGetFlipperMirror": (c_int, c_int, POINTER(c_int)),
+    "ShamrockSetFlipperMirror": (c_int, c_int, c_int),
+}
+
+
+def _declare_argtypes(dll) -> None:
+    for name, argtypes in _SHAMROCK_ARGTYPES.items():
+        try:
+            getattr(dll, name).argtypes = list(argtypes)
+        except AttributeError:
+            print(f"[Shamrock] La DLL no exporta {name}.")
 
 
 def _no_axis(num_pixels: int) -> np.ndarray:
@@ -398,6 +417,7 @@ class ShamrockDriver:
                 os.add_dll_directory(str(dll_dir))
 
             self._dll = windll.LoadLibrary(str(dll_path))
+            _declare_argtypes(self._dll)
             print(f"[Shamrock] DLL cargada exitosamente: {dll_path}")
         except Exception as e:
             self.unavailable_reason = f"No se pudo cargar ShamrockCIF.dll ({e})."
@@ -507,12 +527,15 @@ class ShamrockDriver:
         return self.set_wavelength(device, wavelength)
 
     def get_slit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, float]:
+        # La ranura de entrada se lee con ShamrockGetAutoSlitWidth(device, index, float*), como el
+        # legado (C-06, DEC-040). ShamrockGetSlit tiene DOS argumentos (device, float*): llamarla con
+        # el índice usaba el índice como puntero de salida y la DLL escribía en la dirección 0x1.
         if not self._connected or self._dll is None:
-            return (SHAMROCK_NOT_INITIALIZED, 50.0)
+            return (SHAMROCK_NOT_INITIALIZED, float("nan"))
         with self._lock:
             c_w = c_float()
-            ret = self._dll.ShamrockGetSlit(c_int(device), c_int(index), byref(c_w))
-            return (ret, float(c_w.value))
+            ret = self._dll.ShamrockGetAutoSlitWidth(c_int(device), c_int(index), byref(c_w))
+            return (ret, float(c_w.value) if ret == SHAMROCK_SUCCESS else float("nan"))
 
     def ShamrockGetSlit(self, device: int = DEVICE, index: int = INPUT_SLIT_PORT) -> Tuple[int, float]:
         return self.get_slit(device, index)
@@ -526,7 +549,7 @@ class ShamrockDriver:
             # que el driver real llegue a mandarles un valor fuera de rango al DLL. Paridad
             # con _MockShamrock.ShamrockSetSlit(), que ya clampeaba (línea 139).
             width = max(10.0, min(2500.0, float(width)))
-            ret = self._dll.ShamrockSetSlit(c_int(device), c_int(index), c_float(width))
+            ret = self._dll.ShamrockSetAutoSlitWidth(c_int(device), c_int(index), c_float(width))
             if ret == SHAMROCK_SUCCESS:
                 self._settling_until = time.time() + SLIT_SETTLING_TIME_S
                 self._last_motion_type = "slit"
@@ -562,19 +585,21 @@ class ShamrockDriver:
             return (SHAMROCK_NOT_INITIALIZED, 0)
         c_port = c_int()
         try:
-            ret = self._dll.ShamrockGetFlipper(c_int(device), c_int(flipper), byref(c_port))
+            # C-07: la función del SDK es ShamrockGetFlipperMirror; ShamrockGetFlipper no existe.
+            ret = self._dll.ShamrockGetFlipperMirror(c_int(device), c_int(flipper), byref(c_port))
             return (ret, c_port.value)
         except Exception as e:
-            print(f"[Shamrock] Error ShamrockGetFlipper: {e}")
+            print(f"[Shamrock] Error ShamrockGetFlipperMirror: {e}")
             return (SHAMROCK_COMMUNICATION_ERROR, 0)
 
     def ShamrockSetFlipper(self, device: int = DEVICE, flipper: int = 1, port: int = 0) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
         try:
-            return self._dll.ShamrockSetFlipper(c_int(device), c_int(flipper), c_int(port))
+            # C-07: la función del SDK es ShamrockSetFlipperMirror; ShamrockSetFlipper no existe.
+            return self._dll.ShamrockSetFlipperMirror(c_int(device), c_int(flipper), c_int(port))
         except Exception as e:
-            print(f"[Shamrock] Error ShamrockSetFlipper: {e}")
+            print(f"[Shamrock] Error ShamrockSetFlipperMirror: {e}")
             return SHAMROCK_COMMUNICATION_ERROR
 
     def set_number_pixels(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> int:

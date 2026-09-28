@@ -660,6 +660,30 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * The iXon3 885 datasheet in `docs/bibliografia/` (p. 1) gives 8 × 8 µm and 1004 × 1002 active pixels. That settles it, and BANCO-01 becomes an optional confirmation.
   * The last live residue was `CalibrationBackend.save_calibration_to_txt`. Every saved file declared "13 µm", "1002x1002" and `estado = CALIBRADO_VALIDADO`, which spread the wrong value and a false validation status. It now writes the driver constants (`DETECTOR_PIXEL_PITCH_UM`, `DETECTOR_WIDTH_PX`, `DETECTOR_HEIGHT_PX`) and `estado = GUARDADO_POR_OPERADOR`.
   * The remaining mentions of 13 µm in the documents are historical correction notes (`DEC-033`).
+* **H-01 / C-30: keyboard E-STOP with a modal dialog open** (Round 3 audit, CRITICAL; Round 4 reconciliation `pyspectrum_A_ronda4/RECONCILIACION.md`).
+  * **Before:** `Ctrl+E` and `F12` were `QShortcut`s on the main window. With any modal dialog open (the Round 3 design adds four) they did not fire, so the keyboard E-STOP was dead exactly while the operator was confirming something on the instrument.
+  * **The auditor's proposed fix was insufficient.** Changing the shortcut context to `ApplicationShortcut` does not work: verified offscreen, Qt blocks a window's shortcuts in any context while a modal covers it.
+  * **Now:** `pyspectrum/window.py::_EmergencyKeyFilter`, an application event filter, triggers the E-STOP once per key press.
+    * It acts only for the PySpectrum window and its modal dialogs; other windows in the process, such as the PyPrinting satellite, are excluded.
+    * It consumes the `ShortcutOverride` so the `QShortcut` does not fire as well.
+    * There is **one filter per process**, and each `PySpectrumWindow` registers itself with a weak reference. A first version installed one filter per window. Because the tests leave windows alive, hundreds of filters built up on every Qt event and the full suite went from 7 to 16 minutes; production has a single window. Registering through `WeakMethod` keeps the filter from holding windows alive.
+    * A test left the global E-STOP armed, which is state shared between tests. The new Step & Glue test now clears it before running, like the other E-STOP tests.
+  * **Tests:** 3 new tests in `tests/test_pyspectrum_luminescence_and_calibration.py`:
+    * with a modal dialog open;
+    * once without a dialog;
+    * ignored in unrelated windows.
+  * **Negative control:** disabling the filter makes the modal-dialog test fail.
+* **Step 5 — the driver calls the SDK with its real codes and signatures** (`tests/test_pyspectrum_driver_sdk_contracts.py`, 7 tests; 6 were red).
+  * **C-05, read-mode codes.** Per the Andor SDK2 v2.104 manual (p. 305): 0 FVB, 1 Multi-Track, 2 Random-Track, 3 Single-Track, 4 Image.
+    * Before, `READ_MODE_SINGLE_TRACK` was 1, so every "Single-Track" acquisition asked the camera for Multi-Track.
+    * The GUI combos carry the constants as item data, so fixing the constants fixes them.
+    * The literal `in (0, 1)` in `step_and_glue.measure_single_spectrum` now uses the constants. A guard test fails if the constants are fixed without it.
+  * **C-06, input slit.** Read and set with `ShamrockGetAutoSlitWidth` / `ShamrockSetAutoSlitWidth(device, index, …)`, as the legacy program does (`Spectrum_ps.py:206`).
+    * The driver called `ShamrockGetSlit(device, index, &w)`, a two-argument function (`device, float*`), so the index was used as the output pointer. That was the call `read_initial_values` makes first at startup.
+    * An unconnected read now returns NaN instead of a plausible 50 µm.
+  * **C-07, flipper mirror.** Uses `ShamrockGetFlipperMirror` / `ShamrockSetFlipperMirror`. `ShamrockGetFlipper` / `ShamrockSetFlipper` do not exist in the SDK, so the lookup failed and was swallowed as a communication error.
+  * **`argtypes`.** They are declared for these four functions when the real DLL loads. A wrong argument count now raises `TypeError` instead of corrupting memory.
+  * **D-07c.** No offset caps were added to the driver (R4-B-10).
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

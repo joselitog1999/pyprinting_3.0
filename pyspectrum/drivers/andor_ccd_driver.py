@@ -33,11 +33,13 @@ ACQ_MODE_FAST_KINETICS = 4
 ACQ_MODE_RUN_TILL_ABORT = 5
 
 # Modos de lectura
-READ_MODE_FVB = 0         # Full Vertical Binning (Espectro 1D)
-READ_MODE_SINGLE_TRACK = 1
-READ_MODE_MULTI_TRACK = 2
-READ_MODE_RANDOM_TRACK = 3
-READ_MODE_IMAGE = 4       # Imagen 2D
+# Códigos de SetReadMode según el SDK2 de Andor v2.104 (docs/bibliografia/Software Development
+# Kit.pdf, p. 305). Antes Single-Track valía 1, que en el SDK es Multi-Track (C-05, DEC-040).
+READ_MODE_FVB = 0           # Full Vertical Binning (espectro 1D)
+READ_MODE_MULTI_TRACK = 1
+READ_MODE_RANDOM_TRACK = 2
+READ_MODE_SINGLE_TRACK = 3
+READ_MODE_IMAGE = 4         # Imagen 2D
 
 # Modos de obturador interno de cámara (SetShutter typ=1, mode=...)
 SHUTTER_MODE_AUTO = 0
@@ -559,7 +561,7 @@ class AndorCCDDriver:
             return np.zeros((height, width), dtype=np.float32)
 
     def set_read_mode(self, mode: int) -> int:
-        """0: FVB (Full Vertical Binning), 1: Single Track, 4: Image 2D."""
+        """Códigos del SDK (p. 305): 0 FVB, 1 Multi-Track, 2 Random-Track, 3 Single-Track, 4 Image."""
         if not self._connected or self._dll is None:
             return DRV_NOT_INITIALIZED
         try:

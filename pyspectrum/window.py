@@ -42,7 +42,11 @@ import os
 import sys
 import time
 from pathlib import Path
+import weakref
+from typing import Optional
+
 from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import sip
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThread
 import pyqtgraph as pg
 
@@ -78,6 +82,81 @@ TAB_GROWTH_KINETICS = 3
 TAB_CALIBRATION = 4
 TAB_CONFOCAL = 5
 TAB_LUMINESCENCE = 6
+
+
+class _EmergencyKeyFilter(QtCore.QObject):
+    """Dispara la E-STOP con F12 o Ctrl+E aunque un diálogo modal tape la ventana (H-01 / C-30).
+
+    Hay UN solo filtro por proceso, instalado sobre la aplicación. Cada `PySpectrumWindow` se
+    registra con `register()` (referencia débil), así que un filtro por ventana no se acumula ni
+    encarece cada evento de Qt.
+    - Actúa sobre las teclas que llegan a una ventana registrada o a un diálogo modal que dependa
+      de ella, y no sobre otras ventanas del proceso (p. ej. el satélite PyPrinting).
+    - Consume el `ShortcutOverride`, así que el `QShortcut` de la ventana no se dispara también, y
+      consume el `KeyPress` que lo sigue: una pulsación, una E-STOP.
+    """
+
+    _instance: "Optional[_EmergencyKeyFilter]" = None
+    _TYPES = (QtCore.QEvent.Type.ShortcutOverride, QtCore.QEvent.Type.KeyPress)
+
+    def __init__(self):
+        super().__init__(QtWidgets.QApplication.instance())
+        self._windows: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+        self._armed_by_override = False
+
+    @classmethod
+    def register(cls, window: QtWidgets.QWidget, trigger) -> "_EmergencyKeyFilter":
+        if cls._instance is None:
+            cls._instance = cls()
+            QtWidgets.QApplication.instance().installEventFilter(cls._instance)
+        # WeakMethod: guardar el método ligado mantendría viva la ventana (el valor la referencia).
+        cls._instance._windows[window] = weakref.WeakMethod(trigger)
+        return cls._instance
+
+    @staticmethod
+    def _is_estop_key(event) -> bool:
+        key = event.key()
+        mods = event.modifiers() & ~QtCore.Qt.KeyboardModifier.KeypadModifier
+        return ((key == QtCore.Qt.Key.Key_F12 and mods == QtCore.Qt.KeyboardModifier.NoModifier)
+                or (key == QtCore.Qt.Key.Key_E and mods == QtCore.Qt.KeyboardModifier.ControlModifier))
+
+    def _owner_trigger(self, obj):
+        """La acción de E-STOP de la ventana registrada a la que pertenece `obj`, o None."""
+        if not isinstance(obj, QtWidgets.QWidget):
+            return None
+        top = obj.window()
+        candidates = [top]
+        if isinstance(top, QtWidgets.QDialog) and top.isModal():
+            parent = top.parentWidget()
+            while parent is not None:
+                candidates.append(parent.window())
+                parent = parent.window().parentWidget()
+        for candidate in candidates:
+            try:
+                ref = self._windows.get(candidate)
+            except TypeError:
+                ref = None
+            trigger = ref() if ref is not None else None
+            if trigger is not None and not sip.isdeleted(candidate):
+                return trigger
+        return None
+
+    def eventFilter(self, obj, event):
+        if event.type() not in self._TYPES or not self._is_estop_key(event) or event.isAutoRepeat():
+            return False
+        trigger = self._owner_trigger(obj)
+        if trigger is None:
+            return False
+        if event.type() == QtCore.QEvent.Type.ShortcutOverride:
+            self._armed_by_override = True
+            event.accept()
+            trigger()
+            return True
+        if self._armed_by_override:  # el KeyPress de la misma pulsación
+            self._armed_by_override = False
+            return True
+        trigger()
+        return True
 
 
 class PySpectrumWindow(QtWidgets.QMainWindow):
@@ -544,6 +623,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.shortcut_estop_ctrl.activated.connect(self._on_emergency_stop_clicked)
         self.shortcut_estop_f12 = QtGui.QShortcut(QtGui.QKeySequence("F12"), self)
         self.shortcut_estop_f12.activated.connect(self._on_emergency_stop_clicked)
+        # Con un diálogo modal abierto, Qt bloquea los atajos de esta ventana en cualquier
+        # contexto, y la E-STOP por teclado quedaba muerta justo cuando el operador confirma algo
+        # sobre el equipo (H-01 / C-30). El filtro de aplicación la dispara igual.
+        self._estop_key_filter = _EmergencyKeyFilter.register(self, self._on_emergency_stop_clicked)
 
         self.shortcuts_tabs = []
         for i in range(self.tabs_workflow.count()):

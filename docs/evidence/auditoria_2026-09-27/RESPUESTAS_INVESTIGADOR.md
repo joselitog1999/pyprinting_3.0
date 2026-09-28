@@ -494,6 +494,21 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 5. **Calibración automática:** **una escritura por confirmación**. Cada escritura pasa por la transacción completa, y no hay sesiones con varias escrituras autorizadas.
 6. **Corrección fina (por debajo de un paso):** se guarda **aparte**, como metadato con procedencia, y no dentro del eje λ de cada espectro. El dato crudo queda intacto.
 
+**R4-D — Respuestas a la auditoría QA/UX de la Ronda 3 (2026-09-28; `pyspectrum_A_ronda3/qa_ux_audit.md` §8).**
+
+1. **Centrar el láser en la ranura en orden cero:** se mira con un **notch que el operador pone físicamente a la entrada**. No está automatizado, así que el software no puede saber si está puesto.
+   - *Implica:* "Restituir ganancia" con un láser abierto le pide al operador que confirme "notch puesto" y no lo da por supuesto (H-05).
+2. **Dos exposiciones recordadas por sesión**, una para orden cero y otra para primer orden, cada una restituida al cambiar de modo: **sí**. La primera entrada al orden cero de la sesión arranca en **0.1 s**. La ganancia sigue sin volver sola (R4-B-4).
+3. **Escritura cuya relectura falla o no coincide:** **se recurre al historial**, es decir, se ofrece volver al último valor válido registrado, el respaldo de esa transacción.
+   - Esa vuelta es una escritura más, con su transacción completa (R4-C-5).
+   - Es el único caso en que se escribe un valor del historial, porque R4-C-4 excluye restaurarlo en cualquier otra situación.
+4. **Calibración automática:**
+   - exposición fija de **0.10 s**;
+   - **duración máxima de 10 min** para la rutina completa;
+   - si se alcanza el tope, la rutina se detiene, cierra el obturador y registra el resultado parcial como no aceptado.
+
+**Ronda 3 del bloque A:** el diseño (`gui_design.md`) y su auditoría (`qa_ux_audit.md`, MINOR_UX_POLISH_NEEDED) quedan cerrados con las correcciones H-01 a H-34 y las respuestas R4-C y R4-D. Sigue la Ronda 4: primero la reconciliación, después la implementación.
+
 **R4-2b — Lanzamiento (2026-09-28).** Si PySpectrum ya se lanzó, el lanzador `main.py` bloquea abrir PyPrinting, que sólo se abre desde el menú Herramientas de PySpectrum. La razón es evitar dos procesos sobre el mismo hardware.
 - **Implementado** (`main.py::_HARDWARE_SCRIPTS`, `tests/test_launcher_process_exclusion.py`). En modo laboratorio corre uno solo de los tres programas de hardware (PySpectrum, Microscopio Derecho y Contrapropagante), y cada uno una sola vez.
 - **Extensión:** además de lo pedido, también se bloquea lo inverso (PySpectrum con PyPrinting suelto abierto) y una segunda instancia del mismo programa. En los tres casos habría dos procesos sobre la misma placa.

@@ -502,7 +502,7 @@ class Backend(QtCore.QObject):
             self.camera.set_exposure_time(exp_time)
 
             # 2. Adquirir y leer (prioriza lectura 1D por hardware de bajo ruido si está activa)
-            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", 4) in (0, 1):
+            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", READ_MODE_IMAGE) in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
                 spec_1d = self.camera.get_1d_spectrum()
             else:
                 frame = self.camera.get_most_recent_image()

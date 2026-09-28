@@ -310,6 +310,66 @@ class TestGlobalKeyboardShortcuts(unittest.TestCase):
         self.assertTrue(hardware_session.is_emergency_stopped)
         hardware_session.clear_emergency()
 
+    def test_estop_keys_fire_while_a_modal_dialog_has_focus(self):
+        """H-01 / C-30: con un diálogo modal abierto sobre la ventana, Qt bloquea sus atajos en
+        cualquier contexto (también ApplicationShortcut: verificado), así que la E-STOP por
+        teclado quedaba muerta justo cuando el operador está confirmando algo sobre el equipo.
+        La ventana instala un filtro de aplicación que la dispara igual, una vez por pulsación."""
+        from unittest import mock
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QDialog
+
+        for key, modifier in ((Qt.Key.Key_F12, Qt.KeyboardModifier.NoModifier),
+                              (Qt.Key.Key_E, Qt.KeyboardModifier.ControlModifier)):
+            dialog = QDialog(self.win)
+            dialog.setModal(True)
+            dialog.show()
+            dialog.activateWindow()
+            QApplication.processEvents()
+            try:
+                with mock.patch.object(hardware_session, "emergency_stop") as estop:
+                    QTest.keyClick(dialog, key, modifier)
+                    QApplication.processEvents()
+                self.assertEqual(estop.call_count, 1,
+                                 f"la E-STOP por teclado debe dispararse una vez con un diálogo modal abierto ({key})")
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+                QApplication.processEvents()
+
+    def test_estop_key_fires_once_without_dialog(self):
+        from unittest import mock
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+
+        self.win.show()
+        self.win.activateWindow()
+        QApplication.processEvents()
+        with mock.patch.object(hardware_session, "emergency_stop") as estop:
+            QTest.keyClick(self.win, Qt.Key.Key_F12)
+            QApplication.processEvents()
+        self.assertEqual(estop.call_count, 1)
+
+    def test_estop_key_ignored_in_unrelated_windows(self):
+        """Una ventana ajena a PySpectrum en el mismo proceso no dispara su E-STOP."""
+        from unittest import mock
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QMainWindow
+
+        other = QMainWindow()
+        other.show()
+        other.activateWindow()
+        QApplication.processEvents()
+        try:
+            with mock.patch.object(hardware_session, "emergency_stop") as estop:
+                QTest.keyClick(other, Qt.Key.Key_F12)
+                QApplication.processEvents()
+            self.assertEqual(estop.call_count, 0)
+        finally:
+            other.close()
+            other.deleteLater()
 
 if __name__ == "__main__":
     unittest.main()
