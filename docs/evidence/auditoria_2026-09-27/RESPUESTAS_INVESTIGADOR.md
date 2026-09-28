@@ -509,6 +509,11 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 
 **Ronda 3 del bloque A:** el diseño (`gui_design.md`) y su auditoría (`qa_ux_audit.md`, MINOR_UX_POLISH_NEEDED) quedan cerrados con las correcciones H-01 a H-34 y las respuestas R4-C y R4-D. Sigue la Ronda 4: primero la reconciliación, después la implementación.
 
+**R4-E — pylablib o drivers propios (2026-09-28; `pyspectrum_A_ronda4/ANALISIS_pylablib_vs_DLL.md`).**
+- **Opción A:** se sigue con los **drivers propios** sobre las DLL de Andor, para la cámara y para el Shamrock.
+- **pylablib queda como referencia**, porque está probado en el banco: el legado maneja la cámara con pylablib. Ante una duda de semántica del SDK de la cámara se consulta cómo lo hace pylablib, y el driver propio se valida contra pylablib en el banco (BANCO-55).
+- *Límite de esa evidencia:* el legado usó pylablib sólo en modo Image, y nunca para el Shamrock.
+
 **R4-2b — Lanzamiento (2026-09-28).** Si PySpectrum ya se lanzó, el lanzador `main.py` bloquea abrir PyPrinting, que sólo se abre desde el menú Herramientas de PySpectrum. La razón es evitar dos procesos sobre el mismo hardware.
 - **Implementado** (`main.py::_HARDWARE_SCRIPTS`, `tests/test_launcher_process_exclusion.py`). En modo laboratorio corre uno solo de los tres programas de hardware (PySpectrum, Microscopio Derecho y Contrapropagante), y cada uno una sola vez.
 - **Extensión:** además de lo pedido, también se bloquea lo inverso (PySpectrum con PyPrinting suelto abierto) y una segunda instancia del mismo programa. En los tres casos habría dos procesos sobre la misma placa.

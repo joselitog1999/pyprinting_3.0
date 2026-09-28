@@ -684,6 +684,63 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * **C-07, flipper mirror.** Uses `ShamrockGetFlipperMirror` / `ShamrockSetFlipperMirror`. `ShamrockGetFlipper` / `ShamrockSetFlipper` do not exist in the SDK, so the lookup failed and was swallowed as a communication error.
   * **`argtypes`.** They are declared for these four functions when the real DLL loads. A wrong argument count now raises `TypeError` instead of corrupting memory.
   * **D-07c.** No offset caps were added to the driver (R4-B-10).
+* **Step 6 — one exposure is one new frame or an explicit failure** (`pyspectrum/modules/acquisition.py::single_exposure`, Round 2 contract in `software_architect.md` §6.3 and `instrumentation.md` §5.2).
+  * **Sequence:**
+    1. `GetStatus` with its raw code; a failure is `READ_FAILED`, never "finished".
+    2. Single-scan mode and exposure, with return codes checked.
+    3. Frame counter before, then `StartAcquisition`.
+    4. Wait in 250 ms tranches with `WaitForAcquisitionTimeOut`. Each tranche calls `on_tick` (heartbeat and progress) and checks Stop and E-STOP. Total cap: real exposure + 2 s (provisional until BANCO-44).
+    5. `GetAcquiredData` with the exact size. Only success returns data, and the counter must advance exactly one frame.
+    6. On every exit path the camera is left not acquiring.
+  * **Driver primitives**, real and mock: `set_acquisition_mode`, `get_status_checked`, `wait_for_acquisition_timeout`, `get_acquisition_timings`, `get_total_number_images_acquired` and `get_acquired_data_checked`.
+    * The wait does not hold the driver lock, so temperature polling and Stop keep working.
+    * The mock keeps its old run-till-abort behaviour for Live. Only in single scan does its acquisition end by itself.
+  * **Return codes.** `DRV_NO_NEW_DATA = 20024`, `DRV_P1INVALID = 20066` and `DRV_P2INVALID = 20067` come from the legacy table (`scratch/pyspectrum-legacy/ccd_ps.py`), which ran on the bench and matches the existing constants. The error-code table of SDK v2.104 §12, as extracted from the PDF, is shifted by one row (it gives `DRV_ACQUIRING` = 20073 and `DRV_IDLE` = 20075), so it was not used.
+  * **Tests:** `tests/test_pyspectrum_single_exposure.py`, 18 tests, with a stateful fake of the SDK under the **real** driver.
+  * **Negative controls:** 7 mutations, all detected.
+    * Accepting "no new data" as a frame.
+    * A status failure during the wait read as finished. A first run did not catch this one, so a test was added.
+    * No abort on exit.
+    * Ignoring the frame counter.
+    * No heartbeat per tranche.
+    * No Stop check.
+    * Holding the lock while waiting.
+  * **Not yet adopted by the routines.** Step & Glue (step 11), calibration (step 14) and the grid routines (AND-1) still use the old getters, which return zeros on a failed read while connected.
+* **Library in use (the researcher asked, 2026-09-28).** The legacy program drives the camera through **pylablib** (`AndorSDK2Camera`) and the Shamrock through its own ctypes wrapper `Shamrock_ps.py`. PySpectrum 3.0 uses its own ctypes drivers for both, and pylablib only appears in the bench probe that runs inside the legacy program.
+* **SDK DLLs actually available** (the researcher asked on 2026-09-28; the legacy folder is all the lab has).
+  * **Identity.** `pyspectrum/drivers/libs/` holds the same files as the legacy folder, byte for byte (SHA-256):
+    * `atmcd64d.dll` 2.104.33065.0, the same version as the SDK manual in `docs/bibliografia/`;
+    * `ShamrockCIF.dll` and `atshamrock.dll` 2.103.30023.0.
+  * **Architecture.** All three are x64, like the project's Python. The "32 Bit Aggregate SDK" description is only Andor's label.
+  * **Exports**, read statically with the new `tools/pe_exports.py`, which does not load the DLL:
+    * the Shamrock DLL exports every function the driver calls; `ShamrockGetFlipper` / `SetFlipper` do not exist, which confirms C-07 with the DLL itself;
+    * the camera DLL did not export `SetRandomTrack`, and the real name is `SetRandomTracks` (SDK p. 311), so Random-Track never reached the camera. It was fixed with a test that was red first;
+    * `GetReadMode`, `GetAcquisitionMode` and `GetFanMode` do not exist, which confirms D-15;
+    * `GetEMGainMode` is exported but not documented in the v2.104 manual, so it is not used.
+  * **Guard.** `tests/test_driver_dll_exports.py` fails if a driver calls a function the DLL does not export. The negative control, restoring `SetRandomTrack`, fails it.
+  * **Not in the repo, and not needed there:**
+    * `SPECTROG.INI`, which comes with the Solis installation on the bench PC; the legacy program passes `C:\Program Files\Andor SOLIS\SPECTROG.INI`, the first path 3.0 tries;
+    * pylablib, which is not installed in the project environment and is a pip package, not part of the legacy folder.
+* **Driver choice (researcher, 2026-09-28; R4-E).** The project keeps **its own ctypes drivers** for the camera and the Shamrock (option A of `pyspectrum_A_ronda4/ANALISIS_pylablib_vs_DLL.md`).
+  * **pylablib is the behavioural reference**, bench-proven through the legacy program in Image mode.
+  * **BANCO-55** compares the same frames taken with pylablib (legacy) and with 3.0.
+  * **Reinforcement:** `argtypes` declared for every camera function (below).
+* **Camera `argtypes`** (the reinforcement of R4-E).
+  * `andor_ccd_driver._ANDOR_ARGTYPES` declares the SDK2 v2.104 prototype of each of the 32 functions the driver calls, with `restype = c_uint`, when the real DLL loads.
+  * `tests/test_andor_argtypes.py` builds a fake DLL whose functions are ctypes pointers with exactly those prototypes, and requires that **every call reach the DLL**.
+    * A first version only checked that no exception was raised, and it passed wrongly. `get_most_recent_image` catches any exception, including ctypes' `ArgumentError`, and returns zeros.
+    * The stricter test found four calls passing the array size as `c_long` where the SDK declares `unsigned long`, and they were fixed.
+  * **Why it matters:** declaring the types without that fix would have left Live showing zeros on the bench with no warning. The broad `except` clauses that turn errors into zeros are still there; they are replaced when the routines adopt `single_exposure`.
+* **Test-suite exit crash, mitigated in the test layer** (`tests/conftest.py`).
+  * **Symptom:** from the 1081-test run on, every full run ended with "Windows fatal exception: access violation" after printing its summary, with all tests passing (exit code 139).
+    * `faulthandler` shows the main thread with no Python frame, while Qt destroys the thousands of top-level widgets the tests leak (DEC-039). The only other live thread was the shutter watchdog.
+    * Each test file exits cleanly on its own.
+  * **Mitigation:** at the end of the pytest session, stop the watchdog and terminate the process with pytest's own exit status, skipping that native teardown.
+    * On Windows this uses `TerminateProcess`. `os._exit` alone was not enough: it still delivers `DLL_PROCESS_DETACH`, and Qt, with its application alive, aborted there (`0x80000003`, exit code 3).
+    * Verified to keep exit status 0 on a pass and 1 on a failure. It runs after pytest has computed and printed the result.
+    * `PYPRINTING_TEST_NORMAL_EXIT=1` restores the normal exit, to keep investigating.
+    * It also skips the `atexit` handlers of the process. In the tests these are the mock `close_all_shutters()` + `up_flipper()` (ND filter to low power) and the Canon cleanup.
+  * **Not changed:** the leak itself. Fixing it is still the pending test-infrastructure task, and production has a single window.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

@@ -200,6 +200,53 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         "o anotándola en el trailer Fuentes-verificadas del commit (CLAUDE.md §9).")
 
 
+# ------------------------------------------------------------------------------
+# Cierre del proceso de la suite: sin la destrucción nativa de las ventanas que quedan vivas
+# ------------------------------------------------------------------------------
+# Los tests dejan miles de ventanas de nivel superior vivas (fuga registrada en DEC-039, arreglo de
+# fondo pendiente en la capa de tests). Desde el 2026-09-28 la suite completa terminaba, después de
+# imprimir "N passed", con "Windows fatal exception: access violation" en el hilo principal sin
+# ningún frame de Python (faulthandler), mientras Qt destruía esas ventanas al finalizar el
+# intérprete; el único otro hilo vivo era el watchdog de obturadores. Cada archivo de test corre
+# limpio por separado. Mitigación: al final de la sesión se detiene el watchdog y se termina el
+# proceso con `os._exit`, con el código de salida real de pytest, para saltear esa destrucción. No
+# cambia producción (una sola ventana, que se cierra normalmente) y no oculta fallas de los tests:
+# se aplica después de que pytest calculó el resultado e imprimió el resumen.
+_SESSION_EXIT_STATUS: list = []
+
+
+def pytest_sessionfinish(session, exitstatus):
+    _SESSION_EXIT_STATUS.append(int(exitstatus))
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    if not _SESSION_EXIT_STATUS or os.environ.get("PYPRINTING_TEST_NORMAL_EXIT") == "1":
+        return
+    try:
+        from core import nidaq
+        nidaq._watchdog_active = False
+        nidaq._watchdog_thread.join(timeout=1.0)
+    except Exception:
+        pass
+    sys.stdout.flush()
+    sys.stderr.flush()
+    code = _SESSION_EXIT_STATUS[-1]
+    if sys.platform == "win32":
+        # `os._exit` todavía notifica a cada DLL cargada (DLL_PROCESS_DETACH), y Qt, con su aplicación
+        # viva, abortaba ahí (0x80000003, código 3). TerminateProcess termina sin esas notificaciones.
+        # Los tipos se declaran: sin ellos ctypes pasa el HANDLE de 64 bits como un int de 32 y la
+        # llamada falla en silencio.
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.TerminateProcess.argtypes = (wintypes.HANDLE, wintypes.UINT)
+        kernel32.TerminateProcess.restype = wintypes.BOOL
+        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code)
+    os._exit(code)
+
+
 @pytest.fixture(scope="session")
 def app():
     """QApplication compartida para toda la sesión de pytest. Requerida por

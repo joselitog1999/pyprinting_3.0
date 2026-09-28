@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import sys
 import time
-from ctypes import c_int, c_long, c_float, byref, create_string_buffer, windll
+from ctypes import POINTER, c_char_p, c_int, c_long, c_uint, c_ulong, c_float, byref, create_string_buffer, windll
 from pathlib import Path
 import threading
 from typing import Tuple, Optional
@@ -24,6 +24,13 @@ DRV_TEMP_STABILIZED = 20036
 DRV_TEMP_NOT_REACHED = 20037
 DRV_TEMP_DRIFT = 20040
 DRV_TEMP_NOT_STABILIZED = 20035
+# Códigos del paso 6 (DEC-040). Se toman de la tabla del legado (`scratch/pyspectrum-legacy/ccd_ps.py`),
+# que funcionó en el banco y coincide con las constantes de arriba. La tabla de la sección 12 del SDK
+# v2.104 extraída del PDF está desalineada una fila (pone DRV_ACQUIRING = 20073 y DRV_IDLE = 20075).
+DRV_NO_NEW_DATA = 20024      # sin datos nuevos todavía ("No acquisition has taken place")
+DRV_P1INVALID = 20066
+DRV_P2INVALID = 20067        # en GetAcquiredData: tamaño de arreglo incorrecto
+ACQ_MODE_SINGLE_SCAN = 1     # SetAcquisitionMode (SDK p. 305)
 
 # Modos de adquisición
 ACQ_MODE_SINGLE = 1
@@ -68,6 +75,56 @@ PREAMP_GAINS_MOCK = [1.0, 2.0, 4.3]
 HSSPEEDS_MHZ_MOCK = [5.0, 3.0, 1.0]
 
 
+# Prototipos del SDK2 v2.104 (docs/bibliografia/Software Development Kit.pdf) para cada función que
+# el driver llama. Con `argtypes` declarados, un argumento de otro tipo o una cantidad distinta da un
+# error de Python en vez de que la DLL lea o escriba memoria arbitraria (R4-E, DEC-040). `at_32*` es
+# un entero de 32 bits: `c_long` en Windows. tests/test_andor_argtypes.py verifica la tabla.
+_ANDOR_ARGTYPES = {
+    "AbortAcquisition": (),
+    "CoolerOFF": (),
+    "CoolerON": (),
+    "GetAcquiredData": (POINTER(c_long), c_ulong),
+    "GetAcquisitionTimings": (POINTER(c_float), POINTER(c_float), POINTER(c_float)),
+    "GetEMCCDGain": (POINTER(c_int),),
+    "GetHSSpeed": (c_int, c_int, c_int, POINTER(c_float)),
+    "GetMostRecentImage": (POINTER(c_long), c_ulong),
+    "GetNumberHSSpeeds": (c_int, c_int, POINTER(c_int)),
+    "GetNumberPreAmpGains": (POINTER(c_int),),
+    "GetPreAmpGain": (c_int, POINTER(c_float)),
+    "GetStatus": (POINTER(c_int),),
+    "GetTemperature": (POINTER(c_int),),
+    "GetTotalNumberImagesAcquired": (POINTER(c_long),),
+    "Initialize": (c_char_p,),
+    "SetAcquisitionMode": (c_int,),
+    "SetCoolerMode": (c_int,),
+    "SetEMCCDGain": (c_int,),
+    "SetExposureTime": (c_float,),
+    "SetHSSpeed": (c_int, c_int),
+    "SetImage": (c_int, c_int, c_int, c_int, c_int, c_int),
+    "SetMultiTrack": (c_int, c_int, c_int, POINTER(c_int), POINTER(c_int)),
+    "SetOutputAmplifier": (c_int,),
+    "SetPreAmpGain": (c_int,),
+    "SetRandomTracks": (c_int, POINTER(c_int)),
+    "SetReadMode": (c_int,),
+    "SetShutter": (c_int, c_int, c_int, c_int),
+    "SetSingleTrack": (c_int, c_int),
+    "SetTemperature": (c_int,),
+    "ShutDown": (),
+    "StartAcquisition": (),
+    "WaitForAcquisitionTimeOut": (c_int,),
+}
+
+
+def _declare_argtypes(dll) -> None:
+    for name, argtypes in _ANDOR_ARGTYPES.items():
+        try:
+            fn = getattr(dll, name)
+            fn.argtypes = list(argtypes)
+            fn.restype = c_uint
+        except AttributeError:
+            print(f"[Andor CCD] La DLL no exporta {name}.")
+
+
 class DeviceUnavailable(RuntimeError):
     """La cámara no está conectada: ninguna lectura puede devolver datos (DEC-040, DEC-036).
 
@@ -105,6 +162,14 @@ class _MockAndorCCD:
         self._random_track_areas: list = []
         self._image_vstart: int = 1
         self._image_vend: int = 1002
+        # Paso 6 (DEC-040): estado de una adquisición de un solo cuadro. `_acq_mode` arranca en
+        # "run till abort" (5) para no cambiar lo que ya usan el Live y las rutinas viejas; sólo en
+        # modo 1 (single scan) la adquisición termina sola al cumplirse la exposición, como el SDK.
+        self._acq_mode = 5
+        self._acq_started_at = 0.0
+        self._images_acquired = 0
+        self._last_read_index = 0
+        self._event_pending = False
         print("[Andor CCD SIM] Cámara Andor virtual inicializada (1004x1002, iXon3 EMCCD DU8285).")
 
     def is_hardware_alive(self) -> bool:
@@ -284,11 +349,67 @@ class _MockAndorCCD:
 
     def start_acquisition(self) -> int:
         self._acquiring = True
+        self._acq_started_at = time.monotonic()
+        self._event_pending = False
         return DRV_SUCCESS
 
     def abort_acquisition(self) -> int:
         self._acquiring = False
         return DRV_SUCCESS
+
+    # ── Primitivas del paso 6 (single scan) ──────────────────────────────────
+    def _advance(self) -> None:
+        if (self._acquiring and self._acq_mode == ACQ_MODE_SINGLE_SCAN
+                and time.monotonic() - self._acq_started_at >= self._exposure_time):
+            self._acquiring = False
+            self._images_acquired += 1
+            self._event_pending = True
+
+    def set_acquisition_mode(self, mode: int) -> int:
+        with self._lock:
+            if self._acquiring:
+                return DRV_ACQUIRING
+            self._acq_mode = int(mode)
+            return DRV_SUCCESS
+
+    def get_status_checked(self) -> Tuple[int, int]:
+        self._advance()
+        return (DRV_SUCCESS, DRV_ACQUIRING if self._acquiring else DRV_IDLE)
+
+    def wait_for_acquisition_timeout(self, timeout_ms: int) -> int:
+        self._advance()
+        if self._event_pending:
+            self._event_pending = False
+            return DRV_SUCCESS
+        if not self._acquiring:
+            return DRV_NO_NEW_DATA
+        remaining = self._acq_started_at + self._exposure_time - time.monotonic()
+        time.sleep(max(0.0, min(timeout_ms / 1000.0, remaining)))
+        self._advance()
+        if self._event_pending:
+            self._event_pending = False
+            return DRV_SUCCESS
+        return DRV_NO_NEW_DATA
+
+    def get_acquisition_timings(self) -> Tuple[int, float, float, float]:
+        e = float(self._exposure_time)
+        return (DRV_SUCCESS, e, e, e)
+
+    def get_total_number_images_acquired(self) -> Tuple[int, int]:
+        self._advance()
+        return (DRV_SUCCESS, int(self._images_acquired))
+
+    def get_acquired_data_checked(self, n_pixels: int) -> Tuple[int, Optional[np.ndarray]]:
+        self._advance()
+        if self._acquiring:
+            return (DRV_ACQUIRING, None)
+        if self._images_acquired == self._last_read_index:
+            return (DRV_NO_NEW_DATA, None)
+        data = np.asarray(self.get_acquired_data(), dtype=np.float64).ravel()
+        if data.size != int(n_pixels):
+            return (DRV_P2INVALID, None)
+        self._last_read_index = self._images_acquired
+        return (DRV_SUCCESS, data)
 
     def get_most_recent_image(self) -> np.ndarray:
         """Genera un cuadro sintético realista (ruido + ranura + resonancia plasmónica)."""
@@ -405,6 +526,7 @@ class AndorCCDDriver:
         try:
             os.environ["PATH"] = str(dll_path.parent) + os.pathsep + os.environ.get("PATH", "")
             self._dll = windll.LoadLibrary(str(dll_path))
+            _declare_argtypes(self._dll)
             print(f"[Andor CCD] DLL cargada exitosamente: {dll_path}")
         except Exception as e:
             self.unavailable_reason = f"No se pudo cargar atmcd64d.dll ({e})."
@@ -552,7 +674,7 @@ class AndorCCDDriver:
         try:
             n_pixels = width * height
             arr = (c_long * n_pixels)()
-            ret = self._dll.GetMostRecentImage(arr, c_long(n_pixels))
+            ret = self._dll.GetMostRecentImage(arr, c_ulong(n_pixels))
             if ret == DRV_SUCCESS:
                 img = np.array(arr[:], dtype=np.float32).reshape((height, width))
                 return img
@@ -610,11 +732,11 @@ class AndorCCDDriver:
         self._require_connected()
         try:
             arr = (c_long * width)()
-            ret = self._dll.GetMostRecentImage(arr, c_long(width))
+            ret = self._dll.GetMostRecentImage(arr, c_ulong(width))
             if ret == DRV_SUCCESS:
                 return np.array(arr[:], dtype=np.float32)
             # Respaldo con GetAcquiredData
-            ret2 = self._dll.GetAcquiredData(arr, c_long(width))
+            ret2 = self._dll.GetAcquiredData(arr, c_ulong(width))
             if ret2 == DRV_SUCCESS:
                 return np.array(arr[:], dtype=np.float32)
             return np.zeros(width, dtype=np.float32)
@@ -626,6 +748,63 @@ class AndorCCDDriver:
         if self._read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
             return self.get_1d_spectrum(width)
         return self.get_most_recent_image(width, height)
+
+    # ── Primitivas del paso 6 (DEC-040): cada una devuelve el código crudo del SDK ──
+    def set_acquisition_mode(self, mode: int) -> int:
+        """SetAcquisitionMode(int) — 1 = single scan (SDK p. 305)."""
+        if not self.available:
+            return DRV_NOT_INITIALIZED
+        with self._lock:
+            return self._dll.SetAcquisitionMode(c_int(int(mode)))
+
+    def get_status_checked(self) -> Tuple[int, int]:
+        """GetStatus(int*) con el código crudo. `get_status()` traduce una falla en DRV_IDLE, que
+        haría creer que la cámara terminó; la adquisición de un cuadro usa esta versión."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, DRV_NOT_INITIALIZED)
+        with self._lock:
+            c_status = c_int()
+            ret = self._dll.GetStatus(byref(c_status))
+            return (ret, c_status.value)
+
+    def wait_for_acquisition_timeout(self, timeout_ms: int) -> int:
+        """WaitForAcquisitionTimeOut(int ms). **No toma el lock del driver**: si lo retuviera, el
+        sondeo de temperatura y el AbortAcquisition de Stop desde otro hilo quedarían bloqueados
+        hasta el fin del tramo (Ronda 2, instrumentation §5.2)."""
+        if not self.available:
+            return DRV_NOT_INITIALIZED
+        return self._dll.WaitForAcquisitionTimeOut(c_int(int(timeout_ms)))
+
+    def get_acquisition_timings(self) -> Tuple[int, float, float, float]:
+        """GetAcquisitionTimings(float* exposure, float* accumulate, float* kinetic)."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, float("nan"), float("nan"), float("nan"))
+        with self._lock:
+            e, a, k = c_float(), c_float(), c_float()
+            ret = self._dll.GetAcquisitionTimings(byref(e), byref(a), byref(k))
+            return (ret, float(e.value), float(a.value), float(k.value))
+
+    def get_total_number_images_acquired(self) -> Tuple[int, int]:
+        """GetTotalNumberImagesAcquired(long*): contador de cuadros del SDK."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, -1)
+        with self._lock:
+            n = c_long()
+            ret = self._dll.GetTotalNumberImagesAcquired(byref(n))
+            return (ret, int(n.value))
+
+    def get_acquired_data_checked(self, n_pixels: int) -> Tuple[int, Optional[np.ndarray]]:
+        """GetAcquiredData(at_32*, unsigned long) con el tamaño exacto. Sólo DRV_SUCCESS devuelve
+        datos: cualquier otro código devuelve None, nunca un arreglo de ceros."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, None)
+        with self._lock:
+            n = int(n_pixels)
+            arr = (c_long * n)()
+            ret = self._dll.GetAcquiredData(arr, c_ulong(n))
+            if ret != DRV_SUCCESS:
+                return (ret, None)
+            return (ret, np.array(arr[:], dtype=np.float64))
 
     def get_status(self) -> int:
         """Consulta el estado de adquisición (DRV_IDLE / DRV_ACQUIRING) del driver."""
@@ -732,7 +911,8 @@ class AndorCCDDriver:
             for (y0, y1) in areas:
                 flat.extend([int(y0), int(y1)])
             arr = (c_int * len(flat))(*flat)
-            return self._dll.SetRandomTrack(c_int(len(areas)), arr)
+            # SetRandomTracks (plural): es el nombre que exporta la DLL (SDK p. 311); SetRandomTrack no existe.
+            return self._dll.SetRandomTracks(c_int(len(areas)), arr)
         except Exception as e:
             print(f"[Andor CCD] Error SetRandomTrack: {e}")
             return DRV_NOT_INITIALIZED
@@ -744,7 +924,7 @@ class AndorCCDDriver:
         try:
             n_pixels = n_tracks * width
             arr = (c_long * n_pixels)()
-            ret = self._dll.GetAcquiredData(arr, c_long(n_pixels))
+            ret = self._dll.GetAcquiredData(arr, c_ulong(n_pixels))
             if ret == DRV_SUCCESS:
                 return np.array(arr[:], dtype=np.float32).reshape((n_tracks, width))
             return np.zeros((n_tracks, width), dtype=np.float32)

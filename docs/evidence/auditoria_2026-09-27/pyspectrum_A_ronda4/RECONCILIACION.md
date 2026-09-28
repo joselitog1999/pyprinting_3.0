@@ -69,7 +69,7 @@ Actualizado para bajar primero el riesgo del primer arranque:
    - sin topes de offset (D-07c).
 
    Es el paso que hoy impide abrir PySpectrum 3.0 contra el equipo.
-3. **Paso 6: `single_exposure`.** Nunca ceros; espera en tramos.
+3. ✅ **Paso 6: `single_exposure`** (hecho, DEC-040). Nunca ceros; espera en tramos.
 4. **Paso 4:** `DeviceRegistry`; el tablero deja de reiniciar.
 5. **Paso 8:** estado base y servicio de estado (D-12 a D-15).
 6. **Paso 7:** orden cero (D-06, D-07a, D-08, D-18).

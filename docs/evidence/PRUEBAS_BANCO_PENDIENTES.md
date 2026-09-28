@@ -90,6 +90,7 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-52 | Línea contra ancho de ranura | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
 | BANCO-53 | Uniones de Step & Glue con la lámpara | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
 | BANCO-54 | Tiempo de reenfriado del iXon3 a −60 °C después de "Reconectar cámara" | PySpectrum bloque A (Ronda 3, qa-ux) | Sin láser; tapa puesta | ☐ |
+| BANCO-55 | Driver propio de la cámara contra pylablib, la referencia probada en el banco (R4-E) | PySpectrum bloque A (DEC-040) | Solis cerrado, sin láser, tapa puesta | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -586,10 +587,36 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 **Ampliaciones de ítems existentes:**
 - **BANCO-09:** agregar `ShamrockShutterIsPresent`, y averiguar si el `SetShutter` de la cámara también mueve el obturador del espectrógrafo. El legado dice "abre shutter camera y shamrock".
 - **BANCO-22:** la λ nominal del láser de 532 y su tolerancia.
-- **BANCO-23:** las versiones de `atmcd64d.dll`, `ShamrockCIF.dll` y `atshamrock.dll`, y la de pylablib si está instalado.
+- **BANCO-23:**
+  - las versiones de `atmcd64d.dll`, `ShamrockCIF.dll` y `atshamrock.dll`, y la de pylablib si está instalado;
+  - que exista `C:\Program Files\Andor SOLIS\SPECTROG.INI`, que usan el legado y 3.0 para inicializar el Shamrock.
+  - Las DLL del repo son 2.104.33065.0 (cámara) y 2.103.30023.0 (Shamrock), idénticas a las de la carpeta del legado (DEC-040). Si las del banco difieren, avisar.
 - **Resultado:** —
 
 ---
+
+### ☐ BANCO-55 — Driver propio de la cámara contra pylablib
+- **Verifica:** que el driver propio de 3.0 (`andor_ccd_driver.py` + `single_exposure`) se comporta como pylablib, que es la referencia probada en el banco porque el legado la usa (R4-E, `pyspectrum_A_ronda4/ANALISIS_pylablib_vs_DLL.md`).
+- **Requisitos:**
+  - Solis cerrado, láseres cerrados, tapa puesta;
+  - BANCO-25 hecho;
+  - PySpectrum 3.0 en condiciones de abrirse contra el equipo (pasos del bloque A).
+- **Procedimiento:**
+  1. **Con el legado abierto:** anotar la versión de pylablib (`pylablib.__version__`, BANCO-23). Desde su consola, con la cámara ya conectada:
+     - leer `get_fan_mode()`, `get_vsspeed()`, `get_amp_mode()`, `get_EMCCD_gain()`, `get_temperature()` y `get_read_mode()`;
+     - tomar 10 cuadros de 0.1 s en modo Image con ganancia 0, con `snap()` o con `start_acquisition` / `wait_for_frame` / `read_oldest_image`;
+     - guardar los cuadros y anotar el tiempo por cuadro.
+  2. **Cerrar el legado** y abrir PySpectrum 3.0. Tomar los mismos 10 cuadros con `single_exposure`: Image (1002 × 1004), 0.1 s, ganancia 0, la misma velocidad vertical y el mismo amplificador. Repetir en FVB (1004).
+  3. **Comparar:**
+     - tamaño y orientación del cuadro;
+     - nivel de bias (mediana);
+     - ruido de lectura (desviación entre cuadros consecutivos);
+     - exposición real (`GetAcquisitionTimings`);
+     - que dos cuadros consecutivos nunca sean idénticos;
+     - tiempo por cuadro.
+- **Aceptación:** mismo tamaño y orientación; bias y ruido que coincidan dentro de la dispersión entre cuadros; exposición real igual; ningún cuadro repetido ni de ceros.
+- **Si falla:** anotar la diferencia. Si no se sabe corregir en el driver propio, se evalúa pasar la cámara a pylablib (opción C del análisis) con esa diferencia ya identificada.
+- **Resultado:** fecha — / versión de pylablib — / valores —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación
 - **Procedimiento**: una grilla de 5×5 con campo oscuro grabando, con un control sin coloide.

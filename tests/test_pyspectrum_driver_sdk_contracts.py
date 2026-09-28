@@ -158,3 +158,23 @@ def test_flipper_uses_flipper_mirror_functions(connected_shamrock):
     assert connected_shamrock.ShamrockSetFlipper(shamrock_mod.DEVICE, 2, 1) == shamrock_mod.SHAMROCK_SUCCESS
     names = [c[0] for c in connected_shamrock._dll.calls]
     assert names == ["ShamrockGetFlipperMirror", "ShamrockSetFlipperMirror"]
+
+
+def test_random_track_uses_the_exported_sdk_name(monkeypatch):
+    """La DLL del banco (atmcd64d.dll 2.104.33065.0, la misma copia que el legado) exporta
+    `SetRandomTracks`, en plural (SDK p. 311); `SetRandomTrack` no existe, así que Random-Track
+    nunca llegaba a la cámara (verificado leyendo la tabla de exportaciones de la DLL)."""
+    class _Dll:
+        def __init__(self):
+            self.calls = []
+
+        def SetRandomTracks(self, n, areas):
+            self.calls.append(("SetRandomTracks", n.value, list(areas)))
+            return andor_mod.DRV_SUCCESS
+
+    monkeypatch.setattr(andor_mod.AndorCCDDriver, "_init_dll", lambda self: None)
+    cam = andor_mod.AndorCCDDriver()
+    cam._dll = _Dll()
+    cam._connected = True
+    assert cam.set_random_track([(10, 20), (40, 60)]) == andor_mod.DRV_SUCCESS
+    assert cam._dll.calls == [("SetRandomTracks", 2, [10, 20, 40, 60])]
