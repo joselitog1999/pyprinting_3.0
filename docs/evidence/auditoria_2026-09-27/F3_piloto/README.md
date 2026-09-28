@@ -1,7 +1,6 @@
 # Piloto del verificador de procedencia (`provenance-verifier`) — materiales
 
-**Estado:** materiales listos, piloto **sin ejecutar** (2026-09-27). Se corre en otra sesión: el
-agente nuevo recién está disponible cuando se recargan los agentes.
+**Estado:** piloto **ejecutado** el 2026-09-28. El investigador adjudicó el 2026-09-28 y la adopción se **rechazó** (M2 y M3); ver `resultados/README.md`. La v2 queda pendiente. Los materiales se prepararon el 2026-09-27.
 **Diseño:** `../F3_verificador_ronda2.md` §7. **Decisión:** `DEC-038` en `docs/decisions/DECISION_LOG.md`.
 **Respuestas que rigen el piloto** (`../RESPUESTAS_INVESTIGADOR.md`, "R3 — Ronda 2 del verificador"):
 - el piloto corre con **el mismo modelo que usa el asistente principal** (7); el archivo del agente

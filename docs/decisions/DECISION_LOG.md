@@ -513,6 +513,47 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Future improvement, recorded (researcher answer 6)**: a `pre-commit` hook that runs only `python tools/source_marks.py scan --cached` (plus `--code` for `.py`), prints the triage and **always exits 0**; no agent, no network. Not installed now; a reasonable trigger is the pilot adopting the agent and stage 1 of the design measuring detector noise below 10 %.
 * **Still open, recorded**: (1) **the pilot** (§7 of the design; protocol in `F3_piloto/README.md`), in a new session after agents reload, with the same model as the main assistant, disagreements adjudicated by the researcher; (2) after the pilot, the one-line invocations in `scientific-documentation` (Step 4), `knowledge-integrator` (Step 2) and `deliberative-implementation` (Round 4 close), and the reciprocal boundaries in `scientific-reviewer` and `literature-crosscheck`; if the pilot fails M1 or M3, the agent, its §6 row and the §9 bullet are withdrawn and the module and tests stay; (3) the "R3 — C-01" and "R3 — Ronda 2 del verificador" blocks of `RESPUESTAS_INVESTIGADOR.md` have no citable point IDs yet; (4) percentages are outside the detector (§5.2 of the design).
 * **Outcome**: **ACCEPTED** as implementation, stage 0 (zero adhered documents). **Adoption of the agent pending the pilot.**
+* **Pilot run (2026-09-28, commit `14c0ea7`)** — full record in `docs/evidence/auditoria_2026-09-27/F3_piloto/resultados/README.md`.
+  * **Setup**
+    * The agent did not register at first. The `description:` of `provenance-verifier.md` (and of `agent-trainer.md`) contained `: `, a YAML mapping indicator, so the frontmatter was not valid YAML. Replacing it with ` — ` fixed both files; the change was staged, not committed, during the pilot, and it does not alter behaviour.
+    * The M10 baseline hash therefore includes those two staged files. It was identical before, after every run and at the end.
+    * The Paso 3 worktree went to a short path outside the repository, because the scratchpad path exceeds Windows MAX_PATH. The patch applied cleanly on `HEAD`.
+  * **Incidents**
+    * Every run hit the session limit and was resumed in its own context.
+    * CAT-207 runs A and B shared one scratchpad file and merged each other's rows (an orchestration error), so they are **invalid for M8**. Two isolated runs, C and D, replaced them; each had its own file and its `grep` excluded `docs/evidence/`.
+    * CAT-308 and Paso 3 ran unfiltered `git grep` commands whose output showed lines from forbidden paths. For Paso 3 this included its own answer key. Both agents declared it, and their verdicts rest on their own sources. Whether this invalidates those runs is for the researcher to adjudicate (A-7).
+  * **Provisional metrics** (against the audit, pending adjudication)
+    * **Pass**:
+      * M1 = 0 (`check-report` clean; 10/10 RESPALDADO rows sampled by hand resolve);
+      * M4 = 59/69 (85.5 %);
+      * M6 passes;
+      * M8 = 25/27 (92.6 %, C vs D);
+      * M10 identical;
+      * Paso 3 = 13/13, with no M1 or M3 case and all three CRÍTICA claims found;
+      * SYS-202 and CAT-207 (C and D) pass M2 and M3.
+    * **Fail, both in CAT-308**: M2 misses 4 of its 4 CRÍTICA/ALTA rows (308-01 CRÍTICA and 308-02/03 as DERIVADO or RESPALDADO, 308-04 not extracted), and M3 has 3 cases in CRÍTICA/ALTA (8 of 69 overall = 11.6 %).
+    * M9: 170–250k tokens and 13–22 min per document.
+  * **Cause (prompt-attributable)**:
+    * DERIVADO was given for algebra redone from the document's own premises, although §4 requires backed inputs (CAT-308 cites no external source);
+    * the order of sources was not followed, and `lab-invariants` and `RESPUESTAS_INVESTIGADOR` were never opened (R2-17 already settled 308-01);
+    * physics claims with no figure, citation or status were not extracted (Friedel's law).
+    * Minor: on compound claims the true part is verified and the contradicted detail is missed (202-14, 202-15, 202-17).
+  * **Adjudications (researcher, 2026-09-28; all recommendations accepted)**
+    * A-1: 308-01, 308-02 and 308-03 are CONTRADICHO. The M3 failure stands. 308-03 was also checked against the code: the Monte Carlo divides by `N_occ` (`core/lattice_disorder.py:5330`, `:5603`), and the experiment by the detected particles (`:96`).
+    * A-2: Friedel's law holds, I(G) = I(−G); 308-04 is CONTRADICHO and its omission counts for M2.
+    * A-3: C207-03 counts as a hit; the v2 must name the SERS asymmetry factor.
+    * A-4: C207-02 counts as a hit; its MEDIA severity is too low (a formula already in code with a measurable systematic error).
+    * A-5: 202-10 counts as a hit, but rule 14 was not applied: a severity problem for the v2.
+    * A-6: diff n.º 9 counts as a hit; the v2 must give one verdict per claim as written.
+    * A-7: a leak through grep output counts as exposure, and it invalidates only results that could have benefited from it. The CAT-308 failures, in rows the agent did not see, stand. The Paso 3 13/13 is not reliable, and that step is repeated with filtered grep in the v2 pilot.
+    * A-8: 202-14, 202-15 and 202-17 count toward the 5 % (8/69 = 11.6 %).
+  * **Adoption: REJECTED (2026-09-28).** M2 and M3 fail, applying §7 of the protocol.
+    * Withdrawn: the agent, its `CLAUDE.md` §6 row and the §9 bullet. The prompt is archived, not deleted, as `F3_piloto/provenance-verifier_v1_retirado.md`, with the YAML fix included. §9 keeps one bullet on the `test_source_marks.py` gate.
+    * Kept: `tools/source_marks.py` and its tests. Their mentions of `provenance-verifier` refer to the name the v2 will take.
+    * Trailer: none is required any more.
+  * **v2: PENDING**, deferred by the researcher, who put PySpectrum bench readiness first.
+    * `agent-trainer` fixes the three prompt-attributable causes above: DERIVADO only from backed inputs, the mandatory order of consultation, and extraction of physics claims with no figure. It also addresses the minor patterns: severity calibration (rule 14), splitting compound claims, and one verdict per claim.
+    * The v2 is piloted again on documents it has not seen (for example CAT-110, lot L4), with Paso 3 repeated using path-filtered grep.
 
 ### DEC-039: Phase 5 Exempt Fixes — SIF Analyzer Pitch (C-16), LineScan Step & Glue Planner (C-22), Counter-Propagating Gauss/Donut Centering (C-21), CSV Delimiters in the Raman Parser (C-48)
 * **Context**: phase 5 of `docs/evidence/auditoria_2026-09-27/PLAN_CORRECCIONES.md`. These are bug fixes that start from a failing test, which `CLAUDE.md` §5.0 exempts from the round protocol. C-16 and C-22 are also pending phases of the design approved in `DEC-033`. Each test was written first and run against the unmodified code (negative control); only then was the code changed.
