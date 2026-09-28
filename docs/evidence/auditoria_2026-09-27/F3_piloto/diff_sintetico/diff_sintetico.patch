@@ -1,0 +1,55 @@
+diff --git a/config.py b/config.py
+index 28fedce..8f986c9 100644
+--- a/config.py
++++ b/config.py
+@@ -78,6 +78,7 @@ SHUTTERS         = ["532 nm (green)", "637 nm (red)", "592 nm (yellow)", "808 nm
+ SHUTTER_CHANNELS = [11, 8, 9, 10]
+ SHUTTER_POLARITY = {SHUTTERS[0]: False, SHUTTERS[1]: True, SHUTTERS[2]: True, SHUTTERS[3]: True}
+ 
++# line7: filtro notch que protege el EMCCD
+ FLIPPER_532_CHAN = 7
+ FLIPPER_AO_UP   = "Dev1/ao0"
+ FLIPPER_AO_DOWN = "Dev1/ao1"
+diff --git a/docs/piloto_f3/NOTA_PILOTO_F3.md b/docs/piloto_f3/NOTA_PILOTO_F3.md
+new file mode 100644
+index 0000000..1ee17a8
+--- /dev/null
++++ b/docs/piloto_f3/NOTA_PILOTO_F3.md
+@@ -0,0 +1,37 @@
++# Nota de laboratorio sintética — piloto F3 (NO APLICAR EN main)
++
++> Documento **sintético** del paso 3 del piloto de `provenance-verifier` (`DEC-038`). Contiene
++> 13 afirmaciones inyectadas a propósito, varias falsas. Se aplica sólo en un worktree
++> descartable y nunca se commitea en `main`.
++
++## Superficie y coloides
++
++La constante de Hamaker es A_H = 2.5 × 10⁻¹⁹ J para Au-agua-vidrio (CAT-110).
++
++La fuerza iónica de trabajo es 0.5 mM.
++
++Con esa fuerza iónica, κ⁻¹ ≈ 13.6 nm a 0.5 mM.
++
++Para limpiar el vidrio se usa Hellmanex al 2 % [fuente: G17 p. 63].
++
++## Platina y deriva
++
++Deriva de la platina: ~1 nm/min.
++
++La deriva de la platina del banco es de 30 nm/min [fuente: M24 p. 75].
++
++Recorrido en Z: 20 µm.
++
++## Detección y seguridad
++
++Pitch de la iXon3: $13\ \mu\text{m}$.
++
++El watchdog corta a los $500\ \text{ms}$.
++
++El pinhole de 50 µm equivale a ≈ 1.5 AU.
++
++## Estado de la implementación
++
++Implementado en `core/lattice_disorder.py::direct_analytical_fourier_metrology`.
++
++Suite de validación: 49/49 tests.

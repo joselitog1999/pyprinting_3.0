@@ -93,10 +93,19 @@ Never freeze the main GUI thread during heavy numerical operations (Monte Carlo 
 1. **Use `QThread` with Worker Pattern**:
    Do NOT subclass `QThread.run()` with complex business logic; instantiate a worker object inheriting `QObject`, move it to the thread via `worker.moveToThread(thread)`, and communicate exclusively via `pyqtSignal`.
 2. **Defensive Signal Disconnection**:
-   Before launching a new run on an existing worker thread, disconnect old callbacks or recreate the worker to prevent duplicate signal dispatches:
+   Before launching a new run, make sure the previous one has finished, then recreate the worker (or disconnect its old callbacks) to prevent duplicate signal dispatches. Ask the `QThread`, not the worker: a `QObject` worker has no `isRunning()`. Never call `QThread.wait()` from the GUI thread — it freezes the interface, E-STOP included, for as long as the old run takes:
    ```python
-   if self._worker is not None and self._worker.isRunning():
-       self._worker.wait()
+   if self._thread is not None and self._thread.isRunning():
+       self.statusBar().showMessage("Ya hay un cálculo en curso")   # or request a cooperative stop and relaunch on `finished`
+       return
+   self._worker = FitWorker(payload)                 # fresh worker: no stale connections
+   self._thread = QThread(self)
+   self._worker.moveToThread(self._thread)
+   self._thread.started.connect(self._worker.run)
+   self._worker.finished.connect(self._thread.quit)
+   self._worker.finished.connect(self._worker.deleteLater)
+   self._thread.finished.connect(self._thread.deleteLater)
+   self._thread.start()
    ```
 3. **GUI Updates on Main Thread Only**:
    Worker threads must NEVER modify PyQt6 widgets directly. Emit signals carrying plain NumPy arrays, dictionaries, or dataclasses.
@@ -106,7 +115,7 @@ Never freeze the main GUI thread during heavy numerical operations (Monte Carlo 
 ## 5. Library Pitfalls & Coordinate Conventions
 
 ### PyQtGraph vs NumPy Axis Convention
-* **NumPy arrays** are indexed as `array[row, col]` $	o$ `array[y, x]`.
+* **NumPy arrays** are indexed as `array[row, col]` $\to$ `array[y, x]`.
 * **PyQtGraph `ImageItem`** expects data transposed or indexed as `[x, y]` depending on `axisOrder`:
   - Always be explicit: `pg.setConfigOption('imageAxisOrder', 'col-major')` or transpose before passing: `image_item.setImage(data.T)`.
   - Contours and polygon coordinates must match physical space ($x$ horizontal in nm, $y$ vertical in nm).
@@ -122,7 +131,7 @@ Never freeze the main GUI thread during heavy numerical operations (Monte Carlo 
 ## 6. Scientific Pedagogy & Contextual Help
 
 Every scientific panel must include pedagogical affordances:
-1. **Rich Tooltips**: Explain physical SI units, formulas, and typical experimental values (e.g., $\sigma_{	ext{psf}} pprox 139\ 	ext{nm}$ for 60x/1.2W objective at $\lambda = 532\ 	ext{nm}$).
+1. **Rich Tooltips**: Explain physical SI units, formulas, and typical experimental values with their source (e.g., $\sigma_{\text{psf}} \approx 139\ \text{nm}$ for the 60x/1.0 W objective at $\lambda = 532\ \text{nm}$: $w_0/2$ with the waist $w_0 = 278\ \text{nm}$ measured in [M24] p. 129, CIBION — `.claude/shared/lab-invariants.md` §8). Take the value from that table; the objective's NA is 1.0, not 1.2.
 2. **Deep-Linked Help**: Provide a `[📖 Help]` or `[❓ Ayuda]` button opening `analysis/scientific_wiki_browser.py` at the exact canonical monograph (`CAT-xxx`).
 
 ---
@@ -138,6 +147,6 @@ Maintain chromatic consistency across all PyPrinting 3.0 tools:
 | **Text Primary** | `Text` | `#cdd6f4` | Labels, axis titles, table values |
 | **Accent / Action** | `Mauve` / `Sapphire` | `#cba6f7` / `#74c7ec` | Primary action buttons, selected highlights |
 | **Success / Resolved** | `Green` | `#a6e3a1` | Resolved clusters, passing quality gates |
-| **Warning / Suspicious**| `Yellow` / `Peach` | `#f9e2af` / `#fab387` | Suspicious spots, high disorder ($\sigma_{	ext{pos}} > 0.15 a$) |
+| **Warning / Suspicious**| `Yellow` / `Peach` | `#f9e2af` / `#fab387` | Suspicious spots, high disorder ($\sigma_{\text{pos}} > 0.15 a$) |
 | **Error / Defect** | `Red` | `#f38ba8` | Vacancies, fitting divergences, hardware interlocks |
 | **Diffraction / Reciprocal** | `Teal` / `Sky` | `#94e2d5` / `#89dceb` | Reciprocal Bragg peaks, Fourier masks |

@@ -63,7 +63,7 @@ The subagents summoned across rounds depend strictly on the **nature and scope o
 | :--- | :--- | :--- | :--- | :--- |
 | **Hardware Acquisition & HAL** | Line-scan, Shamrock/iXon3 series, autofocus, shutter timing | `experimentalist`, `physicist`, `instrumentation`, `devil-advocate` | `instrumentation`, `software-architect` | `scientific-gui-designer`, `qa-ux-auditor` |
 | **Scientific Analysis & Curation** | SIF analyzer, lattice disorder, SMLM localization, deconvolution | `computational-physicist`, `metrology`, `physicist`, `devil-advocate` | `software-architect`, `computational-physicist`, `metrology` | `scientific-gui-designer`, `qa-ux-auditor` |
-| **Photothermal & Colloidal Printing** | Printing recipes, APTES silanization, CTAC nanocavities | `colloidal-chemist`, `physicist`, `experimentalist`, `devil-advocate` | `instrumentation`, `software-architect` | `scientific-gui-designer`, `qa-ux-auditor` |
+| **Photothermal & Colloidal Printing** | Printing recipes, PDDA/PSS substrate functionalization, CTAC nanocavities | `colloidal-chemist`, `physicist`, `experimentalist`, `devil-advocate` | `instrumentation`, `software-architect` | `scientific-gui-designer`, `qa-ux-auditor` |
 | **Architectural Refactor** | Decoupling God-nodes, QThread concurrency, memory leak cleanup | `software-architect`, `devil-advocate`, `metrology` | `software-architect` | `scientific-gui-designer`, `qa-ux-auditor` |
 | **Visualization & Reporting** | FigureExportStudio, Wiki browser, interactive profile cutter | `metrology`, `devil-advocate` | `software-architect`, `metrology` | `scientific-gui-designer`, `qa-ux-auditor` |
 

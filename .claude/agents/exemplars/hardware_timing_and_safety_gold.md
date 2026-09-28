@@ -6,7 +6,7 @@ Referenced by `instrumentation.md`, `software-architect.md`. Match this structur
 ```
 MOVE → SETTLE (bounded poll) → ACQUIRE → DECIMATE-EMIT → (row end: FLYBACK-MOVE → DAMPING PAUSE) → repeat
 ```
-Each stage exists because skipping it reproduces a real post-mortem in this lab (`DEC-002`, `DEC-011`, `DEC-013`, `DEC-014`, `DEC-036`).
+Each stage exists because skipping it reproduces a real post-mortem in this lab (`DEC-010`, `DEC-011`, `DEC-013`, `DEC-014`, `DEC-036`).
 
 ## Reference Implementation (schematic)
 ```python
@@ -33,7 +33,7 @@ def _scan_axis(self, axis, positions, timeout_s=5.0):
             self.dataSignal.emit(self._row_buffer.copy())   # throttled, not per-pixel
 
     # 5. FLYBACK — move FIRST, damping pause AFTER (not before)
-    pi.MOV(axis, row_start)
+    pi.MOV(axis, clamp_axis_um(axis, row_start))
     heartbeat_shutter()
     time.sleep(0.035)                     # >=35ms flyback damping, applied to the NEW position
 ```
@@ -44,7 +44,7 @@ def _scan_axis(self, axis, positions, timeout_s=5.0):
 | `clamp_axis_um(axis, target)` (also inside `MOV`) | Roundoff/tilt-compensation drift pushes the controller past physical limits; Z travel is 20 µm, not 100 µm | `instrumentation.md` §3.1, `DEC-036` |
 | `wait_on_target(...)` instead of a hand-written `qONT()` loop | Unbounded poll hangs the whole worker forever on a stalled servo; `pi.qONT()` returns a **dict**, so `while not pi.qONT(axis)` never waits at all; a read failure used to be reported as on-target | `DEC-013` (`ANOM-FOCUS-03`), `DEC-014`, `DEC-036` |
 | On `False`: close shutters and abort, never re-home or reconnect | Continuing after an unconfirmed arrival acquires at the wrong place with the laser open; an automatic reconnect homes the stage mid-routine | `DEC-036` |
-| `heartbeat_shutter()` **inside** the settle loop | A single call per node is not enough — a slow settle or long exposure alone can exceed the 30s watchdog deadline | `DEC-002`, `DEC-013` |
+| `heartbeat_shutter()` **inside** the settle loop, with no argument | A single call per node is not enough — a slow settle or long exposure alone can exceed the 30s watchdog deadline. No argument so the operator's policy governs: `heartbeat_shutter(30.0)` re-arms a fixed cut even in "Sin límite" mode (C-29) | `DEC-010`, `DEC-013` |
 | Decimated `emit()` | Emitting a full frame/row every tick floods the Qt event queue and produces GC-pressure stutter, read by users as "the program hangs" | `DEC-013` |
 | Flyback `MOV` **before** the damping `sleep` | A pause placed before the flyback move settles the *previous* pixel, not the flyback destination — the next trigger then fires mid-flight | `DEC-013` |
 | `heartbeat_shutter()` before the flyback sleep too | Flyback pauses are exactly the kind of "in-between" wait that gets forgotten and silently drains the watchdog budget | `DEC-013` |

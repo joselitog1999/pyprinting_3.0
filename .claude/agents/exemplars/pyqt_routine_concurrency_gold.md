@@ -10,21 +10,36 @@ La mayoría de las rutinas de pyspectrum **no** usan `moveToThread`. Corren su
 `Backend(QObject)` en el hilo GUI y avanzan encadenando pasos cortos:
 
 ```python
-# Patrón canónico — pyspectrum/modules/routines/growth_kinetics.py
+# Patrón canónico — la forma de pyspectrum/modules/routines/growth_kinetics.py, corregida
+from config import pi, clamp_axis_um, wait_on_target
+from core.nidaq import heartbeat_shutter
+
 def _process_next_node(self):
     if self._abort or self._idx >= len(self._nodes):
         return self._finish()
 
     node = self._nodes[self._idx]
-    move_stage_to(node["x"], node["y"])        # paso corto, no bloqueante
-    heartbeat_shutter(30.0)                    # renovar en CADA paso, no una vez por rutina
+    heartbeat_shutter()                        # en CADA paso, sin argumento: rige la política del operador
+    pi.MOV([1, 2], [clamp_axis_um(1, node["x"]), clamp_axis_um(2, node["y"])])
+    if not wait_on_target([1, 2], on_tick=heartbeat_shutter):   # acotada; False = no llegó
+        return self._abort_cleanly("la platina no confirmó la llegada")   # cierra obturadores
     self._idx += 1
 
     QTimer.singleShot(0, self._process_next_node)   # cede el control al event loop
 ```
 
 Ceder el control en cada paso es lo que mantiene vivos el heartbeat del watchdog y el botón
-E-STOP. Cuando un paso necesita esperar de verdad, se usa un `QEventLoop` anidado **acotado**
+E-STOP. `wait_on_target()` suele volver en milisegundos, pero en el peor caso bloquea el hilo GUI
+hasta su timeout: está acotada y termina en aborto, y si una rutina encadena varias esperas así,
+el criterio de abajo la manda a un `QThread`. `singleShot(0)` sirve para encadenar pasos sin
+cadencia propia; un tick de adquisición que necesita cadencia usa un período explícito
+(`software-architect.md` §5).
+
+**El archivo real todavía no es así** (hallazgo del 2026-09-27): usa `heartbeat_shutter(30.0)`, que
+pisa la política del operador (ver abajo), y `move_stage_to()` de
+`pyspectrum/modules/optical_support.py`, que espera con su propio bucle de `qONT()` sin renovar el
+heartbeat y, si vence el tiempo, devuelve la posición actual como si la platina hubiera llegado. No
+copiar esas dos llamadas. Cuando un paso necesita esperar de verdad, se usa un `QEventLoop` anidado **acotado**
 en vez de `time.sleep()`, que congelaría el hilo GUI:
 
 ```python
@@ -80,9 +95,14 @@ llega. Es una razón más para que sea el caso por defecto.
 
 ## Reglas que valen en ambas topologías
 
-* `heartbeat_shutter(30.0)` en **cada iteración** de cualquier espera, no una vez por paso —
-  una sola exposición larga puede agotar el deadline de 30 s del watchdog
-  (`.claude/shared/lab-invariants.md` §1).
+* `heartbeat_shutter()` en **cada iteración** de cualquier espera, no una vez por paso: una sola
+  exposición larga puede agotar el deadline del watchdog (`.claude/shared/lab-invariants.md` §1).
+  Sin argumento: un `heartbeat_shutter(30.0)` explícito pisa la política global y rearma un corte
+  fijo aun en modo "Sin límite" (C-29), que es lo que hacen hoy las rutinas de PySpectrum.
+* El watchdog nunca debe cortar una rutina sana (investigador, R1-10). La protección contra una
+  rutina **colgada** será un latido de vida emitido por la propia rutina, y el watchdog cortará sólo
+  si ese latido se detiene (R2-8). El diseño está pendiente y es política del watchdog, así que
+  nunca es exento: no inventar el mecanismo dentro de una rutina nueva.
 * Todo poll de hardware va **acotado por timeout**, nunca `while True`
   (ver `exemplars/hardware_timing_and_safety_gold.md`).
 * Los widgets se tocan sólo desde el hilo GUI. Un worker en `QThread` emite `pyqtSignal` con

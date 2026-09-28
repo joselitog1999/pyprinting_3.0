@@ -1,0 +1,25 @@
+{
+ "_nota": "Páginas físicas de cada PDF de lab-invariants §9. Lo genera `python tools/source_marks.py index-bib --update-counts`; lo lee el gate (tests/test_source_marks.py), que no depende de pdftotext.",
+ "pages": {
+  "A25": 139,
+  "AN17": 11,
+  "B21": 10,
+  "BNC": 12,
+  "Ce16": 119,
+  "Ch17": 71,
+  "DS-SR500": 15,
+  "DS-iXon": 6,
+  "DW-1": 17,
+  "DW-10": 6,
+  "DW-2": 10,
+  "DW-3": 10,
+  "DW-5": 13,
+  "G17": 143,
+  "Guo17": 11,
+  "M24": 182,
+  "NL17": 9,
+  "P25": 68,
+  "R20": 88,
+  "Sc16": 93
+ }
+}

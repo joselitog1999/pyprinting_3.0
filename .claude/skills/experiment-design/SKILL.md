@@ -19,12 +19,12 @@ A robust experimental design must define not only what to test, but what control
 1. State the central physical hypothesis in unambiguous terms:
    * *Independent Variables*: Parameters to manipulate (e.g., laser power $P$, pulse duration $\Delta t$, colloidal concentration $C$, lattice pitch $a$).
    * *Dependent Variables*: Quantities to measure (e.g., printing success rate $\%$, localization variance $\sigma_r^2$, SERS intensity ratio $I_{\text{peak}}/I_{\text{bg}}$).
-   * *Controlled Variables*: Fixed constants (ambient $T=298\ \text{K}$, ionic strength $I=0.75\ \text{mM}$, laser $\lambda=532\ \text{nm}$).
+   * *Controlled Variables*: Fixed constants (ambient $T=298\ \text{K}$, ionic strength $I$ with the protocol named — current 0.5 mM or published 1.5 mM NaCl, `.claude/shared/lab-invariants.md` §6 — laser $\lambda=532\ \text{nm}$). Take every bench value from that table with its backing label; an unpublished figure from the researcher is EXPERIMENTAL.
 
 ### Step 2: Essential Control Groups
 Every nanophotonic printing or spectroscopic experiment must include four mandatory controls:
 1. **Dark / Baseline Control**: Detector readout with laser shutters closed (measures dark counts and electronic bias).
-2. **Substrate Blank Control**: Laser irradiation on silanized glass without colloidal nanoparticles (verifies absence of substrate autofluorescence or thermal melting).
+2. **Substrate Blank Control**: Laser irradiation on the functionalized glass (PDDA/PSS) without colloidal nanoparticles (verifies absence of substrate autofluorescence or thermal damage to the polyelectrolyte layer).
 3. **Solvent / Medium Control**: Irradiation of buffer solution without gold nanoparticles (verifies absence of solvent breakdown).
 4. **Anchor Particle ($P_0$) Reference**: Periodic inspection of an anchor particle to measure and subtract optomechanical drift.
 
@@ -53,8 +53,8 @@ Every nanophotonic printing or spectroscopic experiment must include four mandat
 ## 2. Experimental Parameters & Matrix
 | Parameter | Symbol | Nominal Value | Range / Step | Justification |
 | :--- | :--- | :--- | :--- | :--- |
-| Laser Power | $P$ | $5.0\ \text{mW}$ | $2.0 - 10.0\ \text{mW}$ | Thermal threshold |
-| Shutter Time | $\Delta t$ | $20\ \text{ms}$ | $10 - 50\ \text{ms}$ | Colloidal capture time |
+| Laser Power at the sample | $P$ | [value] mW | [range / step] | [source: measurement, or `lab-invariants` row] |
+| Shutter Time | $\Delta t$ | [value] ms | [range / step] | [source] |
 
 ## 3. Mandatory Controls
 1. **Negative Control**: ...
@@ -62,7 +62,7 @@ Every nanophotonic printing or spectroscopic experiment must include four mandat
 3. **Drift Monitor ($P_0$)**: ...
 
 ## 4. Execution Sequence (Step-by-Step SOP)
-1. Laser warm-up (30 min stabilization)
+1. Laser warm-up (stabilization time from the laser's manual or a measured power trace)
 2. Autofocus and $Z$-plane calibration
 3. Anchor particle localization
 4. Execution of grid recipe

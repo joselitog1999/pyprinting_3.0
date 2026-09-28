@@ -234,6 +234,110 @@ Mismo criterio: son datos de primera mano y prevalecen sobre el informe y sobre 
   - Con el objetivo de agua 60x, NA 1.0 (f = 3 mm con tubo de 180 mm), la magnificación al pinhole es 50 y el disco de Airy mide 32.5 µm a 532 nm: **el pinhole es ≈ 1.5 AU** (≈ 1.3 AU a 637 nm). Los 4.6 AU que resultan de la bibliografía corresponden a la lente de 50 mm.
   - D-11 se resuelve a favor de SYS-203 (Excelsior).
 
+---
+
+# Tercera ronda (2026-09-27): Ronda 1 de C-01, fase 1 y Ronda 2 del verificador
+
+## R3 — C-01 (traza de impresión)
+
+- **Producción:**
+  - La PC del banco corre `7f5d10a`, y ahí la traza no cae a 0 V.
+  - "Imprime bien" se refiere a 3.0 en ese commit.
+  - Los nodos terminan en su mayoría en SUCCESS y algunos en TIMEOUT, lo que es típico por la distribución de probabilidad de captura.
+  - No se vieron nodos salteados ni escaneos duplicados.
+- **Paso 0:** **aprobada la reversión** de la traza y de Power BS a la lectura finita por tick de producción → `DEC-037`.
+- **Diseño:**
+  - La Ronda 2 diseña la **opción E**, con C como alternativa.
+  - Las ventanas del criterio pasan a **segundos o ms**, no ticks.
+- **Señal:** la captura da un escalón **hacia arriba**, de ≈ **×1.4 a ×2**.
+- **Práctica de impresión:**
+  - Preset "umbral + valor absoluto", modo legacy o legacy + voltaje absoluto.
+  - Umbral 1.5, N_hold 3.
+  - Umbral de caída 0.5: no se usa, pero se deja en 0.5.
+  - Tiempo máximo 40 s.
+  - Una captura tarda entre 1 s y 20 s en las peores condiciones.
+- **Durante la impresión:** la cámara está en vivo y la traza se activa por defecto en su widget, lo que resulta útil así. Power BS se usa poco.
+- **Hardware:**
+  - La placa es PCIe.
+  - Los obturadores son de fabricación propia, sin tiempo de respuesta medido.
+  - Modelo y ganancia de los fotodiodos: pendiente de banco.
+  - Hay canales analógicos libres.
+  - Python 3.11.13; las demás versiones y el Δt entre filas se confirman en el banco.
+  - Todo lo pendiente quedó reunido en el grupo F y el grupo G de `PRUEBAS_BANCO_PENDIENTES.md`.
+- **Pregunta 2 (objetivo de latencia):** el investigador pidió que se la explique mejor. Sigue abierta.
+
+## R3 — Fase 1 (`lab-invariants`)
+
+- **A.** La sal del protocolo vigente de 0.5 mM es **NaCl**.
+- **B.** El límite 0.3·a del Monte Carlo se toma **por componente** por ahora. Hay un experimento planificado para definirlo.
+- **C.** Vacancias: p = (partículas planificadas − partículas contadas) / planificadas. No hay asignación a sitios ni radio de tolerancia.
+- **D.** El iXon3 opera entre **−60 y −80 °C** (rango aceptable).
+- **E.** Las impresiones y los escaneos confocales se hacen con el objetivo de agua (NA 1.0) con tubo Olympus, f = 3 mm. Confirma el ≈ 1.5 AU.
+
+Aplicado en `lab-invariants.md` (filas del setpoint del Peltier, fuerza iónica, pinhole, p y Monte Carlo).
+
+## R3 — Ronda 2 del verificador (fase 3)
+
+1. **Nombre:** `provenance-verifier`, confirmado.
+2. **Formato de marca:** `[fuente: …]` en línea más columna en las tablas, aceptado.
+3. **Test de validez de marcas:** **falla**.
+4. **Test de cobertura:** **sólo advierte**.
+5. **Textos de la GUI:** **sí**, se revisan.
+6. **Hook `pre-commit`:** **no** por ahora, pero queda **asentado para cambiarlo en el futuro**.
+7. **Modelo del piloto:** el mismo que usa el asistente.
+8. **Desacuerdos del piloto:** los resuelve el investigador.
+9. **Modelo del flipper (¿MFF101?):** se verifica en el banco (`BANCO-22`).
+
+**Regla del investigador:** toda respuesta que quede "para verificar en el banco" va junto a la batería de pruebas de banco (`docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`), para resolver todas las dudas en una sola visita.
+
+---
+
+# Cuarta ronda (2026-09-27): Ronda 2 de C-01
+
+## Decisiones de diseño
+
+- **Q1, objetivo de latencia en dos niveles:** **sí**. El sistema garantiza ≤ 20 ms. La latencia del proceso la fija la ventana del preset: se arranca en P0 y se afina con datos de banco.
+- **Q2, confirmación después de cortar:** **sí**. Se acepta cortar ante un posible transitorio y confirmar después con una lectura a baja potencia, a cambio de ventanas cortas.
+- **Q3, signo del contraste:** lo **elige cada preset**.
+- **Q4, falla de adquisición en un nodo:** respuesta "sí" a una pregunta de dos opciones (pausar la grilla o seguir al próximo nodo y reintentar en el Healing Pass). **Falta aclarar cuál.**
+- **Q5, latido de vida (plazo 1.0 s) y liberación del bloqueo tras un corte:** "debería ser automático". Se interpreta que el bloqueo se libera solo, sin intervención del operador, cuando la rutina cortada terminó de limpiar. **A confirmar**, junto con el plazo de 1.0 s.
+- **Q6, foco y confocal manuales:** bloqueados **mientras se imprime**; con la grilla **en pausa** sí se pueden usar.
+- **Q7, tamaño de bloque:** **10 ms**.
+- **Q8, N_hold en la GUI:** como persistencia **en ms**.
+- **Q9, camino viejo de adquisición:** se borra después de **10 grillas sin incidentes**.
+- **Q10, datos crudos:** **sí**. El ideal es guardar las trazas de impresión, los voltajes y las correcciones de deriva, para optimizar después las condiciones (por ejemplo, variando la concentración de NaCl) con PCA u otra herramienta. Queda como requisito de persistencia de datos (relacionado con C-20) y como herramienta de análisis futura.
+
+## Práctica y hardware
+
+- **Q11, presets:** los umbrales absoluto y relativo **se calibran con la traza** y dependen del tipo de partícula y del estado del setup (alineación). **Steps before/after están en 20/20**, no en 10/10.
+  - Recalculado con `c01_ronda2/c01_criterion_sim.py` (umbral 1.5, N_hold 3, ticks de 47 ms, 20/20):
+    - ×2: 100 % detectado, latencia mediana ≈ 0.60 s;
+    - ×1.6: 100 %, ≈ 0.88 s;
+    - ×1.4-1.5: la rama relativa no los detecta.
+  - Con 10/10 las cifras eran ≈ 0.33 s y ≈ 0.49 s.
+- **Q12, Healing Pass:** **sí**, ahora se usa.
+- **Q13, otros láseres o contraste negativo:** **no**, hasta ahora.
+- **Q14, fotodiodo BS:** mide **después** del obturador y del filtro, así que ve la apertura y el cierre.
+- **Q15, TTL del obturador casero:** ¿va a un microcontrolador que genera el PWM? **Para verificar en el banco**, agregado a `BANCO-22`.
+- **Q16, dos programas sobre la misma placa:** **sí**, corren a la vez. PySpectrum son **los ojos** (mediciones espectrales) y PyPrinting **el cuerpo** (mover la muestra para alinear al fino, el foco, los confocales, etc.).
+  - En 3.0 está prevista la apertura de PyPrinting como ventana satélite dentro del proceso de PySpectrum (DEC-019).
+  - Como PySpectrum 3.0 no se probó, en el banco probablemente corren PySpectrum **legacy** y PyPrinting 3.0 como dos procesos. El legado de PySpectrum usa el **cableado viejo** de obturadores. Agregado como `BANCO-35`.
+
+## Aclaraciones (quinta ronda, 2026-09-27)
+
+1. **Falla de adquisición en un nodo:** opción **(b)**. Se sigue con el próximo nodo, y el fallido se reintenta en el Healing Pass.
+2. **Liberación del bloqueo tras un corte del watchdog:** **automática**, cuando la rutina cortada terminó de limpiar y los obturadores quedaron confirmados cerrados. El plazo de latido de **1.0 s** queda aceptado.
+3. **Programas en uso:**
+   - **Hoy el banco trabaja con PySpectrum legacy + PyPrinting legacy.**
+   - PyPrinting 3.0 se probó por separado (R3).
+   - PySpectrum 3.0 todavía no se probó, y tampoco la combinación PySpectrum 3.0 + PyPrinting 3.0.
+   - **Pregunta abierta de seguridad:** ¿los legados que corren en el banco tienen los canales del cableado vigente?
+     - En las copias que están en el repositorio y en `Obsidian_Vault/printing2/`:
+       - PyPrinting legacy usa 532 → `line12` y 637 → `line11` (activo en BAJO).
+       - PySpectrum legacy usa 532 → `line9`, 594 → `line10`, 637 → `line11` y 808 → `line12`.
+     - Con el cableado vigente (R2-1: 532 → `line11`, activo en BAJO), el botón "637" de esas copias abriría el obturador de **532 nm**.
+     - Se verifica en `BANCO-35`.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** a qué red corresponde el offset 87 y cuál es el de la otra red.

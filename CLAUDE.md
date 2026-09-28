@@ -147,15 +147,16 @@ When facing complex tasks, delegate to the specialized subagents in `.claude/age
 | :--- | :--- | :--- |
 | **`physicist`** | Theoretical nanophotonics & plasmonics | Equations, asymptotic limits, forces, DLVO, Debye-Waller |
 | **`computational-physicist`** | Numerical FDTD, Monte Carlo & GPU/BLAS | Meshes, CFL stability, PML boundaries, near-field hot-spots, DDA |
-| **`experimentalist`** | Lab reality & optical alignment | Noise, thermal drift ($\sim 1\ \text{nm/min}$), photobleaching, colloids |
+| **`experimentalist`** | Lab reality & optical alignment | Noise, thermal drift ($\approx 30\ \text{nm/min}$, Martínez, until measured on the bench), photobleaching, colloids |
 | **`instrumentation`** | Real-time HAL & DAQmx | Drivers, timing, buffer overruns, watchdog, TTL polarities |
 | **`metrology`** | Measurement validity & statistics | ISO/GUM, Cramér-Rao lower bound, NUFFT, Hosemann paracrystal |
 | **`software-architect`** | PyQt6 & clean architecture | `QThread`, `pyqtSignal`, DAQmx error `-200088` prevention, Pytest |
 | **`scientific-gui-designer`** | Human-in-the-loop scientific UX & visual metrology | Interactive tools, click-to-seed, ROI handles, context menus, tooltips, Wiki browser dialogs |
 | **`qa-ux-auditor`** | Laboratory UX, ergonomics & manual QA | Usability, presets, physical units, panic controls, MANUAL_USUARIO |
 | **`scientific-reviewer`** | Methodological peer review | Scientific defensibility, validity regimes, citation verification |
+| **`provenance-verifier`** | Write-time source control of new or edited text (read-only; warns, never blocks) | Figures, formulas, wiring, implementation status and citations in a diff of docs, code comments, GUI strings or prompts — one verdict per claim. Not for methodology (`scientific-reviewer`), a contested literature value (`literature-crosscheck`) or dimensional analysis (`physics-model-review`) |
 | **`devil-advocate`** | Anti-sycophancy & falsification | Unstated assumptions, confirmation bias, experimental edge cases |
-| **`colloidal-chemist`** | Surface chemistry & nanofabrication | APTES silanization, CTAC/KCl nanocavities, DLVO, EBL vs printing |
+| **`colloidal-chemist`** | Surface chemistry & nanofabrication | PDDA/PSS substrate functionalization, CTAC/KCl nanocavities, DLVO, EBL vs printing |
 | **`agent-trainer`** | Continuous alignment & prompt evolution | Failure trace post-mortems, prompt patching, golden exemplars, topology |
 
 ---
@@ -189,3 +190,5 @@ Execute procedural routines defined in `.claude/skills/*/SKILL.md`:
 All modifications must pass two quality gates:
 1. **Pre-Commit Verification**: Run unit tests (`pytest tests/`) and ensure 0 regressions.
 2. **Conventional Commits**: Format commits with clear semantic prefixes (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `phys:`).
+
+* **Provenance warning — warns, never blocks (`DEC-038`)**: before committing a change to `docs/`, `reportes/`, `.claude/`, `CLAUDE.md`, or to comments and GUI strings of hardware modules, run `python tools/source_marks.py scan --cached` (`--code` for `.py`). If it reports figures, citations, structural claims or implementation status, invoke `provenance-verifier` in `diff` mode. A CRÍTICA claim whose verdict is not RESPALDADO or DERIVADO goes to the researcher **before** the commit, verbatim with the proposed fix, and the researcher decides (fix, mark or proceed); the rest is summarized. Every such commit carries the trailer `Fuentes-verificadas: N (a/b/c/d/e/f); pendientes: <ubicaciones>`, or `Fuentes-verificadas: no corrido (<motivo>)` — never omitted silently: ignoring a warning is allowed, and the trailer is what records it. Until the `DEC-038` pilot adopts the agent, `no corrido (piloto pendiente)` is a valid trailer. Separately, `tests/test_source_marks.py` fails on a malformed or unresolvable source mark, like any broken reference.

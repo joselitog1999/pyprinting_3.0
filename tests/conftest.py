@@ -96,6 +96,72 @@ def _isolate_andor_mock_geometry():
             setattr(cam_after, a, v)
 
 
+@pytest.fixture(autouse=True)
+def _purge_deleted_pyqtgraph_views():
+    """Quita del registro global de pyqtgraph las vistas cuyo objeto C++ ya se destruyó.
+
+    `ViewBox.NamedViews` (un `WeakValueDictionary`) conserva la entrada mientras viva el envoltorio
+    de Python. Si un test destruye un `ImageView` sin cerrarlo y el envoltorio queda en un ciclo que
+    el recolector todavía no juntó, la entrada sobrevive al objeto C++; el siguiente `ViewBox` con
+    nombre que se registra llama a `updateAllViewLists()`, que invoca `window()` sobre la vista
+    muerta y lanza "wrapped C/C++ object of type ViewBox has been deleted". Que ocurra o no depende
+    del momento en que corre el recolector, así que agregar tests *antes* en el orden de colección lo
+    hace aparecer: al sumarse `DEC-038`, `test_slider_and_spinbox_sync` pasó a fallar de forma
+    reproducible en la suite completa y a pasar aislado (verificado: el mismo prefijo de la suite
+    pasa sin `test_prompt_corpus_integrity.py`, que no usa Qt).
+
+    Es un problema de aislamiento de tests y se resuelve en la capa de tests, como
+    `_isolate_spectroscopy_context` (`DEC-026`) y `_isolate_andor_mock_geometry` (`DEC-030`). Sólo
+    actúa si pyqtgraph ya está importado, para no cargar Qt en los tests que no lo usan.
+    """
+    vb_module = sys.modules.get("pyqtgraph.graphicsItems.ViewBox.ViewBox")
+    if vb_module is not None:
+        from PyQt6 import sip
+        view_box = vb_module.ViewBox
+        for name, view in list(view_box.NamedViews.items()):
+            if sip.isdeleted(view):
+                view_box.NamedViews.pop(name, None)
+        for view in list(view_box.AllViews.keys()):
+            if sip.isdeleted(view):
+                view_box.AllViews.pop(view, None)
+    yield
+
+
+# ------------------------------------------------------------------------------
+# Cobertura de fuentes (DEC-038): una advertencia con sección propia, que nunca bloquea
+# ------------------------------------------------------------------------------
+# El investigador decidió que el test de cobertura de marcas de fuente sólo advierta
+# (`RESPUESTAS_INVESTIGADOR.md`, "R3 — Ronda 2 del verificador", punto 4). Un `warnings.warn`
+# quedaría agrupado y truncado en el resumen de warnings, `--disable-warnings` lo ocultaría y
+# `-W error` lo convertiría en fallo sin querer; `xfail` significa "bug conocido". Por eso el test
+# deja sus hallazgos en el stash de la sesión y este hook los imprime en una sección propia.
+SOURCE_COVERAGE_KEY = pytest.StashKey[list]()
+SOURCE_COVERAGE_TITLE = "Cobertura de fuentes (advertencia, no bloquea)"
+
+
+@pytest.fixture
+def source_coverage_report(request):
+    """Lista donde `tests/test_source_marks.py` deja las advertencias de cobertura de los
+    documentos adheridos; `pytest_terminal_summary` las imprime al final de la corrida."""
+    return request.config.stash.setdefault(SOURCE_COVERAGE_KEY, [])
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    findings = config.stash.get(SOURCE_COVERAGE_KEY, None)
+    if findings is None:  # el test de cobertura no corrió en esta sesión
+        return
+    terminalreporter.write_sep("=", SOURCE_COVERAGE_TITLE)
+    if not findings:
+        terminalreporter.write_line(
+            "Sin advertencias en los documentos adheridos (tools/source_marks.py::ADHERED_DOCUMENTS).")
+        return
+    for finding in findings:
+        terminalreporter.write_line(finding)
+    terminalreporter.write_line(
+        f"{len(findings)} advertencia(s). No hacen fallar el suite: se resuelven marcando la cifra "
+        "o anotándola en el trailer Fuentes-verificadas del commit (CLAUDE.md §9).")
+
+
 @pytest.fixture(scope="session")
 def app():
     """QApplication compartida para toda la sesión de pytest. Requerida por

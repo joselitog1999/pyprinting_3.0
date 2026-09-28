@@ -39,7 +39,12 @@ Every generated markdown file must begin with standard metadata:
 2. **Architecture Diagrams**: Complex state transitions or data flows must include Mermaid diagrams (`mermaid`).
 3. **Traceability Links**: Hyperlink code files with exact line numbers (e.g., `[`core/nidaq.py:L45-L60`](file:///...)`).
 
-### Step 4: Quality Gate & Hyperlink Verification
+### Step 4: Provenance & Status
+1. Every physical figure, hardware value or constant carries its source (bibliography key with physical page, DOI, datasheet, or `<ruta>.py::<SIMBOLO>`) or the label EXPERIMENTAL / SIN FUENTE (`.claude/shared/lab-invariants.md` §0). Another CAT, SYS or MOD is not a source. An unpublished figure from the researcher is EXPERIMENTAL with its date, and so is a method still in development.
+2. Never mark a document "Vigente", "Implementado" or "certified" by default: state its real status (implemented, partial, proposal), and check that every symbol it cites exists in the code.
+3. A document that describes code which does not exist is archived as **implementable** or **unknown** (researcher, R1-11), never deleted or rewritten; the list is proposed and approved before anything moves.
+
+### Step 5: Quality Gate & Hyperlink Verification
 1. Ensure no broken links or orphaned references.
 2. Run link validator script if available (`scratch/validate_links.py`).
 

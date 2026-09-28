@@ -47,8 +47,15 @@ impide es que el dato viejo vuelva a filtrarse a la superficie de instrucción.
 Este módulo es deliberadamente hermético: NO importa PyQt6, nidaqmx ni `core.nidaq`. Lee
 `core/nidaq.py` como texto para no arrancar el hilo watchdog ni requerir el stack de
 hardware, de modo que el gate corra rápido y en cualquier plataforma.
+
+Los helpers de lectura (árboles ajenos, bloques de código, resolvers de símbolos) viven en
+`tools/source_marks.py` y se importan de ahí (`DEC-038`): el gate de marcas de fuente
+(`tests/test_source_marks.py`) usa los mismos, y dos copias que divergen serían el mismo defecto
+que este módulo existe para atajar. Ese módulo es sólo biblioteca estándar, así que el gate sigue
+siendo hermético.
 """
 import functools
+import importlib.util
 import os
 import re
 import sys
@@ -61,6 +68,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+def _load_source_marks():
+    """Carga `tools/source_marks.py` por ruta: un paquete `tools` instalado en site-packages le
+    ganaría al del repositorio si se importara por nombre."""
+    name = "pyprinting_tools_source_marks"
+    module = sys.modules.get(name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(name, ROOT / "tools" / "source_marks.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return module
+
+
+_sm = _load_source_marks()
+
+
 # ==============================================================================
 # Recolección del corpus
 # ==============================================================================
@@ -70,12 +93,11 @@ if str(ROOT) not in sys.path:
 # lento: una copia del repo trae sus propios CLAUDE.md, ledgers y reserva/ bajo rutas que las
 # exclusiones de este módulo no reconocen (falsos positivos), y una ruta citada podría "resolver"
 # contra un archivo que existe sólo en otra rama (falso negativo).
-_FOREIGN_TREES = (".claude/worktrees", ".venv", ".git")
+_FOREIGN_TREES = _sm.FOREIGN_TREES
 
 
 def _in_foreign_tree(path: Path) -> bool:
-    rel = path.relative_to(ROOT).as_posix()
-    return any(rel == d or rel.startswith(d + "/") for d in _FOREIGN_TREES)
+    return _sm.in_foreign_tree(path, ROOT)
 
 
 def _corpus_files():
@@ -104,9 +126,37 @@ _PLACEHOLDER_MARKS = ("*", "<", ">", "{", "}", "path/to", "XX", "xx", "[", "]")
 
 
 def _strip_code_fences(text: str) -> str:
-    """Los bloques de código contienen plantillas y pseudocódigo ilustrativo."""
-    text = re.sub(r"````.*?````", "", text, flags=re.DOTALL)
-    return re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    """Los bloques de código contienen plantillas y pseudocódigo ilustrativo. Se vacían
+    conservando las líneas, para que cada `archivo:línea` informado sea el real (D4)."""
+    return _sm.strip_code_fences(text)
+
+
+def _label(path: Path) -> str:
+    """Ruta relativa a la raíz para los mensajes; absoluta si el archivo es sintético."""
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def test_strip_code_fences_preserves_line_numbers():
+    """D4: el texto posterior a un bloque de código conserva su número de línea.
+
+    Control negativo: la versión anterior del gate (reproducida acá) borraba el bloque con sus
+    saltos de línea, y la cifra de la línea 6 aparecía en la 3.
+    """
+    text = "a\n```python\nx = 1\ny = 2\n```\nb 500 ms\n"
+    out = _strip_code_fences(text).splitlines()
+    assert len(out) == len(text.splitlines())
+    assert out[5] == "b 500 ms"
+
+    def _old_strip(t):
+        t = re.sub(r"````.*?````", "", t, flags=re.DOTALL)
+        return re.sub(r"```.*?```", "", t, flags=re.DOTALL)
+
+    assert _old_strip(text).splitlines().index("b 500 ms") != 5, (
+        "el control negativo dejó de reproducir el defecto D4: revisá este test"
+    )
 
 
 def test_corpus_is_discoverable():
@@ -159,24 +209,20 @@ def test_watchdog_ground_truth_is_parseable():
     assert poll_s < deadline_s / 10.0
 
 
-def test_corpus_watchdog_timings_match_code():
-    """Ninguna temporización de watchdog/heartbeat en el corpus contradice al código.
+def _watchdog_offenders(paths, deadline_s: float, poll_s: float) -> list:
+    """Temporizaciones de watchdog/heartbeat/deadline que no coinciden con el código.
 
-    Guarda contra la regresión concreta que motivó este módulo: "500 ms heartbeat
-    watchdog" citado en 4 archivos contra un deadline real de 30 s / poll de 100 ms.
+    Cada línea pasa antes por el normalizador de LaTeX (`tools/source_marks.py::latex_to_plain`):
+    la fase 2 de la auditoría del 2026-09-27 comprobó que `$500\\ \\text{ms}$`,
+    `$\\tau_{wd} = 500\\,\\mathrm{ms}$` y una celda `$500~\\text{ms}$` pasaban sin ser vistas.
     """
-    deadline_s, poll_s = _watchdog_ground_truth()
     allowed_s = {deadline_s, poll_s}
 
     # El corpus necesita poder citar un valor histórico EQUIVOCADO para documentar su
     # corrección ("el watchdog no es de 500 ms", la anotación SUPERSEDED de DEC-002). Una
     # línea que niega o historiza el número es contenido correcto, no una afirmación falsa;
     # marcarla sería el mismo falso positivo que se corrigió en el guard de atajos de pánico.
-    negating = re.compile(
-        r"\bno es\b|\bno era\b|\bnunca\b|\bnot\b|≠|superad|supersed|históric|historic"
-        r"|obsolet|equivocad|incorrect|stale|ya no\b",
-        re.IGNORECASE,
-    )
+    negating = _sm.NEGATING
 
     # Captura "500 ms heartbeat", "30 s deadline", "watchdog de 30s", "100 ms poll"...
     pattern = re.compile(
@@ -186,9 +232,10 @@ def test_corpus_watchdog_timings_match_code():
     )
 
     offenders = []
-    for path in CORPUS:
+    for path in paths:
         body = _strip_code_fences(path.read_text(encoding="utf-8", errors="ignore"))
-        for lineno, line in enumerate(body.splitlines(), start=1):
+        for lineno, raw_line in enumerate(body.splitlines(), start=1):
+            line = _sm.latex_to_plain(raw_line)
             # El énfasis markdown rompe los límites de palabra ("**no** es" no contiene
             # "no es"), así que la detección de negación corre sobre la línea despojada de
             # `*`, `_` y backticks. Detectado por control negativo: sin esto, una negación
@@ -201,15 +248,52 @@ def test_corpus_watchdog_timings_match_code():
                 seconds = float(value.replace(",", ".")) / (1000.0 if unit.lower() == "ms" else 1.0)
                 if not any(abs(seconds - ok) < 1e-9 for ok in allowed_s):
                     offenders.append(
-                        f"{path.relative_to(ROOT)}:{lineno}: cita {value} {unit} "
+                        f"{_label(path)}:{lineno}: cita {value} {unit} "
                         f"({seconds} s) — core/nidaq.py tiene deadline={deadline_s}s, "
-                        f"poll={poll_s}s :: {line.strip()[:110]}"
+                        f"poll={poll_s}s :: {raw_line.strip()[:110]}"
                     )
+    return offenders
 
+
+def test_corpus_watchdog_timings_match_code():
+    """Ninguna temporización de watchdog/heartbeat en el corpus contradice al código.
+
+    Guarda contra la regresión concreta que motivó este módulo: "500 ms heartbeat
+    watchdog" citado en 4 archivos contra un deadline real de 30 s / poll de 100 ms.
+    """
+    deadline_s, poll_s = _watchdog_ground_truth()
+    offenders = _watchdog_offenders(CORPUS, deadline_s, poll_s)
     assert not offenders, (
         "Temporización de watchdog en los prompts que no coincide con core/nidaq.py:\n  "
         + "\n  ".join(offenders)
     )
+
+
+@pytest.mark.parametrize("line", [
+    "El watchdog corta a los 500 ms.",
+    r"El watchdog corta a los $500\ \text{ms}$.",
+    r"El watchdog, con $\tau_{wd} = 500\,\mathrm{ms}$, cierra el obturador.",
+    r"| watchdog | $500~\text{ms}$ |",
+], ids=["plano", "latex-text", "latex-mathrm", "latex-tilde-celda"])
+def test_watchdog_check_catches_wrong_timings_in_latex(tmp_path, line):
+    """Control negativo del test del watchdog: el mismo valor falso, en texto plano y en las tres
+    formas de LaTeX que la fase 2 encontró sin detectar, tiene que marcarse."""
+    synthetic = tmp_path / "sintetico.md"
+    synthetic.write_text("# Sintético\n\n" + line + "\n", encoding="utf-8")
+    assert _watchdog_offenders([synthetic], 30.0, 0.1), f"no se detectó: {line}"
+
+
+@pytest.mark.parametrize("line", [
+    r"El deadline del watchdog es de $30\ \text{s}$.",
+    r"El poll del watchdog es de $100\,\mathrm{ms}$.",
+    r"El watchdog **no** es de $500\ \text{ms}$ (DEC-002, superada).",
+], ids=["deadline-correcto", "poll-correcto", "negacion"])
+def test_watchdog_check_accepts_correct_or_negated_latex(tmp_path, line):
+    """Control positivo: normalizar el LaTeX no tiene que convertir un valor correcto, ni una
+    negación documentada, en un falso positivo."""
+    synthetic = tmp_path / "sintetico.md"
+    synthetic.write_text("# Sintético\n\n" + line + "\n", encoding="utf-8")
+    assert not _watchdog_offenders([synthetic], 30.0, 0.1)
 
 
 # ==============================================================================
@@ -450,39 +534,43 @@ def test_agent_frontmatter_is_valid(path):
 
 _INVARIANTS_FILE = ROOT / ".claude" / "shared" / "lab-invariants.md"
 _CODE_REF = re.compile(r"`([\w/.\-]+\.py)::(\w+)`")
+# Entrada de un diccionario de módulo: `ruta.py::SIMBOLO["clave"]["campo"]` (p. ej. la NA de un
+# objetivo en `MICROSCOPE_OBJECTIVES`, cuyas claves llevan espacios y paréntesis).
+_CODE_SUBSCRIPT_REF = re.compile(r'`([\w/.\-]+\.py)::(\w+)((?:\["[^"\]]+"\])+)`')
 _NUMBER_TOKEN = re.compile(r"`[−-]?([0-9]+(?:\.[0-9]+)?)`")
+_BACKTICK_TOKEN = re.compile(r"`([^`]+)`")
 
 
 def _resolve_code_number(rel_path: str, symbol: str):
-    """Resuelve `ruta.py::SIMBOLO` a un número leyendo el fuente, sin importar el módulo.
+    """`ruta.py::SIMBOLO` a un número, leyendo el fuente sin importar el módulo.
 
-    Se lee como texto en vez de importar por la misma razón que en `_watchdog_ground_truth()`:
-    importar `core.nidaq` arranca el hilo `ShutterWatchdog` a nivel de módulo, y un test de
-    integridad documental no debe tener ese efecto colateral.
-
-    Soporta dos formas: una asignación a nivel de módulo (`SIMBOLO = 30.0`, con o sin
-    anotación de tipo) y —cuando el símbolo es una función— el primer literal de
-    `time.sleep(...)` en su cuerpo, que es cómo está expresado el intervalo de poll del
-    watchdog. Devuelve `None` si no resuelve, y el llamador lo trata como fallo explícito
-    en lugar de omitir la fila en silencio.
+    Se lee como texto (AST) en vez de importar por la misma razón que en
+    `_watchdog_ground_truth()`: importar `core.nidaq` arranca el hilo `ShutterWatchdog` a nivel de
+    módulo. Dos formas: una asignación de módulo a un literal numérico y, si el símbolo es una
+    función, el primer `time.sleep(<literal>)` de **su** cuerpo. Devuelve `None` si no resuelve, y
+    el llamador lo trata como fallo explícito. Implementación en `tools/source_marks.py`.
     """
-    src_file = ROOT / rel_path
-    if not src_file.is_file():
-        return None
-    src = src_file.read_text(encoding="utf-8", errors="ignore")
+    return _sm.resolve_code_number(rel_path, symbol, ROOT)
 
-    m = re.search(
-        rf"^{re.escape(symbol)}\s*(?::[^=\n]+)?=\s*([0-9]+(?:\.[0-9]+)?)", src, re.MULTILINE
-    )
-    if m:
-        return float(m.group(1))
 
-    m = re.search(
-        rf"def {re.escape(symbol)}\(.*?time\.sleep\(\s*([0-9]*\.?[0-9]+)\s*\)", src, re.DOTALL
-    )
-    if m:
-        return float(m.group(1))
-    return None
+def _resolve_code_string(rel_path: str, symbol: str):
+    """`ruta.py::SIMBOLO` a una cadena, si el símbolo es una asignación de módulo a un literal de
+    texto (`FLIPPER_AO_UP = "Dev1/ao0"`). Devuelve `None` si no es una cadena, para que el
+    llamador pruebe la vía numérica. Implementación en `tools/source_marks.py`."""
+    return _sm.resolve_code_string(rel_path, symbol, ROOT)
+
+
+def _resolve_code_subscript(rel_path: str, symbol: str, keys):
+    """`ruta.py::SIMBOLO["k1"]["k2"]` al literal numérico de ese diccionario de módulo, o `None`
+    si alguna clave falta o el valor final no es un número. Implementación en
+    `tools/source_marks.py`."""
+    return _sm.resolve_code_subscript(rel_path, symbol, keys, ROOT)
+
+
+def _table_value_cell(line: str) -> str:
+    """Segunda celda de una fila de tabla markdown: la columna Valor de lab-invariants."""
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    return cells[1] if len(cells) > 1 else ""
 
 
 def test_lab_invariants_file_exists():
@@ -501,26 +589,54 @@ def test_lab_invariants_match_code():
     Si alguien cambia `PI_STAGE_RANGE_UM` o `_default_timeout_s` y no actualiza la tabla, el
     suite falla y nombra la fila.
 
-    Sólo se verifican filas ✅ que además expongan un valor numérico y una referencia
-    `ruta.py::SIMBOLO`. Las filas ✅ sin número (atajos de teclado, rutas de ledger) las
-    cubren los tests dedicados de este módulo — `test_corpus_estop_shortcuts_match_window`,
-    `test_cited_code_paths_exist` y `test_monograph_cross_references_resolve`.
+    Se verifican las filas ✅ que tengan una referencia de código, con la primera que aparezca:
+    * `ruta.py::SIMBOLO` asignado a una **cadena**: se compara con el primer valor entre
+      backticks de la columna Valor (p. ej. `Dev1/ao0` contra `config.FLIPPER_AO_UP`);
+    * `ruta.py::SIMBOLO` numérico, o `ruta.py::SIMBOLO["clave"]["campo"]` de un diccionario:
+      se compara con el primer número entre backticks de la fila.
+    Las filas ✅ sin valor verificable (atajos de teclado, rutas de ledger, líneas de
+    obturadores) las cubren los tests dedicados de este módulo —
+    `test_corpus_estop_shortcuts_match_window`, `test_cited_code_paths_exist`,
+    `test_monograph_cross_references_resolve` y `test_shutter_lines_match_config`.
     """
     assert _INVARIANTS_FILE.is_file(), "Falta lab-invariants.md"
     body = _strip_code_fences(_INVARIANTS_FILE.read_text(encoding="utf-8", errors="ignore"))
 
-    checked, offenders = [], []
+    checked, checked_str, offenders = [], [], []
     for lineno, line in enumerate(body.splitlines(), start=1):
         if not line.lstrip().startswith("|") or "✅" not in line:
             continue
-        ref = _CODE_REF.search(line)
+        refs = [m for m in (_CODE_SUBSCRIPT_REF.search(line), _CODE_REF.search(line)) if m]
+        if not refs:
+            continue  # fila ✅ sin símbolo de código: la cubre un test dedicado
+        ref = min(refs, key=lambda m: m.start())
+        rel_path, symbol = ref.group(1), ref.group(2)
+        keys = re.findall(r'\["([^"\]]+)"\]', ref.group(3)) if ref.re is _CODE_SUBSCRIPT_REF else []
+
+        if not keys:
+            actual_str = _resolve_code_string(rel_path, symbol)
+            if actual_str is not None:
+                token = _BACKTICK_TOKEN.search(_table_value_cell(line))
+                documented_str = token.group(1) if token else None
+                if documented_str != actual_str:
+                    offenders.append(
+                        f"lab-invariants.md:{lineno}: la tabla dice {documented_str!r} pero "
+                        f"{rel_path}::{symbol} vale {actual_str!r}."
+                    )
+                else:
+                    checked_str.append(f"{symbol}={actual_str}")
+                continue
+
         num = _NUMBER_TOKEN.search(line)
-        if not ref or not num:
+        if not num:
             continue  # fila ✅ sin par (valor, símbolo): la cubre un test dedicado
 
-        rel_path, symbol = ref.group(1), ref.group(2)
         documented = float(num.group(1))
-        actual = _resolve_code_number(rel_path, symbol)
+        if keys:
+            actual = _resolve_code_subscript(rel_path, symbol, keys)
+            symbol = symbol + "".join(f"[{k!r}]" for k in keys)
+        else:
+            actual = _resolve_code_number(rel_path, symbol)
 
         if actual is None:
             offenders.append(
@@ -544,6 +660,12 @@ def test_lab_invariants_match_code():
     assert len(checked) >= 4, (
         f"Sólo se verificaron {len(checked)} invariantes ({checked}); se esperaban >= 4. "
         "Probablemente cambió el formato de la tabla y el parseo dejó de encontrar filas."
+    )
+    # Mismo resguardo para la vía de cadenas (canales analógicos del filtro de densidad y del
+    # láser de 532 nm): si deja de encontrar filas, falla en vez de pasar sin verificar nada.
+    assert len(checked_str) >= 2, (
+        f"Sólo se verificaron {len(checked_str)} invariantes de texto ({checked_str}); se "
+        "esperaban >= 2. Probablemente cambió el formato de la columna Valor."
     )
 
 

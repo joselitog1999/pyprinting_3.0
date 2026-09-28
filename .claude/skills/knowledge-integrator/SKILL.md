@@ -9,7 +9,7 @@ This skill governs the persistent consolidation of validated knowledge into PyPr
 
 ## Overview
 
-In accordance with Foundational Directive #1 (Absolute Knowledge Preservation), insights generated during an AI session must never evaporate into conversational history. This skill orchestrates the atomic synchronization of documents, ledgers, and the structural knowledge graph.
+Insights generated during an AI session must never evaporate into conversational history. This skill orchestrates the atomic synchronization of documents, ledgers, and the structural knowledge graph.
 
 ---
 
@@ -30,6 +30,8 @@ Categorize the new finding or implementation into its proper institutional conta
    ```
 2. If it exists: Append or revise the existing document with explicit version history and diff rationale.
 3. If it does not exist: Create a new document following the standard numbering conventions (`CAT-XXX`, `SYS-XXX`, `DEC-XXX`).
+4. Every figure you write carries its backing label (RESPALDADO / DERIVADO / EXPERIMENTAL / SIN FUENTE, `.claude/shared/lab-invariants.md` §0) and comes from a primary source or the code, never from another CAT, SYS or MOD. An unpublished figure from the researcher, or a method still in development (e.g. the Debye-Waller Monte Carlo), is labelled EXPERIMENTAL.
+5. If a document describes code that does not exist, do not delete it or rewrite it to match the code. It is archived and catalogued as **implementable** (a proposed improvement that can be built) or **unknown** (origin and purpose unclear), with an index and the cross-references fixed (researcher, R1-11). Present the list with a proposed category per document and wait for approval before moving anything.
 
 ### Step 3: Epistemic & Decision Ledger Logging
 1. If a scientific claim or physical equation was established or verified:
@@ -54,7 +56,7 @@ Verify that new symbols, classes, or markdown links are parsed without syntax er
 ## 1. Modified & Created Artifacts
 * **Compendium**: Updated `reportes/cientificos/CAT-XXX.md` (Section 3.2 added)
 * **Evidence Ledger**: Added entry `PHY-045` in `docs/evidence/EVIDENCE_LEDGER.md`
-* **Decision Log**: Appended `DEC-014` (Piezo Filter Cutoff) to `docs/decisions/DECISION_LOG.md`
+* **Decision Log**: Appended `DEC-XXX` ([title]) to `docs/decisions/DECISION_LOG.md`
 
 ## 2. Graphify AST Synchronization
 * Command: `graphify update .`

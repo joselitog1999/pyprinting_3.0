@@ -3,12 +3,12 @@
 test_trace.py — Pruebas unitarias para las correcciones de seguridad de modules/trace.py
 y core/nidaq.py (auditoría multi-agente 2026-09-18, hallazgos ANOM-TRACE-01/02):
 
-1. ANOM-TRACE-01: la Task DAQmx de fotodiodos se crea UNA sola vez por sesión de traza
-   (_start()/set_bs_only_active(True)) y se reutiliza en cada tick vía .read(), en vez
-   de crearse/destruirse 30x/segundo — la cadencia entre muestras deja de depender del
-   overhead de alocar el driver en cada tick. channels_photodiodos() en core/nidaq.py
-   gana un parámetro continuous=False por defecto, que preserva el comportamiento FINITE
-   existente para focus.py (rampa Z disparada por trigger, no debe volverse continua).
+1. ANOM-TRACE-01 (REVERTIDO por DEC-037, 2026-09-27): la Task continua reutilizada se
+   leía de a 10 muestras por tick y DAQmx entrega la más vieja sin leer: los datos se
+   atrasaban y el buffer se desbordaba (C-01). La traza volvió a la lectura finita por
+   tick de producción (7f5d10a); lo verifica tests/test_trace_acquisition_freshness.py,
+   con un doble que sí modela el buffer. El parámetro continuous=False de
+   channels_photodiodos() se conserva (sin usuarios por ahora).
 2. ANOM-TRACE-02: el payload emitido por tick se acota a SEND_WINDOW muestras — el
    historial completo permanece intacto en self.timeaxis/self.intensity_* para
    save_trace(). Esto obligó a corregir Frontend.get_data(), que antes recortaba usando
@@ -35,35 +35,6 @@ import core.nidaq as nq
 import modules.trace as trace_mod
 
 
-class _FakeContinuousTask:
-    """Sustituto mínimo de una nidaqmx.Task en modo CONTINUOUS, para verificar que
-    trace.py reutiliza la misma instancia en vez de crear una nueva por tick."""
-    def __init__(self, n_channels: int, samps: int):
-        self.n_channels  = n_channels
-        self.samps       = samps
-        self.start_calls = 0
-        self.read_calls  = 0
-        self.stop_calls  = 0
-        self.close_calls = 0
-
-    def start(self):
-        self.start_calls += 1
-
-    def read(self, samps=None):
-        self.read_calls += 1
-        n = samps or self.samps
-        return [list(np.full(n, 0.5)) for _ in range(self.n_channels)]
-
-    def wait_until_done(self):
-        pass
-
-    def stop(self):
-        self.stop_calls += 1
-
-    def close(self):
-        self.close_calls += 1
-
-
 # ── ANOM-TRACE-01 — core/nidaq.py: parámetro continuous no rompe el default ─
 
 def test_channels_photodiodos_default_stays_finite_mock():
@@ -76,70 +47,10 @@ def test_channels_photodiodos_continuous_flag_accepted():
     assert isinstance(task, nq._MockNITask)
 
 
-# ── ANOM-TRACE-01 — modules/trace.py: Task persistente reutilizada ──────────
-
-def test_trace_backend_creates_task_once_and_reuses_it_across_ticks(app, monkeypatch):
-    backend = trace_mod.Backend()
-    fake_task = _FakeContinuousTask(len(trace_mod.PD_CHANS_LIST) + 1, backend.N)
-    factory_calls = {"n": 0}
-
-    def fake_channels_photodiodos(rate, samps, continuous=False):
-        factory_calls["n"] += 1
-        assert continuous is True, "trace.py debe pedir explícitamente continuous=True"
-        return fake_task
-
-    monkeypatch.setattr(trace_mod, "SAFE_MODE", False)
-    monkeypatch.setattr(trace_mod, "channels_photodiodos", fake_channels_photodiodos)
-    monkeypatch.setattr(trace_mod, "open_shutter", lambda name: None)
-    monkeypatch.setattr(trace_mod, "close_shutter", lambda name: None)
-    monkeypatch.setattr(trace_mod, "heartbeat_shutter", lambda *a, **k: None)
-
-    backend.laser1 = trace_mod.SHUTTERS[0]
-    backend.laser2 = "None"
-    backend._start()
-
-    assert factory_calls["n"] == 1, "La Task debe crearse una sola vez en _start(), no por tick"
-    assert fake_task.start_calls == 1
-
-    for _ in range(5):
-        backend._trace_update()
-
-    assert factory_calls["n"] == 1, "No debe crearse una Task nueva en cada tick"
-    assert fake_task.read_calls == 5, "Debe reutilizar .read() sobre la misma Task en cada tick"
-
-    backend._stop_and_save()
-    assert fake_task.stop_calls == 1
-    assert fake_task.close_calls == 1
-    assert backend._task is None
-
-
-def test_bs_only_backend_creates_task_once_and_reuses_it(app, monkeypatch):
-    backend = trace_mod.Backend()
-    fake_task = _FakeContinuousTask(len(trace_mod.PD_CHANS_LIST) + 1, backend.N)
-    factory_calls = {"n": 0}
-
-    def fake_channels_photodiodos(rate, samps, continuous=False):
-        factory_calls["n"] += 1
-        assert continuous is True
-        return fake_task
-
-    monkeypatch.setattr(trace_mod, "SAFE_MODE", False)
-    monkeypatch.setattr(trace_mod, "channels_photodiodos", fake_channels_photodiodos)
-
-    backend.set_bs_only_active(True)
-    assert factory_calls["n"] == 1
-    assert fake_task.start_calls == 1
-
-    for _ in range(4):
-        backend._bs_only_update()
-
-    assert factory_calls["n"] == 1
-    assert fake_task.read_calls == 4
-
-    backend.set_bs_only_active(False)
-    assert fake_task.stop_calls == 1
-    assert fake_task.close_calls == 1
-    assert backend._bs_task is None
+# ── ANOM-TRACE-01 — la Task persistente se revirtió (DEC-037) ──────────────
+# Los dos tests que exigían una Task continua reutilizada codificaban el defecto C-01
+# (su doble no modelaba el buffer de DAQmx, por eso pasaban). Los reemplaza
+# tests/test_trace_acquisition_freshness.py.
 
 
 # ── ANOM-TRACE-02 — payload acotado, historial completo preservado ──────────

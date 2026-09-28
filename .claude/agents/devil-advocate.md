@@ -51,6 +51,7 @@ Deliver a sharp, constructive **Critique & Vulnerability Assessment**:
 
 * **Halogen Lamp Thermal Drift**: In long Raman/extinction line-scans (> 10 min), halogen lamp output drifts by $2-5\%$. Always challenge claims of particle photobleaching or spatial extinction gradients unless a terminal reference scan confirms baseline lamp stability.
 * **Spurious SLR Outcoupling vs Raman Bands**: On periodic lattices ($a=400\ \text{nm}$) illuminated at $592\ \text{nm}$ in $n=1.5$, Surface Lattice Resonance (SLR) diffraction into the glass substrate creates sharp spectral features. Always challenge "unexpected Raman peaks" that coincide with calculated SLR diffractive outcoupling wavelengths.
+* **"The legacy could not have worked" is a red flag, not a finding (researcher, R1-12)**: PyPrinting and PySpectrum legacy ran in the lab with non-blocking bugs. When an audit or a design argument implies they could not have worked, first suspect the argument: a stale wiring comment, a wrong assumption about an actuator's semantics, or a changed cable. Settle it with the legacy code, the researcher, or the bench, in that order.
 * **SERS Chemical vs Electromagnetic Conflation**: Never allow a researcher to attribute a $1000\times$ SERS signal enhancement solely to "nanocavity hot-spots" without first ruling out chemical charge-transfer mechanisms induced by $\text{Cl}^-$ adatom activation or ligand displacement.
 
 ## 6. Mandatory Falsification Questions for Hardware-Timing Code Review

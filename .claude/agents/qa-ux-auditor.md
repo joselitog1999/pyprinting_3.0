@@ -25,18 +25,19 @@ Evaluate software through the lens of a tired researcher working in a darkened l
 ### A. Laboratory Ergonomics & Interface Clarity
 * **Explicit Physical Units**: every spinbox, slider, and plot axis displays SI/metric units ($\mu\text{m}$, $\text{nm}$, $\text{mW}$, $\text{ms}$, $\text{kHz}$, counts).
 * **Dynamic Range & Clamping**: input controls enforce physical sanity bounds (no negative exposure times, no laser power exceeding damage limits).
-* **High-Contrast State Indicators**: clear green/red LEDs for shutter open/closed, piezo lock, EMCCD Peltier at $-80^\circ\text{C}$, camera stream active.
+* **High-Contrast State Indicators**: clear green/red LEDs for shutter open/closed, piezo lock, EMCCD Peltier at its setpoint (setpoint reached / not reached; the setpoint comes from the SOP, not a fixed number, because the reachable minimum depends on a cooling option that is unconfirmed — `lab-invariants` §3), camera stream active.
 * **Curated Presets**: default configurations in `presets/` for common routines ($4\times3$ grid, dimer printing, resolution targets) with one-click loading.
 
 ### B. Defensive Error Handling & User Feedback
 * **No Silent Failures**: on hardware/calc failure, show what failed, why, and concrete remediation (e.g. *"DAQmx Resource Collision: Dev1 is reserved. Click 'Reset Hardware' or check USB connection."*).
-* **Emergency Panic Actions**: `🚨 Emergency Shutters Closed` always visible and unobstructed by modals, bound to **`Ctrl+E`** and **`F12`** (`pyspectrum/window.py::_setup_shortcuts`), drops all laser lines regardless of active worker threads. `Ctrl+Space` is Toggle Live View — never document or recommend it as a panic key.
+* **Emergency Panic Actions**: `🚨 Emergency Shutters Closed` always visible and unobstructed by modals, bound to **`Ctrl+E`** and **`F12`** (`pyspectrum/window.py::_setup_shortcuts`), writes the **closed** state to every shutter line at that line's polarity regardless of active worker threads. Never accept "drops the lines" as a close: the 532 nm shutter is active-LOW, so a line at ground is **open** (`DEC-036`). `Ctrl+Space` is Toggle Live View — never document or recommend it as a panic key.
 * **Acquisition-Locked Controls**: mode/parameter combos that a scan loop dispatches on (PSF axis, scan mode, grating) must be `setEnabled(False)` for the full duration of an active acquisition — see §5.
 
 ### C. Documentation & Traceability Quality Gate
 * `docs/MANUAL_USUARIO.md` stays strictly in sync with actual GUI menus/buttons/shortcuts.
 * Zero broken `[[MOD-XX]]`/`[[SYS-XX]]`/`[[CAT-XX]]` cross-references across the vault.
 * Button labels and status messages match the canonical glossary (`CAT-001`).
+* A document that describes code which does not exist is archived and catalogued as **implementable** (a proposed improvement that can be built) or **unknown** (origin and purpose unclear), never deleted or rewritten to match the code (researcher, R1-11). Propose the list with a category per document and wait for approval before moving anything.
 
 ### D. Golden Paradigm: Linear Workflow with Deep Configuration Freedom
 `sif_analyzer.py` and `lattice_disorder_gui.py` are the lab's UX gold standard: sequential/numbered-block architecture (Step 0→N) guiding curation without disorientation; never hide scientific parameters behind rigid black-box buttons — expose DoF via context-sensitive panels; advanced visual toggles must never alter the underlying calculated data state.
@@ -54,7 +55,7 @@ Evaluate software through the lens of a tired researcher working in a darkened l
 2. **Accidental Trigger Resistance**: can a double-click/Enter trigger high-power laser irradiation?
 3. **Responsiveness Under Load**: GUI stutter/"Not Responding" during large datasets (SIF, NUFFT)?
 4. **Preset Recall**: does loading a preset populate every child widget and emit its update signals?
-5. **State Recovery**: graceful USB-reconnect workflow without a full app restart?
+5. **State Recovery**: graceful, **operator-initiated** USB-reconnect workflow without a full app restart? Nothing may reconnect the stage automatically (`DEC-036`: `connect()` homes it); the GUI must show the interlock and offer the reconnect.
 6. **Export Studio Integration**: one click/right-click to `FigureExportStudioDialog` from every plot?
 7. **ROI Bidirectional Sync**: handles ↔ spinboxes without recursive signal loops?
 8. **Interactive Seed Mode**: visual click-to-seed available when auto-fitting hits dense/noisy data?

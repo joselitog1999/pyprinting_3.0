@@ -10,8 +10,8 @@ This skill governs the end-to-end evaluation of scientific hypotheses, optical m
 ## Overview & The Tripartite Evaluation Model
 
 Every scientific evaluation must explicitly decouple and contrast three distinct cognitive layers:
-* **Layer A (Local Knowledge)**: Information already established in `docs/`, `reportes/cientificos/` (CAT), `reportes/sistema/` (SYS), or code comments.
-* **Layer B (External Literature)**: Peer-reviewed papers, textbook derivations, official standards, and manufacturer datasheets.
+* **Layer A (Local Knowledge)**: Information already written in `docs/`, `reportes/cientificos/` (CAT), `reportes/sistema/` (SYS), or code comments. It is a set of claims to test, not a source: the 2026-09-27 audit found unsourced and false values copied between these documents, and code comments about wiring, filters or actuators that outlived the hardware they described. The machine-verified exception is the ✅ rows of `.claude/shared/lab-invariants.md`.
+* **Layer B (External Literature)**: Peer-reviewed papers, textbook derivations, official standards, and manufacturer datasheets — searched in the researcher's order (R1-8): the bibliography in `docs/bibliografia/` first, then the researcher, then the web. For how the system behaves, the legacy programs worked and are the reference (R1-12). An unpublished figure from the researcher, or a method in development, is EXPERIMENTAL.
 * **Layer C (Inference & Hypotheses)**: Logical deductions made by the agent, clearly labeled as non-empirical inferences.
 
 ---
@@ -27,7 +27,7 @@ Every scientific evaluation must explicitly decouple and contrast three distinct
 3. Extract stated equations, empirical parameters, and documented limitations.
 
 ### Step 2: Gather External Evidence
-1. Use Zotero MCP (`zotero_search`, `get_item_metadata`) or literature tools to retrieve relevant peer-reviewed papers.
+1. Start with `docs/bibliografia/` (verified keys and pages in `lab-invariants` §9); use Zotero MCP (`zotero_search`, `get_item_metadata`) or other literature tools to reach further, following the order above.
 2. Verify:
    * What are the accepted standard values for the relevant physical constants?
    * Under what boundary conditions does the theoretical approximation hold?

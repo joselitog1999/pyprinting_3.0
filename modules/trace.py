@@ -513,27 +513,10 @@ class Backend(QObject):
                 self.timer_bs_inicio = time.time()
                 self.bs_timeaxis = np.array([])
                 self.bs_intensity = np.array([])
-                # ANOM-TRACE-01: Task continua creada una sola vez, reutilizada en cada
-                # tick — en vez de crear/destruir una Task DAQmx nueva 30x/segundo.
-                self._bs_task = None
-                if not SAFE_MODE:
-                    try:
-                        self._bs_task = channels_photodiodos(self.rate, self.N, continuous=True)
-                        self._bs_task.start()
-                    except Exception as e:
-                        print(f"[PowerBS Error] No se pudo crear la Task continua ({e}); se usará modo por-tick.")
-                        self._bs_task = None
                 self.bs_timer.start(35) # ~30 FPS para actualización suave sin lag
         else:
             if self.bs_timer and self.bs_timer.isActive():
                 self.bs_timer.stop()
-            if getattr(self, "_bs_task", None) is not None:
-                try:
-                    self._bs_task.stop()
-                    self._bs_task.close()
-                except Exception:
-                    pass
-                self._bs_task = None
 
     def _bs_only_update(self):
         self._n_bs += 1
@@ -541,13 +524,14 @@ class Backend(QObject):
             val_bs = 0.5 + 0.1 * np.cos(self._n_bs * 0.1) + np.random.normal(0, 0.02)
         else:
             try:
-                if getattr(self, "_bs_task", None) is None:
-                    task = channels_photodiodos(self.rate, self.N)
+                # Lectura finita nueva en cada tick, como en producción (C-01, paso 0, DEC-037).
+                # El cierre va en `finally`: si read() lanza, Task.__del__ no libera las AI.
+                task = channels_photodiodos(self.rate, self.N)
+                try:
                     lectura_total = task.read(self.N)
                     task.wait_until_done()
+                finally:
                     task.close()
-                else:
-                    lectura_total = self._bs_task.read(self.N)
                 ch_bs = PD_CHANNELS.get("BS", 6)
                 ch_bs_idx = PD_CHANS_LIST.index(ch_bs) if ch_bs in PD_CHANS_LIST else (len(PD_CHANS_LIST) - 1)
                 val_bs = float(np.mean(lectura_total[ch_bs_idx]))
@@ -585,13 +569,6 @@ class Backend(QObject):
         if play:
             if self.bs_timer and self.bs_timer.isActive():
                 self.bs_timer.stop()
-                if getattr(self, "_bs_task", None) is not None:
-                    try:
-                        self._bs_task.stop()
-                        self._bs_task.close()
-                    except Exception:
-                        pass
-                    self._bs_task = None
             self._start()
         else:
             self._stop_and_save()
@@ -618,30 +595,16 @@ class Backend(QObject):
         self.intensity_l2 = np.array([])
         self.intensity_BS = np.array([])
 
-        # ANOM-TRACE-01: Task continua creada una sola vez, reutilizada en cada tick —
-        # en vez de crear/destruir una Task DAQmx nueva 30x/segundo (cadencia entonces
-        # dependiente del scheduler y del overhead del driver, no clockeada por hardware).
-        self._task = None
-        if not SAFE_MODE:
-            try:
-                self._task = channels_photodiodos(self.rate, self.N, continuous=True)
-                self._task.start()
-            except Exception as e:
-                print(f"[Trace Error] No se pudo crear la Task continua ({e}); se usará modo por-tick.")
-                self._task = None
-
-        self.pointtimer.start(35) # ~30 FPS para fluidez óptima
+        # C-01, paso 0 (DEC-037): sin tarea continua. La que introdujo ANOM-TRACE-01
+        # (6abbbfc) se leía de a 10 muestras por tick y DAQmx entrega la más vieja sin
+        # leer: los datos se atrasaban y, al llenarse el buffer, cada lectura fallaba y
+        # quedaba 0.0 V. Se vuelve a la lectura finita por tick de producción (7f5d10a)
+        # hasta que la Ronda 2 de C-01 diseñe la adquisición definitiva.
+        self.pointtimer.start(35) # ~30 FPS para fluidez óptima (≈ 47 ms reales: QTimer Coarse)
 
     def _stop_and_save(self):
         if self.pointtimer and self.pointtimer.isActive():
             self.pointtimer.stop()
-        if getattr(self, "_task", None) is not None:
-            try:
-                self._task.stop()
-                self._task.close()
-            except Exception:
-                pass
-            self._task = None
         if hasattr(self, 'laser1') and self.laser1 != "None":
             close_shutter(self.laser1)
         if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
@@ -694,13 +657,14 @@ class Backend(QObject):
                 val_l2 = (0.8 + 0.2 * np.sin(self._n * 0.15) + np.random.normal(0, 0.04))
         else:
             try:
-                if getattr(self, "_task", None) is None:
-                    task = channels_photodiodos(self.rate, self.N)
+                # Lectura finita nueva en cada tick, como en producción (C-01, paso 0, DEC-037).
+                # El cierre va en `finally`: si read() lanza, Task.__del__ no libera las AI.
+                task = channels_photodiodos(self.rate, self.N)
+                try:
                     lectura_total = task.read(self.N)
                     task.wait_until_done()
+                finally:
                     task.close()
-                else:
-                    lectura_total = self._task.read(self.N)
 
                 def _get_pd_channel(laser_key, default_ch):
                     if laser_key in PD_CHANNELS:

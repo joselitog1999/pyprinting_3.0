@@ -98,3 +98,10 @@ When summoned by the user or triggered during a session post-mortem, provide:
    * Explicit recommendation on whether a new Skill or Subagent is justified, following the Parsimony Hierarchy.
 4. **Maintenance Action**:
    * Execute `graphify update .` whenever prompt or skill files are modified.
+
+---
+
+## 3. Learned Pitfalls & Project Quirks
+
+* **A value in a prompt comes from `lab-invariants` or the code, never from a monograph** (audit of 2026-09-27): the physicist, colloidal-chemist and experimentalist prompts carried APTES, 0.75 mM and $A_H = 2.5 \times 10^{-19}$ J because they had been transcribed from CAT documents that attributed them to sources that do not contain them. Copy the backing label along with the number. If the table does not have the value, verify it against the code or a primary source before writing it, or leave the prompt without the number.
+* **Audit a gold exemplar against its own checklist before anchoring agents to it**: the metrology exemplar closed its arithmetic and still violated its own "respect the CRLB" item (0.55 nm against a floor of 1.33 nm), counted pixelation twice, and filled an unmeasured row with an invented 1.50 nm; the concurrency exemplar taught `heartbeat_shutter(30.0)`, which overrides the operator's watchdog policy. An exemplar spreads its errors faster than a prompt, because agents copy it verbatim.

@@ -3,15 +3,17 @@
 **Laboratorio**: Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)
 **Ubicación**: `docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`
 **Vinculado a**: `docs/evidence/EVIDENCE_LEDGER.md`, `docs/decisions/DECISION_LOG.md`, [[SYS-301]], [[SYS-303]], [[MOD-06]]
-**Última actualización**: 2026-09-26
+**Última actualización**: 2026-09-27
 
 ---
 
 ## Para qué es esta lista
 
-Todo lo que PySpectrum 3.0 afirma sobre el hardware y que **ningún test automático puede
+Todo lo que PyPrinting 3.0 y PySpectrum 3.0 afirman sobre el hardware y que **ningún test automático puede
 comprobar** — porque el simulador sólo reproduce lo que sabemos, no lo que ignoramos — está
 acá, con el procedimiento para comprobarlo en el banco y el criterio que decide si pasó.
+También están acá **todas las dudas que el investigador dejó "para verificar en el banco"**
+(grupo F), así se resuelven de una sola vez en una misma visita.
 
 Cómo usarla:
 
@@ -23,7 +25,7 @@ Cómo usarla:
    contradice al código es evidencia, no un bug a parchear en caliente.
 
 **Seguridad (`CLAUDE.md` §4)**: todas las pruebas las ejecuta el operador. Ninguna requiere
-láser. Si se elige la línea del láser o una banda Raman como referencia de longitud de onda,
+láser, salvo BANCO-32 y BANCO-33, que están marcadas y necesitan aprobación explícita. Si se elige la línea del láser o una banda Raman como referencia de longitud de onda,
 aplica el protocolo completo de obturadores y watchdog. Las sondas de `tools/bench/` sólo tocan
 la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectrógrafo.
 
@@ -54,6 +56,22 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-17 | Modelo y recorrido real de la platina (qCST, qTMN/qTMX) | `DEC-036` | PyPrinting cerrado; `tools/bench/pi_stage_probe.py` | ☐ |
 | BANCO-18 | Aviso de "cierre sin confirmar" ante una falla real de la placa | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
 | BANCO-19 | Pérdida de comunicación con la platina durante una rutina | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
+| BANCO-20 | Qué está conectado en `ai3`: trigger Z de la E-517 o fotodiodo de 808 nm | C-44, R2-6 | Inspección del cableado | ☐ |
+| BANCO-21 | Posición del espejo de detección (`line7`) al encender y tras un cierre forzado | C-08, R2-4/5 | **Láseres apagados** | ☐ |
+| BANCO-22 | Inventario: placa en NI MAX, BNC-2110 ↔ líneas, fotodiodos, láseres, flipper, iXon | R1-1, D-11, C-01 R1 | Inspección, NI MAX | ☐ |
+| BANCO-23 | Versiones de software en la PC del banco | C-01 R1 | Consola | ☐ |
+| BANCO-24 | Δt entre filas y filas tras el escalón en `NP_xxx.txt` de producción | C-01 R1 | Archivos ya guardados | ☐ |
+| BANCO-25 | Offsets del Shamrock leídos del equipo | C-04, R2-9 | Legado abierto (sólo lectura) | ☐ |
+| BANCO-26 | Tamaño real del buffer DAQmx de una tarea continua a 10 kS/s | C-01 | Sin láser; sólo entradas analógicas | ☐ |
+| BANCO-27 | La traza sigue en tiempo real a una señal conocida | C-01, `DEC-037` | Generador o LED en un AI libre | ☐ |
+| BANCO-28 | Cadencia real de la traza y costo de cada lectura | C-01 | Sin láser | ☐ |
+| BANCO-29 | Latencia escalón → línea DO del obturador (eléctrica) | C-01, Ronda 1 | Osciloscopio, LED o generador | ☐ |
+| BANCO-30 | Tiempo mecánico de apertura y cierre de cada obturador | C-01 R1 Q7 | LED + fotodiodo a través del obturador | ☐ |
+| BANCO-31 | Robustez de la traza ante GUI congelada y error −50103 | C-01 | Sin láser | ☐ |
+| BANCO-34 | Revisión de trazas y nodos ya guardados en producción | C-01, Ronda 2 (metrología) | Archivos del banco | ☐ |
+| BANCO-35 | Convivencia de PySpectrum y PyPrinting sobre la misma placa | C-01 Ronda 2, `DEC-036` | Dos programas abiertos, **láseres apagados** | ☐ |
+| BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
+| BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
 ---
 
@@ -138,7 +156,15 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
 >
 > **Antes de la primera ejecución de 3.0 contra el equipo**, respaldar los offsets actuales del
 > Shamrock (red 1, red 2, espejo, detector, cero de ranura) leyéndolos con el legado o con Solis.
-> Anotarlos acá: —
+> Anotarlos acá:
+> - **Dato del investigador (2026-09-27), EXPERIMENTAL hasta leerlo del equipo:**
+>   - offset de la red de 150 l/mm = **87**;
+>   - red de 1200 l/mm **sin calibrar**;
+>   - offset del detector = **0**.
+> - Falta: el valor leído del equipo con `tools/bench/legacy_console_probe.py` (sección D), el
+>   offset del espejo y los ceros de ranura.
+> - Para comparar: 3.0 escribe hoy red 1 = 12, red 2 = −35 y detector = 5 en cada arranque
+>   (C-04); con estos datos, eso **pisaría** el 87 de la red de 150 l/mm.
 
 Requisito común: legado cerrado; PySpectrum 3.0 con `SAFE_MODE = False`; cámara enfriada y
 estable si la prueba adquiere datos.
@@ -311,4 +337,169 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
   controlador E-517 a mitad de camino.
 - **Aceptación**: la rutina se detiene, los obturadores quedan cerrados, la platina no se
   mueve a (50, 50, 10) µm y reconectar requiere una acción del operador desde el Dashboard.
+- **Resultado**: —
+
+---
+
+## Grupo F — Relevamiento del banco (dudas del investigador; sin láser y sin accionar nada)
+
+Todo lo que el investigador contestó "lo verifico en el banco" durante la auditoría del
+2026-09-27 (`docs/evidence/auditoria_2026-09-27/RESPUESTAS_INVESTIGADOR.md`) y lo que la
+auditoría no pudo cerrar sin mirar el equipo. Son inspecciones y lecturas: no se abre ningún
+obturador ni se mueve nada.
+
+### ☐ BANCO-20 — Qué está conectado en `ai3`
+- **Verifica**: `config.py` usa `ai3` a la vez como fotodiodo de 808 nm (`PD_CHANNELS`) y como
+  trigger del eje Z de la E-517 (`TRIGGER_CHANNELS`). Un barrido Z con 808 nm leería el mismo
+  canal como trigger y como señal (C-44).
+- **Procedimiento**: seguir el cable que llega a `AI 3` de la BNC-2110 correspondiente.
+- **Resultado**: —
+
+### ☐ BANCO-21 — Espejo de detección (`line7`) al encender y tras un cierre forzado
+- **Verifica**: el espejo es un conmutador (el mismo pulso cambia de posición) y el software no
+  conoce su posición real (R2-5). El espectrómetro sólo recibe luz con el espejo abajo (R2-4).
+- **Procedimiento**: con los láseres apagados, anotar la posición física del espejo (a) al
+  encender todo, (b) después de cerrar PyPrinting normalmente, (c) después de terminarlo desde
+  el Administrador de tareas; y comparar con lo que muestra el rótulo "Mirror" al reabrir.
+- **Resuelve**: el diseño de la persistencia y la resincronización del espejo (fase 6.3 del plan).
+- **Resultado**: —
+
+### ☐ BANCO-22 — Inventario de hardware
+Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
+- [ ] **Placa**: modelo y número de serie en NI MAX (se espera PCIe-6353); qué BNC-2110 va al
+  conector 0 y cuál al conector 1, y en cuál están P0.7–P0.11 (R1-1).
+- [ ] **Fotodiodos**: modelo y ganancia de cada uno, y a qué `ai` va (C-01, Ronda 1, pregunta 8).
+- [ ] **Láseres**: modelos del 637, 592 y 808 nm (el verde es Excelsior-532-150-CDRH) (D-11).
+- [ ] **Flipper del filtro de densidad**: ¿es un Thorlabs MFF101? Fuente de alimentación y modo
+  de entrada (pregunta 9 de la Ronda 2 del verificador).
+- [ ] **iXon3 885**: opción de enfriamiento DV o DU y temperatura alcanzable (`lab-invariants` §3).
+- [ ] **Obturadores de fabricación propia**: ¿la línea TTL entra a un microcontrolador que
+  genera el PWM del servo? Anotar el circuito (C-01, Ronda 2, pregunta 15).
+- **Resultado**: —
+
+### ☐ BANCO-23 — Versiones de software en la PC del banco
+- **Procedimiento**: en la consola del entorno de PyPrinting, anotar la versión del driver
+  NI-DAQmx (NI MAX → Software) y las de `nidaqmx`, `pipython`, `PyQt6` y `numpy`
+  (`python -m pip show nidaqmx pipython PyQt6 numpy`). Python ya se sabe: 3.11.13.
+- **Resultado**: —
+
+### ☐ BANCO-24 — Cadencia real de la traza en producción, desde archivos guardados
+- **Procedimiento**: abrir dos o tres `NP_xxx.txt` de impresiones recientes hechas con
+  `7f5d10a` y anotar el Δt típico entre filas y cuántas filas hay después del escalón.
+- **Verifica**: la predicción de ≈ 47 ms reales para el QTimer de 35 ms (medida en la PC de
+  desarrollo, `auditoria_2026-09-27/c01_ronda1/timer_probe.py`). Ojo: si el eje de tiempo de
+  esos archivos es sintético (`np.linspace`), el Δt no es medido; anotarlo.
+- **Resultado**: —
+
+### ☐ BANCO-25 — Offsets del Shamrock leídos del equipo
+- **Procedimiento**: con el legado abierto, correr `tools/bench/legacy_console_probe.py`
+  (sección D, sólo lectura) y anotar los offsets de las dos redes, del detector, del espejo y
+  los ceros de ranura. El investigador dio red 150 l/mm = 87, red 1200 sin calibrar, detector
+  = 0 (ver la nota del Grupo C).
+- **Resuelve**: el respaldo previo al primer arranque de PySpectrum 3.0 y el diseño de los
+  offsets dinámicos (C-04).
+- **Resultado**: —
+
+---
+
+## Grupo G — Traza de impresión (C-01): adquisición y latencia
+
+Validan la reversión de `DEC-037` y dan los datos para la Ronda 2 de C-01. Las pruebas
+BANCO-26 a BANCO-31 no usan láser: la señal la da un generador de funciones o un LED
+conectado a un canal analógico libre (el investigador confirmó que hay canales libres).
+El detalle de cada una está en `auditoria_2026-09-27/c01_ronda1/instrumentation.md` §3.
+
+### ☐ BANCO-26 — Tamaño real del buffer de una tarea continua a 10 kS/s
+- **Verifica**: la regla de NI es ambigua justo en 10 kS/s: el buffer puede ser de 10 000 o de
+  100 000 muestras por canal, y eso decide si el defecto de C-01 desbordaba a ≈ 1 s o a ≈ 10 s.
+- **Procedimiento**: crear una tarea continua de lectura en los 5 canales de fotodiodos a
+  10 kS/s y leer `task.in_stream.input_buf_size`. Sólo entradas analógicas.
+- **Resultado**: —
+
+### ☐ BANCO-27 — La traza sigue en tiempo real a una señal conocida
+- **Procedimiento**: una onda cuadrada de 1 Hz en un AI libre, mirada con la traza de
+  PyPrinting configurada sobre ese canal.
+- **Aceptación**: con la versión revertida (`DEC-037`) la traza muestra 1 Hz sin atraso
+  creciente. Con la tarea continua de `6abbbfc` se predice un período aparente de ≈ 35 s y,
+  después, ceros: si se quiere confirmar el diagnóstico, es la prueba más barata.
+- **Resultado**: —
+
+### ☐ BANCO-28 — Cadencia real de la traza y costo de cada lectura
+- **Procedimiento**: registrar durante 60 s el instante de cada tick y la duración de cada
+  lectura finita (crear, leer, cerrar la tarea).
+- **Resultado**: —
+
+### ☐ BANCO-29 — Latencia eléctrica: escalón de señal → línea del obturador
+- **Procedimiento**: osciloscopio en dos canales: el escalón aplicado al AI (generador o LED
+  modulado) y la línea DO del obturador (con el obturador desconectado o los láseres apagados).
+  Correr el criterio de impresión en modo de prueba y medir el retardo en al menos 20 eventos.
+- **Resuelve**: la latencia de software real frente al objetivo de la Ronda 1 de C-01.
+- **Resultado**: —
+
+### ☐ BANCO-30 — Tiempo mecánico de apertura y cierre de cada obturador
+- **Verifica**: los obturadores son de fabricación propia y su tiempo de respuesta no fue
+  medido (C-01, Ronda 1, pregunta 7).
+- **Procedimiento**: un LED y un fotodiodo a través de la apertura de cada obturador (sin
+  láser); osciloscopio entre la línea DO y el fotodiodo.
+- **Resultado**: —
+
+### ☐ BANCO-31 — Robustez ante GUI congelada y error −50103
+- **Procedimiento**: con la traza corriendo sobre la señal de prueba, congelar la GUI unos
+  segundos (p. ej. arrastrar la ventana) y abrir a la vez Power BS, para provocar el conflicto
+  de recursos −50103.
+- **Aceptación**: ningún 0.0 V registrado como dato válido; el error queda en el log.
+- **Resultado**: —
+
+### ☐ BANCO-34 — Revisión de trazas y nodos ya guardados en producción
+Se hace con archivos que ya están en la PC del banco (impresiones con `7f5d10a`); no hace falta
+encender nada. Resuelve preguntas de la Ronda 2 de C-01
+(`docs/evidence/auditoria_2026-09-27/c01_ronda2/metrology.md` §7).
+- [ ] **Preset en uso** ("umbral + valor absoluto"): anotar `Steps before`, `Steps after`, el
+  umbral absoluto (V) y el "Umbral Mín" (V).
+- [ ] **Voltajes típicos en ai0**: la base antes de la captura y la meseta después.
+- [ ] **Nodos TIMEOUT**: ¿el escaneo o la imagen posterior muestra una NP impresa? En la traza
+  guardada, ¿hay un escalón de ×1.4–1.55 que no se detectó? La simulación predice que, con
+  umbral 1.5 y ventanas de 10/10, la rama relativa **no** detecta escalones menores que ≈ ×1.57.
+  Si esto se confirma, parte de los TIMEOUT serían capturas reales con el láser abierto 40 s.
+- [ ] **Nodos SUCCESS con t_print < 1 s** (≈ 0.6 s): serían un artefacto de la apertura del
+  obturador.
+- [ ] **Subidas transitorias** que no terminan en impresión: de cuánto (×) y cuánto duran (ms).
+  Deciden si se pueden usar ventanas cortas sin tomar un transitorio por una captura.
+- **Resultado**: —
+
+### ☐ BANCO-35 — Convivencia de PySpectrum y PyPrinting sobre la misma placa
+- **Verifica**: el investigador usa los dos programas a la vez ("PySpectrum son los ojos,
+  PyPrinting el cuerpo"). El legado de PySpectrum define sus propios obturadores con el
+  **cableado viejo** (`scratch/pyspectrum-legacy/Instrument_nidaqmx_ps.py`: 532 → `line9`,
+  594 → `line10`, 637 → `line11`, 808 → `line12`), que no coincide con el vigente (532 →
+  `line11`, 637 → `line8`, 592 → `line9`, 808 → `line10`). Además, la placa admite una sola
+  tarea de entradas analógicas a la vez: un programa puede recibir −50103 mientras el otro lee.
+- **Contexto (investigador, 2026-09-27)**: hoy el banco trabaja con **PySpectrum legacy +
+  PyPrinting legacy**. PySpectrum 3.0 no se probó, y tampoco la combinación 3.0 + 3.0 (en 3.0
+  PyPrinting se abre como ventana satélite dentro del proceso de PySpectrum, DEC-019).
+- **Primero, leer la configuración de los legados que corren en el banco** (sin accionar
+  nada): los canales de obturadores en `Instrument_nidaqmx_pp.py` (PyPrinting) y
+  `Instrument_nidaqmx_ps.py` (PySpectrum) de la PC del banco. En las copias del repositorio,
+  PyPrinting legacy tiene 532 → `line12` y 637 → `line11` (activo en BAJO): con el cableado
+  vigente, **su botón "637" abriría el obturador de 532 nm**. Si la PC del banco tiene esos
+  canales, no usar los botones de obturador del legado hasta resolverlo.
+- **Procedimiento** (láseres apagados, obturadores observables): con PySpectrum legacy y
+  PyPrinting legacy abiertos a la vez (la combinación en uso) y, por separado, con
+  PyPrinting 3.0, (a) accionar desde cada programa cada botón de obturador y
+  anotar qué servo se mueve; (b) correr la traza de PyPrinting mientras PySpectrum lee un
+  fotodiodo, y anotar errores de cada consola.
+- **Aceptación**: cada botón mueve el obturador que dice, y ningún programa deja una tarea
+  tomada al cerrarse. Si el legado mueve el servo equivocado, **no usar sus botones de
+  obturador** hasta corregirlo.
+- **Resultado**: —
+
+### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación
+- **Procedimiento**: una grilla de 5×5 con campo oscuro grabando, con un control sin coloide.
+- **Aceptación**: cada captura corta en el primer escalón y no hay dobletes.
+- **Resultado**: —
+
+### ☐ BANCO-33 — Deriva del sistema ⚠️ requiere láser y aprobación
+- **Verifica**: el valor provisorio de 30 nm/min (Martínez, CIBION) que usa `lab-invariants` §6.
+- **Procedimiento**: ≥ 1 h después de termalizar, recentrar una partícula de referencia por
+  escaneo confocal a intervalos regulares y registrar la posición.
 - **Resultado**: —

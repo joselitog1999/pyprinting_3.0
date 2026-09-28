@@ -1,6 +1,6 @@
 # Plan de correcciones — auditoría documental del 2026-09-27
 
-**Estado:** PROPUESTA para aprobación del investigador. Nada de este plan se ejecutó todavía.
+**Estado:** **APROBADO** por el investigador el 2026-09-27, con la indicación de arrancar la Ronda 1 de C-01 en paralelo con la fase 1. El avance se registra en la sección "Registro de ejecución", al final.
 
 **Insumos:**
 - `CONSOLIDADO.md` (hallazgos C-, D-, S-, V-);
@@ -160,6 +160,7 @@ En orden de prioridad:
    - ACT-N1: que conmuten potencia y espejo como el legado;
    - AND: que esperen el fin de la exposición;
    - C-10: mapa hiperespectral con `wait_on_target`, una adquisición por nodo y persistencia del cubo.
+   - **C-54** (encontrado en la fase 2; ningún lote auditó el archivo): `pyspectrum/modules/optical_support.py::move_stage_to()` espera con su propio bucle de `qONT()` y bloquea hasta 5 s en el hilo de la GUI sin renovar el latido. Si vence el tiempo, devuelve la posición actual como si la platina hubiera llegado. Viola DEC-036; lo usan `growth_kinetics` y `dimers`. Pasa a `wait_on_target()` y aborta si la llegada no se confirma.
 6. **Driver del Shamrock y la Andor** (C-04 a C-07):
    - offsets como **parámetro dinámico con procedencia** (fecha y método), cargable desde la configuración, editable y **calibrable con la rutina de láser de 532 nm + filtro de densidad**, extendida para calibrar la red y el detector (R2-9, R2-10);
    - rendija con la función vigente y `argtypes`;
@@ -215,9 +216,31 @@ Fase 0 (hoy)
         Fase 6 (resto) ─► Fase 7 ─► despliegue de main en el laboratorio (tras el Grupo E del banco)
 ```
 
-## Lo que necesito del investigador para arrancar
+## Respuestas del investigador a la aprobación (2026-09-27)
 
-1. Aprobación del plan, o cambios en el orden.
-2. Las cuatro preguntas de la Ronda 1 del verificador (fase 3).
-3. El offset de cada red del Shamrock (Fase 0.2).
-4. Si la Ronda 1 de C-01 puede arrancar ya, en paralelo con la fase 1.
+1. **Plan aprobado.**
+2. **Verificador (Ronda 1 de la fase 3):**
+   - sólo **advierte**, no bloquea;
+   - revisa también los comentarios del código, con la salvedad de que pueden contener información estructural vieja (cableado, filtros, etc.);
+   - no hay formato preferido para la marca de fuente;
+   - un dato del investigador sin publicar cuenta como **EXPERIMENTAL**.
+3. **Offsets del Shamrock (fase 0.2):**
+   - el offset de red **87 corresponde a la red de 150 l/mm**;
+   - la red de 1200 l/mm **no fue calibrada**;
+   - el offset del detector es 0.
+4. **La Ronda 1 de C-01 arranca ya**, en paralelo con la fase 1.
+
+## Registro de ejecución
+
+| Fecha | Fase | Qué se hizo | Estado |
+|---|---|---|---|
+| 2026-09-27 | 0 | 0.1 (no desplegar `main`), 0.3 (PySpectrum bloqueado) y 0.4 (métricas señaladas) registradas en `RESPUESTAS_INVESTIGADOR.md` y en este plan. 0.2: offsets anotados arriba y en `PRUEBAS_BANCO_PENDIENTES.md`. | Hecho |
+| 2026-09-27 | 1 | `lab-invariants.md` reescrito vía `agent-trainer`:<br>• columna de respaldo (RESPALDADO / DERIVADO / EXPERIMENTAL / SIN FUENTE);<br>• inventario de hardware;<br>• protocolo PDDA/PSS;<br>• tabla de convenciones (§8) y claves de fuentes (§9);<br>• cinco filas ✅ nuevas (espejo `line7`, filtro `ao0`/`ao1`, `ao2` del 532, NA del objetivo de agua, espera de red), con el test ampliado a constantes de texto y entradas de diccionario;<br>• filas retiradas: APTES, 0.75 mM como único valor, A_H = 2.5 × 10⁻¹⁹ J, derivas de 1 y 15-25 nm/min.<br>Resultado: gate 39/39, suite 916/916, controles negativos 5/5. | Hecho |
+| 2026-09-27 | 2 | Corrección del corpus de agentes vía `agent-trainer`, en 11 agentes, 3 ejemplares, 9 skills y 2 celdas de `CLAUDE.md`:<br>• se corrigieron APTES, 0.75 mM, A_H y las derivas;<br>• el ejemplar de incertidumbre se reescribió entero (pixelación contada dos veces, u_fit por debajo de la cota de Cramér-Rao, M = 50);<br>• referencias a DEC-003/DEC-002 mal citadas, corregidas;<br>• el E-STOP que "baja las líneas" pasó a escribir el estado cerrado según la polaridad de cada una;<br>• se sembraron las cinco reglas del investigador.<br>Hallazgo nuevo: **C-54** (ver fase 6). Gate 39/39. | Hecho |
+| 2026-09-27 | 3 | Ronda 2 del verificador (`provenance-verifier`) redactada por `agent-trainer`, con consulta a `software-architect` e `instrumentation`, en `F3_verificador_ronda2.md`. El agente no se creó. | **Aprobada** (R3); Ronda 4 (implementación) a continuación |
+| 2026-09-27 | 6.1 | **Paso 0 de C-01 aplicado (`DEC-037`)**: la traza y Power BS vuelven a la lectura finita por tick de producción. Test nuevo con un doble que modela el buffer de DAQmx: falla antes de la reversión (4/4) y pasa después (4/4). | Hecho |
+| 2026-09-27 | 6.1 | Ronda 2 de C-01 (opción E): panel `software-architect`, `instrumentation` y `metrology`, en `c01_ronda2/`, con los scripts de simulación. Arreglo derivado: `task.close()` en `finally` (DEC-037, con test). Se agregó `BANCO-34` (revisión de trazas guardadas). | **Aprobada** (cuarta ronda), con tres aclaraciones pendientes: falla de adquisición, liberación automática del bloqueo, convivencia de dos programas (`BANCO-35`). Después sigue la Ronda 3 (GUI). |
+| 2026-09-27 | 3 | Ronda 4 del verificador (`DEC-038`):<br>• agente `provenance-verifier`, de sólo lectura;<br>• `tools/source_marks.py` (detector de cifras, marcas, cobertura, `check-report`, índice de bibliografía);<br>• tests de validez (fallan) y de cobertura (advierten), con controles negativos y 8/8 mutaciones detectadas;<br>• `CLAUDE.md` §6 y §9;<br>• materiales del piloto en `F3_piloto/`;<br>• de paso, arreglo de aislamiento de pyqtgraph en `tests/conftest.py`.<br>Suite 1010/1010. **El piloto queda pendiente para una sesión nueva**, porque el agente recién está disponible cuando se recargan los agentes. | Hecho (adopción pendiente del piloto) |
+| 2026-09-27 | 6.1 | Ronda 3 de C-01 (GUI):<br>• diseño de `scientific-gui-designer` en `c01_ronda3/gui_design.md`, con defectos nuevos de la GUI actual (G-1d, G-2, G-3, G-5, G-6, G-8);<br>• auditoría de `qa-ux-auditor` en curso;<br>• dato nuevo: la cadencia del legado PyPrinting es de ≈ 10 ms (`pointtimer.start(0)`), así que 20/20 en el legado son ≈ 200 ms. | En curso |
+| 2026-09-27 | 8 | Batería de banco ampliada: grupo F (relevamiento, `BANCO-20` a `BANCO-25`) y grupo G (traza, `BANCO-26` a `BANCO-33`), con todas las dudas que el investigador dejó para verificar en el banco. | Hecho |
+| 2026-09-27 | 6.1 | Ronda 1 de C-01 (traza): panel instrumentation / experimentalist / devil-advocate; notas en `c01_ronda1/`. La cadencia real de 47.5 ms del QTimer de 35 ms se reprodujo con `c01_ronda1/timer_probe.py`. | Presentada; esperando respuestas del investigador |
