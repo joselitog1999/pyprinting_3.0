@@ -79,5 +79,10 @@ sif-parser>=0.3.6       # Decodificación y lectura nativa de espectros SIF (And
 # nidaqmx solo es funcional en Windows con drivers NI-DAQmx instalados; en macOS/Linux opera en SAFE_MODE.
 nidaqmx>=1.0.0; sys_platform == "win32"
 pipython>=2.11.0         # API GCS para platinas piezoeléctricas Physik Instrumente
+# Cámara Andor iXon3 (R4-F, DEC-040): por ahora con pylablib, como el PySpectrum legado. Se fija la
+# versión del banco (1.4.3). pip instala además pyft232, que sin el driver FTDI rompe la importación de
+# pylablib con un AttributeError que pylablib no atrapa; la cámara no lo usa, así que si falla la
+# importación: pip uninstall pyft232.
+pylablib==1.4.3
 pyserial>=3.5            # Comunicación Serie RS-232 / USB
 pyusb>=1.2.1             # Control USB de bajo nivel

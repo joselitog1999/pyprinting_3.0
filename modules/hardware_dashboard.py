@@ -92,7 +92,9 @@ class HardwareDashboardWidget(QFrame):
             register_regime_listener(self.on_global_regime_changed)
         except Exception:
             pass
-        hardware_manager.rescan_hardware()
+        # Abrir el tablero sólo refresca el estado: no conecta, no reinicia ni mueve nada (paso 4,
+        # DEC-040). Reescanear y reconectar son botones explícitos, con aviso.
+        hardware_manager.refresh_status()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -115,8 +117,11 @@ class HardwareDashboardWidget(QFrame):
         self.combo_profile.currentIndexChanged.connect(self._on_profile_changed)
 
         self.btn_rescan = QPushButton("🔄 Re-scan")
-        self.btn_rescan.setToolTip("Re-escanea y reconecta en caliente todos los instrumentos físicos detectados.")
-        self.btn_rescan.clicked.connect(lambda: hardware_manager.rescan_hardware())
+        self.btn_rescan.setToolTip(
+            "Re-escanea y reconecta los instrumentos del perfil. Reinicia la cámara Andor (su enfriador "
+            "se apaga y tarda minutos en volver a −60 °C) y reconecta la platina PI si su conexión se "
+            "había perdido, lo que la lleva a home (50, 50, 10) µm. Pide confirmación.")
+        self.btn_rescan.clicked.connect(self._confirm_rescan)
 
         self.btn_clear_log = QPushButton("🧹 Limpiar Bitácora")
         self.btn_clear_log.setToolTip("Limpia la consola de eventos de telemetría.")
@@ -310,8 +315,34 @@ class HardwareDashboardWidget(QFrame):
         if 0 <= idx < len(profiles):
             hardware_manager.set_profile(profiles[idx], rescan=True)
 
+    def _confirm_camera_restart(self, disconnecting: bool) -> bool:
+        """Aviso de R4-B-7: desconectar o reconectar la cámara ejecuta ShutDown y apaga el enfriador."""
+        from PyQt6.QtWidgets import QMessageBox
+        action = "Desconectar" if disconnecting else "Conectar / reconectar"
+        answer = QMessageBox.question(
+            self, f"{action} la cámara Andor",
+            f"{action} la cámara reinicia su sesión con el SDK (ShutDown): el enfriador se apaga y el "
+            "sensor tarda minutos en volver a −60 °C. Se rechaza si hay una rutina en curso o una "
+            "E-STOP activa. ¿Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _confirm_rescan(self):
+        from PyQt6.QtWidgets import QMessageBox
+        answer = QMessageBox.question(
+            self, "Reescanear el hardware",
+            "Reescanear reconecta los instrumentos del perfil:\n\n"
+            "• la cámara Andor se reinicia: su enfriador se apaga y tarda minutos en volver a −60 °C;\n"
+            "• la platina PI, si su conexión se había perdido, se reconecta y va a home (50, 50, 10) µm.\n\n"
+            "Se rechaza si hay una rutina en curso o una E-STOP activa. ¿Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
+            hardware_manager.rescan_hardware()
+
     def _handle_action_button(self, dev_name: str):
         state = hardware_manager.device_states.get(dev_name, "disconnected")
+        if "Andor CCD" in dev_name and not self._confirm_camera_restart(state == "connected"):
+            return
         if state == "connected":
             hardware_manager.disconnect_device(dev_name)
         else:

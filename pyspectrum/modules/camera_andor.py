@@ -360,6 +360,10 @@ class Frontend(QtWidgets.QFrame):
 
     @pyqtSlot(float, int)
     def update_temperature(self, temp: float, status: int):
+        if status == 20072:  # DRV_ACQUIRING: el SDK no la lee mientras adquiere; es la última lectura
+            last = f"{temp:.1f} °C" if temp == temp else "sin lectura"
+            self.lbl_temp.setText(f"❄️ Temp: <b>{last}</b> (⏸ última lectura; adquiriendo)")
+            return
         if status == 20036 or abs(temp - float(self.spin_temp.value())) < 0.8:
             status_str = "🟢 Estabilizado"
         elif status == 20040:

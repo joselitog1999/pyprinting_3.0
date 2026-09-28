@@ -514,6 +514,25 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 - **pylablib queda como referencia**, porque está probado en el banco: el legado maneja la cámara con pylablib. Ante una duda de semántica del SDK de la cámara se consulta cómo lo hace pylablib, y el driver propio se valida contra pylablib en el banco (BANCO-55).
 - *Límite de esa evidencia:* el legado usó pylablib sólo en modo Image, y nunca para el Shamrock.
 
+**R4-F — Cambio de rumbo: la cámara con pylablib, por ahora (2026-09-28, reemplaza en parte a R4-E).**
+- *Hecho de banco que lo motivó:* el PySpectrum legado abre la cámara normalmente. En cambio, una llamada directa por ctypes a una `atmcd64d.dll` aparentemente idéntica (`C:\Users\PRINTING\Desktop\PySpectrum\`) ve **0 cámaras**: `GetAvailableCameras` → 20002 con 0, e `Initialize("")` → 0.
+  - El legado le pasa a pylablib `pll.par["devices/dlls/andor_sdk2"] = "path/to/dlls"`, un texto de ejemplo que nunca se reemplazó. Por eso pylablib usa su búsqueda por defecto, que empieza en `Program Files\Andor SOLIS`: probablemente carga la DLL de Solis y resuelve bien sus dependencias. Falta confirmar la ruta real en el banco.
+- *Decisión del investigador:* **por ahora, resolver todo con pylablib**, como el legado:
+  - los defectos y los pedidos (R4 a R4-D) se implementan con las herramientas de esa biblioteca;
+  - el desarrollo del driver propio sigue **más adelante**;
+  - el código propio no se borra.
+- **Resuelto (2026-09-28): "mantengamos como en el legado".**
+  - **Cámara con pylablib; Shamrock con el driver ctypes propio.** El legado maneja el Shamrock con su wrapper ctypes `Shamrock_ps.py`, nunca con pylablib.
+  - Las DLL del Shamrock no dependen estáticamente de la de la cámara: `ShamrockCIF.dll` importa sólo `atshamrock.dll`. Las dos pilas no chocan al cargarse.
+  - pylablib se fija en **1.4.3**, la versión instalada en el banco (leída en la consola del legado).
+  - La integración va debajo de la interfaz actual del driver de la cámara, para no reescribir los 16 módulos que la usan ni los tests. El driver propio queda seleccionable para más adelante.
+- *Dato de banco:* en la consola del legado, `GetModuleHandleW("atmcd64d.dll")` devolvió nulo. En ese momento no había ningún módulo con ese nombre cargado, sea porque la cámara no estaba conectada en esa sesión o porque pylablib cargó otro nombre (`atmcd64d_legacy.dll`). **Confirmado** con la lista de módulos cargados en el proceso del legado:
+  - la cámara usa `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`, que es el primer candidato de pylablib 1.4.3 (`atmcd32d_lib.initlib`: primero `atmcd64d_legacy.dll` y primero la carpeta de Solis);
+  - el Shamrock usa `C:\Users\PRINTING\Desktop\PySpectrum\libs\Windows\64\ShamrockCIF.dll` y `atshamrock.dll`, las mismas copias que tiene el repo;
+  - el entorno es Python 3.11 (`C:\Users\PRINTING\Envs\envspectrum`), con pylablib 1.4.3.
+
+  La `atmcd64d.dll` 2.104 del repo y del escritorio ve 0 cámaras. Con la instalación de Solis del banco, el iXon3 885 se maneja con la variante `_legacy`; que eso sea el soporte de cámaras antiguas es inferencia.
+
 **R4-2b — Lanzamiento (2026-09-28).** Si PySpectrum ya se lanzó, el lanzador `main.py` bloquea abrir PyPrinting, que sólo se abre desde el menú Herramientas de PySpectrum. La razón es evitar dos procesos sobre el mismo hardware.
 - **Implementado** (`main.py::_HARDWARE_SCRIPTS`, `tests/test_launcher_process_exclusion.py`). En modo laboratorio corre uno solo de los tres programas de hardware (PySpectrum, Microscopio Derecho y Contrapropagante), y cada uno una sola vez.
 - **Extensión:** además de lo pedido, también se bloquea lo inverso (PySpectrum con PyPrinting suelto abierto) y una segunda instancia del mismo programa. En los tres casos habría dos procesos sobre la misma placa.

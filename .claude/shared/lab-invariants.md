@@ -84,7 +84,7 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | Tensión máxima que el software acepta en esa salida | `5.0` V | `config.py::LASER_532_V_MAX` | RESPALDADO (código) | ✅ |
 | Fotodiodos (entradas analógicas) | 532 nm `ai0`, 592 nm `ai1`, 637 nm `ai2`, 808 nm `ai3`, divisor de haz `ai6` | `config.py::PD_CHANNELS` | RESPALDADO (código) | 📄 |
 | Posición del fotodiodo del divisor de haz (`ai6`) | en el beamsplitter, ve la emisión transmitida del láser y la mide **después** del obturador y del filtro de densidad; el espejo de detección **no** lo afecta. Con el obturador abierto, "BS con luz y fotodiodo de detección sin luz" indica espejo abajo o detección desalineada | investigador (R4 Q14, R9 P-c, 2026-09-27) | EXPERIMENTAL | 📄 |
-| Triggers de posición de la platina | X `ai4`, Y `ai5`, Z `ai3` | `config.py::TRIGGER_CHANNELS` | RESPALDADO (código). **Conflicto:** `ai3` figura a la vez como fotodiodo de 808 nm y como trigger Z (C-44); lo que está cableado se revisa en el banco (R2-6) | 📄 |
+| Triggers de posición de la platina | X `ai4`, Y `ai5`, Z `ai3` | `config.py::TRIGGER_CHANNELS` | RESPALDADO (código). **Cableado (BANCO-20, 2026-09-28): `ai3` es el trigger Z de la PI.** Por lo tanto `PD_CHANNELS` (808 nm en `ai3`) está mal (C-44) | 📄 |
 | Canales de láser configurados | 532 / 637 / 592 / 808 nm | `config.py::SHUTTERS` | RESPALDADO (código) | 📄 |
 
 > **"Flipper notch 532" es un nombre equivocado**, un error de notación del legado 1.0 (R1-2):
@@ -120,12 +120,12 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | Dispersión nominal, red 1200 l/mm (blaze 500) | `1.44` nm/mm | `pyspectrum/drivers/shamrock_driver.py::NOMINAL_DISPERSION_1200_NM_PER_MM` | RESPALDADO (código) | ✅ |
 | Ventana espectral del detector (150 / 1200 l/mm) | ≈ 103 / ≈ 11.6 nm | dispersión × 1004 px × 8 µm (`DEC-033`); [M24] p. 60 mide 103 nm (CIBION) | DERIVADO | 📄 |
 | Modelo del detector | iXon3 885, cabezal `DU8285_VP`, sensor TI TC285SPD | encabezado de los `.sif` de Solis, `DEC-033` | RESPALDADO | 📄 |
-| Enfriamiento mínimo del Peltier | opción DV: −70 °C (aire) / −80 °C (recirculador) / −85 °C (chiller); opción DU: −80 / −90 / −95 °C; máximo −95 °C | [DS-iXon] p. 1-2 | RESPALDADO. **Qué opción está instalada no está confirmado** (placa del cabezal o `GetTemperatureRange`) | 📄 |
+| Enfriamiento mínimo del Peltier | opción DV: −70 °C (aire) / −80 °C (recirculador) / −85 °C (chiller); opción DU: −80 / −90 / −95 °C; máximo −95 °C | [DS-iXon] p. 1-2 | RESPALDADO. Instalada: **opción DU**, llega a −80 °C (investigador, BANCO-22, 2026-09-28) | 📄 |
 | Setpoint operativo del Peltier (SOP Raman) | rango de operación aceptable: −60 a −80 °C (el SOP de CAT-251 §2 usa −60 °C; Solis registró −65 °C) | investigador (R3-D, 2026-09-27); CAT-251 §2; lote L1 de la auditoría | EXPERIMENTAL (investigador): es una elección de procedimiento, no una propiedad del equipo | 📄 |
 | Espectrógrafo y torreta | Andor Shamrock 500i (Czerny-Turner) con torreta de **dos redes, 150 y 1200 l/mm, y un espejo** | [P25] p. 33 | RESPALDADO | 📄 |
 | Espera que impone el driver tras cambiar de red | `4.0` s | `pyspectrum/drivers/shamrock_driver.py::GRATING_SETTLING_TIME_S` | RESPALDADO (código). Es la espera del software, **no** una medición del giro de la torreta: [DS-SR500] no da ese tiempo | ✅ |
 | Puerto de entrada del Shamrock | lateral (*Side*) | investigador (R2-11); coincide con el registro de Solis (C-07); [DS-SR500] p. 4 y p. 8 lo ofrecen como opción de chasis | EXPERIMENTAL | 📄 |
-| Offsets del Shamrock (valores del 2026-09-28) | red de 150 l/mm: 85 (el 87 del 2026-09-27 quedó reemplazado); red de 1200 l/mm: 0, **nunca calibrado, a medir en el banco**; detector: 0, **falta un protocolo de calibración** | investigador, leído en Solis el 2026-09-28; calibración de ≈ 2026-08-28 (`RESPUESTAS_INVESTIGADOR.md`, R4-3; antes R2-9) | EXPERIMENTAL | 📄 |
+| Offsets del Shamrock SR-1611 (leídos del equipo el 2026-09-28) | torreta 1, 150 l/mm (blaze 800 nm): **87**; torreta 2, 1200 l/mm (blaze 500 nm): **195**; torreta 3, **espejo**: **60**; detector: **0**; ceros de ranura 1–4: −45, −1, −45, −45 | `ShamrockGetGratingOffset` / `GetDetectorOffset` / `GetSlitZeroPosition` en la sesión del legado (`tools/bench/legacy_console_probe.py`, sección D; BANCO-25) | MEDIDO en el equipo. **Difiere de lo anotado por el investigador** (R4-3: 150 → 85, 1200 → 0); a resolver con el investigador. Falta un protocolo para el offset del detector | 📄 |
 | Calibración del eje λ | con el láser de 532 nm, aproximadamente cada 2 meses: ajuste gaussiano de la línea, atenuada con el filtro de densidad, y relación píxel ↔ λ | investigador (R2-10, R1-7). Práctica del grupo: calibración de fábrica más una corrección verificada con dos láseres ([M24] p. 60, CIBION) | EXPERIMENTAL | 📄 |
 | Muestras de referencia Raman | silicio: **sólo verificación**, no patrón de calibración; benzenotiol: muestra de referencia | investigador (R2-18) | EXPERIMENTAL. No se adoptó un valor certificado del fonón del Si: el código usa 520.7 cm⁻¹ (`core/raman_engine.py`, `pyspectrum/modules/calibration_dock.py`) | 📄 |
 
@@ -168,7 +168,7 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | **Parada de emergencia** | `Ctrl+E`, `F12` | `pyspectrum/window.py::_setup_shortcuts` | ✅ |
 | Alternar vista en vivo | `Ctrl+Space` | `pyspectrum/window.py::_setup_shortcuts` | 📄 |
 | Disparar medición | `Ctrl+R` | idem | 📄 |
-| Diálogo de orden cero | `Ctrl+0` | idem | 📄 |
+| Espejo rápido: entrar / volver | `Ctrl+0` | idem | 📄 |
 | Ventana contrapropagante | `Ctrl+M` | `pyspectrum/window.py` | 📄 |
 | Navegación de pestañas 1–7 | `Ctrl+1` … `Ctrl+7` | `pyspectrum/window.py::_setup_shortcuts` | 📄 |
 

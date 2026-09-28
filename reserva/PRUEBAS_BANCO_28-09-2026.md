@@ -37,8 +37,8 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 
 | ID | Verifica | Depende de | Requisitos | Estado |
 | :--- | :--- | :--- | :--- | :--- |
-| BANCO-01 | Pitch, tamaño y modelo del detector leídos del hardware | `DEC-033`, `SW-003` | Legado abierto (sólo lectura) | ✅ 2026-09-28 |
-| BANCO-02 | Por qué el Live del legado se congelaba | Protocolo de adquisición | Legado abierto (sólo lectura) | ◐ 2026-09-28 (parcial) |
+| BANCO-01 | Pitch, tamaño y modelo del detector leídos del hardware | `DEC-033`, `SW-003` | Legado abierto (sólo lectura) | ☐ |
+| BANCO-02 | Por qué el Live del legado se congelaba | Protocolo de adquisición | Legado abierto (sólo lectura) | ☐ |
 | BANCO-03 | Protocolo de adquisición del iXon3 (T0–T4) | `DEC-032`, protocolo de adquisición | Legado y Solis **cerrados**, cámara a temperatura ambiente | ☐ |
 | BANCO-04 | El Shamrock acepta y relee la geometría del detector | `DEC-033` | PySpectrum 3.0 en hardware | ☐ |
 | BANCO-05 | Ancho real de la ventana espectral por red | `DEC-033` | PySpectrum 3.0 en hardware | ☐ |
@@ -50,20 +50,20 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-11 | Live Raman rechazado si Exploración ya adquiere | `DEC-032` | 3.0 en hardware | ☐ |
 | BANCO-12 | Imagen 2D con ROI: forma y filas correctas | `DEC-030` | 3.0 en hardware | ☐ |
 | BANCO-13 | Banda de ranura objetivo en Orden Cero | `DEC-031`, `DEC-033` | 3.0 en hardware | ☐ |
-| BANCO-14 | Corrimiento del eje del legado (1002 vs 1004 px) | `SW-004` | Legado y 3.0 + lámpara de calibración | ◐ premisa confirmada |
+| BANCO-14 | Corrimiento del eje del legado (1002 vs 1004 px) | `SW-004` | Legado y 3.0 + lámpara de calibración | ☐ |
 | BANCO-15 | Mapeo línea DAQ ↔ servo de cada obturador y polaridad | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
 | BANCO-16 | Posición del servo de 532 nm al encender, reiniciar NI y cerrar el programa | `DEC-036` | **Láseres apagados** | ☐ |
 | BANCO-17 | Modelo y recorrido real de la platina (qCST, qTMN/qTMX) | `DEC-036` | PyPrinting cerrado; `tools/bench/pi_stage_probe.py` | ☐ |
 | BANCO-18 | Aviso de "cierre sin confirmar" ante una falla real de la placa | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
 | BANCO-19 | Pérdida de comunicación con la platina durante una rutina | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
-| BANCO-20 | Qué está conectado en `ai3`: trigger Z de la E-517 o fotodiodo de 808 nm | C-44, R2-6 | Inspección del cableado | ✅ 2026-09-28 (reabre C-44) |
-| BANCO-21 | Posición del espejo de detección (`line7`) al encender y tras un cierre forzado | C-08, R2-4/5 | **Láseres apagados** | ◐ 2026-09-28 (parcial) |
-| BANCO-22 | Inventario: placa en NI MAX, BNC-2110 ↔ líneas, fotodiodos, láseres, flipper, iXon | R1-1, D-11, C-01 R1 | Inspección, NI MAX | ◐ 2026-09-28 (parcial) |
-| BANCO-23 | Versiones de software en la PC del banco | C-01 R1 | Consola | ◐ 2026-09-28 (parcial) |
-| BANCO-24 | Δt entre filas y filas tras el escalón en `NP_xxx.txt` del legado y de 3.0 | C-01 R1 | Archivos ya guardados | ◐ 2026-09-28 (reabre C-01) |
-| BANCO-25 | Offsets del Shamrock leídos del equipo | C-04, R2-9 | Legado abierto (sólo lectura) | ✅ 2026-09-28 (**difiere de lo anotado**) |
+| BANCO-20 | Qué está conectado en `ai3`: trigger Z de la E-517 o fotodiodo de 808 nm | C-44, R2-6 | Inspección del cableado | Esta conectado la PI |
+| BANCO-21 | Posición del espejo de detección (`line7`) al encender y tras un cierre forzado | C-08, R2-4/5 | **Láseres apagados** | Cuando enciende mantiene la posicion en la que se encuentra y el checkbox ejecuta la accion de mover al lugar opuesto sin respetar arriba o abajo |
+| BANCO-22 | Inventario: placa en NI MAX, BNC-2110 ↔ líneas, fotodiodos, láseres, flipper, iXon | R1-1, D-11, C-01 R1 | Inspección, NI MAX | El laser es el excelsior que esta marcado en la tesis de pereyra, los fotodiodos son thorlabs PDA36A, el obturador solo lo tiene la shamrock |
+| BANCO-23 | Versiones de software en la PC del banco | C-01 R1 | Consola | existe spectrog, version de pylablib 1.4.3,  |
+| BANCO-24 | Δt entre filas y filas tras el escalón en `NP_xxx.txt` del legado y de 3.0 | C-01 R1 | Archivos ya guardados | |
+| BANCO-25 | Offsets del Shamrock leídos del equipo | C-04, R2-9 | Legado abierto (sólo lectura) |  |
 | BANCO-26 | Tamaño real del buffer DAQmx de una tarea continua a 10 kS/s | C-01 | Sin láser; sólo entradas analógicas | ☐ |
-| BANCO-27 | La traza sigue en tiempo real a una señal conocida | C-01, `DEC-037` | Generador o LED en un AI libre | ☐ |
+| BANCO-27 | La traza sigue en tiempo real a una señal conocida | C-01, `DEC-037` | Generador o LED en un AI libre | |
 | BANCO-28 | Cadencia real de la traza y costo de cada lectura | C-01 | Sin láser | ☐ |
 | BANCO-29 | Latencia escalón → línea DO del obturador (eléctrica) | C-01, Ronda 1 | Osciloscopio, LED o generador | ☐ |
 | BANCO-30 | Tiempo mecánico de apertura y cierre de cada obturador | C-01 R1 Q7 | LED + fotodiodo a través del obturador | ☐ |
@@ -91,7 +91,6 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-53 | Uniones de Step & Glue con la lámpara | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
 | BANCO-54 | Tiempo de reenfriado del iXon3 a −60 °C después de "Reconectar cámara" | PySpectrum bloque A (Ronda 3, qa-ux) | Sin láser; tapa puesta | ☐ |
 | BANCO-55 | Driver propio de la cámara contra pylablib, la referencia probada en el banco (R4-E) | PySpectrum bloque A (DEC-040) | Solis cerrado, sin láser, tapa puesta | ☐ |
-| BANCO-56 | Orientación de la imagen del Andor en orden cero frente a la cámara | PySpectrum bloque A, paso 7 (espejo rápido) | Orden cero, lámpara, sin láser | ◐ 2026-09-28 (observación) |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -107,7 +106,7 @@ exec(open(r"C:\Users\josel\Documents\Obsidian_Vault\printing3\tools\bench\legacy
 
 No llama a nada que modifique la cámara: sólo getters de pylablib y funciones `Get*` del SDK.
 
-### ✅ BANCO-01 — Geometría del detector leída del hardware
+### ☐ BANCO-01 — Geometría del detector leída del hardware
 - **Verifica**: que el detector es el que `DEC-033` estableció con hojas de datos.
 - **Estado (2026-09-28, investigador):** el tamaño de píxel queda **validado por la hoja de datos** ([DS-iXon] p. 1: 8 × 8 µm, 1004 × 1002 activos), que es fuente primaria. Esta lectura es una confirmación opcional, **no un bloqueante**: si el equipo devolviera otra cosa, el cabezal instalado no sería el de la hoja de datos, y eso se reabre en `DEC-033`.
 - **Procedimiento**: correr la sonda; leer las líneas `C.pixel_size`, `C.detector_size` y `C.sdk`.
@@ -116,15 +115,9 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
 - **Si falla**: reabrir `DEC-033` y `SW-003`. El valor vive en un solo lugar
   (`andor_ccd_driver.DETECTOR_PIXEL_PITCH_UM`) y los tests usan las hojas de datos como oráculo,
   así que fallarían a propósito hasta revisar esas fuentes.
-- **Resultado (2026-09-28, investigador, sonda de consola en la sesión del legado; `reserva/PRUEBAS_BANCO_28-09-2026.md`):**
-  - `C.device_info` = `TDeviceInfo(controller_model='CCI-23', head_model='DU8285_VP', serial_number=2457)`;
-  - `C.detector_size` = `(1004, 1002)`;
-  - `C.pixel_size` = `(8e-06, 8e-06)`, es decir 8.00 × 8.00 µm.
-  - **Pasa**: coincide con [DS-iXon] y con `DEC-033`. Lo leyó pylablib, no el SDK directo: la línea
-    `C.sdk` no salió porque la sonda buscaba `atmcd64d.dll` y el legado tiene cargada
-    `atmcd64d_legacy.dll`. La sonda ya prueba los dos nombres.
+- **Resultado**: fecha — / operador — / valores —
 
-### ◐ BANCO-02 — Por qué el Live del legado se congelaba
+### ☐ BANCO-02 — Por qué el Live del legado se congelaba
 - **Verifica**: la hipótesis de que "REC Liveview Kinetics" (Step & Glue) deja la cámara en modo
   cinético y ninguna restauración posterior funciona, porque `set_acquisition_mode = '...'`
   tapa el método de pylablib en vez de llamarlo.
@@ -135,19 +128,175 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
   REC Liveview Kinetics; `observar_live()` dice `NO AVANZA` en ese estado.
 - **Si no se confirma**: la causa del Live congelado es otra. Anotarlo antes de diseñar la
   Ronda 2 del protocolo de adquisición.
-- **Resultado (2026-09-28, parcial; `reserva/PRUEBAS_BANCO_28-09-2026.md`):**
-  - con el Live apagado y sin haberlo usado: A intacto, modo `cont`, estado `idle`, exposición 1.0 s,
-    temperatura 23.9 °C (enfriador apagado);
-  - con el Live encendido: A **`TAPADO`** (la instancia tiene `set_acquisition_mode = 'cont'`, un
-    `str`), modo `cont`, estado `acquiring`, exposición 0.1 s. La **temperatura no se puede leer**:
-    `GetTemperatureF raised error 20072 (DRV_ACQUIRING)`.
-  - Queda confirmado que la asignación del legado tapa el método de pylablib ya desde el Live, no
-    sólo desde REC Liveview Kinetics. Falta: repetir después de REC Liveview Kinetics (¿`kinetic`?) y
-    correr `observar_live()`, que falló por el mismo motivo que `C.sdk` (ya corregido en la sonda).
-  - **Consecuencia en 3.0 (ya implementada):** mientras la cámara adquiere, `get_temperature`
-    devuelve la última lectura con `DRV_ACQUIRING`, y el panel y el módulo de cámara la muestran como
-    "⏸ última lectura; adquiriendo", nunca como "Estabilizado"
-    (`tests/test_andor_pylablib_backend.py`).
+- **Resultado**: —
+live apagado
+>>> exec(open(r"C:\Users\PRINTING\Documents\banco de pruebas\pyprinting_3.0\tools\bench\legacy_console_probe.py", encoding="utf-8").read())
+<input>:1: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\PRINTING\\Documents\\banco de pruebas\\pyprinting_3.0\\tools\\bench\\legacy_console_probe.py' mode='r' encoding='utf-8'>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+========================================================================
+SONDA DE SOLO LECTURA — PySpectrum legado
+========================================================================
+  [cam] pylablib.devices.Andor.AndorSDK2.AndorSDK2Camera  (encontrada vía __main__.myAndor)
+
+A — ¿set_acquisition_mode sigue siendo un método?
+  [A] intacto en esta sesión: set_acquisition_mode es method. Todavía no corrió el camino de Live/adquisición que lo pisa — volvé a correr la sonda después de usar Live.
+
+B — Modo de adquisición y estado
+  [B.modo_pylablib] cont
+  [B.estado] idle
+  [B.exposicion_s] 1.0
+  [B.temperatura_C] 23.944000244140625
+
+C — Identidad y geometría (pylablib)
+  [C.device_info] TDeviceInfo(controller_model='CCI-23', head_model='DU8285_VP', serial_number=2457)
+  [C.detector_size] (1004, 1002)
+  [C.pixel_size] crudo=(8e-06, 8e-06)  -> 8.00 x 8.00 um
+
+C — Contraste directo con el SDK (misma sesión, sólo funciones Get*)
+  [C.sdk] no pude acceder a atmcd64d.dll desde la consola
+
+D — Respaldo de la calibración del Shamrock (sólo lectura)
+  [D.origen] __main__.mySpectrometer
+  [D.serie] (20202, b'SR-1611')
+  [D.num_redes] (20202, 3)
+  [D.red1.info(ret,lineas,blaze,home,offset)] (20202, 150.0, b'800', -9147, 87)
+  [D.red1.offset(ret,pasos)] (20202, 87)
+  [D.red2.info(ret,lineas,blaze,home,offset)] (20202, 1200.0, b'500', 759864, 195)
+  [D.red2.offset(ret,pasos)] (20202, 195)
+  [D.red3.info(ret,lineas,blaze,home,offset)] (20202, 0.0, b'Mirr', 1528009, 60)
+  [D.red3.offset(ret,pasos)] (20202, 60)
+  [D.detector_offset(ret,pasos)] (20202, 0)
+  [D.ranura1.cero(ret,pasos)] (20202, -45)
+  [D.ranura2.cero(ret,pasos)] (20202, -1)
+  [D.ranura3.cero(ret,pasos)] (20202, -45)
+  [D.ranura4.cero(ret,pasos)] (20202, -45)
+  [D.red_actual(ret,red)] (20202, 1)
+  [D.lambda_central(ret,nm)] (20202, 863.5)
+  [D.pixel_width(ret,um)] (20202, 8.0)
+  [D.num_pixels(ret,n)] (20202, 1002)
+  [D.coef_calibracion(ret,A,B,C,D)] (20202, 811.6771850585938, 0.10346303880214691, -4.17831458321416e-08, -1.3783670385625335e-11)
+
+========================================================================
+RESUMEN — copiá y pegá este bloque:
+========================================================================
+cam: pylablib.devices.Andor.AndorSDK2.AndorSDK2Camera  (encontrada vía __main__.myAndor)
+A: intacto en esta sesión: set_acquisition_mode es method. Todavía no corrió el camino de Live/adquisición que lo pisa — volvé a correr la sonda después de usar Live.
+B.modo_pylablib: cont
+B.estado: idle
+B.exposicion_s: 1.0
+B.temperatura_C: 23.944000244140625
+C.device_info: TDeviceInfo(controller_model='CCI-23', head_model='DU8285_VP', serial_number=2457)
+C.detector_size: (1004, 1002)
+C.pixel_size: crudo=(8e-06, 8e-06)  -> 8.00 x 8.00 um
+C.sdk: no pude acceder a atmcd64d.dll desde la consola
+D.origen: __main__.mySpectrometer
+D.serie: (20202, b'SR-1611')
+D.num_redes: (20202, 3)
+D.red1.info(ret,lineas,blaze,home,offset): (20202, 150.0, b'800', -9147, 87)
+D.red1.offset(ret,pasos): (20202, 87)
+D.red2.info(ret,lineas,blaze,home,offset): (20202, 1200.0, b'500', 759864, 195)
+D.red2.offset(ret,pasos): (20202, 195)
+D.red3.info(ret,lineas,blaze,home,offset): (20202, 0.0, b'Mirr', 1528009, 60)
+D.red3.offset(ret,pasos): (20202, 60)
+D.detector_offset(ret,pasos): (20202, 0)
+D.ranura1.cero(ret,pasos): (20202, -45)
+D.ranura2.cero(ret,pasos): (20202, -1)
+D.ranura3.cero(ret,pasos): (20202, -45)
+D.ranura4.cero(ret,pasos): (20202, -45)
+D.red_actual(ret,red): (20202, 1)
+D.lambda_central(ret,nm): (20202, 863.5)
+D.pixel_width(ret,um): (20202, 8.0)
+D.num_pixels(ret,n): (20202, 1002)
+D.coef_calibracion(ret,A,B,C,D): (20202, 811.6771850585938, 0.10346303880214691, -4.17831458321416e-08, -1.3783670385625335e-11)
+========================================================================
+Opcional: con el Live View del legado ENCENDIDO, corré  observar_live()
+>>> observar_live()
+  no pude acceder a atmcd64d.dll
+
+  Live encendido
+
+>>> exec(open(r"C:\Users\PRINTING\Documents\banco de pruebas\pyprinting_3.0\tools\bench\legacy_console_probe.py", encoding="utf-8").read())
+<input>:1: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\PRINTING\\Documents\\banco de pruebas\\pyprinting_3.0\\tools\\bench\\legacy_console_probe.py' mode='r' encoding='utf-8'>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+========================================================================
+SONDA DE SOLO LECTURA — PySpectrum legado
+========================================================================
+  [cam] pylablib.devices.Andor.AndorSDK2.AndorSDK2Camera  (encontrada vía __main__.myAndor)
+
+A — ¿set_acquisition_mode sigue siendo un método?
+  [A] TAPADO: la instancia tiene set_acquisition_mode = 'cont' (un str, no un método). La línea `myAndor.set_acquisition_mode = '...'` NO llama al SDK.
+
+B — Modo de adquisición y estado
+  [B.modo_pylablib] cont
+  [B.estado] acquiring
+  [B.exposicion_s] 0.10000000149011612
+  [B.temperatura_C] no disponible (AndorSDK2LibError: function 'GetTemperatureF' raised error 20072(DRV_ACQUIRING))
+
+C — Identidad y geometría (pylablib)
+  [C.device_info] TDeviceInfo(controller_model='CCI-23', head_model='DU8285_VP', serial_number=2457)
+  [C.detector_size] (1004, 1002)
+  [C.pixel_size] crudo=(8e-06, 8e-06)  -> 8.00 x 8.00 um
+
+C — Contraste directo con el SDK (misma sesión, sólo funciones Get*)
+  [C.sdk] no pude acceder a atmcd64d.dll desde la consola
+
+D — Respaldo de la calibración del Shamrock (sólo lectura)
+  [D.origen] __main__.mySpectrometer
+  [D.serie] (20202, b'SR-1611')
+  [D.num_redes] (20202, 3)
+  [D.red1.info(ret,lineas,blaze,home,offset)] (20202, 150.0, b'800', -9147, 87)
+  [D.red1.offset(ret,pasos)] (20202, 87)
+  [D.red2.info(ret,lineas,blaze,home,offset)] (20202, 1200.0, b'500', 759864, 195)
+  [D.red2.offset(ret,pasos)] (20202, 195)
+  [D.red3.info(ret,lineas,blaze,home,offset)] (20202, 0.0, b'Mirr', 1528009, 60)
+  [D.red3.offset(ret,pasos)] (20202, 60)
+  [D.detector_offset(ret,pasos)] (20202, 0)
+  [D.ranura1.cero(ret,pasos)] (20202, -45)
+  [D.ranura2.cero(ret,pasos)] (20202, -1)
+  [D.ranura3.cero(ret,pasos)] (20202, -45)
+  [D.ranura4.cero(ret,pasos)] (20202, -45)
+  [D.red_actual(ret,red)] (20202, 1)
+  [D.lambda_central(ret,nm)] (20202, 863.5)
+  [D.pixel_width(ret,um)] (20202, 8.0)
+  [D.num_pixels(ret,n)] (20202, 1002)
+  [D.coef_calibracion(ret,A,B,C,D)] (20202, 811.6771850585938, 0.10346303880214691, -4.17831458321416e-08, -1.3783670385625335e-11)
+
+========================================================================
+RESUMEN — copiá y pegá este bloque:
+========================================================================
+cam: pylablib.devices.Andor.AndorSDK2.AndorSDK2Camera  (encontrada vía __main__.myAndor)
+A: TAPADO: la instancia tiene set_acquisition_mode = 'cont' (un str, no un método). La línea `myAndor.set_acquisition_mode = '...'` NO llama al SDK.
+B.modo_pylablib: cont
+B.estado: acquiring
+B.exposicion_s: 0.10000000149011612
+B.temperatura_C: no disponible (AndorSDK2LibError: function 'GetTemperatureF' raised error 20072(DRV_ACQUIRING))
+C.device_info: TDeviceInfo(controller_model='CCI-23', head_model='DU8285_VP', serial_number=2457)
+C.detector_size: (1004, 1002)
+C.pixel_size: crudo=(8e-06, 8e-06)  -> 8.00 x 8.00 um
+C.sdk: no pude acceder a atmcd64d.dll desde la consola
+D.origen: __main__.mySpectrometer
+D.serie: (20202, b'SR-1611')
+D.num_redes: (20202, 3)
+D.red1.info(ret,lineas,blaze,home,offset): (20202, 150.0, b'800', -9147, 87)
+D.red1.offset(ret,pasos): (20202, 87)
+D.red2.info(ret,lineas,blaze,home,offset): (20202, 1200.0, b'500', 759864, 195)
+D.red2.offset(ret,pasos): (20202, 195)
+D.red3.info(ret,lineas,blaze,home,offset): (20202, 0.0, b'Mirr', 1528009, 60)
+D.red3.offset(ret,pasos): (20202, 60)
+D.detector_offset(ret,pasos): (20202, 0)
+D.ranura1.cero(ret,pasos): (20202, -45)
+D.ranura2.cero(ret,pasos): (20202, -1)
+D.ranura3.cero(ret,pasos): (20202, -45)
+D.ranura4.cero(ret,pasos): (20202, -45)
+D.red_actual(ret,red): (20202, 1)
+D.lambda_central(ret,nm): (20202, 863.5)
+D.pixel_width(ret,um): (20202, 8.0)
+D.num_pixels(ret,n): (20202, 1002)
+D.coef_calibracion(ret,A,B,C,D): (20202, 811.6771850585938, 0.10346303880214691, -4.17831458321416e-08, -1.3783670385625335e-11)
+========================================================================
+Opcional: con el Live View del legado ENCENDIDO, corré  observar_live()
+>>> observar_live()
+  no pude acceder a atmcd64d.dll
 
 ---
 
@@ -171,17 +320,6 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
   | T3 | ¿Releer el buffer devuelve el cuadro viejo o `NO_NEW_DATA`? | Riesgo de datos viejos con aspecto válido en `acquire_single()` |
   | T4 | ¿Funcionan *Run Till Abort* y *Single* + `WaitForAcquisition`? | Base técnica del rediseño |
 - **Resultado**: pegar el bloque `RESUMEN`.
-  - **Intento del 2026-09-28 (no concluyente, se repite):** con sólo la terminal abierta y el
-    espectrómetro reiniciado, la sonda informó `Initialize falló: 0`, que no es un código del SDK.
-  - Diagnóstico manual con la DLL del legado (`C:\Users\PRINTING\Desktop\PySpectrum\atmcd64d.dll`):
-    `GetAvailableCameras` → 20002 con **0 cámaras**, y `Initialize("")` → 0. El SDK no veía ninguna
-    cámara, así que el problema está en la conexión PC ↔ cámara (alimentación, USB, driver o un
-    proceso que la retiene), no en la sonda.
-  - Además, en la copia clonada `C:\PyPrinting3_banco` faltaba `pyspectrum\drivers\libs\atmcd64d.dll`,
-    aunque está en `origin/main`: clon incompleto o DLL en cuarentena del antivirus.
-  - La sonda se corrigió después: `Initialize` con cadena vacía, como pylablib, e informe previo de
-    `GetAvailableCameras`.
-  - **Causa encontrada (2026-09-28):** el legado carga `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`, que pylablib busca primero. La sonda usaba `atmcd64d.dll`. Ahora busca en el mismo orden que pylablib; mientras tanto se corre pasándole esa ruta como argumento.
 
 ---
 
@@ -322,16 +460,14 @@ estable si la prueba adquiere datos.
 
 ## Grupo D — Comparación legado vs PySpectrum 3.0
 
-### ◐ BANCO-14 — Corrimiento del eje del legado
+### ☐ BANCO-14 — Corrimiento del eje del legado
 - **Verifica**: `SW-004` — el legado configura 1002 píxeles (el eje vertical) en el Shamrock;
   su eje λ estaría corrido ~1 píxel respecto de 3.0.
 - **Procedimiento**: misma línea de la lámpara, misma red y mismo centro, medida con el legado y
   con 3.0.
 - **Aceptación de la hipótesis**: diferencia ≈ 0.10 nm con 150 l/mm (≈ 0.012 nm con 1200 l/mm).
 - **Relevancia**: sólo para comparar cuantitativamente datos viejos con nuevos.
-- **Resultado (2026-09-28, premisa):** en la sesión del legado, el Shamrock tiene
-  `ShamrockGetNumberPixels = 1002` y `ShamrockGetPixelWidth = 8.0` µm, mientras que la cámara tiene
-  1004 columnas. La premisa de `SW-004` queda confirmada; falta la medición con la lámpara.
+- **Resultado**: —
 
 ---
 
@@ -402,31 +538,24 @@ Todo lo que el investigador contestó "lo verifico en el banco" durante la audit
 auditoría no pudo cerrar sin mirar el equipo. Son inspecciones y lecturas: no se abre ningún
 obturador ni se mueve nada.
 
-### ✅ BANCO-20 — Qué está conectado en `ai3`
+### ☐ BANCO-20 — Qué está conectado en `ai3`
 - **Verifica**: `config.py` usa `ai3` a la vez como fotodiodo de 808 nm (`PD_CHANNELS`) y como
   trigger del eje Z de la E-517 (`TRIGGER_CHANNELS`). Un barrido Z con 808 nm leería el mismo
   canal como trigger y como señal (C-44).
 - **Procedimiento**: seguir el cable que llega a `AI 3` de la BNC-2110 correspondiente.
-- **Resultado (2026-09-28, investigador):** `ai3` está conectado a la **PI, eje Z** (el trigger de
-  la E-517). **Reabre C-44:** `config.PD_CHANNELS` asigna `ai3` al fotodiodo de 808 nm, y eso está
-  mal. Falta saber a qué `ai` va el fotodiodo de 808 nm, si lo hay.
+- **Resultado**: —
+eje z
 
-### ◐ BANCO-21 — Espejo de detección (`line7`) al encender y tras un cierre forzado
+### ☐ BANCO-21 — Espejo de detección (`line7`) al encender y tras un cierre forzado
 - **Verifica**: el espejo es un conmutador (el mismo pulso cambia de posición) y el software no
   conoce su posición real (R2-5). El espectrómetro sólo recibe luz con el espejo abajo (R2-4).
 - **Procedimiento**: con los láseres apagados, anotar la posición física del espejo (a) al
   encender todo, (b) después de cerrar PyPrinting normalmente, (c) después de terminarlo desde
   el Administrador de tareas; y comparar con lo que muestra el rótulo "Mirror" al reabrir.
 - **Resuelve**: el diseño de la persistencia y la resincronización del espejo (fase 6.3 del plan).
-- **Resultado (2026-09-28, investigador, parcial):**
-  - el espejo es un conmutador **Thorlabs MFF101**;
-  - al encender, **conserva la posición** en la que estaba;
-  - el checkbox del programa lo mueve a la posición **opuesta**, sin respetar si el rótulo dice
-    arriba o abajo. Confirma R2-5: el software no conoce la posición real.
-  - Falta: (b) y (c), la posición después de un cierre normal y de uno forzado; y el modo de
-    entrada configurado en el MFF101 (conmutación por flanco o posición por nivel).
-
-### ◐ BANCO-22 — Inventario de hardware
+- **Resultado**: —
+el espejo es un conmutador, usa el MFF101
+### ☐ BANCO-22 — Inventario de hardware
 Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
 - [ ] **Placa**: modelo y número de serie en NI MAX (se espera PCIe-6353); qué BNC-2110 va al
   conector 0 y cuál al conector 1, y en cuál están P0.7–P0.11 (R1-1).
@@ -451,36 +580,21 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
   mover el corrimiento común a las dos redes.
 - [ ] **Obturadores de fabricación propia**: ¿la línea TTL entra a un microcontrolador que
   genera el PWM del servo? Anotar el circuito (C-01, Ronda 2, pregunta 15).
-- **Resultado (2026-09-28, investigador, parcial):**
-  - **Placa:** PCIe-6353. En la BNC-2110 "A" están P0.0–P0.7. Falta dónde están P0.8–P0.11 y el
-    número de serie.
-  - **Fotodiodos:** Thorlabs **PDA36A**. Falta la ganancia de cada uno y a qué `ai` va cada uno.
-  - **Láseres:** el verde es el **Excelsior** (revisado en la etiqueta), es decir DPSS, no de
-    diodo: se corrige R4-A-8. Los modelos del resto quedan pendientes; el investigador los considera
-    no relevantes por ahora.
-  - **Flippers:** el del filtro de densidad es **de fabricación casera**; el del espejo up/down es
-    el Thorlabs MFF101.
-  - **iXon3 885:** opción de enfriamiento **DU**, llega a **−80 °C** (el valor con aire de
-    [DS-iXon] para DU).
-  - **Obturador del espectrómetro:** hay un **cable TTL de la cámara al Shamrock**. Suena un solo
-    obturador, y por el sonido parece comandado por la cámara; según el investigador, el único
-    obturador es el del Shamrock. Es decir: `SetShutter` de la cámara acciona el obturador del
-    Shamrock a través de ese TTL. Falta confirmar si el iXon3 tiene además obturador interno.
-  - Pendientes: la referencia absoluta de λ, la fecha de desmontaje de la cámara y el circuito de
-    los obturadores de fabricación propia.
-
-### ◐ BANCO-23 — Versiones de software en la PC del banco
+- **Resultado**: —
+PCIe-6353, en el A estan p0 a p7
+Los fotodiodos son de thorlabs PDA 36A
+pendiente el modelo del resto de laseres pero no es relevante ahora
+DU llega hasta -80
+el flipper del filtro de densidad es de fabricacion casera, pero el flipper del espejo up/down es el mencionado
+el laser es el excelsion, revisado
+hay un ttl de la camara al shamrock, el shutter parece ser de la camara por el sonido, pero solo suena uno
+### ☐ BANCO-23 — Versiones de software en la PC del banco
 - **Procedimiento**: en la consola del entorno de PyPrinting, anotar la versión del driver
   NI-DAQmx (NI MAX → Software) y las de `nidaqmx`, `pipython`, `PyQt6` y `numpy`
   (`python -m pip show nidaqmx pipython PyQt6 numpy`). Python ya se sabe: 3.11.13.
-- **Resultado (2026-09-28, investigador, parcial):**
-  - pylablib 1.4.3 en el entorno del legado;
-  - el resto, "son las de `requirements.txt`" según el investigador. Queda como dato EXPERIMENTAL
-    hasta pegar la salida de `pip show`;
-  - falta la versión del driver NI-DAQmx;
-  - "existe spectrog": sin aclarar qué es (¿un entorno o programa llamado así?).
-
-### ◐ BANCO-24 — Cadencia real de la traza (legado y 3.0), desde archivos guardados
+- **Resultado**: —
+son las de requirements.txt
+### ☐ BANCO-24 — Cadencia real de la traza (legado y 3.0), desde archivos guardados
 - **Procedimiento**: abrir 5 a 10 `NP_xxx.txt` de impresiones recientes hechas con el
   **legado** (el que se usa a diario) y, si hay, con 3.0 en `7f5d10a`, y anotar para cada
   programa el Δt típico entre filas y cuántas filas hay después del escalón. Conviene copiar
@@ -488,17 +602,9 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
 - **Verifica**: la predicción de ≈ 47 ms reales para el QTimer de 35 ms (medida en la PC de
   desarrollo, `auditoria_2026-09-27/c01_ronda1/timer_probe.py`). Ojo: si el eje de tiempo de
   esos archivos es sintético (`np.linspace`), el Δt no es medido; anotarlo.
-- **Resultado (2026-09-28, investigador):**
-  - el Δt entre filas no es constante: **47–57 ms en 3.0** (acorde con la predicción de ≈ 47 ms) y
-    **30–50 ms en el legado**;
-  - **el eje de tiempo no coincide con el reloj:** en una traza que duró 8 s por reloj, el archivo
-    marca 7 s (≈ −12 %).
-  - **Reabre C-01:** o el eje de tiempo no se mide (se reconstruye de un período nominal) o se
-    pierden muestras sin registrarlo. Hay que ver cómo arma cada programa la columna de tiempo antes
-    de usar esas trazas para medir tiempos de impresión. Conviene copiar esos archivos a
-    `docs/evidence/`.
-
-### ✅ BANCO-25 — Offsets del Shamrock leídos del equipo
+- **Resultado**: —
+ no es el mismo, pero entre 4.7e-2 y 5.7 e-2 para el 3.0, legacy  entre 3 y 5 e-2 pero el tiempo revisado en las trazas no era el mismo (8 segundos por relog y en la traza marca 7)
+### ☐ BANCO-25 — Offsets del Shamrock leídos del equipo
 - **Procedimiento**: con el legado abierto, correr `tools/bench/legacy_console_probe.py`
   (sección D, sólo lectura) y anotar los offsets de las dos redes, del detector, del espejo y
   los ceros de ranura. Valores del investigador al 2026-09-28 (R4-3, que reemplaza al 87 de R2-9):
@@ -513,26 +619,7 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
   Los dos resultados van al archivo de calibraciones, con fecha y método.
 - **Resuelve**: el respaldo previo al primer arranque de PySpectrum 3.0 y el diseño de los
   offsets dinámicos (C-04).
-- **Resultado (2026-09-28, sonda de consola en la sesión del legado, sección D; `reserva/PRUEBAS_BANCO_28-09-2026.md`).** Este es
-  **el respaldo**: lo que el Shamrock SR-1611 tiene guardado hoy.
-
-  | Posición de la torreta | Líneas/mm | Blaze | Home (pasos) | Offset (pasos) |
-  | :--- | ---: | :--- | ---: | ---: |
-  | 1 | 150 | 800 nm | −9147 | **87** |
-  | 2 | 1200 | 500 nm | 759864 | **195** |
-  | 3 | 0 (**espejo**, `Mirr`) | — | 1528009 | **60** |
-
-  - Detector offset = **0**. Ceros de ranura: 1 = −45, 2 = −1, 3 = −45, 4 = −45.
-  - Estado al leer: red 1, λ central 863.5 nm, `PixelWidth` 8.0 µm, `NumberPixels` 1002.
-    Coeficientes (A, B, C, D) = (811.677, 0.103463, −4.178e−08, −1.378e−11). Con 1002 píxeles dan una
-    ventana de ≈ 103.7 nm, que coincide con lo esperado en BANCO-05.
-  - **Discrepancias con lo anotado (a resolver con el investigador):**
-    - red de 150 l/mm: el equipo tiene **87**, que es el valor de R2-9; R4-3 decía 85;
-    - red de 1200 l/mm: el equipo tiene **195**, no 0. Offset nulo no es lo que hay guardado; puede
-      venir de fábrica o de una calibración anterior;
-    - la **torreta tiene un espejo** en la posición 3. Eso importa para el orden cero y el
-      "espejo rápido" (paso 7 del bloque A).
-  - 3.0 ya no escribe offsets al arrancar (C-04, `DEC-040`), así que estos valores no se pisan.
+- **Resultado**: —
 
 ---
 
@@ -546,18 +633,8 @@ El detalle de cada una está en `auditoria_2026-09-27/c01_ronda1/instrumentation
 ### ☐ BANCO-26 — Tamaño real del buffer de una tarea continua a 10 kS/s
 - **Verifica**: la regla de NI es ambigua justo en 10 kS/s: el buffer puede ser de 10 000 o de
   100 000 muestras por canal, y eso decide si el defecto de C-01 desbordaba a ≈ 1 s o a ≈ 10 s.
-- **Procedimiento**:
-  - **Requisitos:** PyPrinting, el PySpectrum legado y Solis cerrados, o al menos sin ninguna lectura de fotodiodos en curso, porque si otro programa tiene las entradas NI-DAQmx da −50103.
-  - **Ejecutar:** `python tools\bench\daq_buffer_probe.py`, que sólo usa entradas analógicas. La sonda:
-    - crea la tarea continua que tenía la traza en C-01: `Dev1/ai0, ai1, ai2, ai3, ai6`, 10 000 S/s por canal, `samps_per_chan = 1000`;
-    - la confirma con un commit, que es cuando NI-DAQmx asigna el buffer, sin arrancar ninguna adquisición;
-    - lee `input_buf_size` con el buffer automático y con uno explícito de 100 000 muestras;
-    - cierra la tarea.
-  - **Resultado:** pegar el bloque `RESUMEN BANCO-26`.
-- **Aceptación e interpretación:**
-  - buffer automático = 10 000 → el defecto de C-01 desbordaba a ≈ 1 s;
-  - buffer automático = 100 000 → desbordaba a ≈ 10 s;
-  - el buffer explícito tiene que quedar en 100 000, que es lo que necesita la opción E de C-01.
+- **Procedimiento**: crear una tarea continua de lectura en los 5 canales de fotodiodos a
+  10 kS/s y leer `task.in_stream.input_buf_size`. Sólo entradas analógicas.
 - **Resultado**: —
 
 ### ☐ BANCO-27 — La traza sigue en tiempo real a una señal conocida
@@ -689,10 +766,6 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
   - las versiones de `atmcd64d.dll`, `ShamrockCIF.dll` y `atshamrock.dll`, y la de pylablib si está instalado;
   - que exista `C:\Program Files\Andor SOLIS\SPECTROG.INI`, que usan el legado y 3.0 para inicializar el Shamrock.
   - Las DLL del repo son 2.104.33065.0 (cámara) y 2.103.30023.0 (Shamrock), idénticas a las de la carpeta del legado (DEC-040). Si las del banco difieren, avisar.
-  - **Leído el 2026-09-28:**
-    - pylablib **1.4.3** en `C:\Users\PRINTING\Envs\envspectrum` (Python 3.11);
-    - cámara: `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll` (falta anotar su versión);
-    - Shamrock: `C:\Users\PRINTING\Desktop\PySpectrum\libs\Windows\64\` (ShamrockCIF + atshamrock).
 - **Resultado:** —
 
 ---
@@ -720,31 +793,6 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 - **Si falla:** anotar la diferencia. Si no se sabe corregir en el driver propio, se evalúa pasar la cámara a pylablib (opción C del análisis) con esa diferencia ya identificada.
 - **Resultado:** fecha — / versión de pylablib — / valores —
 
-### ◐ BANCO-56 — Orientación de la imagen del Andor en orden cero frente a la cámara
-- **Observación del investigador (2026-09-28):** la imagen en la cámara y la del espectrómetro Andor
-  se ven **iguales en Y (vertical)** e **invertidas en X (horizontal)**.
-- **Contradice al código:** `config.py` tiene `ANDOR_FLIP_Y_IMAGE = True`, con el comentario "corrige
-  telescopio Czerny-Turner/Flipper" y sin fuente, y `ANDOR_FLIP_X_IMAGE = False`. Es decir, lo contrario
-  de lo observado.
-  - Ese par sólo lo usa `pyspectrum/modules/camera_andor.py`, que la ventana de 3.0 no instancia.
-    `calibration_dock.py` lo importa sin usarlo.
-  - El visor de Exploración no invierte nada. Sólo `invertY(True)`, que pone la fila 0 del sensor
-    arriba, como una imagen.
-- **Falta precisar (a completar por el investigador):**
-  - qué "cámara": ¿la del microscopio (Canon o la de detección confocal)?;
-  - en qué programa se vio la imagen del Andor (Solis o el PySpectrum legado) y si ese programa
-    aplica alguna inversión;
-  - con qué red y en qué modo (orden cero con la red 1, o el espejo de la torreta).
-- **Importa para:**
-  - que el espejo rápido sirva para ubicarse: moverse hacia la derecha en la cámara tiene que verse
-    hacia el mismo lado en el visor, o el visor tiene que avisar que está invertido;
-  - todo mapeo entre píxeles del Andor y coordenadas de la platina o de la cámara;
-  - el sentido del eje λ en primer orden, que se toma del Shamrock (`GetCalibration`) y no depende de
-    la paridad de la imagen; conviene anotar en el mismo cuadro hacia qué lado crece λ.
-- **Procedimiento sugerido:** con la lámpara y una muestra con una marca asimétrica (una letra o un
-  borde de cubreobjetos), en orden cero, mover la platina +X y +Y y anotar hacia dónde se mueve la
-  marca en la cámara y en el visor del Andor. Anotar también el programa y la red.
-
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación
 - **Procedimiento**: una grilla de 5×5 con campo oscuro grabando, con un control sin coloide.
 - **Aceptación**: cada captura corta en el primer escalón y no hay dobletes.
@@ -755,3 +803,4 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 - **Procedimiento**: ≥ 1 h después de termalizar, recentrar una partícula de referencia por
   escaneo confocal a intervalos regulares y registrar la posición.
 - **Resultado**: —
+

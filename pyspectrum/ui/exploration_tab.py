@@ -123,6 +123,11 @@ class ExplorationWorker(QtCore.QObject):
             self.stop_live()
             self.liveErrorSignal.emit(f"Live detenido: {exc}")
             return
+        except Exception as exc:
+            # FrameNotReady de la cámara sobre pylablib: todavía no hay cuadro; se espera al tick siguiente.
+            if type(exc).__name__ == "FrameNotReady":
+                return
+            raise
         self.imageUpdatedSignal.emit(frame)
 
 
@@ -200,6 +205,15 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         self.lbl_roi_status = QtWidgets.QLabel("ROI Slit: [-- : --] (Centro: --, Alto: -- px)")
         self.lbl_roi_status.setStyleSheet("background-color: #11111B; padding: 4px 8px; border-radius: 4px; border: 1px solid #45475A;")
         layout.addWidget(self.lbl_roi_status)
+
+        # En orden cero toda la luz cae en la imagen de la ranura: pico − bias como fracción del ADC de
+        # 14 bit. Sólo informa, no detiene el Live (D-06); amarillo desde 50 %, rojo desde 80 % (H-21).
+        self.lbl_saturation = QtWidgets.QLabel("")
+        self.lbl_saturation.setToolTip(
+            "Pico − bias del cuadro como fracción del ADC de 14 bit (16 383 cuentas).\n"
+            "Amarillo desde el 50 %, rojo desde el 80 %. En orden cero sólo informa: bajá la luz o la ranura.")
+        self.lbl_saturation.hide()
+        layout.addWidget(self.lbl_saturation)
 
         # ── Visor 2D: pg.PlotItem + pg.ImageItem + HistogramLUTWidget lateral ──
         viewer_row = QtWidgets.QHBoxLayout()
@@ -285,6 +299,22 @@ class ExplorationTabWidget(QtWidgets.QWidget):
     def update_image(self, img: np.ndarray):
         self._last_frame = img
         self.image_item.setImage(img.T, autoLevels=False)
+        self._update_saturation(img)
+
+    def _update_saturation(self, img: np.ndarray):
+        from pyspectrum.drivers.specular_interlock import get_interlock
+        from pyspectrum.modules.zero_order_service import ZeroOrderService
+        if not get_interlock().is_specular_or_unknown():
+            self.lbl_saturation.hide()
+            return
+        frac, level = ZeroOrderService.saturation_level(img)
+        color = {"ok": "#A6ADC8", "warn": "#F9E2AF", "alarm": "#F38BA8"}[level]
+        text = f"pico: {frac * 100:.0f} % del ADC"
+        if level == "alarm":
+            text += " · saturación en orden cero: reducir luz o ranura"
+        self.lbl_saturation.setText(text)
+        self.lbl_saturation.setStyleSheet(f"color: {color}; font-weight: bold; padding: 2px 8px;")
+        self.lbl_saturation.show()
 
     # ── Herramientas de imagen ────────────────────────────────────────────
 

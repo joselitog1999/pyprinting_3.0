@@ -215,22 +215,35 @@ class Backend(QtCore.QObject):
         self.statusMessageSignal.connect(lambda msg: frontend.lbl_info.setText(f"ℹ️ {msg}"))
         self.update_calibration()
 
+    def _zero_order_service(self):
+        from pyspectrum.modules.zero_order_service import get_zero_order_service
+        return get_zero_order_service(spectrometer=self.spectrometer)
+
+    def _report(self, res, what: str) -> None:
+        if res.ok:
+            self.statusMessageSignal.emit(f"✅ {what}")
+        else:
+            self.statusMessageSignal.emit(f"⛔ {what}: {res.detail}")
+
     @pyqtSlot(int)
     def set_grating(self, grating: int):
-        # Interlock de seguridad si se selecciona espejo (reflexión especular completa)
-        if grating == GRATING_MIRROR:
-            self._apply_zero_order_detector_safeguard("Posición Espejo")
-
+        # Todo movimiento pasa por el servicio de orden cero (paso 7): el espejo entra por el espejo
+        # rápido; un cambio de red se clasifica con la λ actual.
+        svc = self._zero_order_service()
         self.statusMessageSignal.emit(f"⚙️ Cambiando red a {NAME_GRATINGS[grating - 1]}... (asentamiento 4.0s)")
-        self.spectrometer.ShamrockSetGrating(DEVICE, grating)
+        if grating == GRATING_MIRROR:
+            res = svc.enter_specular("mirror")
+        else:
+            _, wl = self.spectrometer.ShamrockGetWavelength(DEVICE)
+            res = svc.move(grating, float(wl))
+        self._report(res, f"red {NAME_GRATINGS[grating - 1]}")
         self.update_calibration()
 
     @pyqtSlot(float)
     def set_wavelength(self, wl: float):
-        if wl <= 0.05:
-            self._apply_zero_order_detector_safeguard("0.0 nm (Orden Cero)")
-
-        self.spectrometer.ShamrockSetWavelength(DEVICE, wl)
+        _, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+        res = self._zero_order_service().move(int(grating), float(wl))
+        self._report(res, f"λc {wl:.2f} nm")
         self.update_calibration()
 
     @pyqtSlot(int, float)
@@ -246,38 +259,10 @@ class Backend(QtCore.QObject):
     def set_flipper(self, flipper: int, port: int):
         self.spectrometer.ShamrockSetFlipper(DEVICE, flipper, port)
 
-    def _apply_zero_order_detector_safeguard(self, reason: str):
-        """Interlock crítico: reduce EM gain a 0 y cierra láseres ante reflexión especular directa."""
-        try:
-            from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
-            cam = get_andor_ccd()
-            cam.set_emccd_gain(0)
-        except Exception:
-            pass
-
-        try:
-            from core.nidaq import close_all_shutters
-            close_all_shutters()
-        except Exception:
-            pass
-
-        msg = f"🛡️ Salvaguarda {reason}: Ganancia EM forzada a 0x y láseres cerrados por protección del chip CCD."
-        try:
-            print(f"[SpectrumControl Safety] {msg}")
-        except UnicodeEncodeError:
-            print(f"[SpectrumControl Safety] {msg.encode('ascii', 'replace').decode('ascii')}")
-        self.statusMessageSignal.emit(msg)
-
     @pyqtSlot()
     def goto_zero_order(self):
-        # 1. Aplicar salvaguarda de fotoflux
-        self._apply_zero_order_detector_safeguard("Orden Cero (0.0 nm)")
-
-        # 2. Desplazar a orden cero
-        if hasattr(self.spectrometer, "goto_zero_order"):
-            self.spectrometer.goto_zero_order(DEVICE)
-        else:
-            self.spectrometer.ShamrockSetWavelength(DEVICE, 0.0)
+        res = self._zero_order_service().enter_specular("zero_order")
+        self._report(res, "orden cero")
         self.update_calibration()
 
     @pyqtSlot()

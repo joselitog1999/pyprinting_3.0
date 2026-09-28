@@ -293,7 +293,13 @@ class TestSolisEnhancements(unittest.TestCase):
     def test_shamrock_cubic_eeprom_and_zero_order(self):
         """Verifica la calibración cúbica y el posicionamiento en orden cero."""
         sh = get_shamrock(force_mock=True)
-        # Orden cero
+        # Orden cero: el driver sólo gira con la ganancia EM 0 confirmada por relectura (paso 7,
+        # interlock especular). Sin confirmar, no se mueve.
+        from pyspectrum.drivers.shamrock_driver import SHAMROCK_P2INVALID
+        self.assertEqual(sh.goto_zero_order(), SHAMROCK_P2INVALID)
+        cam = get_andor_ccd(force_mock=True)
+        cam.set_emccd_gain(0)
+        cam.get_emccd_gain()
         sh.goto_zero_order()
         ret, wl = sh.ShamrockGetWavelength()
         self.assertEqual(wl, 0.0)

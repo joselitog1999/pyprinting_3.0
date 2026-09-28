@@ -713,11 +713,14 @@ class CalibrationBackend(QtCore.QObject):
 
     @pyqtSlot()
     def goto_zero_order(self):
-        ret = self.spectrometer.ShamrockGotoZeroOrder(DEVICE)
-        if ret == SHAMROCK_SUCCESS:
-            self.statusSignal.emit("Red movida a Orden Cero (0.0 nm). Reflexión directa lista.")
+        # El mismo espejo rápido que el panel y Ctrl+0 (paso 7): ganancia 0 confirmada y obturadores
+        # cerrados antes de girar.
+        from pyspectrum.modules.zero_order_service import get_zero_order_service
+        res = get_zero_order_service(spectrometer=self.spectrometer).enter_specular("zero_order")
+        if res.ok:
+            self.statusSignal.emit("Orden cero: ganancia EM bloqueada en 0, obturadores cerrados.")
         else:
-            self.statusSignal.emit(f"Error al mover a Orden Cero. Código: {ret}")
+            self.statusSignal.emit(f"Orden cero no ejecutado: {res.detail}")
 
     @pyqtSlot(float)
     def set_slit_width(self, width: float):

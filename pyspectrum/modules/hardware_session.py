@@ -44,6 +44,7 @@ class HardwareSessionManager(QObject):
         self._live_pause_callbacks: Dict[str, Callable[[], None]] = {}
         self._live_resume_callbacks: Dict[str, Callable[[], None]] = {}
         self._auto_paused_sources: list[str] = []
+        self.last_estop_report: Dict[str, str] = {}
 
     @property
     def current_owner(self) -> str:
@@ -144,10 +145,13 @@ class HardwareSessionManager(QObject):
         print("=" * 60)
         with self._lock:
             self._emergency_active = True
-            # 1. Apagado inmediato de láseres
+            report: Dict[str, str] = {}
+            # 1. Apagado inmediato de láseres. Un cierre no confirmado cuenta como abierto (DEC-036):
+            #    el watchdog sigue reintentando y acá queda registrado.
             try:
-                close_all_shutters()
+                report["shutters"] = "cerrados" if close_all_shutters() else "CIERRE NO CONFIRMADO"
             except Exception as e:
+                report["shutters"] = f"error: {e}"
                 print(f"[E-STOP Error] close_all_shutters: {e}")
 
             # 2. Aborto de cámara
@@ -155,9 +159,27 @@ class HardwareSessionManager(QObject):
                 cam = get_andor_ccd()
                 cam.abort_acquisition()
             except Exception as e:
+                cam = None
                 print(f"[E-STOP Error] cam.abort_acquisition: {e}")
 
-            # 3. Pausa de todos los modos live
+            # 3. Ganancia EM a 0, releída (R2-inst §2.5-5, paso 7)
+            try:
+                if cam is None:
+                    raise RuntimeError("cámara no disponible")
+                ret = cam.set_emccd_gain(0)
+                read = cam.get_emccd_gain()
+                ret_r, gain = (read[0], read[1]) if isinstance(read, (tuple, list)) else (20002, read)
+                if ret == 20002 and ret_r == 20002 and int(gain) == 0:
+                    report["gain"] = "0 releído"
+                else:
+                    report["gain"] = f"NO CONFIRMADA (set {ret}, lectura {ret_r}: {gain})"
+            except Exception as e:
+                report["gain"] = f"error: {e}"
+                print(f"[E-STOP Error] ganancia EM: {e}")
+            print(f"[E-STOP] obturadores: {report.get('shutters')} · ganancia EM: {report.get('gain')}")
+            self.last_estop_report = report
+
+            # 4. Pausa de todos los modos live
             for name, pause_cb in self._live_pause_callbacks.items():
                 try:
                     pause_cb()

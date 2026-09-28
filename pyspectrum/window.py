@@ -397,6 +397,20 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.lbl_stage_status.setToolTip("Estado de acoplamiento de la platina PI E-517 y de la ventana satélite Contrapropagante (Libre = control manual disponible / Subyugada = PySpectrum tiene el control exclusivo).")
         toolbar.addWidget(self.lbl_stage_status)
 
+        # Insignia de orden cero (paso 7, Ronda 3 §1.2 con H-33/H-34): visible en condición especular,
+        # incluido el estado desconocido, que cuenta como especular. Clic → foco al espejo rápido.
+        self.lbl_specular_badge = QtWidgets.QPushButton("ORDEN CERO · EM 0 bloqueada")
+        self.lbl_specular_badge.setFlat(True)
+        self.lbl_specular_badge.setStyleSheet(
+            "QPushButton { color: #181825; background-color: #fab387; font-weight: bold; font-size: 9.5pt;"
+            " padding: 4px 10px; border-radius: 4px; }")
+        self.lbl_specular_badge.setToolTip("Condición especular: la red refleja la luz sin dispersarla. "
+                                           "La ganancia EM queda bloqueada en 0.")
+        self.lbl_specular_badge.clicked.connect(lambda: self.left_panel.btn_zero_order.setFocus())
+        self.lbl_specular_badge.hide()
+        self._specular_badge_action = toolbar.addWidget(self.lbl_specular_badge)
+        self._specular_badge_action.setVisible(False)
+
         # Espaciador elástico
         spacer = QtWidgets.QWidget()
         spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
@@ -549,12 +563,20 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         flujo de trabajo a la derecha (~2/3), reemplazando el DockArea flotante anterior."""
         self.camera = get_andor_ccd()
         self.spectrometer = get_shamrock()
+        # Estado operativo base de la cámara (paso 8, DEC-040): enfriador a −60 °C, ventilador en bajo,
+        # velocidades por valor, ganancia EM 0 confirmada. No toca el espectrógrafo ni la calibración.
+        from pyspectrum.modules.camera_baseline import apply_camera_baseline
+        self.camera_baseline_report = apply_camera_baseline(self.camera)
+        print(f"[PySpectrum] Estado base de la cámara: {self.camera_baseline_report.summary()}")
 
         self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.setCentralWidget(self.main_splitter)
 
         self.left_panel = LeftHardwarePanel(self.camera, self.spectrometer, step_glue_tab_index=TAB_STEP_AND_GLUE)
         self.left_panel.setMinimumWidth(320)
+        self.left_panel.apply_camera_baseline_report(self.camera_baseline_report)
+        self.left_panel.specularStateChanged.connect(self._on_specular_state_changed)
+        self._on_specular_state_changed(self.left_panel._last_mode or "unknown")
         self.main_splitter.addWidget(self.left_panel)
 
         self.tabs_workflow = QtWidgets.QTabWidget()
@@ -603,6 +625,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self._setup_shortcuts()
 
         self.statusBar().showMessage(f"PySpectrum 3.0 Listo. Carpeta de trabajo: {self.work_dir}")
+        if self.camera_baseline_report.blocks_acquisition:
+            self.statusBar().showMessage(
+                "⚠️ Cámara: el estado base no se confirmó (" + self.camera_baseline_report.summary()
+                + "). Las adquisiciones deben quedar bloqueadas hasta resolverlo.")
 
     def _on_main_tab_changed(self, idx: int):
         self.left_panel.set_context(idx)
@@ -617,6 +643,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.shortcut_measure.activated.connect(self._shortcut_trigger_measurement)
 
         self.shortcut_zero_order = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+0"), self)
+        self.shortcut_zero_order.setAutoRepeat(False)   # sostenida no entra y vuelve (H-11a)
         self.shortcut_zero_order.activated.connect(self._shortcut_goto_zero_order)
 
         self.shortcut_estop_ctrl = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+E"), self)
@@ -658,9 +685,18 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             self.lumin_widget.btn_run.click()
 
     def _shortcut_goto_zero_order(self):
-        """Ctrl+0: abre el diálogo de seguridad de Orden Cero (ZeroOrderSafetyDialog) — el
-        mismo botón que ya expone el Panel Izquierdo permanente, con la misma confirmación."""
+        """Ctrl+0: el espejo rápido del panel izquierdo (el mismo botón, sin diálogo). Entra al orden cero
+        con la red actual desde primer orden y vuelve desde especular (H-11e)."""
         self.left_panel.btn_zero_order.click()
+
+    def _on_specular_state_changed(self, mode: str):
+        if mode == "first_order":
+            self._specular_badge_action.setVisible(False)
+            return
+        self.lbl_specular_badge.setText("ORDEN CERO · EM 0 bloqueada" if mode == "specular"
+                                        else "ORDEN CERO (estado del Shamrock desconocido) · EM 0 bloqueada")
+        self.lbl_specular_badge.show()
+        self._specular_badge_action.setVisible(True)
 
     def _setup_threads_and_backends(self):
         from core.hardware_manager import hardware_manager

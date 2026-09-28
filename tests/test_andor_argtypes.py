@@ -75,6 +75,10 @@ def test_driver_calls_match_the_declared_prototypes(cam):
         lambda: cam.set_preamp_gain(0), lambda: cam.get_number_hs_speeds(), lambda: cam.get_hs_speed(0),
         lambda: cam.set_hs_speed(0), lambda: cam.set_shutter_mode(0), lambda: cam.set_multi_track(2, 10, 0),
         lambda: cam.set_random_track([(10, 20), (40, 60)]), lambda: cam.get_tracks_2d_spectrum(2),
+        lambda: cam.get_detector(), lambda: cam.get_number_vs_speeds(), lambda: cam.get_vs_speed(2),
+        lambda: cam.set_vs_speed(2), lambda: cam.set_fan_mode(1), lambda: cam.get_temperature_range(),
+        lambda: cam.is_cooler_on(), lambda: cam.set_em_gain_mode(0), lambda: cam.get_em_gain_range(),
+        lambda: cam.get_current_preamp_gain(),
     ]
     calls += [lambda: cam.initialize(), lambda: cam.close()]
     for call in calls:

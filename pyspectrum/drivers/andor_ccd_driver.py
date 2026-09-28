@@ -14,6 +14,7 @@ from typing import Tuple, Optional
 import numpy as np
 
 from config import SAFE_MODE
+from pyspectrum.drivers.specular_interlock import get_interlock
 
 # Códigos de retorno Andor SDK 2
 DRV_SUCCESS = 20002
@@ -72,7 +73,13 @@ DETECTOR_PIXEL_PITCH_UM = 8.0
 
 # Ganancias de pre-amplificador y velocidades de lectura horizontal simuladas en Modo Seguro
 PREAMP_GAINS_MOCK = [1.0, 2.0, 4.3]
-HSSPEEDS_MHZ_MOCK = [5.0, 3.0, 1.0]
+# Velocidades del iXon3 885 por el amplificador EMCCD: 35, 27 y 13 MHz ([DS-iXon] p. 2). El orden
+# real de la tabla del SDK lo confirma BANCO-38; el arranque elige la velocidad por valor, no por índice.
+HSSPEEDS_MHZ_MOCK = [35.0, 27.0, 13.0]
+# Desplazamiento vertical de 0.5 a 1.9 µs ([DS-iXon] p. 2). El legado usaba el índice 2 = 1.9 µs
+# (Camera_ps.py:607); la tabla intermedia es ilustrativa hasta BANCO-38.
+VSSPEEDS_US_MOCK = [0.5, 1.0, 1.9]
+FAN_MODE_FULL, FAN_MODE_LOW, FAN_MODE_OFF = 0, 1, 2   # SetFanMode (SDK p. 273)
 
 
 # Prototipos del SDK2 v2.104 (docs/bibliografia/Software Development Kit.pdf) para cada función que
@@ -86,6 +93,16 @@ _ANDOR_ARGTYPES = {
     "GetAcquiredData": (POINTER(c_long), c_ulong),
     "GetAcquisitionTimings": (POINTER(c_float), POINTER(c_float), POINTER(c_float)),
     "GetEMCCDGain": (POINTER(c_int),),
+    "GetCurrentPreAmpGain": (POINTER(c_int), c_char_p, c_int),
+    "GetDetector": (POINTER(c_int), POINTER(c_int)),
+    "GetEMGainRange": (POINTER(c_int), POINTER(c_int)),
+    "GetNumberVSSpeeds": (POINTER(c_int),),
+    "GetTemperatureRange": (POINTER(c_int), POINTER(c_int)),
+    "GetVSSpeed": (c_int, POINTER(c_float)),
+    "IsCoolerOn": (POINTER(c_int),),
+    "SetEMGainMode": (c_int,),
+    "SetFanMode": (c_int,),
+    "SetVSSpeed": (c_int,),
     "GetHSSpeed": (c_int, c_int, c_int, POINTER(c_float)),
     "GetMostRecentImage": (POINTER(c_long), c_ulong),
     "GetNumberHSSpeeds": (c_int, c_int, POINTER(c_int)),
@@ -123,6 +140,16 @@ def _declare_argtypes(dll) -> None:
             fn.restype = c_uint
         except AttributeError:
             print(f"[Andor CCD] La DLL no exporta {name}.")
+
+
+def _specular_gain_allowed(gain: int) -> bool:
+    """Red mínima del paso 7 (R2-inst §2.5-1): ganancia EM > 0 sólo en primer orden confirmado."""
+    lock = get_interlock()
+    if lock.gain_allowed(gain):
+        return True
+    print(f"[Andor CCD Safety] Ganancia EM {gain} rechazada: condición especular o estado del Shamrock "
+          f"desconocido ({lock.mode}: {lock.detail}). La ganancia queda en 0.")
+    return False
 
 
 class DeviceUnavailable(RuntimeError):
@@ -166,6 +193,9 @@ class _MockAndorCCD:
         # "run till abort" (5) para no cambiar lo que ya usan el Live y las rutinas viejas; sólo en
         # modo 1 (single scan) la adquisición termina sola al cumplirse la exposición, como el SDK.
         self._acq_mode = 5
+        self._vsspeed_idx = 0
+        self._em_gain_mode = 0
+        self._fan_code = FAN_MODE_LOW if fan_mode == "low" else FAN_MODE_FULL
         self._acq_started_at = 0.0
         self._images_acquired = 0
         self._last_read_index = 0
@@ -207,6 +237,45 @@ class _MockAndorCCD:
 
     def get_hs_speed_index(self) -> int:
         return self._hsspeed_idx
+
+    # ── Primitivas del estado operativo base (paso 8, DEC-040) ───────────────
+    def get_detector(self) -> Tuple[int, int, int]:
+        return (DRV_SUCCESS, self.width, self.height)
+
+    def get_number_vs_speeds(self) -> Tuple[int, int]:
+        return (DRV_SUCCESS, len(VSSPEEDS_US_MOCK))
+
+    def get_vs_speed(self, index: int) -> Tuple[int, float]:
+        if not 0 <= int(index) < len(VSSPEEDS_US_MOCK):
+            return (DRV_P1INVALID, float("nan"))
+        return (DRV_SUCCESS, VSSPEEDS_US_MOCK[int(index)])
+
+    def set_vs_speed(self, index: int) -> int:
+        if not 0 <= int(index) < len(VSSPEEDS_US_MOCK):
+            return DRV_P1INVALID
+        self._vsspeed_idx = int(index)
+        return DRV_SUCCESS
+
+    def set_fan_mode(self, mode: int) -> int:
+        self._fan_code = int(mode)
+        self._fan_mode = {FAN_MODE_FULL: "full", FAN_MODE_LOW: "low", FAN_MODE_OFF: "off"}.get(int(mode), "?")
+        return DRV_SUCCESS
+
+    def get_temperature_range(self) -> Tuple[int, int, int]:
+        return (DRV_SUCCESS, -100, 25)
+
+    def is_cooler_on(self) -> Tuple[int, bool]:
+        return (DRV_SUCCESS, bool(self._cooler_on))
+
+    def set_em_gain_mode(self, mode: int) -> int:
+        self._em_gain_mode = int(mode)
+        return DRV_SUCCESS
+
+    def get_em_gain_range(self) -> Tuple[int, int, int]:
+        return (DRV_SUCCESS, 0, 255) if self._em_gain_mode == 0 else (DRV_SUCCESS, 2, 1000)
+
+    def get_current_preamp_gain(self) -> Tuple[int, int]:
+        return (DRV_SUCCESS, int(self._preamp_gain_idx))
 
     def set_shutter_mode(self, mode: int, closing_time_ms: int = 0, opening_time_ms: int = 0) -> int:
         """0: Auto (sincronizado con adquisición), 1: Siempre Abierto, 2: Siempre Cerrado."""
@@ -255,6 +324,11 @@ class _MockAndorCCD:
             if self._cooler_mode == 0:
                 self._cooler_on = False
             return DRV_SUCCESS
+
+    def reconnect(self) -> bool:
+        with self._lock:
+            self._acquiring = False
+            return True
 
     def set_temperature(self, temp: float) -> int:
         with self._lock:
@@ -315,15 +389,19 @@ class _MockAndorCCD:
     def set_emccd_gain(self, gain: int) -> int:
         with self._lock:
             g = max(0, min(1000, int(gain)))
+            if not _specular_gain_allowed(g):
+                return DRV_P1INVALID
             # Salvaguarda EMCCD: si tiempo de exposición > 1.0 s, impedir superar 5x
             if self._exposure_time > 1.0 and g > 5:
                 print(f"[Andor CCD Safety] Ganancia EM clampeada a 5x: exposición actual ({self._exposure_time:.2f}s) > 1.0s.")
                 g = 5
             self._emccd_gain = g
+            get_interlock().note_gain_set(DRV_SUCCESS, g)
             return DRV_SUCCESS
 
     def get_emccd_gain(self) -> int:
         with self._lock:
+            get_interlock().note_gain_reading(DRV_SUCCESS, self._emccd_gain)
             return self._emccd_gain
 
     def set_read_mode(self, mode: int) -> int:
@@ -566,7 +644,22 @@ class AndorCCDDriver:
                     self._dll.ShutDown()
                 except Exception:
                     pass
+                self.unavailable_reason = "Cámara cerrada por el programa (ShutDown); el enfriador se apagó."
             self._connected = False
+
+    def reconnect(self) -> bool:
+        """Cierra y vuelve a inicializar ESTA instancia (paso 4, DEC-040): todos los que la guardan
+        siguen apuntando al driver vivo. ShutDown apaga el enfriador: quien lo pida avisa antes."""
+        with self._lock:
+            if self.available:
+                try:
+                    self._dll.AbortAcquisition()
+                except Exception:
+                    pass
+            self.close()
+            if self._dll is None:
+                self._init_dll()
+            return self.initialize()
 
     def set_temperature(self, temp: float) -> int:
         if not self._connected or self._dll is None:
@@ -604,8 +697,10 @@ class AndorCCDDriver:
         with self._lock:
             try:
                 return self._dll.SetCoolerMode(c_int(int(mode)))
-            except Exception:
-                return DRV_SUCCESS
+            except Exception as e:
+                # Antes devolvía DRV_SUCCESS: una falla de la DLL pasaba por éxito (DEC-040, paso 8).
+                print(f"[Andor CCD] Error SetCoolerMode: {e}")
+                return DRV_NOT_INITIALIZED
 
     def set_output_amplifier(self, typ: int) -> int:
         """0: Multiplicador de electrones EMCCD; 1: Convencional bajo ruido CCD."""
@@ -624,15 +719,19 @@ class AndorCCDDriver:
             return DRV_NOT_INITIALIZED
         with self._lock:
             g = max(0, min(1000, int(gain)))
+            if not _specular_gain_allowed(g):
+                return DRV_P1INVALID
             # Salvaguarda EMCCD: si tiempo de exposición > 1.0 s, impedir superar 5x
             if self._current_exposure_time > 1.0 and g > 5:
                 print(f"[Andor CCD Safety] Ganancia EM clampeada a 5x: exposición actual ({self._current_exposure_time:.2f}s) > 1.0s.")
                 g = 5
             try:
-                return self._dll.SetEMCCDGain(c_int(g))
+                ret = self._dll.SetEMCCDGain(c_int(g))
             except Exception as e:
                 print(f"[Andor CCD] Error SetEMCCDGain: {e}")
                 return DRV_NOT_INITIALIZED
+            get_interlock().note_gain_set(ret, g)
+            return ret
 
     def get_emccd_gain(self) -> Tuple[int, int]:
         if not self._connected or self._dll is None:
@@ -748,6 +847,89 @@ class AndorCCDDriver:
         if self._read_mode in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
             return self.get_1d_spectrum(width)
         return self.get_most_recent_image(width, height)
+
+    # ── Primitivas del estado operativo base (paso 8, DEC-040): código crudo del SDK ──
+    def get_detector(self) -> Tuple[int, int, int]:
+        """GetDetector(int* x, int* y)."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, -1, -1)
+        with self._lock:
+            x, y = c_int(), c_int()
+            ret = self._dll.GetDetector(byref(x), byref(y))
+            return (ret, int(x.value), int(y.value))
+
+    def get_number_vs_speeds(self) -> Tuple[int, int]:
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, 0)
+        with self._lock:
+            n = c_int()
+            ret = self._dll.GetNumberVSSpeeds(byref(n))
+            return (ret, int(n.value))
+
+    def get_vs_speed(self, index: int) -> Tuple[int, float]:
+        """GetVSSpeed(int index, float* speed): µs por fila del índice pedido (no el vigente)."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, float("nan"))
+        with self._lock:
+            s = c_float()
+            ret = self._dll.GetVSSpeed(c_int(int(index)), byref(s))
+            return (ret, float(s.value) if ret == DRV_SUCCESS else float("nan"))
+
+    def set_vs_speed(self, index: int) -> int:
+        if not self.available:
+            return DRV_NOT_INITIALIZED
+        with self._lock:
+            return self._dll.SetVSSpeed(c_int(int(index)))
+
+    def set_fan_mode(self, mode: int) -> int:
+        """SetFanMode: 0 máximo, 1 bajo, 2 apagado (SDK p. 273). El SDK no tiene getter."""
+        if not self.available:
+            return DRV_NOT_INITIALIZED
+        with self._lock:
+            return self._dll.SetFanMode(c_int(int(mode)))
+
+    def get_temperature_range(self) -> Tuple[int, int, int]:
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, 0, 0)
+        with self._lock:
+            lo, hi = c_int(), c_int()
+            ret = self._dll.GetTemperatureRange(byref(lo), byref(hi))
+            return (ret, int(lo.value), int(hi.value))
+
+    def is_cooler_on(self) -> Tuple[int, bool]:
+        """IsCoolerOn(int*): 1 = encendido (SDK p. 211)."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, False)
+        with self._lock:
+            s = c_int()
+            ret = self._dll.IsCoolerOn(byref(s))
+            return (ret, bool(s.value))
+
+    def set_em_gain_mode(self, mode: int) -> int:
+        """SetEMGainMode: 0 = DAC 0-255 (SDK p. 271). El SDK v2.104 no documenta un getter."""
+        if not self.available:
+            return DRV_NOT_INITIALIZED
+        with self._lock:
+            return self._dll.SetEMGainMode(c_int(int(mode)))
+
+    def get_em_gain_range(self) -> Tuple[int, int, int]:
+        """GetEMGainRange(int* low, int* high): depende del modo de ganancia vigente."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, 0, 0)
+        with self._lock:
+            lo, hi = c_int(), c_int()
+            ret = self._dll.GetEMGainRange(byref(lo), byref(hi))
+            return (ret, int(lo.value), int(hi.value))
+
+    def get_current_preamp_gain(self) -> Tuple[int, int]:
+        """GetCurrentPreAmpGain(int* index, char* name, int len)."""
+        if not self.available:
+            return (DRV_NOT_INITIALIZED, -1)
+        with self._lock:
+            idx = c_int()
+            name = create_string_buffer(64)
+            ret = self._dll.GetCurrentPreAmpGain(byref(idx), name, c_int(64))
+            return (ret, int(idx.value))
 
     # ── Primitivas del paso 6 (DEC-040): cada una devuelve el código crudo del SDK ──
     def set_acquisition_mode(self, mode: int) -> int:
@@ -935,6 +1117,28 @@ class AndorCCDDriver:
 # ── Instancia Singleton y Fábrica ─────────────────────────────────────────────
 _andor_instance = None
 
+def _new_hardware_driver():
+    """El driver de hardware según `config.ANDOR_BACKEND` (R4-F, DEC-040): por ahora pylablib, como
+    el legado; "ctypes" es el driver propio, que queda para más adelante."""
+    try:
+        from config import ANDOR_BACKEND
+    except Exception:
+        ANDOR_BACKEND = "pylablib"
+    if str(ANDOR_BACKEND).lower() == "ctypes":
+        return AndorCCDDriver()
+    from pyspectrum.drivers.andor_pylablib import PylablibAndorCCD
+    return PylablibAndorCCD()
+
+
+def reconnect_andor_ccd():
+    """Reconexión explícita de la cámara, en el lugar (paso 4, DEC-040). Nunca crea otra instancia
+    si ya hay una: `get_andor_ccd(reset=True)` la reemplazaba y dejaba a los backends con una cerrada."""
+    if _andor_instance is None:
+        return get_andor_ccd()
+    _andor_instance.reconnect()
+    return _andor_instance
+
+
 def get_andor_ccd(force_mock: bool = False, reset: bool = False) -> _MockAndorCCD | AndorCCDDriver:
     global _andor_instance
     if reset:
@@ -953,7 +1157,7 @@ def get_andor_ccd(force_mock: bool = False, reset: bool = False) -> _MockAndorCC
             # queda el driver real sin conectar, con `available = False` y el motivo en
             # `unavailable_reason`; sus setters devuelven DRV_NOT_INITIALIZED y sus lecturas de
             # imagen lanzan DeviceUnavailable.
-            drv = AndorCCDDriver()
+            drv = _new_hardware_driver()
             if not drv.initialize():
                 print(f"[Andor CCD] NO CONECTADA: {drv.unavailable_reason}")
             _andor_instance = drv

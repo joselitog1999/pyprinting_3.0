@@ -105,6 +105,11 @@ def single_exposure(cam: Any, req: ExposureRequest, *,
         return fail(AcquisitionFailureKind.INVALID_REQUEST,
                     detail=f"exposición {t_exp} s fuera de [{MIN_EXPOSURE_S}, {MAX_EXPOSURE_S}] o forma {req.shape} inválida")
 
+    # La cámara sobre pylablib (R4-F) hace la exposición con el camino del legado y el mismo contrato.
+    if hasattr(cam, "acquire_single"):
+        return cam.acquire_single(req, should_abort=should_abort, on_tick=on_tick, is_estopped=is_estopped,
+                                  clock=clock, tranche_ms=tranche_ms, readout_margin_s=readout_margin_s)
+
     ret, status = cam.get_status_checked()
     if ret != DRV_SUCCESS:
         return fail(AcquisitionFailureKind.READ_FAILED, ret, "GetStatus", "no se pudo consultar el estado de la cámara")

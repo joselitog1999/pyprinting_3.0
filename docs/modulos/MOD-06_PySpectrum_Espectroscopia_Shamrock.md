@@ -81,7 +81,7 @@ Integra de forma multihilo y desacoplada (`PyQt6`):
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Al presionar **`🪞 Ir a Orden Cero (0 nm)`** se abre el diálogo modal `ZeroOrderSafetyDialog` (§12.3), que **nunca** mueve el espectrógrafo directamente. En la pestaña **Step & Glue**, el campo λ Central y el botón `➡️ Ir a λ` del panel izquierdo se inhabilitan automáticamente (la receta de cosido comanda la red).
+Al presionar **`🪞 Orden cero (red actual)`** (o `Ctrl+0`) entra el **espejo rápido** del panel izquierdo (`🪞 Orden cero (red actual)` o `Ctrl+0`, paso 7 de `DEC-040`): sin diálogo, detiene la cámara, pone la ganancia EM en 0 y la relee, fija la exposición de orden cero y cierra todos los obturadores con confirmación; si algo no se confirma, no gira (§12.3). En la pestaña **Step & Glue**, el campo λ Central y el botón `➡️ Ir a λ` del panel izquierdo se inhabilitan automáticamente (la receta de cosido comanda la red).
 
 ---
 
@@ -261,8 +261,10 @@ El `DockArea` flotante fue reemplazado por un `QSplitter` horizontal: `LeftHardw
 ### 12.2 `LeftHardwarePanel` (`pyspectrum/ui/left_hardware_panel.py`)
 Widget único (no hay un segundo par cámara/espectrógrafo con el que multiplexar), combina UI y despacho directo al driver, con `QTimer` propio de 1 Hz para refrescar temperatura y λ actual — mismo patrón que `camera_andor.py::Backend._read_temperature`. Sub-panel Andor: temperatura/enfriador, amplificador, EM Gain, **Pre-Amp Gain** y **Velocidad de Lectura (HSSpeed)** (ambos poblados dinámicamente desde el driver — `get_number_preamp_gains()`/`get_preamp_gain(i)`, `get_number_hs_speeds()`/`get_hs_speed(i)`), exposición, **modo de obturador interno de cámara** (Auto/Siempre Abierto/Siempre Cerrado). Sub-panel Shamrock: red, ranura, flippers IN/OUT, λ central + `➡️ Ir a λ`, `🪞 Ir a Orden Cero`. `set_context(tab_index)` inhabilita el campo manual de λ y `Ir a λ` únicamente en la pestaña Step & Glue (la receta de cosido comanda la red); Orden Cero permanece siempre disponible como acción manual explícita.
 
-### 12.3 `ZeroOrderSafetyDialog` (`pyspectrum/ui/zero_order_dialog.py`)
-Interlock modal disparado desde el botón `🪞 Ir a Orden Cero` del panel izquierdo. Inspecciona `EM Gain` (`get_emccd_gain()`) y obturadores láser realmente abiertos (`core/nidaq.py::get_open_shutter_names()` — **no** `is_watchdog_armed()`, que puede estar desarmado con un shutter físicamente abierto en Modo Alineación) y exige una de 5 acciones explícitas: `🛡️ Cerrar Láser y Apagar EM Gain` (recomendado), `🔴 Solo Cerrar Láser`, `🔻 Solo Apagar EM Gain`, `⚠️ Ignorar y Continuar (Override Experto)` (deja advertencia explícita en consola) o `✖ Cancelar` (no mueve nada). Sólo tras una acción no cancelada se invoca `spectrometer.goto_zero_order()`. No reemplaza ni modifica el safeguard silencioso preexistente de `spectrum_control.py::Backend.goto_zero_order()` (usado sólo por el diálogo legado de compatibilidad).
+### 12.3 Espejo rápido e interlock especular (paso 7, `DEC-040`)
+El `ZeroOrderSafetyDialog` y su "Override Experto" se retiraron (R4-A-3: el orden cero se usa seguido y un diálogo se volvería rutina). Hay dos capas:
+- **Red mínima en los drivers** (`pyspectrum/drivers/specular_interlock.py`): un estado compartido (primer orden / especular / desconocido). La cámara (simulador, ctypes y pylablib) rechaza `set_emccd_gain(g > 0)` en especular o desconocido; el Shamrock (simulador y real) rechaza un destino especular si la ganancia 0 no está confirmada por una relectura reciente o el bloqueo no está armado, y publica la condición del destino tras moverse.
+- **Servicio** (`pyspectrum/modules/zero_order_service.py::ZeroOrderService`, único en el proceso vía `get_zero_order_service()`): `enter_specular(target, restart_live)` con la secuencia Z1-Z8 (sesión, cámara IDLE leída, ganancia 0 releída, exposición de orden cero, obturadores confirmados, movimiento, relectura); `leave_specular(grating, λ)` con relectura y restitución de la exposición de primer orden (la ganancia no); `move(grating, λ)` para todo cambio de red o λ desde la GUI. Lo usan el panel izquierdo, `Ctrl+0`, el botón de Calibraciones y el dock legado.
 
 ### 12.4 Transición Segura de Modos de Lectura (`pyspectrum/ui/acquisition_setup_dialog.py`)
 `compute_buffer_shape(read_mode, width, height, n_tracks)` y `transition_read_mode(camera, new_mode, **kwargs)` son funciones puras (sin Qt) que implementan: abortar adquisición → esperar `DRV_IDLE` (`camera.get_status()`, nuevo en el driver) → `SetReadMode` + configuración específica (`SetSingleTrack`/`SetMultiTrack`/`SetRandomTrack`/`SetImage`) → forma exacta del nuevo buffer NumPy. `AcquisitionSetupDialog` es un indicador visual no bloqueante (`QProgressBar` indeterminado) que envuelve la llamada vía `.run(fn, *args)`.
@@ -390,7 +392,7 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
 |---|---|---|
 | `Ctrl+Space` | Alterna Live View (`.btn_live.click()`) | Exploración, Static Raman (no-op en el resto) |
 | `Ctrl+R` | Dispara medición primaria (`.btn_single`/`.btn_run`/`.btn_scan`.click()) | Raman, Step&Glue, Cinética, Confocal, Luminiscencia (no-op en Exploración/Calibraciones) |
-| `Ctrl+0` | Abre `ZeroOrderSafetyDialog` (`left_panel.btn_zero_order.click()`) | Global |
+| `Ctrl+0` | Espejo rápido: entra al orden cero con la red actual y vuelve desde especular (`left_panel.btn_zero_order.click()`, sin autorrepetición) | Global |
 | `Ctrl+M` | Abre/enfoca satélite Contrapropagante (ya existía, Fase 5) | Global |
 | `Ctrl+E` / `F12` | E-STOP global (`_on_emergency_stop_clicked()`) | Global |
 | `Ctrl+1`…`Ctrl+7` | Salta a la pestaña N | Global |

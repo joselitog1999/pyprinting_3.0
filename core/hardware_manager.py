@@ -219,8 +219,12 @@ class HardwareManager(QObject):
                 return self.device_states[dev] == "connected"
 
             elif "Shamrock" in dev:
-                from pyspectrum.drivers.shamrock_driver import get_shamrock, DEVICE, SHAMROCK_SUCCESS
-                sh = get_shamrock(reset=True)
+                from pyspectrum.drivers.shamrock_driver import reconnect_shamrock, DEVICE, SHAMROCK_SUCCESS
+                if self._refuse_reconnect(dev):
+                    return False
+                # En el lugar (paso 4, DEC-040): get_shamrock(reset=True) creaba otra instancia y
+                # dejaba a los backends con una cerrada.
+                sh = reconnect_shamrock()
                 if getattr(sh, "is_mock", False):
                     self.device_states[dev] = "disconnected"
                     self.device_details[dev] = "No detectado en USB (DLL o hardware ausente)"
@@ -245,8 +249,11 @@ class HardwareManager(QObject):
                     return False
 
             elif "Andor CCD" in dev:
-                from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
-                cam = get_andor_ccd(reset=True)
+                from pyspectrum.drivers.andor_ccd_driver import reconnect_andor_ccd
+                if self._refuse_reconnect(dev):
+                    return False
+                # En el lugar (paso 4, DEC-040). ShutDown apaga el enfriador: el tablero avisa antes.
+                cam = reconnect_andor_ccd()
                 if getattr(cam, "is_mock", False):
                     self.device_states[dev] = "disconnected"
                     self.device_details[dev] = "No detectada en USB (SDK o cámara ausente)"
@@ -290,24 +297,28 @@ class HardwareManager(QObject):
             self.device_details[dev] = "Desconectada por el usuario (Modo virtual)"
             self.log("INFO", f"[{dev}] Platina PI desconectada de forma segura.")
         elif "Shamrock" in dev:
+            if self._refuse_reconnect(dev):
+                return False
             try:
-                from pyspectrum.drivers.shamrock_driver import get_shamrock
-                sh = get_shamrock()
-                if hasattr(sh, "close"):
+                # Se cierra en el lugar; antes get_shamrock(reset=True) lo volvía a inicializar.
+                from pyspectrum.drivers import shamrock_driver
+                sh = shamrock_driver._shamrock_instance
+                if sh is not None and hasattr(sh, "close"):
                     sh.close()
-                get_shamrock(reset=True)
             except Exception as e:
                 self.log("WARNING", f"[{dev}] Aviso al cerrar Shamrock: {e}")
             self.device_states[dev] = "disconnected"
             self.device_details[dev] = "Desconectado por el usuario"
             self.log("INFO", f"[{dev}] Espectrógrafo Shamrock cerrado y liberado.")
         elif "Andor CCD" in dev:
+            if self._refuse_reconnect(dev):
+                return False
             try:
-                from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
-                cam = get_andor_ccd()
-                if hasattr(cam, "close"):
+                # Se cierra en el lugar; antes get_andor_ccd(reset=True) la volvía a inicializar.
+                from pyspectrum.drivers import andor_ccd_driver
+                cam = andor_ccd_driver._andor_instance
+                if cam is not None and hasattr(cam, "close"):
                     cam.close()
-                get_andor_ccd(reset=True)
             except Exception as e:
                 self.log("WARNING", f"[{dev}] Aviso al cerrar Andor CCD: {e}")
             self.device_states[dev] = "disconnected"
@@ -320,6 +331,61 @@ class HardwareManager(QObject):
 
         self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
         return True
+
+    def _refuse_reconnect(self, dev: str) -> bool:
+        """Reconectar o desconectar la cámara o el Shamrock es una acción explícita que se rechaza
+        con una rutina en curso o con la E-STOP (paso 4, DEC-040). Devuelve True si se rechazó."""
+        try:
+            from pyspectrum.modules.hardware_session import hardware_session
+        except Exception:
+            return False
+        reason = None
+        if hardware_session.is_emergency_stopped:
+            reason = "E-STOP activa: rearme el sistema antes de reconectar."
+        elif hardware_session.is_busy:
+            reason = f"'{hardware_session.current_owner}' está usando el equipo: detenga la rutina antes de reconectar."
+        if reason is None:
+            return False
+        self.device_details[dev] = f"Reconexión rechazada. {reason}"
+        self.log("WARNING", f"[{dev}] {self.device_details[dev]}")
+        self.deviceStatusSignal.emit(dev, self.device_states.get(dev, "disconnected"), self.device_details[dev])
+        return True
+
+    def refresh_status(self):
+        """Informa el estado de cada equipo SIN conectar, reiniciar ni mover nada (paso 4, DEC-040).
+
+        Es lo que hace el tablero al abrirse. Antes abría con `rescan_hardware()`, que reiniciaba la
+        cámara y el Shamrock (el enfriador se apagaba) y reconectaba la platina, que va a home si su
+        conexión se había perdido (contra DEC-036). Reescanear queda como botón explícito."""
+        for dev in self.DEVICES:
+            if SAFE_MODE or self.device_isolated.get(dev, False):
+                self.deviceStatusSignal.emit(dev, self.device_states.get(dev, "mock"), self.device_details.get(dev, ""))
+                continue
+            state, detail = self.device_states.get(dev, "disconnected"), self.device_details.get(dev, "Sin verificar")
+            try:
+                if "Andor CCD" in dev or "Shamrock" in dev:
+                    if "Andor CCD" in dev:
+                        from pyspectrum.drivers import andor_ccd_driver as mod
+                        drv = mod._andor_instance
+                    else:
+                        from pyspectrum.drivers import shamrock_driver as mod
+                        drv = mod._shamrock_instance
+                    if drv is None:
+                        state, detail = "disconnected", "No inicializado en este proceso"
+                    elif getattr(drv, "is_mock", False):
+                        state, detail = "mock", "Simulador"
+                    elif getattr(drv, "available", False):
+                        state, detail = "connected", "Conectado (estado del driver; sin consultas nuevas)"
+                    else:
+                        state, detail = "disconnected", getattr(drv, "unavailable_reason", "") or "No conectado"
+                elif "PI Piezo" in dev:
+                    from config import pi
+                    state = "connected" if getattr(pi, "connected", False) else "disconnected"
+                    detail = "Conectada" if state == "connected" else "No conectada (use Conectar)"
+            except Exception as e:
+                state, detail = "disconnected", f"Estado no disponible: {e}"
+            self.device_states[dev], self.device_details[dev] = state, detail
+            self.deviceStatusSignal.emit(dev, state, detail)
 
     def rescan_hardware(self, profile: Optional[str] = None):
         """

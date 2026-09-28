@@ -823,8 +823,12 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
 1. **Parada de Emergencia Global (🚨 E-STOP)**:
    - Accionable mediante el botón de cabecera o los atajos `Ctrl+E` / `F12`.
    - Cierra instantáneamente todos los obturadores láser (`close_all_shutters()`), aborta la adquisición del sensor Andor CCD, libera la sesión de hardware y desbloquea las ventanas satélites.
-2. **Diálogo de Seguridad de Orden Cero ([`ZeroOrderSafetyDialog`](file:///C:/Users/josel/Documents/Obsidian_Vault/printing3/pyspectrum/ui/zero_order_dialog.py))**:
-   - Impide mover el espectrógrafo a $0.0\ \text{nm}$ directamente. Evalúa el estado del sensor y ofrece 5 opciones claras para evitar la quema irreversible del chip EMCCD por reflexión especular directa del haz láser.
+2. **Espejo rápido e interlock especular (paso 7, `DEC-040`)**:
+   - **Condición especular:** orden cero, la red espejo (posición 3 de la torreta) o una λc bajo el umbral $(1 + 0.10)\cdot W/2$ (56.7 nm con 150 l/mm, 6.4 nm con 1200 l/mm; PROVISORIO hasta BANCO-42). Un estado del Shamrock que no se puede leer cuenta como especular.
+   - **Entrar:** `🪞 Orden cero (red actual)`, `Ctrl+0`, `Red espejo`, o `Ir a λ` con un destino bajo el umbral (el botón pasa a "Ir (espejo rápido)"). No hay diálogo. Antes de girar se detiene la cámara, la ganancia EM va a 0 y se relee, se fija la exposición de orden cero (la primera de la sesión, 0.1 s; después la última usada) y se cierran todos los obturadores con confirmación. Si un paso falla, **la red no se mueve** y el panel muestra qué paso falló y en qué estado quedó cada recurso.
+   - **En orden cero:** la ganancia EM queda bloqueada en 0 en el driver (ningún control ni script la puede subir), la barra superior muestra "ORDEN CERO · EM 0 bloqueada", los obturadores se pueden abrir a voluntad (con el filtro de densidad en potencia alta, el panel avisa) y el visor muestra el pico como % del ADC (amarillo desde 50 %, rojo desde 80 %; sólo informa).
+   - **Volver:** el mismo botón o `Ctrl+0` vuelve a la red y la λ recordadas y restituye la exposición de primer orden. La ganancia **no** vuelve sola: aparece "↺ Restituir N DAC"; con un láser abierto pide confirmar que el notch está puesto.
+   - **E-STOP:** además de cerrar obturadores y abortar la cámara, pone la ganancia EM en 0 y la relee.
 3. **Protección de Ganancia EMCCD**:
    - Clampeo estricto a un máximo de $5\times$ si el tiempo de exposición supera $1.0\ \text{s}$.
 4. **Tiempos de Asentamiento Óptico**:

@@ -32,7 +32,42 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # de cada archivo de test individual.
 import config  # noqa: F401
 
+# Una sola QApplication para toda la suite, creada acá CON argv. Si el primer test que la crea
+# usa `QApplication([])`, QtWebEngine (el navegador del wiki científico) mata el proceso con
+# código 127 sin traza al crear su vista: el argv vacío llega a Chromium. Pasó el 2026-09-28,
+# cuando un archivo nuevo quedó primero en el orden alfabético. Con la aplicación creada acá,
+# el `QApplication.instance() or QApplication(...)` de cada archivo reutiliza ésta.
+from PyQt6.QtWidgets import QApplication
+
+_QT_APP = QApplication.instance() or QApplication([sys.argv[0] if sys.argv else "pytest"])
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_specular_interlock():
+    """Cada test arranca con el interlock especular en PRIMER ORDEN y sin ganancia 0 confirmada.
+
+    En producción el interlock nace DESCONOCIDO (falla cerrada, R2-inst §2.1-4): la ganancia EM queda
+    bloqueada hasta que se lee el estado del Shamrock. Los tests que no tratan del orden cero usan el
+    simulador sin publicar ese estado, así que acá se parte de primer orden. El arranque desconocido
+    lo prueba `tests/test_specular_interlock.py` con una instancia nueva.
+    """
+    from pyspectrum.drivers import specular_interlock as si
+    lock = si.get_interlock()
+    lock.publish(si.FIRST_ORDER, "estado inicial de los tests (conftest)")
+    lock.note_gain_reading(-1, 0)          # sin confirmación de ganancia 0
+    # El simulador del Shamrock es un singleton: un test que lo dejó en orden cero o en el espejo
+    # haría especular el destino del siguiente. Se lo vuelve a primer orden (red 1, 532 nm), sin
+    # pasar por el interlock, para que coincida con el estado publicado.
+    sh_mod = sys.modules.get("pyspectrum.drivers.shamrock_driver")
+    inst = getattr(sh_mod, "_shamrock_instance", None) if sh_mod else None
+    if inst is not None and isinstance(inst, sh_mod._MockShamrock):
+        inst._raw_set_grating(sh_mod.GRATING_150_LINES)
+        inst._raw_set_wavelength(532.0)
+    yield
+    lock.publish(si.FIRST_ORDER, "estado inicial de los tests (conftest)")
+    lock.note_gain_reading(-1, 0)
 
 
 @pytest.fixture(autouse=True)

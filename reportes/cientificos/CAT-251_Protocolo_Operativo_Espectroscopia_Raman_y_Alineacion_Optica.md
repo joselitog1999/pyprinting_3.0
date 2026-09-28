@@ -101,7 +101,7 @@ flowchart TD
 ### Paso 3: Exploración y Enfoque en Orden Cero (Pestaña 1: Exploración)
 1. Ir a la pestaña **`🔭 1. Exploración`** en `PySpectrum`.
 2. Verificar que el espectrógrafo esté en **Orden Cero**:
-   - Presionar `🪞 Ir a Orden Cero (0 nm)`. Se abrirá el cuadro de diálogo de seguridad `ZeroOrderSafetyDialog`, que confirma el apagado de láseres y la ganancia EM en 0x.
+   - Presionar `🪞 Orden cero (red actual)` o `Ctrl+0`. No hay diálogo: el espejo rápido detiene la cámara, pone la ganancia EM en 0 y la relee, fija la exposición de orden cero y cierra los obturadores con confirmación antes de girar (paso 7, `DEC-040`).
    - La red de difracción actúa ahora como un espejo plano directo proyectando la imagen del plano focal del objetivo sobre el detector Andor EMCCD.
 3. Configurar en el Panel Izquierdo los parámetros de cámara para imagen clara:
    - `Tiempo Exposición:` $0.05\,\text{s}$ a $0.1\,\text{s}$ (para tasa de refresco fluida de 10 a 20 FPS).

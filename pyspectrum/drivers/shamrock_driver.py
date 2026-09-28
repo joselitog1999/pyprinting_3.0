@@ -15,6 +15,7 @@ import numpy as np
 
 from config import SAFE_MODE
 from pyspectrum.drivers.andor_ccd_driver import DETECTOR_WIDTH_PX, DETECTOR_PIXEL_PITCH_UM
+from pyspectrum.drivers import specular_interlock as _si
 
 # Constantes del espectrógrafo
 DEVICE = 0
@@ -115,6 +116,10 @@ _SHAMROCK_ARGTYPES = {
     "ShamrockSetAutoSlitWidth": (c_int, c_int, c_float),
     "ShamrockGetFlipperMirror": (c_int, c_int, POINTER(c_int)),
     "ShamrockSetFlipperMirror": (c_int, c_int, c_int),
+    # Orden cero (paso 7): firmas del ShamrockCIF.dll del repo, leídas de sus exportaciones y del
+    # wrapper legado (Shamrock_ps.py: "unsigned int ShamrockAtZeroOrder(int device, int * atZeroOrder)").
+    "ShamrockAtZeroOrder": (c_int, POINTER(c_int)),
+    "ShamrockGotoZeroOrder": (c_int,),
 }
 
 
@@ -124,6 +129,31 @@ def _declare_argtypes(dll) -> None:
             getattr(dll, name).argtypes = list(argtypes)
         except AttributeError:
             print(f"[Shamrock] La DLL no exporta {name}.")
+
+
+def _guarded_move(spec, device: int, grating, wavelength_nm, move, label: str) -> int:
+    """Red mínima del paso 7 (R2-inst §2.5-2) alrededor de todo movimiento del Shamrock.
+
+    `grating` o `wavelength_nm` en None = el valor actual, leído. Si el destino es especular (o no se
+    puede clasificar) y la ganancia 0 no está confirmada ni el bloqueo armado, no se mueve. Tras un
+    movimiento aceptado se publica la condición del destino.
+    """
+    if grating is None:
+        ret, g = spec.ShamrockGetGrating(device)
+        grating = g if ret == SHAMROCK_SUCCESS else None
+    if wavelength_nm is None:
+        ret, w = spec.ShamrockGetWavelength(device)
+        wavelength_nm = w if ret == SHAMROCK_SUCCESS else None
+    mode = _si.SPECULAR if label == "orden cero" else _si.classify(grating, wavelength_nm)
+    lock = _si.get_interlock()
+    if not lock.move_allowed(mode):
+        print(f"[Shamrock Safety] {label} rechazado: el destino es {mode} (red {grating}, λc {wavelength_nm}) "
+              f"y la ganancia EM 0 no está confirmada. Usá el espejo rápido.")
+        return SHAMROCK_P2INVALID
+    ret = move()
+    if ret == SHAMROCK_SUCCESS:
+        lock.publish(mode, f"{label}: red {grating}, λc {wavelength_nm}")
+    return ret
 
 
 def _no_axis(num_pixels: int) -> np.ndarray:
@@ -192,8 +222,12 @@ class _MockShamrock:
             return (SHAMROCK_SUCCESS, self._grating)
 
     def ShamrockSetGrating(self, device: int = DEVICE, grating: int = 1) -> int:
+        g = max(1, min(3, int(grating)))
+        return _guarded_move(self, device, g, None, lambda: self._raw_set_grating(g), "cambio de red")
+
+    def _raw_set_grating(self, grating: int) -> int:
         with self._lock:
-            self._grating = max(1, min(3, int(grating)))
+            self._grating = grating
             self._settling_until = time.time() + (0.05 if SAFE_MODE else GRATING_SETTLING_TIME_S)
             self._last_motion_type = "grating"
             time.sleep(0.05)  # Simula movimiento del revólver motorizado
@@ -212,6 +246,10 @@ class _MockShamrock:
             return (SHAMROCK_SUCCESS, float(self._wavelength))
 
     def ShamrockSetWavelength(self, device: int = DEVICE, wavelength: float = 532.0) -> int:
+        return _guarded_move(self, device, None, float(wavelength),
+                             lambda: self._raw_set_wavelength(wavelength), "cambio de λ")
+
+    def _raw_set_wavelength(self, wavelength: float) -> int:
         with self._lock:
             self._wavelength = round(float(wavelength), 2)
             self._settling_until = time.time() + (0.02 if SAFE_MODE else WAVELENGTH_SETTLING_TIME_S)
@@ -306,8 +344,15 @@ class _MockShamrock:
         return (ret, (a, b, c, d))
 
     def ShamrockGotoZeroOrder(self, device: int = DEVICE) -> int:
-        self._wavelength = 0.0
-        return SHAMROCK_SUCCESS
+        def _move():
+            with self._lock:
+                self._wavelength = 0.0
+            return SHAMROCK_SUCCESS
+        return _guarded_move(self, device, None, 0.0, _move, "orden cero")
+
+    def ShamrockAtZeroOrder(self, device: int = DEVICE) -> Tuple[int, int]:
+        with self._lock:
+            return (SHAMROCK_SUCCESS, int(self._wavelength == 0.0))
 
     def goto_zero_order(self, device: int = DEVICE) -> int:
         return self.ShamrockGotoZeroOrder(device)
@@ -464,7 +509,20 @@ class ShamrockDriver:
                 self._dll.ShamrockClose()
             except Exception:
                 pass
+            self.unavailable_reason = "Espectrógrafo cerrado por el programa (ShamrockClose)."
         self._connected = False
+
+    def reconnect(self) -> bool:
+        """Cierra y vuelve a inicializar ESTA instancia (paso 4, DEC-040), y vuelve a informarle la
+        geometría del detector. No escribe offsets ni mueve la red."""
+        with self._lock:
+            self.close()
+            if self._dll is None:
+                self._init_dll()
+            ok = self.initialize()
+            if ok:
+                self.configure_detector_geometry()
+            return ok
 
     def get_serial_number(self, device: int = DEVICE) -> Tuple[int, str]:
         if not self._connected or self._dll is None:
@@ -492,12 +550,14 @@ class ShamrockDriver:
     def set_grating(self, device: int = DEVICE, grating: int = 1) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
-        with self._lock:
-            ret = self._dll.ShamrockSetGrating(c_int(device), c_int(grating))
-            if ret == SHAMROCK_SUCCESS:
-                self._settling_until = time.time() + GRATING_SETTLING_TIME_S
-                self._last_motion_type = "grating"
-            return ret
+        def _move():
+            with self._lock:
+                ret = self._dll.ShamrockSetGrating(c_int(device), c_int(grating))
+                if ret == SHAMROCK_SUCCESS:
+                    self._settling_until = time.time() + GRATING_SETTLING_TIME_S
+                    self._last_motion_type = "grating"
+                return ret
+        return _guarded_move(self, device, int(grating), None, _move, "cambio de red")
 
     def ShamrockSetGrating(self, device: int = DEVICE, grating: int = 1) -> int:
         return self.set_grating(device, grating)
@@ -516,12 +576,14 @@ class ShamrockDriver:
     def set_wavelength(self, device: int = DEVICE, wavelength: float = 532.0) -> int:
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
-        with self._lock:
-            ret = self._dll.ShamrockSetWavelength(c_int(device), c_float(wavelength))
-            if ret == SHAMROCK_SUCCESS:
-                self._settling_until = time.time() + WAVELENGTH_SETTLING_TIME_S
-                self._last_motion_type = "wavelength"
-            return ret
+        def _move():
+            with self._lock:
+                ret = self._dll.ShamrockSetWavelength(c_int(device), c_float(wavelength))
+                if ret == SHAMROCK_SUCCESS:
+                    self._settling_until = time.time() + WAVELENGTH_SETTLING_TIME_S
+                    self._last_motion_type = "wavelength"
+                return ret
+        return _guarded_move(self, device, None, float(wavelength), _move, "cambio de λ")
 
     def ShamrockSetWavelength(self, device: int = DEVICE, wavelength: float = 532.0) -> int:
         return self.set_wavelength(device, wavelength)
@@ -710,13 +772,28 @@ class ShamrockDriver:
         """Mueve la red a Orden Cero (0.0 nm) para reflexión especular directa (alineación visual)."""
         if not self._connected or self._dll is None:
             return SHAMROCK_NOT_INITIALIZED
-        try:
-            if hasattr(self._dll, "ShamrockGotoZeroOrder"):
-                return self._dll.ShamrockGotoZeroOrder(c_int(device))
-            return self.set_wavelength(device, 0.0)
-        except Exception as e:
-            print(f"[Shamrock] Error ShamrockGotoZeroOrder: {e}")
-            return SHAMROCK_COMMUNICATION_ERROR
+        def _move():
+            try:
+                if hasattr(self._dll, "ShamrockGotoZeroOrder"):
+                    return self._dll.ShamrockGotoZeroOrder(c_int(device))
+                with self._lock:
+                    return self._dll.ShamrockSetWavelength(c_int(device), c_float(0.0))
+            except Exception as e:
+                print(f"[Shamrock] Error ShamrockGotoZeroOrder: {e}")
+                return SHAMROCK_COMMUNICATION_ERROR
+        return _guarded_move(self, device, None, 0.0, _move, "orden cero")
+
+    def ShamrockAtZeroOrder(self, device: int = DEVICE) -> Tuple[int, int]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0)
+        with self._lock:
+            try:
+                flag = c_int()
+                ret = self._dll.ShamrockAtZeroOrder(c_int(device), byref(flag))
+                return (ret, int(flag.value))
+            except Exception as e:
+                print(f"[Shamrock] Error ShamrockAtZeroOrder: {e}")
+                return (SHAMROCK_COMMUNICATION_ERROR, 0)
 
     def goto_zero_order(self, device: int = DEVICE) -> int:
         return self.ShamrockGotoZeroOrder(device)
@@ -812,6 +889,15 @@ class ShamrockDriver:
 
 # ── Instancia Singleton y Fábrica ─────────────────────────────────────────────
 _shamrock_instance = None
+
+def reconnect_shamrock():
+    """Reconexión explícita del espectrógrafo, en el lugar (paso 4, DEC-040)."""
+    if _shamrock_instance is None:
+        return get_shamrock()
+    if hasattr(_shamrock_instance, "reconnect"):
+        _shamrock_instance.reconnect()
+    return _shamrock_instance
+
 
 def get_shamrock(force_mock: bool = False, reset: bool = False) -> _MockShamrock | ShamrockDriver:
     global _shamrock_instance

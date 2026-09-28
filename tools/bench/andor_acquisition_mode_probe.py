@@ -29,6 +29,11 @@ REQUISITOS antes de correrlo:
 USO:
     python andor_acquisition_mode_probe.py                      (busca la DLL sola)
     python andor_acquisition_mode_probe.py "C:\\ruta\\atmcd64d.dll"
+    python andor_acquisition_mode_probe.py --ini-dir            (pasa la carpeta de la DLL a Initialize)
+
+Initialize se llama con una cadena vacía, como pylablib (la referencia probada en el banco) y el
+driver de PySpectrum 3.0. Antes se le pasaba la carpeta de la DLL, y en el banco devolvió 0, que no
+es un código del SDK (2026-09-28).
 
 Al final imprime un bloque RESUMEN para copiar y pegar.
 """
@@ -44,13 +49,18 @@ DRV_NO_NEW_DATA = 20024
 DRV_ACQUIRING = 20072
 DRV_IDLE = 20073
 CODE_NAMES = {DRV_SUCCESS: "DRV_SUCCESS", DRV_NO_NEW_DATA: "DRV_NO_NEW_DATA",
-              DRV_ACQUIRING: "DRV_ACQUIRING", DRV_IDLE: "DRV_IDLE"}
+              DRV_ACQUIRING: "DRV_ACQUIRING", DRV_IDLE: "DRV_IDLE",
+              # Tabla del legado (scratch/pyspectrum-legacy/ccd_ps.py), probada en el banco.
+              20003: "DRV_VXDNOTINSTALLED", 20006: "DRV_ERROR_FILELOAD", 20013: "DRV_ERROR_ACK (no se comunica)",
+              20070: "DRV_INIERROR", 20071: "DRV_COFERROR", 20075: "DRV_NOT_INITIALIZED",
+              20089: "DRV_USBERROR", 20990: "DRV_ERROR_NOCAMERA", 20992: "DRV_NOT_AVAILABLE (otro programa la tiene)"}
 
 ACQ_SINGLE, ACQ_RUN_TILL_ABORT = 1, 5
 READ_FVB = 0
 TRIGGER_INTERNAL = 0
 
 SUMMARY = []
+_DLL_DIR_HANDLES = []  # mantener vivos los directorios agregados con add_dll_directory
 
 
 def name(code):
@@ -64,21 +74,27 @@ def report(tag, text):
 
 def load_dll():
     candidates = []
-    if len(sys.argv) > 1:
-        candidates.append(sys.argv[1])
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if args:
+        candidates.append(args[0])
     here = os.path.dirname(os.path.abspath(__file__))
-    candidates += [
-        os.path.join(here, "..", "..", "pyspectrum", "drivers", "libs", "atmcd64d.dll"),
-        r"C:\Program Files\Andor SDK\atmcd64d.dll",
-        r"C:\Program Files\Andor SOLIS\atmcd64d.dll",
-        r"C:\Program Files\Andor Driver Pack 2\atmcd64d.dll",
-    ]
+    # Mismo orden que pylablib 1.4.3 (atmcd32d_lib.initlib), la referencia que funciona en el banco:
+    # primero la variante _legacy y primero la carpeta de Solis. En el banco el legado carga
+    # C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll (2026-09-28); con atmcd64d.dll el SDK veía 0 cámaras.
+    for folder in (r"C:\Program Files\Andor SOLIS", r"C:\Program Files\Andor SDK"):
+        for name in ("atmcd64d_legacy.dll", "atmcd64d.dll"):
+            candidates.append(os.path.join(folder, name))
+    candidates.append(os.path.join(here, "..", "..", "pyspectrum", "drivers", "libs", "atmcd64d.dll"))
     for path in candidates:
         path = os.path.abspath(path)
         if os.path.exists(path):
-            os.environ["PATH"] = os.path.dirname(path) + os.pathsep + os.environ.get("PATH", "")
+            folder = os.path.dirname(path)
+            os.environ["PATH"] = folder + os.pathsep + os.environ.get("PATH", "")
+            # Desde Python 3.8, ctypes no busca en PATH las dependencias de la DLL: hace falta esto.
+            if hasattr(os, "add_dll_directory"):
+                _DLL_DIR_HANDLES.append(os.add_dll_directory(folder))
             print(f"DLL: {path}")
-            return windll.LoadLibrary(path), os.path.dirname(path)
+            return windll.LoadLibrary(path), folder
     print("DLL: buscando atmcd64d.dll en el PATH del sistema...")
     return windll.LoadLibrary("atmcd64d.dll"), ""
 
@@ -106,10 +122,30 @@ def wait_idle(dll, timeout_s):
 
 
 def main():
+    import platform
+    import struct
+    print(f"Python {platform.python_version()} de {struct.calcsize('P') * 8} bits ({sys.executable})")
     dll, sdk_dir = load_dll()
-    ret = dll.Initialize(c_char_p(sdk_dir.encode("ascii")))
+    # Diagnóstico previo, válido antes de Initialize: ¿el SDK ve alguna cámara?
+    n_cams = c_long(-1)
+    try:
+        ret_n = dll.GetAvailableCameras(byref(n_cams))
+        report("PRE", f"GetAvailableCameras -> {name(ret_n)}, cámaras = {n_cams.value}")
+    except Exception as e:
+        report("PRE", f"GetAvailableCameras no disponible: {e}")
+    ini_dir = sdk_dir if "--ini-dir" in sys.argv else ""
+    ret = dll.Initialize(c_char_p(ini_dir.encode("ascii")))
     if ret != DRV_SUCCESS:
-        print(f"\nInitialize falló: {name(ret)}. ¿Quedó abierto Solis u otro programa?")
+        print(f"\nInitialize({ini_dir!r}) falló: {name(ret)}.")
+        if ret == 0 or ret not in CODE_NAMES:
+            print("  Ese valor no es un código del SDK (todos empiezan en 20001). Pegá también la línea 'DLL:'")
+            print("  y la de GetAvailableCameras de arriba.")
+        else:
+            print("  ¿Quedó abierto Solis, el legado u otro proceso? (tasklist | findstr /i \"andor solis python\")")
+        print("\n=== RESUMEN ===")
+        for line in SUMMARY:
+            print(line)
+        print(f"INIT: Initialize({ini_dir!r}) -> {name(ret)}")
         return 1
     try:
         # ── T0: identidad y geometría leídas del hardware ─────────────────────

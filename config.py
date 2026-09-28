@@ -71,6 +71,22 @@ PI_SERVO_TIME = 50e-6
 
 # ── NI-DAQ ────────────────────────────────────────────────────────────────────
 NIDAQ_DEVICE        = "Dev1"
+# Cámara Andor (R4-F, DEC-040): por ahora con pylablib, como el PySpectrum legado, que es lo que
+# funciona en el banco. "ctypes" usa el driver propio (andor_ccd_driver.AndorCCDDriver), que queda
+# para más adelante.
+ANDOR_BACKEND       = os.getenv("PYSPECTRUM_ANDOR_BACKEND", "pylablib")
+# Carpeta de la DLL del SDK2 para pylablib. None = la búsqueda de pylablib, igual que el legado:
+# atmcd64d_legacy.dll y después atmcd64d.dll, primero en C:\Program Files\Andor SOLIS. En el banco
+# el legado carga C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll (2026-09-28).
+ANDOR_SDK2_DLL_DIR  = os.getenv("PYSPECTRUM_ANDOR_DLL_DIR") or None
+
+# Condición especular (paso 7 del bloque A, DEC-040; reconciliación D-07a y D-18).
+# Umbral especular = (1 + SPECULAR_MARGIN_FRAC) · W/2: 56.7 nm con 150 l/mm, 6.4 nm con 1200 l/mm.
+# PROVISORIO hasta BANCO-42, que mide dónde aparece de verdad la imagen especular.
+SPECULAR_MARGIN_FRAC = 0.10
+# Exposición de la primera entrada al orden cero de la sesión (R4-D-2); después se recuerda la
+# última que usó el operador. En especular no hay tope de exposición: sólo la ganancia EM queda en 0.
+SPECULAR_DEFAULT_EXPOSURE_S = 0.1
 RATE_SINGLE_CHANNEL = 1.25e6
 RATE_MULTICHANNEL   = 1.0e6
 

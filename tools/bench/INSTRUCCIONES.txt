@@ -131,3 +131,21 @@ Qué mirar en el resultado:
   - recorrido_max: para una P-517.3CD, alrededor de 100 µm en los ejes 1 y 2, y 20 µm en el 3.
     PyPrinting acota hoy Z a 20 µm (DEC-036). Si el controlador informa otro valor, anotalo:
     no se cambia nada en el momento.
+
+
+-------------------------------------------------------------------------------------
+4) daq_buffer_probe.py — BANCO-26, SÓLO ENTRADAS ANALÓGICAS de la placa NI
+-------------------------------------------------------------------------------------
+Qué hace: crea la tarea continua de fotodiodos que usaba la traza (Dev1/ai0, ai1, ai2, ai3,
+ai6 a 10 000 S/s por canal), la confirma (commit) sin arrancar ninguna adquisición, lee el
+tamaño del buffer que asigna NI-DAQmx (automático y con 100 000 explícito) y la cierra. No
+crea tareas de salida: no toca obturadores, láseres, filtro, espejo ni platina.
+
+Requisitos: PyPrinting, el PySpectrum legado y Solis cerrados (o sin lectura de fotodiodos
+en curso); si otro programa tiene las entradas, la sonda informa el error -50103.
+
+Cómo se ejecuta:
+    python tools\bench\daq_buffer_probe.py
+
+Copiá el bloque "RESUMEN BANCO-26" en BANCO-26 de docs/evidence/PRUEBAS_BANCO_PENDIENTES.md.
+

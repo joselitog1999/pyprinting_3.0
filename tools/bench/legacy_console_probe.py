@@ -112,13 +112,26 @@ def _seccion_d_respaldo_shamrock():
     _r("D.coef_calibracion(ret,A,B,C,D)", _try(lambda: sh.ShamrockGetPixelCalibrationCoefficients(dev)))
 
 
+# El legado del banco carga atmcd64d_legacy.dll (Solis), el primer candidato de pylablib 1.4.3
+# (hallazgo del 2026-09-28). Se prueban los dos nombres.
+_SDK_NAMES = ("atmcd64d_legacy.dll", "atmcd64d.dll")
+
+
 def _sdk():
-    """La DLL ya cargada por el proceso legado. LoadLibrary con nombre sin ruta devuelve el
-    módulo ya cargado con ese nombre, así que se consulta la MISMA sesión ya inicializada."""
+    """La DLL que el proceso legado YA tiene cargada, para consultar la MISMA sesión inicializada.
+    Sólo se usa un módulo ya cargado (GetModuleHandleW): nunca se carga una copia nueva, que no
+    estaría inicializada y devolvería DRV_NOT_INITIALIZED."""
     try:
-        return ctypes.windll.LoadLibrary("atmcd64d.dll")
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetModuleHandleW.restype = ctypes.c_void_p
+        k32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
+        for name in _SDK_NAMES:
+            handle = k32.GetModuleHandleW(name)
+            if handle:
+                return ctypes.WinDLL(name, handle=handle)
     except Exception:
-        return None
+        pass
+    return None
 
 
 def _sonda():
@@ -167,7 +180,7 @@ def _sonda():
     print("\nC — Contraste directo con el SDK (misma sesión, sólo funciones Get*)")
     dll = _sdk()
     if dll is None:
-        _r("C.sdk", "no pude acceder a atmcd64d.dll desde la consola")
+        _r("C.sdk", f"el proceso no tiene cargada ninguna de {_SDK_NAMES}")
     else:
         px, py = c_float(), c_float()
         rp = _try(lambda: dll.GetPixelSize(byref(px), byref(py)))
@@ -200,7 +213,7 @@ def observar_live(segundos=1.0):
     import time
     dll = _sdk()
     if dll is None:
-        print("  no pude acceder a atmcd64d.dll")
+        print(f"  el proceso no tiene cargada ninguna de {_SDK_NAMES}")
         return
     n1, n2, st = c_long(), c_long(), c_int()
     dll.GetTotalNumberImagesAcquired(byref(n1))

@@ -70,9 +70,12 @@ Actualizado para bajar primero el riesgo del primer arranque:
 
    Es el paso que hoy impide abrir PySpectrum 3.0 contra el equipo.
 3. ✅ **Paso 6: `single_exposure`** (hecho, DEC-040). Nunca ceros; espera en tramos.
-4. **Paso 4:** `DeviceRegistry`; el tablero deja de reiniciar.
+4. ✅ **Paso 4** (hecho, DEC-040): el tablero deja de reiniciar.
+   - La reconexión es en el lugar, sobre la misma instancia, y queda rechazada con una sesión activa o con la E-STOP.
+   - `refresh_status()` sólo lee, y hay avisos antes de reiniciar la cámara.
+   - En lugar del `DeviceRegistry` completo se optó por la reconexión en el lugar, que da la misma garantía sin tocar 16 módulos.
 5. **Paso 8:** estado base y servicio de estado (D-12 a D-15).
-6. **Paso 7:** orden cero (D-06, D-07a, D-08, D-18).
+6. ✅ **Paso 7:** orden cero (D-06, D-07a, D-08, D-18). Hecho (DEC-040): red mínima en los drivers, servicio, panel, insignia y E-STOP con ganancia 0 releída.
 7. **Pasos 9 y 10:** repositorio y transacción (D-03, D-04, D-07b, R4-D-3).
 8. **Pasos 11 y 12:** Step & Glue y escaneo lineal (D-09 a D-11, D-16, D-17).
 9. **Paso 13:** satélite huésped y orden de cierre, con la platina a (50, 50, 10) (R4-B-6).

@@ -82,7 +82,7 @@ Al contrastar la secuencia descripta por el usuario con las leyes de la óptica 
   Si este paso se realiza en la **Pestaña de Exploración (Orden Cero, 0.0 nm)** con el obturador láser abierto y el haz incidiendo sobre el CCD sin atenuación óptica masiva, **se quemará el chip Andor iXon3**.
 * *Procedimiento Correcto:*
   - La verificación de que el láser caiga en el slit se realiza con **filtro atenuador de densidad neutra (ND4 o superior)** o observando la fluorescencia/dispersión secundaria sobre una muestra de referencia (ej. cubreobjetos con tinta fluorescente), NUNCA enfocando el haz directo hacia la ranura en Orden Cero con EM gain.
-  - El sistema cuenta con la protección automática `ZeroOrderSafetyDialog`, que apaga la ganancia EM y cierra obturadores al pasar a 0 nm; cualquier intento de forzar la apertura del láser en ese modo debe hacerse con extrema cautela.
+  - El sistema cuenta con el espejo rápido y el interlock especular (paso 7, `DEC-040`; el `ZeroOrderSafetyDialog` se retiró): al entrar en condición especular la ganancia EM queda en 0 releída y bloqueada en el driver y los obturadores se cierran con confirmación; abrir un láser en ese modo es posible y, con el filtro de densidad en alta, el panel avisa.
 
 ### 2. Apagado de la Lámpara Halógena de Transmisión
 * *Omisión:* El protocolo no menciona apagar la iluminación blanca del microscopio antes de conmutar a la ventana de Raman.

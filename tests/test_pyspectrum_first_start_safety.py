@@ -113,6 +113,9 @@ class _FailingInitAndorDll:
 
 @pytest.fixture
 def lab_mode_andor(monkeypatch):
+    # Estos tests cubren el driver ctypes propio, que queda seleccionable (R4-F).
+    import config
+    monkeypatch.setattr(config, "ANDOR_BACKEND", "ctypes")
     monkeypatch.setattr(andor_mod, "SAFE_MODE", False)
     monkeypatch.setattr(andor_mod, "_andor_instance", None)
     return monkeypatch

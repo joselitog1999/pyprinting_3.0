@@ -743,6 +743,82 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
     * `PYPRINTING_TEST_NORMAL_EXIT=1` restores the normal exit, to keep investigating.
     * It also skips the `atexit` handlers of the process. In the tests these are the mock `close_all_shutters()` + `up_flipper()` (ND filter to low power) and the Canon cleanup.
   * **Not changed:** the leak itself. Fixing it is still the pending test-infrastructure task, and production has a single window.
+* **Step 4 — one owner per device, no implicit restarts** (`tests/test_device_reconnect_in_place.py`, 11 tests; the 9 original ones were red).
+  * **Before (V5):**
+    * Opening the hardware dashboard ran `rescan_hardware()`, which called `get_andor_ccd(reset=True)` / `get_shamrock(reset=True)`. That closed the live driver, and `ShutDown` switches the camera cooler off. It then created **another** instance, so every backend kept a closed one.
+    * "Disconnect" closed the driver and immediately re-initialized a new one.
+    * The same rescan called `pi.connect()`, which reconnects the stage and sends it home if its link had dropped. That contradicts DEC-036 (no automatic stage reconnection).
+  * **Now:**
+    * `AndorCCDDriver.reconnect()` and `ShamrockDriver.reconnect()` re-initialize **the same instance**, so every holder keeps the live driver. They are reached through `reconnect_andor_ccd()` / `reconnect_shamrock()`. The Shamrock reconnect re-sends the detector geometry and writes no offsets.
+    * `HardwareManager.connect_device` and `disconnect_device` for the camera and the Shamrock are refused while a routine holds `hardware_session` or an E-STOP is active. Disconnect closes in place, with a reason.
+    * **The dashboard opens with `refresh_status()`**, which reports each device's state from the existing objects and connects, restarts or moves nothing.
+    * "Re-scan" and the camera's connect/disconnect button ask for confirmation, and warn that the cooler switches off and that a stage whose link had dropped goes home (R4-B-7).
+  * **Not done:** the architect's full `DeviceRegistry`/`DeviceRef` refactor across 16 modules. Reconnecting in place gives the same guarantee (nobody holds a closed instance) with no API change. It can be revisited if the satellite work (step 13) needs an explicit registry.
+* **Step 8 (engine part) — camera operating baseline at startup** (`pyspectrum/modules/camera_baseline.py::apply_camera_baseline`, sequence C2-C21 of `instrumentation.md` §1.2).
+  * **What it writes, only electronic camera settings:**
+    * single scan and Image mode, full image, EMCCD output amplifier;
+    * horizontal speed **13 MHz chosen by value** (R4-B-8), pre-amp 0 with readback;
+    * vertical speed **1.9 µs chosen by value**, which is the legacy index 2 (`Camera_ps.py:607`). If the table has no 1.9 µs entry it is not set blindly;
+    * EM gain mode 0 and EM gain 0 **confirmed by readback**;
+    * fan low (full is an operator option);
+    * cooler on at **−60 °C** within `GetTemperatureRange`, confirmed with `IsCoolerOn` (R4-A-6).
+  * **Items without an SDK getter** (modes, fan, VS and HS index) are reported `SENT`, not read (D-15).
+  * **What it never does:** touch the Shamrock or any calibration constant.
+  * **Blocking:** `blocks_acquisition` is true if the gain-0 readback, the modes, the pre-amp or the 1004 × 1002 geometry (DEC-033) are not confirmed.
+  * **Reference:** this matches what pylablib does on connection (R4-E), and what the legacy program added afterwards.
+  * **Driver and simulator:**
+    * 10 new camera primitives, with their SDK prototypes added to `_ANDOR_ARGTYPES` and checked against the DLL exports;
+    * the simulator's speed tables now follow the iXon3 885 datasheet: 35/27/13 MHz; 0.5 to 1.9 µs, illustrative until BANCO-38;
+    * `set_cooler_mode` no longer reports `DRV_SUCCESS` when the DLL call raises.
+  * **Startup wiring:** `PySpectrumWindow` applies the baseline right after creating the camera. The left panel shows the setpoint and cooler state actually sent, where it showed −65 °C and "ON" without having sent anything. The status bar warns when the baseline blocks acquisition.
+  * **Pending:** the panel redesign with read/sent/failed marks and the fan low/high control (Round 3), the Shamrock read-only startup report, and `CameraControlService` (D-13).
+  * **Tests:** `tests/test_camera_baseline.py`, 15 tests; the startup and false-success tests were red first.
+* **Bench finding and change of course (R4-F, 2026-09-28).**
+  * **Finding:** the legacy PySpectrum opens the camera with `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`, confirmed from the module list of its process. That is pylablib 1.4.3's first candidate: `_legacy` first, the Solis folder first.
+    * The repo's `atmcd64d.dll` 2.104, which is also the copy on the legacy desktop, sees **0 cameras** (`GetAvailableCameras` = 20002 with 0).
+    * So the own ctypes driver and the BANCO-03 probe could not have worked on this bench as written.
+    * The Shamrock is loaded from the same `ShamrockCIF.dll` / `atshamrock.dll` copies as in the repo. Its DLLs do not import the camera DLL statically (import tables read).
+  * **Researcher's decision:** for now the camera is driven through **pylablib 1.4.3**, as in the legacy program, and the Shamrock stays on the own ctypes driver, also as in the legacy program. The own camera driver is kept for later development.
+  * **Environment:** pylablib 1.4.3 is installed in `.venv`. `pyft232`, which pip pulls in as a dependency, was uninstalled: without the FTDI driver it raises `AttributeError` at import, which pylablib's guard does not catch, and the camera does not use it.
+  * **Probe:** `andor_acquisition_mode_probe.py` now searches in pylablib's order and uses `os.add_dll_directory`.
+* **Camera on pylablib, behind the existing interface (R4-F).** `pyspectrum/drivers/andor_pylablib.py::PylablibAndorCCD`.
+  * **Interface:** the same one as `AndorCCDDriver`, so the 16 modules and their tests are unchanged. Its methods return the SDK codes the rest of the program expects, translating pylablib exceptions through `AndorSDK2LibError.code`.
+  * **DLL:** found with pylablib's search, as in the legacy program (`atmcd64d_legacy.dll` first, the Solis folder first), unless `config.ANDOR_SDK2_DLL_DIR` names a folder.
+  * **Connection:** `fan_mode="low"`, so that connecting does not switch the fan off (pylablib's default is `"off"`).
+  * **Coordinates:** SDK coordinates (1-based, inclusive) are converted to pylablib's (0-based, exclusive end) only here.
+  * **Acquisition:** `acquire_single` keeps the `single_exposure` contract but uses the legacy pylablib path: `setup_acquisition("single")` → `start_acquisition` → `wait_for_frame(timeout=tranche)` → `read_oldest_image` → `stop_acquisition`. It then restores `"cont"` for Live. `single_exposure` delegates to it when the driver has it.
+  * **Live:** it gets `FrameNotReady` while there is no frame yet, and skips that tick. It never gets zeros.
+  * **Baseline:** the step 8 baseline runs unchanged on top of it, using pylablib's `set_fan_mode`, `set_temperature`, `set_vsspeed`, `set_amp_mode` and `set_EMCCD_gain`.
+  * **Selection:** `config.ANDOR_BACKEND = "pylablib"` is the default, and `"ctypes"` keeps the own driver for later. The ctypes-specific tests pin `"ctypes"`.
+  * **Dependency:** `requirements.txt` pins `pylablib==1.4.3`, the bench version.
+  * **Tests:** `tests/test_andor_pylablib_backend.py`, 12 tests, against a fake camera with pylablib 1.4.3's API. Four mutations were all detected: coordinate off-by-one, not restoring continuous mode, zeros instead of `FrameNotReady`, and no heartbeat per tranche. The code was written before the tests, and the mutations stand in for the red run.
+* **Paso 7: orden cero, el "espejo rápido" (D-06, D-07a, D-08, D-18).** Diseño aprobado en las Rondas 1-4; se implementó sin re-deliberar.
+  * **Red mínima en los drivers** (`pyspectrum/drivers/specular_interlock.py`, R2-inst §2.5):
+    * Estado compartido: primer orden, especular o desconocido. Desconocido cuenta como especular (falla cerrada). En producción nace desconocido; el panel lo publica desde la lectura cada segundo.
+    * Umbral (D-07a): `(1 + config.SPECULAR_MARGIN_FRAC) · W/2`, 56.7 nm con 150 l/mm y 6.4 nm con 1200. La red 3 es un espejo (BANCO-25), siempre especular. Una red desconocida es "desconocido".
+    * Cámara (simulador, ctypes y pylablib): `set_emccd_gain(g > 0)` en especular o desconocido devuelve `DRV_P1INVALID` sin tocar la DLL. `get_emccd_gain` informa la lectura al interlock.
+    * Shamrock (simulador y real): un destino especular se rechaza con `SHAMROCK_P2INVALID` salvo con ganancia 0 releída hace menos de 5 s o con el bloqueo ya armado. Tras un movimiento aceptado se publica la condición del destino. Se agregó `ShamrockAtZeroOrder` (exportada por el `ShamrockCIF.dll` del repo) con sus `argtypes`.
+  * **Servicio** (`pyspectrum/modules/zero_order_service.py`, R2-inst §2.2-2.4):
+    * `enter_specular(target, restart_live)`, con `target` "zero_order", "mirror" o "wavelength". Secuencia: sesión, cámara IDLE leída, ganancia 0, relectura de la ganancia, exposición de orden cero, obturadores confirmados, movimiento y relectura. Si un paso falla, la red no se mueve y el resultado da el estado final de cada recurso (H-12).
+    * D-18: Z5 fija la exposición recordada del modo especular; la primera de la sesión es `config.SPECULAR_DEFAULT_EXPOSURE_S = 0.1`. No hay tope de exposición en especular.
+    * `leave_specular` relee, publica primer orden y restituye sola la exposición de primer orden; la ganancia no (R4-B-4, H-13).
+    * `move()` es la única puerta para cambios de red y λ desde la GUI.
+    * El Live se reanuda sólo si la ganancia 0 quedó confirmada.
+  * **E-STOP:** además de cerrar obturadores y abortar, pone la ganancia EM en 0 y la relee (`last_estop_report`). Registra si el cierre de obturadores no se confirmó.
+  * **GUI (Ronda 3 §1.2-1.4, §3.3):**
+    * `ZeroOrderSafetyDialog` y su test se retiraron.
+    * El panel izquierdo tiene el control "Espejo rápido": entrar y volver, red espejo, releer estado, lista de pasos y láseres abiertos con aviso de potencia alta (R4-C-2).
+    * La ganancia se bloquea con candado; la pastilla "Restituir" pide confirmar el notch si hay un láser abierto (H-05).
+    * La línea "destino" y "Ir (espejo rápido)"; el combo de red pasa por el servicio y se sincroniza con la lectura.
+    * La barra superior muestra la insignia "ORDEN CERO · EM 0 bloqueada".
+    * `Ctrl+0` no se autorrepite (H-11a).
+    * El visor de Exploración muestra en especular "pico: N % del ADC", en amarillo desde 50 % y en rojo desde 80 %, y sólo informa (D-06, H-21).
+    * El botón de Calibraciones y el dock legado usan el mismo servicio. Se retiró su salvaguarda que ignoraba los retornos.
+  * **Simplificaciones respecto del diseño:**
+    * El destino del espejo rápido es un par de botones en lugar de un botón con menú. `Ctrl+0` es siempre orden cero con la red actual (H-11e).
+    * Los movimientos siguen en el hilo de la GUI, como antes. El `SpectrographWorker` (D-12) queda para el paso 8.
+    * Step & Glue con un centro bajo el umbral queda frenado por la red del driver (`SHAMROCK_P2INVALID`); el rechazo del plan antes de mover (G3) es del paso 11.
+  * **Tests:** `tests/test_specular_interlock.py` (30), `tests/test_zero_order_service.py` (24), `tests/test_zero_order_panel.py` (11), escritos antes del código. 8 mutaciones de seguridad, todas detectadas, entre ellas: Z4 acepta cualquier ganancia, Z6 ignora el cierre, la salida restituye la ganancia, la E-STOP no toca la ganancia y el Shamrock no mira la ganancia. El conftest arranca cada test en primer orden y devuelve el simulador del Shamrock a 532 nm (singleton).
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 
