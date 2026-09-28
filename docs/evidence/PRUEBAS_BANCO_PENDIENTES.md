@@ -70,6 +70,26 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-31 | Robustez de la traza ante GUI congelada y error −50103 | C-01 | Sin láser | ☐ |
 | BANCO-34 | Revisión de trazas y nodos ya guardados en producción | C-01, Ronda 2 (metrología) | Archivos del banco | ☐ |
 | BANCO-35 | Convivencia de PySpectrum y PyPrinting sobre la misma placa | C-01 Ronda 2, `DEC-036` | Dos programas abiertos, **láseres apagados** | ☐ |
+| BANCO-36 | Accesorios, límites y ejes del Shamrock | PySpectrum bloque A (Ronda 2) | Sin accionar | ☐ |
+| BANCO-37 | Persistencia de los offsets vigentes | PySpectrum bloque A (Ronda 2) | Sin accionar | ☐ |
+| BANCO-37b | Persistencia de un offset **escrito** | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-38 | Tablas y capacidades de la cámara | PySpectrum bloque A (Ronda 2) | Sin accionar | ☐ |
+| BANCO-39 | ¿Bloquean `SetWavelength`, `SetGrating` y `SetAutoSlitWidth`? | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-40 | Pasos por píxel y signo del offset de red | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-41 | `SetEMCCDGain` durante una adquisición | PySpectrum bloque A (Ronda 2) | Sin accionar | ☐ |
+| BANCO-42 | Umbral especular por red | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-43 | Exposición y ranura seguras en orden cero; píxel de referencia | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-44 | Un cuadro nuevo por ventana, sin ceros | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-45 | Arranque sin escrituras ni mock | PySpectrum bloque A (Ronda 2) | Sin accionar | ☐ |
+| BANCO-46 | Stop y E-STOP bajo espera larga | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-47 | Un solo camino al orden cero | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-48 | Repetibilidad e histéresis de la torreta | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-49 | "La línea que camina" | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-50 | Linealidad y saturación en la calibración | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-51 | Deriva del eje λ en la sesión | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-52 | Línea contra ancho de ranura | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-53 | Uniones de Step & Glue con la lámpara | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
+| BANCO-54 | Tiempo de reenfriado del iXon3 a −60 °C después de "Reconectar cámara" | PySpectrum bloque A (Ronda 3, qa-ux) | Sin láser; tapa puesta | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -87,6 +107,7 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
 
 ### ☐ BANCO-01 — Geometría del detector leída del hardware
 - **Verifica**: que el detector es el que `DEC-033` estableció con hojas de datos.
+- **Estado (2026-09-28, investigador):** el tamaño de píxel queda **validado por la hoja de datos** ([DS-iXon] p. 1: 8 × 8 µm, 1004 × 1002 activos), que es fuente primaria. Esta lectura es una confirmación opcional, **no un bloqueante**: si el equipo devolviera otra cosa, el cabezal instalado no sería el de la hoja de datos, y eso se reabre en `DEC-033`.
 - **Procedimiento**: correr la sonda; leer las líneas `C.pixel_size`, `C.detector_size` y `C.sdk`.
 - **Aceptación**: `GetPixelSize = 8.00 x 8.00 um`, `GetDetector = 1004x1002`,
   `GetHeadModel = 'DU8285_VP'`.
@@ -158,13 +179,13 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
 > Shamrock (red 1, red 2, espejo, detector, cero de ranura) leyéndolos con el legado o con Solis.
 > Anotarlos acá:
 > - **Dato del investigador (2026-09-27), EXPERIMENTAL hasta leerlo del equipo:**
->   - offset de la red de 150 l/mm = **87**;
->   - red de 1200 l/mm **sin calibrar**;
+>   - offset de la red de 150 l/mm = **85**. Es el valor del 2026-09-28 (R4-3), que reemplaza al 87 del 2026-09-27;
+>   - red de 1200 l/mm = 0, **sin calibrar** (a medir: BANCO-25 a);
 >   - offset del detector = **0**.
 > - Falta: el valor leído del equipo con `tools/bench/legacy_console_probe.py` (sección D), el
 >   offset del espejo y los ceros de ranura.
 > - Para comparar: 3.0 escribe hoy red 1 = 12, red 2 = −35 y detector = 5 en cada arranque
->   (C-04); con estos datos, eso **pisaría** el 87 de la red de 150 l/mm.
+>   (C-04); con estos datos, eso **pisaría** el 85 de la red de 150 l/mm.
 
 Requisito común: legado cerrado; PySpectrum 3.0 con `SAFE_MODE = False`; cámara enfriada y
 estable si la prueba adquiere datos.
@@ -373,6 +394,20 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
 - [ ] **Flipper del filtro de densidad**: ¿es un Thorlabs MFF101? Fuente de alimentación y modo
   de entrada (pregunta 9 de la Ronda 2 del verificador).
 - [ ] **iXon3 885**: opción de enfriamiento DV o DU y temperatura alcanzable (`lab-invariants` §3).
+- [ ] **Láser de 532 nm**: el investigador dice que es **de diodo** (R4-A-8), pero acá figura
+  Excelsior-532-150-CDRH, que es DPSS. Leer la etiqueta. El tipo define cuán estable es su λ como
+  referencia de la calibración automática.
+- [ ] **Obturadores ópticos del espectrómetro**: ¿el Shamrock tiene obturador propio? ¿El iXon3
+  tiene el obturador interno opcional? ¿Hay un cable TTL de la cámara al Shamrock? (Ronda 1 del
+  bloque A, D-3.)
+- [ ] **Referencia absoluta de λ** (R4-B-11):
+  - ¿hay una λ medida del láser de 532?
+  - ¿se puede acercar un tubo fluorescente (Hg 546.07 nm, que cae en el mismo cuadro que el 532 con
+    la red de 150) a la entrada del espectrómetro?
+  - una vez, comparar la posición del pico de 532 visto a través del notch con la del 532
+    atenuado sin notch (láser en baja, filtro de densidad, ganancia EM 0).
+- [ ] **Cámara desmontada alguna vez** (R4-A-7): anotar la fecha si se sabe. Un desmontaje puede
+  mover el corrimiento común a las dos redes.
 - [ ] **Obturadores de fabricación propia**: ¿la línea TTL entra a un microcontrolador que
   genera el PWM del servo? Anotar el circuito (C-01, Ronda 2, pregunta 15).
 - **Resultado**: —
@@ -396,8 +431,16 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
 ### ☐ BANCO-25 — Offsets del Shamrock leídos del equipo
 - **Procedimiento**: con el legado abierto, correr `tools/bench/legacy_console_probe.py`
   (sección D, sólo lectura) y anotar los offsets de las dos redes, del detector, del espejo y
-  los ceros de ranura. El investigador dio red 150 l/mm = 87, red 1200 sin calibrar, detector
-  = 0 (ver la nota del Grupo C).
+  los ceros de ranura. Valores del investigador al 2026-09-28 (R4-3, que reemplaza al 87 de R2-9):
+  red de 150 l/mm = **85**, red de 1200 l/mm = 0, detector = 0, **leídos en Solis** (calibración de
+  ≈ 2026-08-28). PySpectrum 3.0 nunca se abrió en esa PC. Con la sonda falta leer el offset del
+  espejo y los ceros de ranura, y comparar. Ver la nota del Grupo C.
+- **Además (R4-3):**
+  - (a) **medir el offset de la red de 1200 l/mm**, que hoy vale 0 y nunca se calibró, con la
+    rutina de 532 nm + filtro de densidad una vez que esté extendida;
+  - (b) **aplicar el protocolo de calibración del offset del detector**, que falta idear en la
+    Ronda 1 del bloque A de PySpectrum.
+  Los dos resultados van al archivo de calibraciones, con fecha y método.
 - **Resuelve**: el respaldo previo al primer arranque de PySpectrum 3.0 y el diseño de los
   offsets dinámicos (C-04).
 - **Resultado**: —
@@ -493,10 +536,60 @@ encender nada. Resuelve preguntas de la Ronda 2 de C-01
   PyPrinting 3.0, (a) accionar desde cada programa cada botón de obturador y
   anotar qué servo se mueve; (b) correr la traza de PyPrinting mientras PySpectrum lee un
   fotodiodo, y anotar errores de cada consola.
+- **Combinación 3.0 + 3.0 (R4-2b, 2026-09-28)**: PyPrinting 3.0 se abre **sólo desde el menú
+  Herramientas de PySpectrum 3.0**, como ventana satélite en el mismo proceso. En modo laboratorio,
+  el lanzador bloquea abrir los dos por separado. Verificar además que:
+  - (c) desde la ventana satélite, cada botón de obturador mueve el servo que dice, y hay un
+    solo watchdog;
+  - (d) con PySpectrum abierto, el lanzador rechaza "Microscopio Derecho" y el mensaje remite a
+    Herramientas.
 - **Aceptación**: cada botón mueve el obturador que dice, y ningún programa deja una tarea
   tomada al cerrarse. Si el legado mueve el servo equivocado, **no usar sus botones de
   obturador** hasta corregirlo.
 - **Resultado**: —
+
+## Grupo H — PySpectrum 3.0, bloque A (primer arranque seguro, orden cero, calibración, Step & Glue)
+
+Consolidado por `instrumentation` en la Ronda 2 (`auditoria_2026-09-27/pyspectrum_A_ronda2/instrumentation.md` §8),
+fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo y BANCO-A1 a A3 del arquitecto.
+
+- **Orden (R4-A-11):** primero el Grupo E con los láseres apagados, sobre `main`; después este grupo.
+- **Requisitos de todo lo que escriba o mueva:**
+  - BANCO-25 hecho (respaldo de offsets leído);
+  - ganancia EM en 0 confirmada;
+  - láseres cerrados, salvo el 532 atenuado cuando la prueba lo pida.
+- **PySpectrum 3.0 no se abre contra el equipo** hasta completar los pasos del bloque A que corrigen la lectura de la rendija (C-06) y la exposición (DEC-040).
+
+| ID | Qué resuelve | Procedimiento resumido | ¿Acciona algo? | ¿Aprobación? |
+| :--- | :--- | :--- | :--- | :--- |
+| BANCO-36 | Accesorios, límites y ejes del Shamrock | sonda, sólo getters: `GetDetectorOffsetEx` ×4, `Port2`, `GetWavelengthLimits(1..3)`, `AtZeroOrder`, `FlipperMirrorIsPresent`/`GetFlipperMirror(1,2)`, `AutoSlitIsPresent`/`GetAutoSlitWidth(1..4)`, `GetSlitZeroPosition`, `ShutterIsPresent`/`GetShutter`, `EepromGetOpticalParams`, `GetNumberGratings`/`GetGratingInfo`; `GetCalibration(1002)` y `(1004)` frente al cúbico en el mismo estado | No | No |
+| BANCO-37 | Persistencia de los offsets vigentes | leer; apagar y encender el Shamrock; releer; fecha y contenido de `SPECTROG.INI` | No (ciclo de energía, sin escrituras) | No |
+| BANCO-37b | Persistencia de un offset **escrito** | la primera escritura real (1200 l/mm) con §3.3; leer en Solis; ciclo de energía; releer | **Sí** (escritura y posible giro, §3.1) | **Sí**, y BANCO-25 hecho |
+| BANCO-38 | Tablas y capacidades de la cámara | legado abierto, cámara IDLE, sólo getters: `GetNumberAmp`, `GetAmpDesc`, `GetNumberHSSpeeds`/`GetHSSpeed` por amplificador, `GetEMGainRange` en modo 0, `GetCapabilities` (modos de ganancia, `AC_FEATURES_SHUTTEREX`), `GetNumberVSSpeeds`/`GetVSSpeed(i)` (qué índice es 1.9 µs), `GetFastestRecommendedVSSpeed`, `GetTemperatureRange` (DV o DU), `IsInternalMechanicalShutter`, `GetShutterMinTimes`, `IsCoolerOn` | No | No |
+| BANCO-39 | ¿Bloquean `SetWavelength`, `SetGrating` y `SetAutoSlitWidth`? | duración de cada llamada para saltos de 20, 200 y 500 nm, cambio de red, y ranura 50 → 100 → 50 µm; relectura al volver | **Sí** (torreta y ranura) | **Sí** (sin láser, EM 0, cámara IDLE) |
+| BANCO-40 | Pasos por píxel y signo del offset de red | con la fuga de 532 (filtro de densidad en baja, EM 0) y cada red: leer O₀, escribir O₀ ± 10 y ± 20, medir el corrimiento, **restaurar O₀ y releer**; anotar si la torreta gira y si hace falta repetir `SetWavelength` | **Sí** (escritura reversible, láser de 532 atenuado) | **Sí**, y BANCO-25 hecho |
+| BANCO-41 | `SetEMCCDGain` durante una adquisición | tapa puesta, ganancia 0: con Live activo pedir `SetEMCCDGain(0)`; se espera `DRV_ACQUIRING` [SDK p.270] | No (sin luz, pide 0) | No |
+| BANCO-42 | Umbral especular por red | lámpara al mínimo, EM 0, 1 ms: con 150 l/mm λc = 70, 60, 55, 50, 45 nm; con 1200 l/mm λc = 8, 7, 6, 5 nm; anotar dónde aparece la imagen especular. Se espera ≈ W/2 (51.5 y 5.8 nm) [I] | **Sí** (torreta) | **Sí** |
+| BANCO-43 | Exposición y ranura seguras en orden cero; píxel de referencia | láseres cerrados, EM 0, lámpara al mínimo: 1 ms en orden cero y en espejo con cada red; cuentas por ms y centro de la imagen de la ranura | **Sí** (torreta) | **Sí** |
+| BANCO-44 | Un cuadro nuevo por ventana, sin ceros | Step & Glue corregido con la fuga de 532 en un rango que la ponga en ventanas conocidas; contador `GetTotalNumberImagesAcquired` y marca de tiempo por ventana; dos cuadros oscuros seguidos no son idénticos bit a bit | **Sí** (torreta; 532 atenuado) | **Sí** |
+| BANCO-45 | Arranque sin escrituras ni mock | (a) 3.0 corregido en hardware con el log de llamadas: ninguna función de §1.4; los valores mostrados coinciden con BANCO-25 y dicen "leído". (b) Con Solis abierto: "Andor no conectada", adquisiciones bloqueadas, ningún espectro | No (el arranque sólo configura la cámara y enfría) | No, pero **después** de BANCO-25 |
+| BANCO-46 | Stop y E-STOP bajo espera larga | Step & Glue con 10 s por ventana; Stop a los 2 s; en otra corrida E-STOP. Aborto en ≤ 0.25 s + lectura; E-STOP deja `GetEMCCDGain` = 0 | **Sí** (torreta, lámpara) | **Sí** |
+| BANCO-47 | Un solo camino al orden cero | λc = 30 nm con 150 l/mm, combo "Espejo", Step & Glue con un centro bajo el umbral, `Ctrl+0`, y `set_emccd_gain(50)` en condición especular: todo pasa por el servicio (log) y la ganancia queda en 0 | **Sí** (torreta) | **Sí** (EM 0, láseres cerrados) |
+| BANCO-48 | Repetibilidad e histéresis de la torreta | 10 ciclos 532 → 600 → 532 y 150 → 1200 → 150 desde abajo; 5 desde abajo contra 5 desde arriba | **Sí** | **Sí** (532 atenuado) |
+| BANCO-49 | "La línea que camina" | con la fuga de 532 (no hay lámpara de calibración, R4-A 8): λc = 532 − 0.35 W, 532, 532 + 0.35 W por red; la línea tiene que caer en la misma λ ± 1 px; comparar el eje de `GetCalibration` con el cúbico | **Sí** | **Sí** (532 atenuado) |
+| BANCO-50 | Linealidad y saturación en la calibración | exposiciones T, 2T, 4T con la línea en 15-50 % del ADC (16 383) | **Sí** (532 atenuado) | **Sí** |
+| BANCO-51 | Deriva del eje λ en la sesión | la línea de 532 cada 5 min durante 2 h desde el encendido, con la temperatura de la sala y del CCD | **Sí** (532 atenuado) | **Sí** |
+| BANCO-52 | Línea contra ancho de ranura | centroide del 532 con 10, 25, 50, 100 y 200 µm; se espera ≤ 0.5 px porque la ranura es bilateral (R4-A 8) | **Sí** (ranura) | **Sí** |
+| BANCO-53 | Uniones de Step & Glue con la lámpara | 500-900 nm al 20 % y al 10 % con 150 l/mm, ventana repetida al final y barrido invertido; 800-900 nm con 1200 l/mm | **Sí** | **Sí** |
+| BANCO-54 | Tiempo de reenfriado a −60 °C después de "Reconectar cámara", que ejecuta `ShutDown` y apaga el enfriador (R4-B-7) | Con la cámara estable a −60 °C, pulsar Reconectar y registrar `GetTemperature` cada 10 s hasta `DRV_TEMP_STABILIZED`, con la temperatura de la sala | Sí (reinicia la cámara; sin luz) | No |
+
+**Ampliaciones de ítems existentes:**
+- **BANCO-09:** agregar `ShamrockShutterIsPresent`, y averiguar si el `SetShutter` de la cámara también mueve el obturador del espectrógrafo. El legado dice "abre shutter camera y shamrock".
+- **BANCO-22:** la λ nominal del láser de 532 y su tolerancia.
+- **BANCO-23:** las versiones de `atmcd64d.dll`, `ShamrockCIF.dll` y `atshamrock.dll`, y la de pylablib si está instalado.
+- **Resultado:** —
+
+---
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación
 - **Procedimiento**: una grilla de 5×5 con campo oscuro grabando, con un control sin coloide.

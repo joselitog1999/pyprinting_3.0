@@ -28,7 +28,7 @@ from core.sif_processor import compute_robust_contrast_levels
 
 # El pitch del detector se importa de su driver (fuente canónica única, DEC-031) en vez
 # de transcribirlo acá: era una de las cinco copias que no concordaban.
-from pyspectrum.drivers.andor_ccd_driver import DETECTOR_PIXEL_PITCH_UM  # noqa: E402
+from pyspectrum.drivers.andor_ccd_driver import DETECTOR_PIXEL_PITCH_UM, DeviceUnavailable  # noqa: E402
 
 # (nombre visible, nombre interno de pyqtgraph, fuente ["" = built-in, "matplotlib" = vía mpl])
 COLORMAP_OPTIONS = [
@@ -73,6 +73,7 @@ class ExplorationWorker(QtCore.QObject):
     conexión en cola), para que quede correctamente afín a ese hilo."""
 
     imageUpdatedSignal = pyqtSignal(np.ndarray)
+    liveErrorSignal = pyqtSignal(str)  # motivo por el que el Live no arrancó o se detuvo
 
     def __init__(self, camera: Any, spectrometer: Optional[Any] = None, parent=None):
         super().__init__(parent)
@@ -82,6 +83,12 @@ class ExplorationWorker(QtCore.QObject):
 
     @pyqtSlot()
     def start_live(self):
+        # Sin cámara conectada el Live no arranca (DEC-040): antes leía cuadros de ceros, o del
+        # simulador, cada 35 ms como si fueran del detector.
+        if not getattr(self.camera, "available", True):
+            self.liveErrorSignal.emit(
+                "Live no disponible: " + (getattr(self.camera, "unavailable_reason", "") or "la cámara no está conectada."))
+            return
         if self._timer is None:
             self._timer = QTimer(self)
             self._timer.setInterval(35)  # ~28 fps, mismo intervalo que camera_andor.py::Backend
@@ -110,7 +117,12 @@ class ExplorationWorker(QtCore.QObject):
         self.start_live() if active else self.stop_live()
 
     def _acquire_frame(self):
-        frame = self.camera.get_most_recent_image()
+        try:
+            frame = self.camera.get_most_recent_image()
+        except DeviceUnavailable as exc:
+            self.stop_live()
+            self.liveErrorSignal.emit(f"Live detenido: {exc}")
+            return
         self.imageUpdatedSignal.emit(frame)
 
 
@@ -256,6 +268,18 @@ class ExplorationTabWidget(QtWidgets.QWidget):
             self.btn_live.setText("▶️ Iniciar Live View")
             self.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
         self.liveToggledSignal.emit(checked)
+
+    @pyqtSlot(str)
+    def on_live_error(self, message: str):
+        """El worker no pudo arrancar o sostener el Live: vuelve el botón a "Iniciar" sin
+        re-emitir la orden y deja el motivo a la vista (DEC-040)."""
+        self.btn_live.blockSignals(True)
+        self.btn_live.setChecked(False)
+        self.btn_live.blockSignals(False)
+        self.btn_live.setText("▶️ Iniciar Live View")
+        self.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
+        self.btn_live.setToolTip(message)
+        self.lbl_roi_status.setText(message)
 
     @pyqtSlot(np.ndarray)
     def update_image(self, img: np.ndarray):

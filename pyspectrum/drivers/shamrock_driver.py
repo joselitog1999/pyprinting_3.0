@@ -107,8 +107,15 @@ def _configure_and_verify_geometry(spec, device: int, num_pixels: int, pixel_wid
     return SHAMROCK_SUCCESS
 
 
+def _no_axis(num_pixels: int) -> np.ndarray:
+    """Eje λ de una lectura fallida: todo NaN, para que ningún gráfico ni cálculo lo tome por real."""
+    return np.full(int(num_pixels), np.nan, dtype=np.float64)
+
+
 class _MockShamrock:
     """Simulador transparente de Espectrógrafo Andor Shamrock para Modo Seguro."""
+    available = True
+    unavailable_reason = ""
     is_mock = True
 
     def __init__(self):
@@ -343,7 +350,13 @@ class ShamrockDriver:
         self._settling_until = 0.0
         self._last_motion_type = ""
         self.geometry_verified = False
+        self.unavailable_reason = ""
         self._init_dll()
+
+    @property
+    def available(self) -> bool:
+        """True sólo si `ShamrockInitialize` respondió éxito y la sesión sigue abierta."""
+        return self._connected and self._dll is not None
 
     def is_moving(self) -> bool:
         """Indica si el actuador mecánico (red, rendija o tornillo) está en movimiento o asentamiento."""
@@ -374,7 +387,8 @@ class ShamrockDriver:
         dll_path = dll_dir / "ShamrockCIF.dll"
 
         if not dll_path.exists():
-            print(f"[Shamrock] DLL no encontrada en {dll_path}. Modo simulación activado.")
+            self.unavailable_reason = f"No se encontró ShamrockCIF.dll en {dll_path}."
+            print(f"[Shamrock] {self.unavailable_reason} El espectrógrafo queda NO CONECTADO.")
             return
 
         try:
@@ -386,11 +400,14 @@ class ShamrockDriver:
             self._dll = windll.LoadLibrary(str(dll_path))
             print(f"[Shamrock] DLL cargada exitosamente: {dll_path}")
         except Exception as e:
-            print(f"[Shamrock] Error al cargar ShamrockCIF.dll ({e}). Modo simulación activado.")
+            self.unavailable_reason = f"No se pudo cargar ShamrockCIF.dll ({e})."
+            print(f"[Shamrock] {self.unavailable_reason}")
             self._dll = None
 
     def initialize(self, inipath: str = "") -> bool:
         if self._dll is None:
+            if not self.unavailable_reason:
+                self.unavailable_reason = "No se encontró ShamrockCIF.dll (ShamrockCIF.dll no cargada)."
             return False
         try:
             if not inipath:
@@ -409,12 +426,16 @@ class ShamrockDriver:
             ret = self._dll.ShamrockInitialize(c_ini)
             if ret == SHAMROCK_SUCCESS:
                 self._connected = True
+                self.unavailable_reason = ""
                 return True
-            else:
-                print(f"[Shamrock] ShamrockInitialize retorno código: {ret}")
-                return False
+            self.unavailable_reason = (
+                f"El espectrógrafo no respondió a ShamrockInitialize (código {ret}). ¿Solis o el "
+                f"PySpectrum legado están abiertos? Sólo un programa puede usarlo a la vez.")
+            print(f"[Shamrock] {self.unavailable_reason}")
+            return False
         except Exception as e:
-            print(f"[Shamrock] Excepción al inicializar: {e}")
+            self.unavailable_reason = f"Excepción al inicializar el espectrógrafo: {e}"
+            print(f"[Shamrock] {self.unavailable_reason}")
             return False
 
     def close(self):
@@ -623,16 +644,18 @@ class ShamrockDriver:
         return ret
 
     def get_calibration(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
+        # Ante cualquier falla el eje es NaN, nunca un eje inventado: antes era 400-700 nm, que
+        # pasaba por real en todo consumidor que no mirara el código de retorno (DEC-040).
         if not self._connected or self._dll is None:
-            return (SHAMROCK_NOT_INITIALIZED, np.linspace(400, 700, num_pixels))
+            return (SHAMROCK_NOT_INITIALIZED, _no_axis(num_pixels))
         try:
             arr = (c_float * num_pixels)()
             ret = self._dll.ShamrockGetCalibration(c_int(device), arr, c_int(num_pixels))
             if ret == SHAMROCK_SUCCESS:
                 return (ret, np.array(arr[:], dtype=np.float64))
-            return (ret, np.linspace(400, 700, num_pixels))
+            return (ret, _no_axis(num_pixels))
         except Exception:
-            return (SHAMROCK_COMMUNICATION_ERROR, np.linspace(400, 700, num_pixels))
+            return (SHAMROCK_COMMUNICATION_ERROR, _no_axis(num_pixels))
 
     def ShamrockGetCalibration(self, device: int = DEVICE, num_pixels: int = NUMBER_OF_PIXELS) -> Tuple[int, np.ndarray]:
         return self.get_calibration(device, num_pixels)
@@ -779,12 +802,13 @@ def get_shamrock(force_mock: bool = False, reset: bool = False) -> _MockShamrock
         if force_mock or SAFE_MODE:
             _shamrock_instance = _MockShamrock()
         else:
+            # Fuera de SAFE_MODE nunca se cae al simulador (DEC-040, DEC-036): si la inicialización
+            # falla, queda el driver real sin conectar, con `available = False` y el motivo en
+            # `unavailable_reason`; sus métodos devuelven códigos de error y ningún eje inventado.
             drv = ShamrockDriver()
-            if drv.initialize():
-                _shamrock_instance = drv
-            else:
-                print("[Shamrock] No fue posible inicializar hardware físico. Recurriendo a _MockShamrock.")
-                _shamrock_instance = _MockShamrock()
+            if not drv.initialize():
+                print(f"[Shamrock] NO CONECTADO: {drv.unavailable_reason}")
+            _shamrock_instance = drv
         # Antes de que nadie pida una calibración: todo camino de inicialización (incluida la
         # reconexión de core/hardware_manager.py) pasa por acá. Si falla, el driver real se
         # conserva con geometry_verified=False — esconderlo detrás del mock sería peor.

@@ -37,7 +37,9 @@ from pyspectrum.drivers.shamrock_driver import (
     SHAMROCK_SUCCESS,
     get_shamrock
 )
-from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd, READ_MODE_IMAGE
+from pyspectrum.drivers.andor_ccd_driver import (
+    get_andor_ccd, READ_MODE_IMAGE, DETECTOR_PIXEL_PITCH_UM, DETECTOR_WIDTH_PX, DETECTOR_HEIGHT_PX,
+)
 from pyspectrum.modules.spectroscopy_context import spectroscopy_context
 from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration
 from pyspectrum.calibration.fit_raman_water import fit_signal_raman, calc_r2
@@ -1007,16 +1009,12 @@ class CalibrationBackend(QtCore.QObject):
             self.detectorOffsetUpdatedSignal.emit(self.detector_offset)
             self.cubicCoeffsUpdatedSignal.emit(*self.cubic_coeffs)
 
-            # Intentar aplicar offsets a hardware si no está en Safe Mode
-            try:
-                for g_idx, off_val in self.grating_offsets.items():
-                    self.spectrometer.ShamrockSetGratingOffset(DEVICE, g_idx, off_val)
-                self.spectrometer.ShamrockSetDetectorOffset(DEVICE, self.detector_offset)
-                self.spectrometer.ShamrockSetSlitZeroPosition(DEVICE, INPUT_SLIT_PORT, self.slit_zero_pos)
-            except Exception:
-                pass
-
-            self.statusSignal.emit(f"Calibraciones restauradas exitosamente desde: {target.name}")
+            # Cargar un archivo NO escribe al Shamrock (DEC-040, C-04). Los offsets viven en el
+            # equipo y los comparten Solis y el legado; esta carga corría en cada arranque y pisaba
+            # la calibración real con los valores del archivo. Escribir un offset es una acción
+            # explícita del operador (R4-3, R4-B-1).
+            self.statusSignal.emit(
+                f"Calibraciones leídas de {target.name} (no se escribió nada al espectrógrafo).")
             return True
         except Exception as e:
             self.statusSignal.emit(f"Error al leer calibración TXT ({target.name}): {e}")
@@ -1033,18 +1031,20 @@ class CalibrationBackend(QtCore.QObject):
             txt_content = f"""# ==============================================================================
 # PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
 # Laboratorio de Nanofotónica — UNSAM
-# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD (1002x1002, 13 µm)
+# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD ({DETECTOR_WIDTH_PX}x{DETECTOR_HEIGHT_PX}, {DETECTOR_PIXEL_PITCH_UM:g} µm)
 # Última actualización: {now_str}
 # Archivo de destino: {target.name}
 # ==============================================================================
 
 [METADATOS]
 instrumento = Andor Shamrock SR-500i
-detector = Andor iXon3 EMCCD DU8285 (1004x1002 px, 13.0 µm)
-tamano_pixel_um = 13.0
-resolucion_horizontal_px = 1004
+detector = Andor iXon3 EMCCD DU8285 ({DETECTOR_WIDTH_PX}x{DETECTOR_HEIGHT_PX} px, {DETECTOR_PIXEL_PITCH_UM:g} µm)
+tamano_pixel_um = {DETECTOR_PIXEL_PITCH_UM:g}
+resolucion_horizontal_px = {DETECTOR_WIDTH_PX}
 fecha_calibracion = {now_str}
-estado = CALIBRADO_VALIDADO
+# Guardado por el operador. No es una validación: la aceptación de una calibración la registra
+# la rutina de calibración con su procedencia (DEC-040).
+estado = GUARDADO_POR_OPERADOR
 
 [GEOMETRIA_SLIT]
 # Ancho nominal calibrado de la ranura de entrada motorizada (µm)

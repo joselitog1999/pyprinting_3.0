@@ -208,13 +208,14 @@ class TestSifProcessor(unittest.TestCase):
     def test_09_external_calibration_loader(self):
         """Verifica la carga de calibraciones externas desde INI / Shamrock EEPROM y tablas."""
         from core.sif_processor import load_external_calibration_file
-        calib_txt = os.path.join(WORKSPACE_ROOT, "pyspectrum", "calibration", "pyspectrum_calibration_last.txt")
-        if os.path.isfile(calib_txt):
-            wl_loaded = load_external_calibration_file(calib_txt, width=1004)
-            self.assertEqual(len(wl_loaded), 1004)
-            # En el archivo: coeff_a=450.124500, coeff_b=0.301450
-            self.assertAlmostEqual(wl_loaded[0], 450.1245, places=3)
-            self.assertAlmostEqual(wl_loaded[-1], 450.1245 + 0.30145 * 1003, delta=1.0)
+        # Datos sintéticos de prueba (DEC-040): el archivo dejó de presentarse como calibración real.
+        calib_txt = os.path.join(WORKSPACE_ROOT, "tests", "fixtures", "calibracion_sintetica_de_prueba.txt")
+        self.assertTrue(os.path.isfile(calib_txt))
+        wl_loaded = load_external_calibration_file(calib_txt, width=1004)
+        self.assertEqual(len(wl_loaded), 1004)
+        # En el archivo: coeff_a=450.124500, coeff_b=0.301450
+        self.assertAlmostEqual(wl_loaded[0], 450.1245, places=3)
+        self.assertAlmostEqual(wl_loaded[-1], 450.1245 + 0.30145 * 1003, delta=1.0)
 
     def test_10_noise_characterization_and_wiener(self):
         """Verifica la caracterización de ruido de fondo y filtrado adaptativo de Wiener."""

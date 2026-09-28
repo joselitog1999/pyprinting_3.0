@@ -19,3 +19,6 @@ Thumbs.db
 graphify-out/
 .system_generated/
 scratch/
+
+# Calibración local del espectrómetro: vive en la PC del banco, fuera de git (R4-A-5, DEC-040).
+pyspectrum/calibration/pyspectrum_calibration_last.txt

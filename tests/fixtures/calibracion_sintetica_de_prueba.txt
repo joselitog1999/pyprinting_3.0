@@ -1,9 +1,14 @@
 # ==============================================================================
-# PySpectrum 3.0 — ARCHIVO MAESTRO DE CALIBRACIÓN DE ESPECTRÓMETRO Y DETECTOR
-# Laboratorio de Nanofotónica — UNSAM
-# Instrumento: Andor Shamrock SR-500i-B2-R | Detector: Andor iXon3 EMCCD DU8285 (1004x1002, 13 µm)
-# Última actualización: 2026-09-09 15:30:00
-# Operador / Responsable: Ingeniero de Instrumentación y Software
+# DATOS SINTÉTICOS DE PRUEBA — NO ES UNA CALIBRACIÓN DEL ESPECTRÓMETRO (DEC-040)
+# ------------------------------------------------------------------------------
+# Hasta el 2026-09-28 este archivo vivía en pyspectrum/calibration/pyspectrum_calibration_last.txt
+# y se presentaba como "CALIBRADO_VALIDADO", pero todos sus valores son ilustrativos:
+#   - el píxel de 13 µm contradice las hojas de datos (8 µm, DEC-033);
+#   - los offsets 12 / −35 / detector 5 no son los del equipo, que tiene red de 150 l/mm = 85,
+#     red de 1200 l/mm = 0 y detector = 0, leídos en Solis (RESPUESTAS_INVESTIGADOR R4-3);
+#   - los coeficientes cúbicos y el Si "medido" son inventados.
+# PySpectrum lo cargaba en cada arranque y ESCRIBÍA sus offsets al Shamrock (C-04). Se conserva
+# sólo como entrada de los tests del lector de calibraciones y del parser de polinomios.
 # ==============================================================================
 
 [METADATOS]
@@ -12,7 +17,7 @@ detector = Andor iXon3 EMCCD DU8285 (1004x1002 px, 13.0 µm)
 tamano_pixel_um = 13.0
 resolucion_horizontal_px = 1004
 fecha_calibracion = 2026-09-09 15:30:00
-estado = CALIBRADO_VALIDADO
+estado = SINTETICO_DE_PRUEBA
 
 [GEOMETRIA_SLIT]
 # Ancho nominal calibrado de la ranura de entrada motorizada (µm)

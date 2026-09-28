@@ -630,6 +630,39 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * Two runs stopped at the intermittent abort described above; every test that had run until then passed.
   * `graphify update .` run after the edits.
 
+### DEC-040: PySpectrum 3.0 Block A, Steps 1-3 — No Calibration Writes at Startup, No Simulator Outside SAFE_MODE, No Synthetic Data
+* **Context**: block A ("safe first start") of PySpectrum bench readiness. The design was deliberated in Rounds 1 and 2 (`docs/evidence/auditoria_2026-09-27/pyspectrum_A_ronda1/`, `pyspectrum_A_ronda2/`) and **approved by the researcher on 2026-09-28** (`RESPUESTAS_INVESTIGADOR.md` §R4, §R4-A, §R4-B). Steps 1-3 of the 14-step plan are engine and safety only. Each started from a test run red against the unmodified code (13 of 14 failed; the one that passed describes SAFE_MODE, which already worked).
+  * PySpectrum 3.0 was **never opened on the bench PC** (researcher, 2026-09-28), so the Shamrock still holds its real offsets: 150 l/mm = 85, 1200 l/mm = 0, detector = 0, read in Solis.
+* **Step 2 — no calibration writes on load** (`pyspectrum/modules/calibration_dock.py::load_calibration_from_txt`).
+  * **Before (C-04):** the dock's constructor loaded `pyspectrum_calibration_last.txt` and **wrote** its offsets to the Shamrock on every startup, and again on "Cargar" and "Recargar", swallowing any error. The values were 12 / −35 / 0 for the gratings, 5 for the detector and 0 for the slit zero. `7f5d10a`, the bench commit, does the same.
+  * **Why it matters:** the offsets live in the instrument and are shared with Solis and the legacy program.
+  * **Now:** loading only fills the backend state, and the next device read (`read_initial_values`) shows what the instrument has.
+  * **The invented file was archived, not deleted.** It declared `estado = CALIBRADO_VALIDADO` with a 13 µm pixel, invented offsets and invented cubic coefficients. It is now `tests/fixtures/calibracion_sintetica_de_prueba.txt`, with a header saying it is synthetic test data. The default path is git-ignored, because the local calibration lives on the bench PC (R4-A-5).
+  * **Tests that encoded the old behaviour were updated:**
+    * `test_pyspectrum_stability_safety::test_calibration_txt_persistence_roundtrip` passed only because startup wrote 12 and then read it back. It now checks the file load and, separately, that the view shows the device values.
+    * `test_sif_processor::test_09` used the file and silently passed when it was missing. It now uses the fixture and asserts that it exists.
+  * The dock's explicit per-offset "Set" buttons remain until the double-confirmation transaction (step 10).
+* **Step 3 — no simulator outside SAFE_MODE, no synthetic data** (`pyspectrum/drivers/andor_ccd_driver.py`, `shamrock_driver.py`).
+  * **Before:** `get_andor_ccd()` and `get_shamrock()` fell back to `_MockAndorCCD` / `_MockShamrock` with only a `print` whenever initialization failed. That happens, for example, with Solis open. The operator would have seen synthetic spectra as real ones, which contradicts `DEC-036`.
+  * **Now:** the factory keeps the real driver unconnected, with `available = False` and a readable `unavailable_reason`. For example: "La cámara no respondió a Initialize (código N). ¿Solis o el PySpectrum legado están abiertos? …", or the DLL path that was searched.
+    * Its setters return `DRV_NOT_INITIALIZED`, as before.
+    * The image reads (`get_most_recent_image`, `get_1d_spectrum`, `get_tracks_2d_spectrum`) raise `DeviceUnavailable` instead of returning a frame of zeros.
+    * `ShamrockDriver.get_calibration` returns an all-NaN axis on any failure, instead of an invented 400-700 nm one.
+    * The mocks carry `available = True`, so every consumer can ask the same question.
+  * **Live View** (`pyspectrum/ui/exploration_tab.py`) no longer starts on an unconnected camera. It stops if the camera disappears, and shows the reason through `liveErrorSignal` → `ExplorationTabWidget.on_live_error`.
+  * **`core/hardware_manager.py`** reports the driver's reason in the dashboard.
+* **Not in this step** (later steps of the approved plan):
+  * reading while connected still returns zeros on a failed read (step 6, `single_exposure`);
+  * `read_initial_values` still calls `ShamrockGetSlit` with three arguments (C-06, step 5), so **PySpectrum 3.0 must still not be opened against the instrument**;
+  * the dashboard still resets devices (step 4);
+  * the display state is not yet the read snapshot (step 8).
+* **Detector geometry in saved calibrations** (researcher, 2026-09-28: validate the pixel size with the datasheet once and for all).
+  * The iXon3 885 datasheet in `docs/bibliografia/` (p. 1) gives 8 × 8 µm and 1004 × 1002 active pixels. That settles it, and BANCO-01 becomes an optional confirmation.
+  * The last live residue was `CalibrationBackend.save_calibration_to_txt`. Every saved file declared "13 µm", "1002x1002" and `estado = CALIBRADO_VALIDADO`, which spread the wrong value and a false validation status. It now writes the driver constants (`DETECTOR_PIXEL_PITCH_UM`, `DETECTOR_WIDTH_PX`, `DETECTOR_HEIGHT_PX`) and `estado = GUARDADO_POR_OPERADOR`.
+  * The remaining mentions of 13 µm in the documents are historical correction notes (`DEC-033`).
+* **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
+* **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

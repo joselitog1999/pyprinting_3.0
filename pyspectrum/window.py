@@ -601,6 +601,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.exploration_thread.start()
         self.exploration_widget.liveToggledSignal.connect(self.exploration_worker.set_live)
         self.exploration_worker.imageUpdatedSignal.connect(self.exploration_widget.update_image)
+        self.exploration_worker.liveErrorSignal.connect(self.exploration_widget.on_live_error)
 
         self.sandg_backend = StepGlueBackend(self.camera, self.spectrometer)
         self.sandg_backend.make_connection(self.sandg_widget)

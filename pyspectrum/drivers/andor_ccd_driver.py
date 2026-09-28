@@ -66,9 +66,18 @@ PREAMP_GAINS_MOCK = [1.0, 2.0, 4.3]
 HSSPEEDS_MHZ_MOCK = [5.0, 3.0, 1.0]
 
 
+class DeviceUnavailable(RuntimeError):
+    """La cámara no está conectada: ninguna lectura puede devolver datos (DEC-040, DEC-036).
+
+    Antes, un driver sin inicializar devolvía un cuadro de ceros y la fábrica caía al simulador
+    en silencio; los dos casos producen datos con aspecto válido que no vienen del equipo."""
+
+
 class _MockAndorCCD:
     """Simulador transparente de Cámara Andor iXon3 EMCCD DU8285 (1004x1002 px)."""
     is_mock = True
+    available = True
+    unavailable_reason = ""
 
     def __init__(self, temperature: float = -65.0, fan_mode: str = "low"):
         self._lock = threading.RLock()
@@ -360,7 +369,17 @@ class AndorCCDDriver:
         self._track_center = 501
         self._track_height = 40
         self._current_exposure_time = 0.05
+        self.unavailable_reason = ""
         self._init_dll()
+
+    @property
+    def available(self) -> bool:
+        """True sólo si `Initialize` respondió éxito y la sesión sigue abierta."""
+        return self._connected and self._dll is not None
+
+    def _require_connected(self) -> None:
+        if not self.available:
+            raise DeviceUnavailable(self.unavailable_reason or "La cámara Andor no está conectada.")
 
     def is_hardware_alive(self) -> bool:
         if not self._connected or self._dll is None:
@@ -377,7 +396,8 @@ class AndorCCDDriver:
         dll_path = curr_dir / "libs" / "atmcd64d.dll"
 
         if not dll_path.exists():
-            print(f"[Andor CCD] DLL no encontrada en {dll_path}. Modo simulación activo.")
+            self.unavailable_reason = f"No se encontró atmcd64d.dll en {dll_path}."
+            print(f"[Andor CCD] {self.unavailable_reason} La cámara queda NO CONECTADA.")
             return
 
         try:
@@ -385,26 +405,34 @@ class AndorCCDDriver:
             self._dll = windll.LoadLibrary(str(dll_path))
             print(f"[Andor CCD] DLL cargada exitosamente: {dll_path}")
         except Exception as e:
-            print(f"[Andor CCD] Error al cargar atmcd64d.dll ({e}).")
+            self.unavailable_reason = f"No se pudo cargar atmcd64d.dll ({e})."
+            print(f"[Andor CCD] {self.unavailable_reason}")
             self._dll = None
 
     def initialize(self, dir_path: str = "") -> bool:
         if self._dll is None:
+            if not self.unavailable_reason:
+                self.unavailable_reason = "No se encontró atmcd64d.dll (atmcd64d.dll no cargada)."
             return False
         with self._lock:
             try:
                 ret = self._dll.Initialize(dir_path.encode("ascii") if dir_path else b"")
                 if ret == DRV_SUCCESS:
                     self._connected = True
+                    self.unavailable_reason = ""
                     try:
                         self._dll.SetCoolerMode(c_int(0))  # 0: vuelve a ambiente al apagar (seguro)
                     except Exception:
                         pass
                     return True
-                print(f"[Andor CCD] Initialize retorno código: {ret}")
+                self.unavailable_reason = (
+                    f"La cámara no respondió a Initialize (código {ret}). ¿Solis o el PySpectrum "
+                    f"legado están abiertos? Sólo un programa puede usar la cámara a la vez.")
+                print(f"[Andor CCD] {self.unavailable_reason}")
                 return False
             except Exception as e:
-                print(f"[Andor CCD] Excepción al inicializar cámara: {e}")
+                self.unavailable_reason = f"Excepción al inicializar la cámara: {e}"
+                print(f"[Andor CCD] {self.unavailable_reason}")
                 return False
 
     def close(self):
@@ -518,8 +546,7 @@ class AndorCCDDriver:
         return self._dll.AbortAcquisition()
 
     def get_most_recent_image(self, width: int = 1004, height: int = 1002) -> np.ndarray:
-        if not self._connected or self._dll is None:
-            return np.zeros((height, width), dtype=np.float32)
+        self._require_connected()
         try:
             n_pixels = width * height
             arr = (c_long * n_pixels)()
@@ -578,8 +605,7 @@ class AndorCCDDriver:
 
     def get_1d_spectrum(self, width: int = 1004) -> np.ndarray:
         """Lee el espectro 1D binnizado en hardware (FVB o Single Track) con ruido cobrado una sola vez."""
-        if not self._connected or self._dll is None:
-            return np.zeros(width, dtype=np.float32)
+        self._require_connected()
         try:
             arr = (c_long * width)()
             ret = self._dll.GetMostRecentImage(arr, c_long(width))
@@ -712,8 +738,7 @@ class AndorCCDDriver:
     def get_tracks_2d_spectrum(self, n_tracks: int, width: int = 1004) -> np.ndarray:
         """Lee datos adquiridos con forma (NumTracks, Width) para Multi-Track / Random-Track."""
         n_tracks = max(1, int(n_tracks))
-        if not self._connected or self._dll is None:
-            return np.zeros((n_tracks, width), dtype=np.float32)
+        self._require_connected()
         try:
             n_pixels = n_tracks * width
             arr = (c_long * n_pixels)()
@@ -742,10 +767,12 @@ def get_andor_ccd(force_mock: bool = False, reset: bool = False) -> _MockAndorCC
         if force_mock or SAFE_MODE:
             _andor_instance = _MockAndorCCD()
         else:
+            # Fuera de SAFE_MODE nunca se cae al simulador (DEC-040, DEC-036): si Initialize falla,
+            # queda el driver real sin conectar, con `available = False` y el motivo en
+            # `unavailable_reason`; sus setters devuelven DRV_NOT_INITIALIZED y sus lecturas de
+            # imagen lanzan DeviceUnavailable.
             drv = AndorCCDDriver()
-            if drv.initialize():
-                _andor_instance = drv
-            else:
-                print("[Andor CCD] Hardware no detectado. Recurriendo a _MockAndorCCD.")
-                _andor_instance = _MockAndorCCD()
+            if not drv.initialize():
+                print(f"[Andor CCD] NO CONECTADA: {drv.unavailable_reason}")
+            _andor_instance = drv
     return _andor_instance

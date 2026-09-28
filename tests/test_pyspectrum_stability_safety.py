@@ -579,17 +579,31 @@ class TestPySpectrumSafety(unittest.TestCase):
         """Verifica que CalibrationBackend guarde y cargue el archivo TXT con todos los campos y valores."""
         from pyspectrum.modules import calibration_dock
         import tempfile
+        from pathlib import Path
+        from unittest import mock
 
-        be = calibration_dock.CalibrationBackend(self.camera, self.spectrometer)
-        fe = calibration_dock.CalibrationFrontend()
-        be.make_connection(fe)
+        # Datos sintéticos de prueba (DEC-040): el archivo ya no vive en pyspectrum/calibration/.
+        fixture = Path(__file__).resolve().parent / "fixtures" / "calibracion_sintetica_de_prueba.txt"
+        with mock.patch.object(calibration_dock, "CALIBRATION_TXT_FILE", fixture):
+            be = calibration_dock.CalibrationBackend(self.camera, self.spectrometer)
 
-        # 1. Verificar carga inicial desde pyspectrum_calibration_last.txt
+        # 1. Verificar carga inicial desde el archivo de calibración
         self.assertAlmostEqual(be.slit_center_x, 502.00, places=1)
         self.assertEqual(be.slit_width, 50.0)
         self.assertEqual(be.grating_offsets[1], 12)
         self.assertEqual(be.grating_offsets[2], -35)
         self.assertEqual(be.detector_offset, 5)
+
+        # 1b. Al conectar la vista, el backend muestra lo que tiene el EQUIPO, no el archivo: la
+        # carga ya no escribe los offsets al Shamrock (DEC-040), así que la relectura trae los del
+        # equipo. Antes este test pasaba porque el arranque escribía el 12 y después lo releía.
+        fe = calibration_dock.CalibrationFrontend()
+        be.make_connection(fe)
+        _, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+        _, device_grating_offset = self.spectrometer.ShamrockGetGratingOffset(DEVICE, grating)
+        _, device_detector_offset = self.spectrometer.ShamrockGetDetectorOffset(DEVICE)
+        self.assertEqual(be.grating_offsets[int(grating)], int(device_grating_offset))
+        self.assertEqual(be.detector_offset, int(device_detector_offset))
 
         # 2. Modificar valores
         be.slit_center_x = 502.40

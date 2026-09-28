@@ -332,6 +332,14 @@ class SectionHeader(QFrame):
         layout.addWidget(line)
 
 
+# Programas que toman la NI-DAQmx y la platina PI; en modo laboratorio corre uno a la vez.
+_HARDWARE_SCRIPTS = {
+    "app.py": "Microscopio Derecho",
+    "pyspectrum.py": "PySpectrum 3.0",
+    "contrapropagante.py": "Microscopio Contrapropagante",
+}
+
+
 class MainWindowLauncher(QMainWindow):
     """Ventana de Inicio Principal — Bienvenidos al Printing."""
 
@@ -650,20 +658,28 @@ class MainWindowLauncher(QMainWindow):
         # Limpiar lista de procesos terminados
         self.processes = [p for p in self.processes if p.poll() is None]
 
-        # Protección de exclusión mutua de hardware físico en Modo Laboratorio
+        # Protección de exclusión mutua de hardware físico en Modo Laboratorio.
+        # Los tres programas abren, cada uno en su proceso, su propia sesión sobre la NI-DAQmx
+        # (con su propio watchdog de obturadores) y sobre la platina PI; el bus de subyugación
+        # (DEC-019) sólo coordina las ventanas satélite que PySpectrum abre dentro de su proceso.
+        # Por eso, en modo laboratorio, sólo uno puede correr a la vez desde el lanzador (R4-2b).
         is_safe_mode = self.chk_safe_mode.isChecked()
-        if not is_safe_mode and script_name in ("app.py", "contrapropagante.py"):
-            other_script = "contrapropagante.py" if script_name == "app.py" else "app.py"
-            other_title = "Microscopio Contrapropagante" if script_name == "app.py" else "Microscopio Derecho"
-
+        if not is_safe_mode and script_name in _HARDWARE_SCRIPTS:
             for proc in self.processes:
-                if proc.poll() is None and getattr(proc, "_script_name", None) == other_script:
+                other_script = getattr(proc, "_script_name", None)
+                if proc.poll() is None and other_script in _HARDWARE_SCRIPTS:
+                    other_title = _HARDWARE_SCRIPTS[other_script]
+                    if other_script == "pyspectrum.py":
+                        remedy = (f"Con PySpectrum 3.0 abierto, abra '{app_title}' desde su menú Herramientas: "
+                                  f"se abre como ventana satélite dentro del mismo proceso y comparte el hardware.")
+                    else:
+                        remedy = f"Cierre la sesión de '{other_title}' antes de continuar."
                     QMessageBox.warning(
                         self,
                         "Recurso de Hardware Bloqueado",
                         f"No es posible iniciar '{app_title}' en MODO LABORATORIO mientras '{other_title}' se encuentra en ejecución.\n\n"
-                        f"Ambos programas compiten de forma directa por los recursos físicos de la platina PI E-517 y la tarjeta NI-DAQmx.\n\n"
-                        f"Por favor, cierre la sesión de '{other_title}' antes de continuar o active la casilla de 'Modo Seguro (Simulación)'."
+                        f"Los dos procesos competirían por la platina PI E-517 y la tarjeta NI-DAQmx.\n\n"
+                        f"{remedy}\n\nPara probar sin hardware, active la casilla 'Modo Seguro (Simulación)'."
                     )
                     return
 

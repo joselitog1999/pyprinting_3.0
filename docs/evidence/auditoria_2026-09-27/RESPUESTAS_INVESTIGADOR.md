@@ -397,9 +397,111 @@ Aplicado en `lab-invariants.md` (filas del setpoint del Peltier, fuerza iónica,
   - Qué hacer cuando pasa (cortar y avisar, o además pausar) no quedó contestado. El diseño lleva la recomendación (**cortar el nodo y pausar la grilla**), **a confirmar** en la Ronda 4.
 - **P-d:** P0 **detecta las capturas tempranas**; no reproduce la demora de arranque del legado (N-7). La paridad con el legado vale para el régimen, no para el arranque.
 
+## R4 — PySpectrum 3.0 para el banco (2026-09-28)
+
+El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2 del verificador (DEC-038) y la Ronda 4 de C-01 quedan después.
+
+1. **Orden de prioridad de las funciones:**
+   - orden cero;
+   - calibración;
+   - Step & Glue;
+   - Raman;
+   - escaneo lineal 1D (que incluye Step & Glue);
+   - luminiscencia;
+   - después, las demás.
+2. **Combinación en el banco:** PySpectrum 3.0 con PyPrinting 3.0.
+   - En el código hay dos caminos. El lanzador `main.py` los arranca como **procesos separados**; sólo impide abrir juntos PyPrinting y el contrapropagante (`main.py:655`). PySpectrum, en cambio, abre PyPrinting **como ventana satélite dentro de su propio proceso** (`pyspectrum/window.py:208`, DEC-019).
+   - El bus de subyugación es un objeto de Qt en memoria, así que sólo coordina el segundo camino.
+   - Qué camino se usa queda **a confirmar** con el investigador.
+3. **Offsets:** se guardan en un archivo, por ejemplo la configuración, y se escriben al Shamrock sólo con una acción explícita. Valores actuales:
+   - **red de 150 l/mm = 85**. Reemplaza al 87 de R2-9;
+   - **red de 1200 l/mm = 0**, hay que medirlo en el banco;
+   - **detector = 0**. Hay que idear un protocolo para calibrarlo.
+4. **Exposición más larga:** hasta **10 s**, en Raman.
+   - **Procedencia (2026-09-28):**
+     - **PySpectrum 3.0 nunca se abrió en la PC del banco**, así que el equipo no recibió los offsets inventados que escribe su arranque (C-04, presente también en `7f5d10a`).
+     - Los valores (150 = 85, 1200 = 0, detector = 0) se **leyeron en Solis**. Corresponden a una calibración hecha hace ≈ 1 mes (≈ 2026-08-28).
+     - El 85 reemplaza al 87 que se dio el 2026-09-27.
+5. **Adquisición por nodo en el legado:** **(a) una adquisición por nodo.** Cada espectro de una rutina de grilla era una sola exposición, tomada con el láser abierto; la rutina espera a que termine y lee ese mismo cuadro. Nunca se toma el último cuadro de la cámara corriendo en continuo.
+   - **Implica:** las rutinas de 3.0 que leen el último cuadro sin esperar el fin de la exposición (AND-1: luminiscencia, crecimiento, dímeros, y C-10 en el mapa hiperespectral) se corrigen al esquema del legado: iniciar, esperar el cuadro y leerlo. Ese cuadro no puede ser uno de ceros por falla del driver.
+
+**R4-A — Respuestas a la Ronda 1 del bloque A de PySpectrum (2026-09-28; `pyspectrum_A_ronda1/README.md`).**
+
+1. **Calibración de λ.**
+   - *Cómo se hace hoy:* en **Solis**, con el filtro notch puesto, mirando la leve emisión de 532 que el notch deja pasar (una gaussiana). Se mueve **a mano** el offset de cada red hasta que el pico coincida con 532 nm.
+   - *Pedido:* una **rutina automática** que haga esto red por red.
+   - No hay protocolo de calibración del detector.
+2. **Offset del detector:** fijo en 0 por convención, y toda la corrección va en el offset de cada red. Es como se trabaja hoy.
+3. **Orden cero:** se usa como **"espejo rápido"**. Pasar del orden cero al primer orden y medir es más rápido que hacerlo desde la posición espejo.
+   - *Actualiza R2-11 ("casi nunca se usaba"):* es un uso **frecuente**.
+   - *Implica:* la protección tiene que ser automática sobre el detector (ganancia EM 0 confirmada, exposición acotada) y no un diálogo de confirmación, que se volvería rutina.
+4. **Step & Glue:**
+   - *Uso:* con la **lámpara**, típicamente entre **500 y 900 nm**.
+   - *Espejo:* lo sube y lo baja el operador, pero la rutina tiene que **leer el estado del espejo y advertir** si no está en la posición de medición (abajo).
+   - *Salvedad técnica:* el espejo no tiene realimentación, así que "leer el estado" es leer el estado que lleva el software. Eso requiere la persistencia y la resincronización de C-08.
+5. **Archivo de calibraciones:** se aceptan las dos cosas. Queda local a la PC del banco, fuera de git, con un registro histórico. Escribir offsets al equipo requiere confirmación doble.
+6. **Arranque de la cámara:**
+   - el enfriador se enciende solo, a **−60 °C**;
+   - ventilador en **low**, con una **opción para pasarlo a high**;
+   - velocidad vertical como el legado (`vsspeed` 2, 1.9 µs).
+7. **Convivencia y cambios:**
+   - Solis y el legado siguen en uso **por ahora**. La meta es abandonar los dos, combinando en 3.0 los experimentos del legado con la versatilidad de Solis.
+   - **La cámara se desmontó alguna vez.**
+8. **Hardware:**
+   - el Shamrock va por **USB propio**;
+   - la ranura es **bilateral** (cierra hacia el centro);
+   - **no** hay lámpara de calibración;
+   - el láser de 532 nm es de **diodo**.
+     - *Contradicción:* `PRUEBAS_BANCO_PENDIENTES.md` (BANCO-22, D-11) lo registra como Excelsior-532-150-CDRH, un modelo que es DPSS. La descripción del investigador prevalece. Se anota para confirmarlo en la etiqueta: el tipo de láser define cuán estable es su λ como referencia.
+   - Obturador propio del Shamrock u obturador interno del iXon: sin respuesta, va al inventario (BANCO-22).
+9. **Exactitud requerida:** no hay criterio todavía, porque es una fase exploratoria. Se usan como provisorios los del experimentalista (≤ 0.5 px con la red de 150, ≤ 1 px con la de 1200) y se los rotula así.
+10. **Platina al abrir PySpectrum:** va a home, como hoy.
+11. **Orden de las pruebas:** primero el Grupo E con los láseres apagados (BANCO-15 a BANCO-19) sobre `main`, y después el bloque A en el banco.
+
+**R4-B — Respuestas a la Ronda 2 del bloque A (2026-09-28; `pyspectrum_A_ronda2/README.md`).**
+
+1. **Calibración automática.**
+   - Es una **rutina independiente** que se ejecuta desde la pestaña Calibraciones.
+   - Guarda los valores, y **PySpectrum los lee en cada inicio**.
+   - *Interpretación, **confirmada por el investigador**:* "leer al inicio" significa cargar el archivo, compararlo con el equipo y aplicar la corrección fina por software, no escribir al Shamrock al arrancar. El offset entero se escribe al equipo sólo desde la rutina, con la transacción de doble confirmación.
+2. **Corrección por debajo de un paso:** se acepta la recomendación. El offset entero va al equipo, que es lo que ven todos los programas. El resto se guarda sólo en PySpectrum, marcado como corrección por software.
+3. **Orden cero:**
+   - *Uso:* ver las muestras para ubicarse espacialmente, y ver la posición del láser (con filtro de densidad o notch) para centrarlo en la ranura.
+   - *Obturadores:* al entrar al orden cero se **cierran todos**, pero el operador **puede abrir a voluntad** los que necesite. La ganancia EM sigue bloqueada en 0 mientras la red esté en condición especular.
+4. **Live y ganancia al pasar por el orden cero:** se acepta la propuesta. El Live se reanuda solo con ganancia 0 y exposición acotada, y la ganancia no vuelve sola al primer orden.
+   - *Aclaración:* el Live tiene que poder verse **en cualquier configuración**: orden cero, espejo o cualquier red.
+5. **Latido en Step & Glue:** a veces se usa con un láser abierto, así que **la rutina renueva el latido**.
+6. **Cierre de PySpectrum:** la platina va a **(50, 50, 10)**, que es `config.PI_HOME_POS`. Así, al volver a encenderse y conectarse, no se mueve. Cerrar el satélite PyPrinting no toca la platina (propuesta de la Ronda 2).
+7. **"Reconectar cámara" del tablero:** se mantiene, **con aviso**.
+8. **Velocidad horizontal de lectura:** 13 MHz por defecto, **modificable** dentro de lo que la cámara permita.
+9. **Tope de exposición del driver:** 60 s.
+10. **Topes de offset:** se acepta la recomendación. No hay tope rígido, porque la transacción ya protege: diff, doble confirmación, respaldo y relectura.
+    - Un cambio de más de ±50 pasos respecto del valor actual pide una **tercera confirmación**, que muestra el cambio estimado en nm.
+    - El umbral se ajusta cuando BANCO-40 mida cuántos píxeles mueve un paso.
+
+**Ronda 2 del bloque A: APROBADA** (2026-09-28). Se implementan los pasos 1 a 3 (motor y seguridad, cada uno con un test que falla primero). En paralelo se convoca la Ronda 3 (GUI) para los pasos 7, 8, 10, 11, 12 y 14.
+11. **Referencia de λ:** se puede **medir sin el notch**, con el 532 atenuado. Sirve para comparar la fuga por el notch con el láser atenuado.
+    - Quedaron sin respuesta la λ medida del láser y la posibilidad de un tubo fluorescente (Hg 546.07 nm) en la ranura. Se anotan en el banco.
+
+**R4-C — Respuestas a la Ronda 3 del bloque A (2026-09-28; `pyspectrum_A_ronda3/gui_design.md` §7).**
+
+1. **Exposición para mirar la muestra en orden cero:**
+   - en Solis se usa **de 0.1 s a 0.5 s**, pero depende mucho de la muestra y **no hay un valor estándar**;
+   - *implica:* el "espejo rápido" no impone 10 ms. Arranca con un valor por defecto que el operador ajusta, y lo que queda fijo es la ganancia EM bloqueada en 0 mientras la red esté en condición especular.
+2. **Abrir un láser con el filtro de densidad en potencia alta en condición especular:** **se avisa**, sin bloquear.
+3. **Step & Glue con láser:** el obturador **lo abre el operador**, y la rutina no lo abre. La rutina renueva el latido (R4-B-5).
+4. **Restaurar un offset anterior desde el historial:** **no**, para eso se vuelve a calibrar.
+5. **Calibración automática:** **una escritura por confirmación**. Cada escritura pasa por la transacción completa, y no hay sesiones con varias escrituras autorizadas.
+6. **Corrección fina (por debajo de un paso):** se guarda **aparte**, como metadato con procedencia, y no dentro del eje λ de cada espectro. El dato crudo queda intacto.
+
+**R4-2b — Lanzamiento (2026-09-28).** Si PySpectrum ya se lanzó, el lanzador `main.py` bloquea abrir PyPrinting, que sólo se abre desde el menú Herramientas de PySpectrum. La razón es evitar dos procesos sobre el mismo hardware.
+- **Implementado** (`main.py::_HARDWARE_SCRIPTS`, `tests/test_launcher_process_exclusion.py`). En modo laboratorio corre uno solo de los tres programas de hardware (PySpectrum, Microscopio Derecho y Contrapropagante), y cada uno una sola vez.
+- **Extensión:** además de lo pedido, también se bloquea lo inverso (PySpectrum con PyPrinting suelto abierto) y una segunda instancia del mismo programa. En los tres casos habría dos procesos sobre la misma placa.
+- El modo seguro no bloquea nada.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
-- **Offsets:** a qué red corresponde el offset 87 y cuál es el de la otra red.
+- **Offsets:** resuelto en R4-3. La red de 150 l/mm vale 85. Faltan medir en el banco la red de 1200 l/mm y definir el protocolo del detector.
 - **Banco:**
   - canal `ai3` (R2-6);
   - estado del obturador de 532 nm al encender (R2-3);

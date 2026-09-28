@@ -237,7 +237,9 @@ class HardwareManager(QObject):
                     return True
                 else:
                     self.device_states[dev] = "disconnected"
-                    self.device_details[dev] = "Fallo de comunicación con hardware Shamrock"
+                    # Motivo real del driver sin conectar (DEC-040: ya no hay simulador de respaldo).
+                    self.device_details[dev] = (getattr(sh, "unavailable_reason", "")
+                                                or "Fallo de comunicación con hardware Shamrock")
                     self.log("ERROR", f"[{dev}] Shamrock no responde a comandos de telemetría.")
                     self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
                     return False
@@ -261,7 +263,8 @@ class HardwareManager(QObject):
                     return True
                 else:
                     self.device_states[dev] = "disconnected"
-                    self.device_details[dev] = "Cámara Andor no responde a consultas de temperatura"
+                    self.device_details[dev] = (getattr(cam, "unavailable_reason", "")
+                                                or "Cámara Andor no responde a consultas de temperatura")
                     self.log("ERROR", f"[{dev}] Cámara Andor CCD no responde a comandos SDK.")
                     self.deviceStatusSignal.emit(dev, "disconnected", self.device_details[dev])
                     return False
