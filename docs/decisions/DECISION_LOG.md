@@ -737,6 +737,8 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
     * Each test file exits cleanly on its own.
   * **Mitigation:** at the end of the pytest session, stop the watchdog and terminate the process with pytest's own exit status, skipping that native teardown.
     * On Windows this uses `TerminateProcess`. `os._exit` alone was not enough: it still delivers `DLL_PROCESS_DETACH`, and Qt, with its application alive, aborted there (`0x80000003`, exit code 3).
+    * The types of `TerminateProcess` are declared. Without them ctypes passed the 64-bit `HANDLE` truncated and the call failed silently. The same class of defect was fixed in the drivers.
+    * Result: full suite 1088 passed, 3 xfailed, process exit code 0.
     * Verified to keep exit status 0 on a pass and 1 on a failure. It runs after pytest has computed and printed the result.
     * `PYPRINTING_TEST_NORMAL_EXIT=1` restores the normal exit, to keep investigating.
     * It also skips the `atexit` handlers of the process. In the tests these are the mock `close_all_shutters()` + `up_flipper()` (ND filter to low power) and the Canon cleanup.
