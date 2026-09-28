@@ -538,9 +538,28 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 - **Extensión:** además de lo pedido, también se bloquea lo inverso (PySpectrum con PyPrinting suelto abierto) y una segunda instancia del mismo programa. En los tres casos habría dos procesos sobre la misma placa.
 - El modo seguro no bloquea nada.
 
+**R4-G — Respuestas sobre los resultados del banco del 2026-09-28 (`reserva/PRUEBAS_BANCO_28-09-2026.md`).**
+1. **Offsets del Shamrock:** valen **los que el equipo tiene guardados**, leídos con la sonda de consola
+   (BANCO-25):
+   - red de 150 l/mm = **87**;
+   - red de 1200 l/mm = **195**;
+   - espejo = **60**;
+   - detector = **0**.
+   Reemplazan a los de R4-3 (85, 0 y 0, leídos en Solis). Siguen pendientes el protocolo de calibración
+   del detector y la verificación de la red de 1200 l/mm con la rutina de 532 nm.
+2. **Imagen invertida en X (BANCO-56):** se comparó la Canon, en la app de cámara de PyPrinting 3.0, con
+   el Andor en **Solis**, en orden cero. La imagen se ve igual en Y e invertida en X.
+   - Falta saber si Solis aplica alguna inversión de pantalla, y cómo se ve el mismo cuadro en el visor
+     de PySpectrum 3.0, que todavía no se abrió contra el equipo. Hasta entonces no se cambia ninguna
+     inversión por defecto.
+3. **"spectrog" (BANCO-23):** es un archivo de `C:\Program Files\Andor SOLIS`.
+4. **Fotodiodo de 808 nm (BANCO-20, C-44):** hoy no está conectado. Se deja `config.PD_CHANNELS` como
+   está anotado en PyPrinting (808 nm en `ai3`). El conflicto con el trigger Z queda registrado, sin
+   efecto mientras el 808 no esté conectado; al conectarlo hay que reubicarlo.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
-- **Offsets:** resuelto en R4-3. La red de 150 l/mm vale 85. Faltan medir en el banco la red de 1200 l/mm y definir el protocolo del detector.
+- **Offsets:** resuelto en R4-G, que reemplaza a R4-3: valen los guardados en el equipo (150 → 87, 1200 → 195, espejo → 60, detector → 0). Falta definir el protocolo del detector.
 - **Banco:**
   - canal `ai3` (R2-6);
   - estado del obturador de 532 nm al encender (R2-3);

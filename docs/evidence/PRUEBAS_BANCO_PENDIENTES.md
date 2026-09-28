@@ -210,7 +210,8 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
 > Shamrock (red 1, red 2, espejo, detector, cero de ranura) leyéndolos con el legado o con Solis.
 > Anotarlos acá:
 > - **Dato del investigador (2026-09-27), EXPERIMENTAL hasta leerlo del equipo:**
->   - offset de la red de 150 l/mm = **85**. Es el valor del 2026-09-28 (R4-3), que reemplaza al 87 del 2026-09-27;
+>   - offset de la red de 150 l/mm = **85**. Es el valor del 2026-09-28 (R4-3), que reemplaza al 87 del 2026-09-27.
+>     **Superado por R4-G:** valen los guardados en el equipo (87, 195, espejo 60, detector 0; BANCO-25);
 >   - red de 1200 l/mm = 0, **sin calibrar** (a medir: BANCO-25 a);
 >   - offset del detector = **0**.
 > - Falta: el valor leído del equipo con `tools/bench/legacy_console_probe.py` (sección D), el
@@ -409,7 +410,10 @@ obturador ni se mueve nada.
 - **Procedimiento**: seguir el cable que llega a `AI 3` de la BNC-2110 correspondiente.
 - **Resultado (2026-09-28, investigador):** `ai3` está conectado a la **PI, eje Z** (el trigger de
   la E-517). **Reabre C-44:** `config.PD_CHANNELS` asigna `ai3` al fotodiodo de 808 nm, y eso está
-  mal. Falta saber a qué `ai` va el fotodiodo de 808 nm, si lo hay.
+  mal.
+- **Decisión (investigador, R4-G):** hoy el fotodiodo de 808 nm no está conectado; se deja
+  `PD_CHANNELS` como está anotado en PyPrinting. El conflicto no tiene efecto mientras el 808 no esté
+  conectado. Al conectarlo, hay que asignarle un `ai` libre.
 
 ### ◐ BANCO-21 — Espejo de detección (`line7`) al encender y tras un cierre forzado
 - **Verifica**: el espejo es un conmutador (el mismo pulso cambia de posición) y el software no
@@ -478,7 +482,7 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
   - el resto, "son las de `requirements.txt`" según el investigador. Queda como dato EXPERIMENTAL
     hasta pegar la salida de `pip show`;
   - falta la versión del driver NI-DAQmx;
-  - "existe spectrog": sin aclarar qué es (¿un entorno o programa llamado así?).
+  - "spectrog": es un archivo de `C:\Program Files\Andor SOLIS` (investigador, R4-G).
 
 ### ◐ BANCO-24 — Cadencia real de la traza (legado y 3.0), desde archivos guardados
 - **Procedimiento**: abrir 5 a 10 `NP_xxx.txt` de impresiones recientes hechas con el
@@ -532,6 +536,8 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
       venir de fábrica o de una calibración anterior;
     - la **torreta tiene un espejo** en la posición 3. Eso importa para el orden cero y el
       "espejo rápido" (paso 7 del bloque A).
+  - **Resuelto (investigador, R4-G):** valen los que el equipo tiene guardados. El archivo de
+    calibraciones (pasos 9 y 10) parte de estos valores.
   - 3.0 ya no escribe offsets al arrancar (C-04, `DEC-040`), así que estos valores no se pisan.
 
 ---
@@ -730,11 +736,13 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
     `calibration_dock.py` lo importa sin usarlo.
   - El visor de Exploración no invierte nada. Sólo `invertY(True)`, que pone la fila 0 del sensor
     arriba, como una imagen.
-- **Falta precisar (a completar por el investigador):**
-  - qué "cámara": ¿la del microscopio (Canon o la de detección confocal)?;
-  - en qué programa se vio la imagen del Andor (Solis o el PySpectrum legado) y si ese programa
-    aplica alguna inversión;
-  - con qué red y en qué modo (orden cero con la red 1, o el espejo de la torreta).
+- **Precisado (investigador, R4-G):** la Canon, en la app de cámara de PyPrinting 3.0, contra el Andor
+  en **Solis**, en orden cero.
+- **Falta:**
+  - saber si Solis invierte la imagen al mostrarla (opciones de pantalla o de rotación de Solis);
+  - ver el mismo cuadro en el visor de Exploración de PySpectrum 3.0 cuando se abra contra el equipo
+    (bloque A completo). El visor de 3.0 muestra el arreglo crudo con la fila 0 arriba. Hasta esa
+    comparación no se cambia ninguna inversión por defecto.
 - **Importa para:**
   - que el espejo rápido sirva para ubicarse: moverse hacia la derecha en la cámara tiene que verse
     hacia el mismo lado en el visor, o el visor tiene que avisar que está invertido;

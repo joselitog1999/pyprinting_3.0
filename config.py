@@ -99,6 +99,8 @@ FLIPPER_AO_UP   = "Dev1/ao0"
 FLIPPER_AO_DOWN = "Dev1/ao1"
 
 PD_CHAN_BS    = 6
+# ai3 es el trigger Z de la PI (BANCO-20). El fotodiodo de 808 nm no está conectado y se deja anotado acá
+# por decisión del investigador (R4-G, C-44); al conectarlo, asignarle un ai libre.
 PD_CHANNELS   = {SHUTTERS[0]: 0, SHUTTERS[1]: 2, SHUTTERS[2]: 1, SHUTTERS[3]: 3, "BS": PD_CHAN_BS}
 PD_CHANS_LIST = [0, 1, 2, 3, PD_CHAN_BS]
 TRIGGER_CHANNELS = {"X": 4, "Y": 5, "Z": 3}
@@ -120,7 +122,11 @@ else:
 
 
 # ── Espectrómetro Andor Shamrock & Cámara CCD/EMCCD ───────────────────────────
-ANDOR_FLIP_Y_IMAGE: bool = True     # Inversión vertical activa por defecto (corrige telescopio Czerny-Turner/Flipper)
+# Orientación: SIN VERIFICAR. En el banco (BANCO-56, 2026-09-28) la Canon y el Andor en Solis, en orden
+# cero, se ven iguales en Y e invertidas en X, lo contrario de estos valores. Sólo los usa
+# pyspectrum/modules/camera_andor.py (la ventana de 3.0 no lo instancia). No cambiar hasta comparar en el
+# visor de 3.0.
+ANDOR_FLIP_Y_IMAGE: bool = True     # Inversión vertical
 ANDOR_FLIP_X_IMAGE: bool = False    # Inversión horizontal
 ANDOR_DEFAULT_READ_MODE: int = 4    # 0: FVB, 1: Single Track, 4: Image 2D
 SHAMROCK_USE_FACTORY_EEPROM: bool = True  # Calibración cúbica certificada de EEPROM
