@@ -7,6 +7,7 @@ import os
 import sys
 import math
 import numpy as np
+import pytest
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -202,6 +203,55 @@ def test_parse_three_column_pyspectrum_file(tmp_path):
     assert math.isclose(cnts[0], 12345.67, rel_tol=1e-4)
     assert math.isclose(cnts[1], 23456.78, rel_tol=1e-4)
     assert meta["Laser_Excitacion_nm"] == "532.00"
+
+
+# ── C-48 — delimitadores de columna ───────────────────────────────────────────
+# MOD-11 promete detección de tabulación, coma y punto y coma, pero el parser separaba sólo por
+# espacios en blanco después de convertir toda coma en punto decimal: un CSV "547.07,12345.6"
+# quedaba como un solo token y el archivo se rechazaba entero. La coma decimal sólo es
+# inequívoca si el separador no es también una coma (tabulación, espacio o punto y coma).
+_C48_WL = [547.0719, 549.4536, 551.8345, 554.216, 556.5954]
+_C48_SHIFT = [518.234, 598.112, 676.3, 754.02, 831.5]
+_C48_COUNTS = [12345.67, 23456.78, 34567.89, 45678.9, 56789.01]
+_C48_FORMATS = {  # nombre: (separador de columnas, coma decimal)
+    "tab": ("\t", False),
+    "tab_coma_decimal": ("\t", True),
+    "coma": (",", False),
+    "punto_y_coma": (";", False),
+    "punto_y_coma_coma_decimal": (";", True),
+}
+
+
+def _c48_write(path, sep, decimal_comma):
+    def fmt(v):
+        return str(v).replace(".", ",") if decimal_comma else str(v)
+    lines = ["Date and Time: Wed Sep 2 17:10:58 2026",
+             "Exposure Time (secs): " + fmt(0.5),
+             sep.join(["Wavelength_nm", "Raman_Shift_cm-1", "Counts"])]
+    lines += [sep.join(fmt(v) for v in row) for row in zip(_C48_WL, _C48_SHIFT, _C48_COUNTS)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("name", sorted(_C48_FORMATS))
+def test_parse_spectrum_column_delimiters(tmp_path, name):
+    sep, decimal_comma = _C48_FORMATS[name]
+    p = tmp_path / f"espectro_{name}.csv"
+    _c48_write(p, sep, decimal_comma)
+    meta, wls, cnts = parse_andor_solis_file(p)
+    np.testing.assert_allclose(wls, _C48_WL, rtol=1e-12)
+    np.testing.assert_allclose(cnts, _C48_COUNTS, rtol=1e-12)
+    assert "Exposure Time (secs)" in meta
+
+
+def test_parse_real_andor_file_values_unchanged():
+    """Guarda de invariancia: el .asc real de Solis (tabulación y coma decimal) se sigue leyendo
+    igual. Oráculo: las primeras y últimas filas del propio archivo, como literales."""
+    metadata, wls, counts = parse_andor_solis_file(BASE_DIR / "reserva" / "90%_in_red_10s_3_em.asc")
+    assert len(wls) == len(counts) == 1004
+    assert np.all(np.diff(wls) > 0)
+    np.testing.assert_allclose([wls[0], wls[1], wls[-1]], [547.07196, 549.45361, 2610.2866], rtol=1e-12)
+    np.testing.assert_allclose([counts[0], counts[1], counts[-1]], [53714.0, 51162.0, 100995.0], rtol=1e-12)
+    assert metadata["Wavelength (nm)"] == "711,982"
 
 if __name__ == "__main__":
     test_parse_real_andor_file()

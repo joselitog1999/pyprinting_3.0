@@ -60,7 +60,7 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-21 | Posición del espejo de detección (`line7`) al encender y tras un cierre forzado | C-08, R2-4/5 | **Láseres apagados** | ☐ |
 | BANCO-22 | Inventario: placa en NI MAX, BNC-2110 ↔ líneas, fotodiodos, láseres, flipper, iXon | R1-1, D-11, C-01 R1 | Inspección, NI MAX | ☐ |
 | BANCO-23 | Versiones de software en la PC del banco | C-01 R1 | Consola | ☐ |
-| BANCO-24 | Δt entre filas y filas tras el escalón en `NP_xxx.txt` de producción | C-01 R1 | Archivos ya guardados | ☐ |
+| BANCO-24 | Δt entre filas y filas tras el escalón en `NP_xxx.txt` del legado y de 3.0 | C-01 R1 | Archivos ya guardados | ☐ |
 | BANCO-25 | Offsets del Shamrock leídos del equipo | C-04, R2-9 | Legado abierto (sólo lectura) | ☐ |
 | BANCO-26 | Tamaño real del buffer DAQmx de una tarea continua a 10 kS/s | C-01 | Sin láser; sólo entradas analógicas | ☐ |
 | BANCO-27 | La traza sigue en tiempo real a una señal conocida | C-01, `DEC-037` | Generador o LED en un AI libre | ☐ |
@@ -383,9 +383,11 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
   (`python -m pip show nidaqmx pipython PyQt6 numpy`). Python ya se sabe: 3.11.13.
 - **Resultado**: —
 
-### ☐ BANCO-24 — Cadencia real de la traza en producción, desde archivos guardados
-- **Procedimiento**: abrir dos o tres `NP_xxx.txt` de impresiones recientes hechas con
-  `7f5d10a` y anotar el Δt típico entre filas y cuántas filas hay después del escalón.
+### ☐ BANCO-24 — Cadencia real de la traza (legado y 3.0), desde archivos guardados
+- **Procedimiento**: abrir 5 a 10 `NP_xxx.txt` de impresiones recientes hechas con el
+  **legado** (el que se usa a diario) y, si hay, con 3.0 en `7f5d10a`, y anotar para cada
+  programa el Δt típico entre filas y cuántas filas hay después del escalón. Conviene copiar
+  esos archivos a `docs/evidence/` para que el cálculo quede reproducible (octava ronda, Q-1).
 - **Verifica**: la predicción de ≈ 47 ms reales para el QTimer de 35 ms (medida en la PC de
   desarrollo, `auditoria_2026-09-27/c01_ronda1/timer_probe.py`). Ojo: si el eje de tiempo de
   esos archivos es sintético (`np.linspace`), el Δt no es medido; anotarlo.
@@ -483,6 +485,9 @@ encender nada. Resuelve preguntas de la Ronda 2 de C-01
   PyPrinting legacy tiene 532 → `line12` y 637 → `line11` (activo en BAJO): con el cableado
   vigente, **su botón "637" abriría el obturador de 532 nm**. Si la PC del banco tiene esos
   canales, no usar los botones de obturador del legado hasta resolverlo.
+  **Respuesta del investigador (2026-09-27): los legados del banco tienen los obturadores
+  actualizados**; las copias del repositorio son más viejas. Queda sólo la parte (b) de
+  convivencia de entradas analógicas, y confirmar de paso que cada botón mueve lo que dice.
 - **Procedimiento** (láseres apagados, obturadores observables): con PySpectrum legacy y
   PyPrinting legacy abiertos a la vez (la combinación en uso) y, por separado, con
   PyPrinting 3.0, (a) accionar desde cada programa cada botón de obturador y

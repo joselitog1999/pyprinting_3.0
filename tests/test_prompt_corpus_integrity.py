@@ -669,6 +669,78 @@ def test_lab_invariants_match_code():
     )
 
 
+# Oráculo del pitch del detector: la hoja de datos del iXon3 885 ([DS-iXon] p. 1, "Pixel size
+# (W x H) 8 x 8 µm") y la del sensor TI TC285SPD-30. Es un literal a propósito (DEC-033): tomarlo
+# de la constante que se verifica dejaría que un valor equivocado se confirmara a sí mismo.
+_DATASHEET_PITCH_UM = 8.0
+# Código de producción donde un pitch del detector puede estar escrito como número. `tests/`,
+# `scratch/`, `tools/` y las reproducciones de la auditoría quedan fuera: citan 13 µm a propósito.
+_PITCH_CODE_ROOTS = ("core", "pyspectrum", "analysis", "modules")
+_PITCH_NAME = re.compile(r"pixel_?pitch", re.IGNORECASE)
+
+
+def _numeric_pitch_literals():
+    """(archivo, línea, nombre, valor) de cada pitch escrito como literal numérico en el código
+    de producción: asignaciones (`X_PIXEL_PITCH_UM = 8.0`) y defaults de argumentos
+    (`pixel_pitch_um: float = 8.0`). Un default que nombra una constante no es un literal y lo
+    cubre la verificación de esa constante."""
+    import ast
+    files = [p for p in sorted(ROOT.glob("*.py"))]
+    for sub in _PITCH_CODE_ROOTS:
+        files.extend(p for p in sorted((ROOT / sub).rglob("*.py")) if not _in_foreign_tree(p))
+    found = []
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            pairs = []
+            if isinstance(node, ast.Assign):
+                pairs = [(t.id, node.value) for t in node.targets if isinstance(t, ast.Name)]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value:
+                pairs = [(node.target.id, node.value)]
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = node.args.posonlyargs + node.args.args
+                pairs = list(zip([a.arg for a in args[len(args) - len(node.args.defaults):]], node.args.defaults))
+                pairs += [(a.arg, d) for a, d in zip(node.args.kwonlyargs, node.args.kw_defaults) if d is not None]
+            for name, value in pairs:
+                if (_PITCH_NAME.search(name) and isinstance(value, ast.Constant)
+                        and isinstance(value.value, (int, float)) and not isinstance(value.value, bool)):
+                    found.append((_label(path), value.lineno, name, float(value.value)))
+    return found
+
+
+def test_detector_pitch_is_single_valued():
+    """Toda constante de pitch del detector vale lo que dice la hoja de datos (C-16, DEC-039).
+
+    `DEC-031` consolidó la geometría del detector en `andor_ccd_driver.DETECTOR_PIXEL_PITCH_UM`,
+    pero el Analizador SIF conservó una copia propia de 13 µm que ningún gate vigilaba: sus escalas
+    µm/px salían infladas x1.625. La copia sigue existiendo, porque importar la constante del
+    driver desde `core/sif_processor.py` cierra un import circular con el paquete `pyspectrum`;
+    este test hace que las dos no puedan volver a diferir, y además rechaza cualquier otro pitch
+    escrito como número en el código de producción.
+    """
+    offenders = []
+    for rel_path, symbol in (("pyspectrum/drivers/andor_ccd_driver.py", "DETECTOR_PIXEL_PITCH_UM"),
+                             ("core/sif_processor.py", "CCD_PIXEL_PITCH_UM")):
+        actual = _resolve_code_number(rel_path, symbol)
+        if actual is None:
+            offenders.append(f"{rel_path}::{symbol} no resuelve a un literal numérico; ¿se renombró?")
+        elif abs(actual - _DATASHEET_PITCH_UM) > 1e-9:
+            offenders.append(f"{rel_path}::{symbol} vale {actual}; la hoja de datos da {_DATASHEET_PITCH_UM} µm.")
+
+    literals = _numeric_pitch_literals()
+    for label, lineno, name, value in literals:
+        if abs(value - _DATASHEET_PITCH_UM) > 1e-9:
+            offenders.append(f"{label}:{lineno}: `{name}` = {value}; la hoja de datos da {_DATASHEET_PITCH_UM} µm.")
+
+    assert not offenders, "Pitch del detector distinto de la hoja de datos:\n  " + "\n  ".join(offenders)
+    # Guarda contra el fallo silencioso: si el recorrido deja de encontrar las dos constantes, el
+    # test pasaría sin verificar nada.
+    assert len(literals) >= 2, f"El recorrido sólo encontró {literals}; se esperaban al menos las dos constantes."
+
+
 def test_delegation_cross_references_resolve():
     """Toda derivación "(use <otro-agente>)" en una `description:` apunta a algo que existe.
 

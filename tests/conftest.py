@@ -128,6 +128,44 @@ def _purge_deleted_pyqtgraph_views():
 
 
 # ------------------------------------------------------------------------------
+# Excepciones no manejadas en slots de Qt: una falla del test, nunca un aborto de la suite
+# ------------------------------------------------------------------------------
+# Con el `sys.excepthook` de fábrica, PyQt6 aborta el proceso (qFatal, "Fatal Python error:
+# Aborted") ante una excepción no manejada dentro de un slot o de un método virtual de Qt. En la
+# suite eso mata la corrida entera sin traceback, en el test que haya llamado a processEvents()
+# (visto repetidamente en test_sif_analyzer_gui.py::test_12, según el orden de los tests). Este
+# hook registra la excepción y hace fallar el test en curso con su traceback, como la captura de
+# excepciones de pytest-qt. No cambia el comportamiento de producción: la aplicación instala su
+# propio hook (core/safety_excepthook.py, DEC-036). test_safety_excepthook.py guarda y restaura
+# el hook vigente, y sus subprocesos no cargan este conftest.
+import traceback as _traceback
+
+_QT_UNHANDLED: list = []
+
+
+def _record_unhandled_exception(exc_type, exc_value, exc_tb):
+    _QT_UNHANDLED.append((exc_type, exc_value, exc_tb))
+
+
+def pytest_configure(config):
+    sys.excepthook = _record_unhandled_exception
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    _QT_UNHANDLED.clear()
+    outcome = yield
+    if _QT_UNHANDLED:
+        caught = list(_QT_UNHANDLED)
+        _QT_UNHANDLED.clear()
+        detail = "\n".join("".join(_traceback.format_exception(*exc)) for exc in caught)
+        outcome.force_exception(pytest.fail.Exception(
+            f"{len(caught)} excepción(es) no manejada(s) en un slot de Qt durante el test "
+            f"(con el hook de fábrica PyQt6 habría abortado toda la suite):\n{detail}",
+            pytrace=False))
+
+
+# ------------------------------------------------------------------------------
 # Cobertura de fuentes (DEC-038): una advertencia con sección propia, que nunca bloquea
 # ------------------------------------------------------------------------------
 # El investigador decidió que el test de cobertura de marcas de fuente sólo advierta

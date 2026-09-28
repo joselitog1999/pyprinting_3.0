@@ -338,6 +338,65 @@ Aplicado en `lab-invariants.md` (filas del setpoint del Peltier, fuerza iónica,
      - Con el cableado vigente (R2-1: 532 → `line11`, activo en BAJO), el botón "637" de esas copias abriría el obturador de **532 nm**.
      - Se verifica en `BANCO-35`.
 
+---
+
+# Sexta ronda (2026-09-27): Ronda 3 de C-01 (GUI)
+
+- **P1:** los 20/20 **se calibraron en el legado**, cuya cadencia es de ≈ 10 ms, así que equivalen a ventanas de ≈ 200 ms. Con 10/10 la detección de un evento no funcionaba siempre. **Habrá que volver a calibrar con los nuevos modelos de parada.** P0 reproduce el legado, no 3.0 a 47 ms por tick.
+- **P2:** el preset se carga con un valor, pero el umbral **siempre se calibra con la traza**: se imprime una NP a mano y se mide el escalón con la traza. Esto respalda la herramienta "Medir escalón".
+- **P3:** **no** se pausa por fallas de adquisición seguidas; para eso está el Healing Pass. Se mantienen las pausas de seguridad de `DEC-036`: interlock activo y cierre sin confirmar.
+- **P4:** se acepta la recomendación. Una falla con el obturador ya abierto se reintenta en el Healing Pass sólo si la lectura a baja potencia no ve la NP.
+- **P5:** **sí**. Con el Healing Pass apagado, el diálogo de fin ofrece reintentar las fallas.
+- **P6:** sólo los valores; no se dibuja el objetivo de latencia en el gráfico.
+- **P7:** **sí**. Mientras se imprime se bloquean los movimientos manuales de la platina y "Go/Set reference"; en la pausa quedan habilitados.
+- **P8:** después de un corte del watchdog, la grilla queda en pausa y **se reanuda a mano**.
+- **P9:** **sí**. El software cuenta las 10 grillas sin incidentes con un registro de salud, y el investigador lo firma.
+- **P10:** **sí**. Por defecto se guardan los bloques de 10 ms; las muestras completas a 10 kS/s quedan como opción.
+- **P11:** "voltajes" se refiere a los **del fotodiodo**. El de modulación del láser no hace falta si se guarda el del BS.
+- **P12:** **sí**. "Extra info" pasa a campos tipados: NP y diámetro, NaCl en mM, sustrato, potencia en mW.
+- **P13:** se acepta la recomendación. La confirmación a baja potencia viene activada por defecto sólo en los presets de ventana corta.
+- **P14:** los campos que el modo no usa quedan **deshabilitados pero visibles**.
+- **P15:** **sí**. El tope de `T_max` es de 60 s, y de 70 s en el Healing Pass.
+- **Seguridad (BANCO-35):** **los legados que corren en el banco tienen los obturadores actualizados.** Las copias locales (`scratch/pyspectrum-legacy/`, `Obsidian_Vault/printing2/`) son más viejas que las del banco, al menos en los canales de obturadores. Sirven como referencia de algoritmos y comportamiento, pero no de configuración de hardware.
+- El investigador commiteó todo lo anterior.
+
+---
+
+# Séptima ronda (2026-09-27): auditoría qa-ux de la Ronda 3 de C-01
+
+- **P-H ("Cerrar Todos" durante un nodo):** **no pausa la grilla**. Interpretación: "Cerrar Todos" cierra los obturadores sin detener la rutina, y la parada es la **parada de emergencia** (P-E). La GUI debe dejar explícita la diferencia (rótulo, tooltip y manual), para que nadie espere que "Cerrar Todos" frene la grilla (QA-02). Un nodo interrumpido así sigue la regla P4: se reintenta en el Healing Pass sólo si la lectura a baja potencia no ve la NP.
+- **P-E:** **sí**. Después de una parada de emergencia en PyPrinting, la grilla queda **detenida** y el bloqueo lo reconoce el operador. PyPrinting tiene que tener su **propia parada de emergencia** (Ctrl+E / F12), que hoy sólo existe en PySpectrum (QA-01, QA-03).
+- **P-C:** en el legado el Umbral es **1.5** y el Umbral down **0.5**, igual que en 3.0.
+- **P-D:** se acepta la recomendación. Con **5 nodos seguidos sin captura** se muestra un aviso, sin pausar.
+- **P-F:** los presets "AgNP 80 nm — Nanodímeros" y "Grilla Extensa 10×10" (`stop_mode = 3`) son el modo **Confocal reescalado**.
+- **P-G:** **hoy no** se ajustan la potencia del 532, el filtro ni el espejo durante una grilla. Se bloquean durante el nodo y quedan libres en la pausa, igual que la platina.
+- **P-J (separador decimal):** **punto**, por el teclado numérico, independientemente de la configuración regional de Windows (QA-12).
+- **P-K:** el modo dímeros **no se usa hace mucho**. Queda fuera del rediseño de C-01: se conserva y no se rediseña.
+- **P-L:**
+  - La **concentración de NaCl** es de cada lote, pero **se ingresa en cada impresión**.
+  - La **potencia en la pupila** se mide **en cada sesión**: se ingresa una vez por sesión y vale para toda la sesión.
+
+---
+
+# Octava ronda (2026-09-27): preguntas de la versión 2 del diseño de la GUI de C-01
+
+- **Q-1:** la cadencia real, sacada de los `NP_xxx.txt`, se mide **en el banco**. Queda en `BANCO-24`, ampliado a los archivos del legado y de 3.0.
+- **Q-2:** el tiempo máximo en el legado es **40 s**.
+- **Q-3:** las rachas de nodos que terminan por caída de señal o sin escalón dan un **aviso**, sin pausar.
+- **Q-4:** después de rearmar tras una parada de emergencia, la grilla se **retoma desde el nodo pendiente**.
+- **Q-5:** **sí**. Cuando PyPrinting corre como satélite de PySpectrum hay **una sola parada de emergencia** para los dos programas.
+
+---
+
+# Novena ronda (2026-09-27): segunda pasada de qa-ux sobre la v2 del diseño de la GUI de C-01
+
+- **P-a:** si "Cerrar todos" cae durante el autofoco o el escaneo de deriva entre nodos, ese paso **se repite** antes de imprimir. Una corrección calculada sobre oscuridad no se aplica (N-3).
+- **P-b:** se acepta la recomendación: una **espera visible de 3 s** antes de que abra el nodo siguiente, con Pausa y Parada a mano en el aviso. La grilla sigue igual (N-5).
+- **P-c:** aclaración física: **el fotodiodo del BS está en el beamsplitter y ve la emisión transmitida**. El espejo de detección no lo afecta; sólo lo afecta el filtro de densidad.
+  - Por eso la prueba de N-11 es válida: si el BS ve luz y el fotodiodo de detección no, el espejo está abajo o la detección está desalineada.
+  - Qué hacer cuando pasa (cortar y avisar, o además pausar) no quedó contestado. El diseño lleva la recomendación (**cortar el nodo y pausar la grilla**), **a confirmar** en la Ronda 4.
+- **P-d:** P0 **detecta las capturas tempranas**; no reproduce la demora de arranque del legado (N-7). La paridad con el legado vale para el régimen, no para el arranque.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** a qué red corresponde el offset 87 y cuál es el de la otra red.

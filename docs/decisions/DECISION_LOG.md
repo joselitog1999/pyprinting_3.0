@@ -514,6 +514,81 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Still open, recorded**: (1) **the pilot** (§7 of the design; protocol in `F3_piloto/README.md`), in a new session after agents reload, with the same model as the main assistant, disagreements adjudicated by the researcher; (2) after the pilot, the one-line invocations in `scientific-documentation` (Step 4), `knowledge-integrator` (Step 2) and `deliberative-implementation` (Round 4 close), and the reciprocal boundaries in `scientific-reviewer` and `literature-crosscheck`; if the pilot fails M1 or M3, the agent, its §6 row and the §9 bullet are withdrawn and the module and tests stay; (3) the "R3 — C-01" and "R3 — Ronda 2 del verificador" blocks of `RESPUESTAS_INVESTIGADOR.md` have no citable point IDs yet; (4) percentages are outside the detector (§5.2 of the design).
 * **Outcome**: **ACCEPTED** as implementation, stage 0 (zero adhered documents). **Adoption of the agent pending the pilot.**
 
+### DEC-039: Phase 5 Exempt Fixes — SIF Analyzer Pitch (C-16), LineScan Step & Glue Planner (C-22), Counter-Propagating Gauss/Donut Centering (C-21), CSV Delimiters in the Raman Parser (C-48)
+* **Context**: phase 5 of `docs/evidence/auditoria_2026-09-27/PLAN_CORRECCIONES.md`. These are bug fixes that start from a failing test, which `CLAUDE.md` §5.0 exempts from the round protocol. C-16 and C-22 are also pending phases of the design approved in `DEC-033`. Each test was written first and run against the unmodified code (negative control); only then was the code changed.
+* **C-16 — SIF Analyzer pitch** (`core/sif_processor.py`):
+  * **Defect:** `CCD_PIXEL_PITCH_UM = 13.0`, a second pitch constant that `DEC-033` did not reach. It fed the µm/px scales of the five objectives and the `pixel_pitch_um` defaults of `compute_wavelength_uncertainty`, `fit_peak_advanced` and `fit_extinction_multi_peak`; `sif_analyzer.py` also passes it explicitly. The scales came out ×1.625 too large and u_slit 38 % too small.
+  * **Fix:** 8.0 µm. The datasheet was re-read for this entry: [DS-iXon] p. 1, "Pixel size (W x H) 8 x 8 µm". The per-objective comments and descriptions were recalculated: 0.461 / 0.230 / 0.128 / 0.077 / 0.051 µm/px.
+  * **Deviation from the plan:** the plan said to import `andor_ccd_driver.DETECTOR_PIXEL_PITCH_UM`. A probe showed that this creates a circular import. Importing any `pyspectrum` submodule from `core/sif_processor.py` runs `pyspectrum/__init__.py`. That file imports the window, and through it `pyspectrum/ui/exploration_tab.py`, which imports `core.sif_processor` while it is only half-initialized: `ImportError: cannot import name 'compute_robust_contrast_levels' from partially initialized module 'core.sif_processor'`. Even while failing, the attempt loaded PyQt6 and started the `ShutterWatchdog` thread inside an offline analyzer. So the SIF module keeps a literal copy, with the reason written at the constant, and a gate enforces the single value.
+  * **Gate:** new `tests/test_prompt_corpus_integrity.py::test_detector_pitch_is_single_valued`. It resolves both constants by AST, plus every numeric `pixel_pitch` literal (assignments and argument defaults) in the production code (`core/`, `pyspectrum/`, `analysis/`, `modules/` and the root `*.py`), and checks each against the datasheet value written as a literal (8.0), as in `DEC-033`. In `lab-invariants.md`, the row "Pitch de píxel en el Analizador SIF" moved from 📄 to ✅.
+  * **Tests:** `tests/test_sif_processor.py::TestDetectorPitchC16` (6 tests).
+  * **Negative control:** 5 of the 6 failed on the old code:
+    * the pitch was 13, not 8;
+    * all five scales were wrong;
+    * all three defaults were wrong;
+    * u_c came out 0.2378 nm instead of 0.3707 nm for a 100 µm slit at 0.1 nm/px.
+    
+    The description-consistency test passed on both versions, as an invariance guard should. With the original file put back in place, the new gate and `test_lab_invariants_match_code` both failed (13.0 against 8.0); both pass on the fix.
+* **C-22 — LineScan Step & Glue** (`pyspectrum/modules/routines/linescan_spectroscopy.py`):
+  * **Defect:** `compute_glue_centers` planned with a fixed 240 nm window, first centre at start + 120 nm, inherited from the 13 µm pitch.
+  * **Fix:**
+    * `compute_glue_centers` now delegates to `halogen_lamp.compute_step_centers`.
+    * The worker's new `_plan_glue_centers()` reads the mounted grating and the window measured on the spectrograph, and applies `resolve_step_window_nm` (measured > nominal) in both the reference and the scan. The LineScan has no "Zona Óptica Central" control, and adding one would be a GUI change.
+    * The ETA preview takes the grating from `spectroscopy_context`.
+    * To reuse the measured-window reader instead of copying it, `step_and_glue.Backend._measured_window_nm()` was lifted verbatim into the module function `measured_window_nm(spectrometer)`, and the method now delegates to it. The `DEC-033` tests pass unchanged.
+    * **Refinement, found while reviewing the diff:** the scan reuses the window planned for the reference if the grating has not changed (`_plan_glue_centers(cfg, reuse_reference=True)`); otherwise it measures again and logs a warning. With the old fixed formula, reference and scan always got the same centres for the same parameters. Measuring again at scan time would not: on real hardware the linear dispersion depends on the grating position (cos β), and the reference's flyback leaves the spectrograph elsewhere. Then each λ would fall on different pixels in the sample and in the reference, which T = sample/reference assumes it does not.
+  * **Tests:** `tests/test_linescan_h5.py::TestLineScanGlueCoverage`, 4 tests, each at 150 and at 1200 l/mm. Coverage is computed from the axes the routine actually read from the mock spectrograph, without the planner or `coverage_gaps_nm`. `test_scan_reuses_the_reference_plan` simulates a position-dependent window, because the mock's window is the same at every λ.
+  * **Negative control:** in both the reference and the scan, the old planner left unmeasured:
+    * 52.2 % of 450-750 nm at 150 l/mm (centres at 570 and 762 nm);
+    * 37.7 % of 540-560 nm at 1200 l/mm (a single centre at 550 nm).
+    
+    The precedence test failed on the missing attribute. With the simulated position-dependent window, re-planning at scan time moved the scan's centres away from the reference's by up to 9.1 nm at 150 l/mm (last centre 740.4 → 749.5 nm) and 0.3 nm at 1200 l/mm.
+  * **Found while testing:** the measured window differs from the linear datasheet nominal by +0.8 % at 150 l/mm and +7.7 % at 1200 l/mm (103.85 vs 103.05 nm; 12.46 vs 11.57 nm). The reader uses the mock's cubic axis, whose curvature widens the span at every λ — the curvature `DEC-033`'s export test already notes. This is approved `DEC-033` behaviour, so the test was adjusted, not the code: the plan must use the span the spectrograph reports, within 10 % of nominal. A first reading here attributed the 7.7 % to a λ dependence; measuring the mock at 450-700 nm showed the span does not change with λ.
+  * **Cost to the operator:** more windows per spatial point — for example 4 instead of 2 for 450-750 nm at 20 % overlap — and a proportionally longer scan. As in `DEC-033`, that is the price of measuring the requested range. No timing margin, heartbeat or watchdog policy changed.
+* **C-21 — counter-propagating centering** (`contrapropagante.py::_compute_center`):
+  * **Defect:** `center_of_gauss2D(Zf)` and `center_of_donut2D(Zf)` were called without the `xo, yo` seed.
+  * **Fix:** the seed now comes from `center_of_mass(Zf)`, as in `modules/confocal.py::_CMmeasure`. The fitted image stays `Zf`, which is what the contrapropagante already passed; the confocal fits `Zn` instead. Changing the image would change the centering algorithm, so that divergence is left for phase 6.4 (R2-7, reusing the confocal).
+  * **Tests:** `tests/test_confocal.py::test_contraprop_scan_finishes_with_every_centering_method`, 3 cases.
+    * Each method runs in the channel that offers it. Donut is paired with CM on TOP, so it fails for its own cause.
+    * The stage and the shutters are replaced by recorders. The only move commanded is the return to the start, identical for all three methods: the fix adds or changes no movement.
+    * The centres fall inside the image and within 1 px of the synthetic truth.
+    * Starting from a deliberately offset seed, the Gauss and Donut fits converge to the true centre, so the test does not pass on `center_of_donut2D`'s silent fallback.
+  * **Negative control:** Gauss and Donut failed with the reported `TypeError` (`missing 2 required positional arguments: 'xo' and 'yo'`); CM passed.
+* **C-48 — Raman parser** (`core/raman_engine.py::parse_andor_solis_file`):
+  * **Defect:** the parser turned every comma into a decimal point and split rows on whitespace only, so it rejected CSV files separated by commas or semicolons. `MOD-11` claims it detects both.
+  * **Fix:** `_COLUMN_DELIMITERS = (";", ",", None)` and `_split_data_row()`. The separator is detected on the first data row and used for the whole table.
+    * With `;` or whitespace as separator, the comma is the decimal mark; with `,`, the point is.
+    * A file with both a decimal comma and a comma separator is ambiguous and not supported (stated in the docstring).
+    * Trying `,` before whitespace cannot change any row that whitespace splitting reads today: with a decimal comma, the second comma-separated segment contains the whitespace between columns and is not a number.
+  * **Tests:** in `tests/test_raman_engine.py`:
+    * `test_parse_spectrum_column_delimiters`: tab, tab with decimal comma, comma, semicolon, and semicolon with decimal comma;
+    * `test_parse_real_andor_file_values_unchanged`: literal values from the first and last rows of the file.
+  * **Negative control:** the comma, semicolon, and semicolon-with-decimal-comma files failed ("No se encontraron columnas numéricas"); the two tab formats and the real file passed.
+  * **Parity:** the `HEAD` parser and the new one give identical metadata, wavelengths and counts on the real `.asc` (1004 points) and on four whitespace variants.
+* **Not exempt — found or left, not fixed**:
+  1. **C-21b (new).** `gridScanFinishedSignal` declares `np.ndarray` for arguments 3 and 4, and `_finish_ramp_scan` emits `None` there. PyQt6 then raises `TypeError: … argument 3 has unexpected type 'NoneType'` (`contrapropagante.py:769`) with **every** centering method, CM included.
+     * **Effect:** the contrapropagante grid never receives the end of its confocal scan, so C-21 alone does not unblock it.
+     * **Why not exempt:** fixing it would let `modules/measurements.py::on_scan_finished` — also decorated with `np.ndarray`, and out of scope — move the stage to the printing targets and start the printing trace, for the first time in 3.0. That involves the stage and the shutters.
+     * **Pinned:** `test_contraprop_grid_scan_reaches_the_grid_routine`, marked `xfail(strict=True, raises=TypeError)`, for phase 6.4.
+  2. **Pre-existing, now reachable in Gauss/Donut modes.** `_finish_ramp_scan` ignores the `bool` returned by `close_all_shutters()` (`DEC-036`) and commands the return move even if a close is unconfirmed. Before C-21, only the CM mode reached that move. This is a safety change.
+  3. **The second half of C-48.** When spectra do not overlap, the common grid extrapolates flat segments that end up in the PCA (the common-grid builder in `core/raman_engine.py`). Changing which data enter the PCA changes a data treatment.
+  4. **A 13 µm residue outside C-16.** `pyspectrum/modules/calibration_dock.py:1043-1044` writes "13.0 µm" into the calibration `.txt` it saves (C-04, phase 6.6).
+  5. **LineScan HDF5 provenance.** Unlike the Step & Glue HDF5 since `DEC-033`, it does not record `window_nm`, `window_source` or the coverage gaps. This is a data-format addition, left for its own change.
+  6. **The pitch copy.** The proper fix is to put the detector geometry in a module that can be imported without the GUI, or to make `pyspectrum/__init__.py` lazy. Both touch the package structure, so they are left out.
+* **Also fixed in the test layer while closing this batch**:
+  * **`tests/test_confocal.py::test_scan_step_xy_applies_long_settle_only_on_flyback_pixel`.** The test replaced `time.sleep` process-wide, because `confocal_mod.time` *is* the global `time` module. Depending on suite order it recorded calls from other threads: the first recorded call was a 0.1 s sleep, before the test's own first 0.035 s, and 69 313 calls were recorded in total. It now records only the calls from its own thread and passes the rest to the real `sleep`. A deliberate reproduction was attempted and did not trigger: it depends on when the main thread yields the GIL.
+  * **`tests/conftest.py`: excepthook that turns unhandled exceptions in Qt slots into a failure of the current test**, with the traceback, as pytest-qt does. With the stock hook, PyQt6 aborts the whole suite without a traceback. Positive control: a slot that raises now fails its test with the traceback instead of aborting. The 8 safety-excepthook tests still pass.
+* **Known and recorded, not fixed here: an intermittent native Qt abort in the full suite.** "Fatal Python error: Aborted" occurred at `tests/test_sif_analyzer_gui.py::test_12_2d_heatmap_visibility_1d_and_2d`, line 366 (`processEvents()`), in 3 of 6 full runs. The test passes in isolation, and the suite passes with `-s`.
+  * **Not a Python exception:** it still happens with the capturing hook above.
+  * **Diagnostic run** (a Qt message handler and per-test counts, via a plugin kept out of the repository): no abort that time. It showed **14 052 live top-level widgets when `test_12` starts** and 14 171 at the end, because test files leave windows open. Each of these files leaves 800–2 500 windows: `test_pyspectrum_luminescence_and_calibration`, `test_hardware_session_master_slave`, `test_pyspectrum_exploration_tab`, `test_pyspectrum_shell_and_panel`, `test_sif_analyzer_gui` and the lattice-disorder tests.
+  * **Most likely cause:** accumulated resource pressure from the leaked windows. Plausibly the same family as the aborts seen during `DEC-036`.
+  * **Fix, in the test layer:** release the windows each module creates, carefully, because destroying a window that owns a running `QThread` is itself a Qt fatal. Validate over several full runs. Scheduled as its own exempt task (plan, registro de ejecución).
+* **Outcome**: **ACCEPTED**. Full-suite runs after the batch:
+  * **Diagnostic run: 1030 passed, 3 xfailed (the pinned C-21b), 0 failed.** The `-s` run matches it.
+  * One run had 1 failed, the `sleep` isolation defect above, now fixed.
+  * Two runs stopped at the intermittent abort described above; every test that had run until then passed.
+  * `graphify update .` run after the edits.
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

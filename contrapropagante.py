@@ -898,10 +898,11 @@ class ConfocalDualBackend(QObject):
         if method == "center of mass":
             xo_px, yo_px = center_of_mass(Zf)
         elif method == "center of gauss":
-            fit = center_of_gauss2D(Zf)
+            # Semilla del ajuste: el centro de masa, como modules/confocal.py::_CMmeasure (C-21).
+            fit = center_of_gauss2D(Zf, *center_of_mass(Zf))
             xo_px, yo_px = fit[0], fit[1]
         else:
-            fit = center_of_donut2D(Zf)
+            fit = center_of_donut2D(Zf, *center_of_mass(Zf))
             xo_px, yo_px = fit[0], fit[1]
 
         # Convertir a micrómetros

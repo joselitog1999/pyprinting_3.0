@@ -31,12 +31,14 @@ from config import SAFE_MODE, PI_AXES, PI_STAGE_RANGE_UM, SHUTTERS, pi
 from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
 from core.sif_processor import compute_transmittance_with_errors, compute_extinction
 from core.hdf5_container import write_linescan_spectroscopy_hdf5
-from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
+from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock, GRATING_150_LINES
 from pyspectrum.drivers.andor_ccd_driver import (
-    get_andor_ccd, READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE,
+    get_andor_ccd, READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE, DETECTOR_WIDTH_PX,
 )
-from pyspectrum.calibration.halogen_lamp import glue_steps
+from pyspectrum.calibration.halogen_lamp import glue_steps, compute_step_centers, resolve_step_window_nm
 from pyspectrum.modules.hardware_session import hardware_session
+from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+from pyspectrum.modules.step_and_glue import measured_window_nm
 from analysis.figure_export_studio import FigureExportStudioDialog
 
 # Constante fija documentada: no existe modelo de readout del EMCCD iXon3 en el proyecto
@@ -55,19 +57,17 @@ PIEZO_POSITION_TOLERANCE_UM = 0.05
 EPSILON_TRANS = 1e-6
 
 
-def compute_glue_centers(start_wl: float, end_wl: float, overlap: float) -> List[float]:
-    """Centros espectrales para Step & Glue. Réplica intencional de la misma fórmula
-    determinista usada en pyspectrum/modules/step_and_glue.py:315-320 (no se modifica ese
-    archivo para evitar tocar una rutina no relacionada con este cambio)."""
-    step_span = 240.0 * (1.0 - overlap)
-    centers = []
-    c = start_wl + 120.0
-    while c <= end_wl + 50.0:
-        centers.append(c)
-        c += step_span
-    if not centers:
-        centers = [0.5 * (start_wl + end_wl)]
-    return centers
+def compute_glue_centers(start_wl: float, end_wl: float, overlap: float,
+                         grating: int = GRATING_150_LINES, window_nm: Optional[float] = None) -> List[float]:
+    """Centros espectrales para Step & Glue, con el mismo planificador que la pestaña Step & Glue
+    (`halogen_lamp.compute_step_centers`, DEC-033). `overlap` es una fracción (0-0.9) y
+    `window_nm` la ventana medida en el espectrógrafo, o None para la nominal de la red.
+
+    Hasta C-22 esta rutina tenía su propia fórmula, con una ventana fija de 240 nm heredada del
+    pitch de 13 µm: contra ventanas reales de ~103 / ~11.6 nm dejaba sin medir cerca de la mitad
+    del rango pedido."""
+    return compute_step_centers(start_wl, end_wl, overlap, grating=grating,
+                                num_pixels=DETECTOR_WIDTH_PX, window_nm=window_nm)
 
 
 class LineScanSpectroscopyWidget(QtWidgets.QDialog):
@@ -399,7 +399,8 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
             if self._mode_key() == 'single_window':
                 per_point = self.spin_exp1d.value() + self.spin_exp2d.value() + 2 * ACQUISITION_READOUT_MARGIN_S + 0.2
             else:
-                centers = compute_glue_centers(self.spin_glue_start.value(), self.spin_glue_end.value(), self.spin_glue_overlap.value())
+                centers = compute_glue_centers(self.spin_glue_start.value(), self.spin_glue_end.value(),
+                                               self.spin_glue_overlap.value(), grating=spectroscopy_context.grating)
                 per_point_1d = len(centers) * (0.3 + self.spin_exp1d.value() + ACQUISITION_READOUT_MARGIN_S) + 0.3
                 per_point_2d = len(centers) * (0.3 + self.spin_exp2d.value() + ACQUISITION_READOUT_MARGIN_S) + 0.3
                 per_point = per_point_1d + per_point_2d
@@ -543,6 +544,9 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         self._wavelengths: Optional[np.ndarray] = None
         self._glue_reference_grid: Optional[np.ndarray] = None
         self._glue_centers: List[float] = []
+        self._glue_window_nm: Optional[float] = None
+        self._glue_window_source: str = ""
+        self._glue_grating: Optional[int] = None
         self.mode = 'single_window'
         self.roi_ycenter = 501
         self.roi_height = 40
@@ -558,6 +562,32 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
 
     def _should_abort(self) -> bool:
         return self._cancel_requested or hardware_session.is_emergency_stopped
+
+    def _plan_glue_centers(self, cfg: dict, reuse_reference: bool = False) -> List[float]:
+        """Centros del Step & Glue para la red montada y la ventana medida en la calibración del
+        espectrógrafo, con la precedencia de DEC-033 (medida > nominal de la hoja de datos).
+
+        En el escaneo (`reuse_reference=True`) se reutiliza la ventana de la referencia si la red
+        no cambió: con los mismos parámetros, referencia y muestra se miden en los mismos centros
+        y cada λ cae en los mismos píxeles de ambas, como supone T = muestra/referencia. Medirla
+        de nuevo no daría lo mismo: la dispersión depende de la posición de la red y el flyback
+        de la referencia la deja en otro lugar."""
+        _, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+        if reuse_reference and grating == self._glue_grating and self._glue_window_nm is not None:
+            measured = self._glue_window_nm if self._glue_window_source == "measured" else None
+        else:
+            if reuse_reference:
+                print(f"[LineScan] Aviso: la red ({grating}) no es la de la referencia "
+                      f"({self._glue_grating}); se planifica con la ventana medida ahora.")
+            measured = measured_window_nm(self.spectrometer)
+        self._glue_grating = grating
+        self._glue_window_nm, self._glue_window_source = resolve_step_window_nm(
+            grating, DETECTOR_WIDTH_PX, window_nm=measured)
+        centers = compute_glue_centers(cfg['glue_start'], cfg['glue_end'], cfg['glue_overlap'],
+                                       grating=grating, window_nm=measured)
+        print(f"[LineScan] Step & Glue: {len(centers)} ventanas de {self._glue_window_nm:.2f} nm "
+              f"({self._glue_window_source}), red {grating}.")
+        return centers
 
     # ── Temporización dinámica (no hardcodeada) ─────────────────────────────
     def _sleep_with_heartbeat(self, duration_s: float, tick_s: float = 0.1) -> bool:
@@ -748,7 +778,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 return
 
             if self.mode == 'step_and_glue':
-                self._glue_centers = compute_glue_centers(cfg['glue_start'], cfg['glue_end'], cfg['glue_overlap'])
+                self._glue_centers = self._plan_glue_centers(cfg)
 
             # ── 1D: señal (lámpara abierta) y fondo (lámpara cerrada) ──────
             open_shutter(lamp)
@@ -851,7 +881,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             n_steps = len(xs)
 
             if self.mode == 'step_and_glue':
-                self._glue_centers = compute_glue_centers(cfg['glue_start'], cfg['glue_end'], cfg['glue_overlap'])
+                self._glue_centers = self._plan_glue_centers(cfg, reuse_reference=True)
 
             if not self._move_and_settle([2, 3], [cfg['y_fixed'], cfg['z_fixed']]):
                 return

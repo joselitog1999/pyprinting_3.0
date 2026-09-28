@@ -83,6 +83,7 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | Tensión mínima que el software acepta en esa salida | `1.0` V | `config.py::LASER_532_V_MIN`, aplicada por `set_laser532_voltage()` en `core/nidaq.py` | RESPALDADO (código) | ✅ |
 | Tensión máxima que el software acepta en esa salida | `5.0` V | `config.py::LASER_532_V_MAX` | RESPALDADO (código) | ✅ |
 | Fotodiodos (entradas analógicas) | 532 nm `ai0`, 592 nm `ai1`, 637 nm `ai2`, 808 nm `ai3`, divisor de haz `ai6` | `config.py::PD_CHANNELS` | RESPALDADO (código) | 📄 |
+| Posición del fotodiodo del divisor de haz (`ai6`) | en el beamsplitter, ve la emisión transmitida del láser y la mide **después** del obturador y del filtro de densidad; el espejo de detección **no** lo afecta. Con el obturador abierto, "BS con luz y fotodiodo de detección sin luz" indica espejo abajo o detección desalineada | investigador (R4 Q14, R9 P-c, 2026-09-27) | EXPERIMENTAL | 📄 |
 | Triggers de posición de la platina | X `ai4`, Y `ai5`, Z `ai3` | `config.py::TRIGGER_CHANNELS` | RESPALDADO (código). **Conflicto:** `ai3` figura a la vez como fotodiodo de 808 nm y como trigger Z (C-44); lo que está cableado se revisa en el banco (R2-6) | 📄 |
 | Canales de láser configurados | 532 / 637 / 592 / 808 nm | `config.py::SHUTTERS` | RESPALDADO (código) | 📄 |
 
@@ -113,7 +114,7 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | Ancho del sensor (eje espectral) | `1004` px | `pyspectrum/drivers/andor_ccd_driver.py::DETECTOR_WIDTH_PX` | RESPALDADO (código; [DS-iXon] p. 1) | ✅ |
 | Alto del sensor | `1002` px | `pyspectrum/drivers/andor_ccd_driver.py::DETECTOR_HEIGHT_PX` | RESPALDADO (código; [DS-iXon] p. 1) | ✅ |
 | Pitch de píxel del detector | `8.0` µm/px | `pyspectrum/drivers/andor_ccd_driver.py::DETECTOR_PIXEL_PITCH_UM` | RESPALDADO (código; [DS-iXon] p. 1) | ✅ |
-| Pitch de píxel en el Analizador SIF | 13.0 µm (**incorrecto**; debe ser 8 µm) | `core/sif_processor.py`, constante `CCD_PIXEL_PITCH_UM` (C-16) | — | 📄 (pasa al gate al corregir C-16) |
+| Pitch de píxel en el Analizador SIF | `8.0` µm/px | `core/sif_processor.py::CCD_PIXEL_PITCH_UM`: copia literal de la constante del driver, que no se importa porque cerraría un import circular (C-16, `DEC-039`); `test_detector_pitch_is_single_valued` exige que ambas valgan lo que dice la hoja de datos | RESPALDADO (código; [DS-iXon] p. 1) | ✅ |
 | Digitalización (ADC) | 14 bit (16 383 cuentas por lectura) a 35, 27 y 13 MHz | [DS-iXon] p. 2 | RESPALDADO. El código supone 16 bit / 65 535 en `sif_analyzer.py` (l. 2499, 3331, 3347) y no tiene un símbolo de profundidad del ADC (C-25) | 📄 (pasa al gate cuando la corrección de C-25 cree el símbolo) |
 | Dispersión nominal, red 150 l/mm (blaze 800) | `12.83` nm/mm | `pyspectrum/drivers/shamrock_driver.py::NOMINAL_DISPERSION_150_NM_PER_MM` | RESPALDADO (código) | ✅ |
 | Dispersión nominal, red 1200 l/mm (blaze 500) | `1.44` nm/mm | `pyspectrum/drivers/shamrock_driver.py::NOMINAL_DISPERSION_1200_NM_PER_MM` | RESPALDADO (código) | ✅ |
@@ -150,8 +151,9 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 > fila propia), y `get_shamrock()` le informa esta geometría al SDK y la relee antes de
 > cualquier calibración. Confirmación opcional en el banco: `GetPixelSize` (sección C de
 > `tools/bench/legacy_console_probe.py`; prueba BANCO-01 de `docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`).
-> **La consolidación no alcanzó al Analizador SIF**, que conserva su propia constante de 13 µm (fila
-> de arriba, C-16).
+> **La consolidación no alcanzó al Analizador SIF**, que conservó su propia constante de 13 µm hasta
+> `DEC-039` (C-16): sus escalas µm/px salían infladas ×1.625 y u_slit subestimada un 38 %. Ahora vale
+> 8 µm, y un test del gate impide que las dos constantes vuelvan a diferir.
 >
 > **Offsets del Shamrock**: el código escribe al Shamrock, en cada arranque, offsets inventados
 > (red 1 = 12, red 2 = −35, detector 5) desde `pyspectrum/modules/calibration_dock.py` (C-04), y

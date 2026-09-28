@@ -230,5 +230,134 @@ class TestLineScanSpectroscopy(unittest.TestCase):
                 os.remove(h5_path)
 
 
+class TestLineScanGlueCoverage(unittest.TestCase):
+    """C-22 (fase pendiente de DEC-033): el Step & Glue del escaneo lineal cubre todo el rango
+    pedido. Antes planificaba con una ventana fija de 240 nm, heredada del pitch de 13 µm, contra
+    ventanas reales de ~103 nm (150 l/mm) y ~11.6 nm (1200 l/mm): con 20 % de solapamiento
+    quedaba sin medir cerca de la mitad del rango. La cobertura se calcula acá con los ejes
+    REALES que la rutina leyó del espectrógrafo simulado, sin usar el planificador ni
+    `coverage_gaps_nm`: el test no confía en lo que está verificando."""
+
+    RANGES = ((1, 450.0, 750.0), (2, 540.0, 560.0))  # (red, inicio nm, fin nm)
+
+    def setUp(self):
+        hardware_session.clear_emergency()
+        self.worker = LineScanSpectroscopyWorker()
+        self.spectrometer = self.worker.spectrometer
+        self.assertTrue(getattr(self.spectrometer, 'is_mock', False))
+        self.axes = []
+        read_axis = self.worker._get_wavelength_axis
+
+        def _recording_axis(n_pixels):
+            wl = read_axis(n_pixels)
+            self.axes.append(np.asarray(wl, dtype=np.float64))
+            return wl
+        self.worker._get_wavelength_axis = _recording_axis
+
+    def tearDown(self):
+        self.spectrometer.ShamrockSetGrating(0, 1)
+        hardware_session.release_session("Escaneo Lineal Espectroscópico")
+        hardware_session.release_session("Escaneo Lineal Espectroscópico — Referencia")
+        hardware_session.clear_emergency()
+
+    @staticmethod
+    def _uncovered_fraction(waves, a, b):
+        grid = np.linspace(a, b, 20001)
+        covered = np.zeros_like(grid, dtype=bool)
+        for w in waves:
+            covered |= (grid >= np.min(w)) & (grid <= np.max(w))
+        return float((~covered).mean())
+
+    def test_reference_covers_requested_range(self):
+        for grating, a, b in self.RANGES:
+            with self.subTest(grating=grating):
+                self.spectrometer.ShamrockSetGrating(0, grating)
+                self.axes.clear()
+                errors = []
+                on_error = errors.append
+                self.worker.errorSignal.connect(on_error)
+                try:
+                    self.worker.acquire_reference(_base_ref_cfg('step_and_glue', glue_start=a, glue_end=b))
+                finally:
+                    self.worker.errorSignal.disconnect(on_error)
+                self.assertEqual(errors, [])
+                self.assertIsNotNone(self.worker._reference, "La referencia no se completó.")
+                self.assertEqual(self._uncovered_fraction(self.axes, a, b), 0.0,
+                                 f"red {grating}: centros {self.worker._glue_centers}")
+
+    def test_scan_covers_requested_range(self):
+        for grating, a, b in self.RANGES:
+            with self.subTest(grating=grating):
+                self.spectrometer.ShamrockSetGrating(0, grating)
+                self.worker.acquire_reference(_base_ref_cfg('step_and_glue', glue_start=a, glue_end=b))
+                self.assertIsNotNone(self.worker._reference, "La referencia no se completó.")
+                self.axes.clear()
+                done = []
+                on_done = done.append
+                self.worker.scanCompletedSignal.connect(on_done)
+                try:
+                    self.worker.run_scan(_base_scan_cfg('step_and_glue', glue_start=a, glue_end=b))
+                finally:
+                    self.worker.scanCompletedSignal.disconnect(on_done)
+                self.assertEqual(len(done), 1, "No se emitió scanCompletedSignal.")
+                os.remove(done[0])
+                self.assertEqual(self._uncovered_fraction(self.axes, a, b), 0.0,
+                                 f"red {grating}: centros {self.worker._glue_centers}")
+
+    def test_scan_reuses_the_reference_plan(self):
+        """Con los mismos parámetros, referencia y muestra se miden en los mismos centros: cada λ
+        cae en los mismos píxeles de ambas, como supone la transmitancia T = muestra/referencia.
+        La fórmula fija anterior lo garantizaba; volver a medir la ventana al empezar el escaneo
+        no, porque en el hardware la dispersión lineal depende de la posición de la red (cos β) y
+        el flyback de la referencia deja el espectrógrafo en otro lugar. El mock no modela esa
+        dependencia (su ventana es la misma en cualquier λ), así que acá se la simula."""
+        from pyspectrum.modules.routines import linescan_spectroscopy as ls_mod
+        read_window = ls_mod.measured_window_nm
+
+        def _position_dependent_window(spectrometer):
+            _, wl_now = spectrometer.ShamrockGetWavelength(0)
+            return read_window(spectrometer) * (1.0 + 2e-4 * (float(wl_now) - 500.0))
+
+        original = ls_mod.measured_window_nm
+        ls_mod.measured_window_nm = _position_dependent_window
+        try:
+            for grating, a, b in self.RANGES:
+                with self.subTest(grating=grating):
+                    self.spectrometer.ShamrockSetGrating(0, grating)
+                    self.spectrometer.ShamrockSetWavelength(0, 650.0)  # lejos del primer centro
+                    self.worker.acquire_reference(_base_ref_cfg('step_and_glue', glue_start=a, glue_end=b))
+                    reference_centers = list(self.worker._glue_centers)
+                    done = []
+                    on_done = done.append
+                    self.worker.scanCompletedSignal.connect(on_done)
+                    try:
+                        self.worker.run_scan(_base_scan_cfg('step_and_glue', glue_start=a, glue_end=b))
+                    finally:
+                        self.worker.scanCompletedSignal.disconnect(on_done)
+                    self.assertEqual(len(done), 1, "No se emitió scanCompletedSignal.")
+                    os.remove(done[0])
+                    self.assertEqual(self.worker._glue_centers, reference_centers)
+        finally:
+            ls_mod.measured_window_nm = original
+
+    def test_plan_uses_the_window_measured_on_the_spectrograph(self):
+        """Precedencia de DEC-033: con la geometría del detector verificada, la ventana sale de la
+        calibración del espectrógrafo, no de una constante."""
+        for grating, a, b in self.RANGES:
+            with self.subTest(grating=grating):
+                self.spectrometer.ShamrockSetGrating(0, grating)
+                # La ventana se mide en la posición actual del espectrógrafo, antes de moverlo.
+                _, axis = self.spectrometer.get_wavelength_axis_cubic(0, 1004)
+                span_here = float(np.max(axis) - np.min(axis))
+                self.worker.acquire_reference(_base_ref_cfg('step_and_glue', glue_start=a, glue_end=b))
+                self.assertEqual(self.worker._glue_window_source, "measured")
+                self.assertAlmostEqual(self.worker._glue_window_nm, span_here, places=9)
+                # Orden de magnitud contra la hoja de datos del Shamrock 500i x 1004 px x 8 µm
+                # (103.05 / 11.57 nm): la ventana medida sale del eje cúbico, cuya curvatura la
+                # agranda un 0.8 % (150 l/mm) y un 7.7 % (1200 l/mm) en el mock.
+                nominal = {1: 12.83, 2: 1.44}[grating] * 1004 * 8.0 / 1000.0
+                self.assertLess(abs(self.worker._glue_window_nm / nominal - 1.0), 0.10)
+
+
 if __name__ == "__main__":
     unittest.main()

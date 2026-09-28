@@ -92,8 +92,22 @@ def test_scan_step_xy_applies_long_settle_only_on_flyback_pixel(app, monkeypatch
     monkeypatch.setattr(confocal_mod, "channels_photodiodos", lambda rate, n: fake_task)
     monkeypatch.setattr(confocal_mod, "heartbeat_shutter", lambda *a, **k: None)
 
+    # `confocal_mod.time` es el módulo `time` global: el reemplazo alcanza a todos los hilos del
+    # proceso. Se registran sólo las llamadas de este hilo; las demás (p. ej. el `sleep(0.1)` del
+    # ShutterWatchdog, vivo por tests anteriores) siguen con el `sleep` real. Sin esto, el test
+    # capturaba decenas de miles de llamadas ajenas según el orden de la suite (DEC-039).
+    import threading
+    real_sleep = confocal_mod.time.sleep
+    test_thread = threading.current_thread()
     sleeps = []
-    monkeypatch.setattr(confocal_mod.time, "sleep", lambda s: sleeps.append(s))
+
+    def _record_sleep(s):
+        if threading.current_thread() is test_thread:
+            sleeps.append(s)
+        else:
+            real_sleep(s)
+
+    monkeypatch.setattr(confocal_mod.time, "sleep", _record_sleep)
 
     backend._scan_step_xy()  # i=0 (flyback real del inicio) -> settle largo
     backend._scan_step_xy()  # i=1 -> settle normal
@@ -356,3 +370,82 @@ def test_scan_row_is_not_acquired_when_the_stage_fails(app, monkeypatch):
     backend._scan_ramp_xy()
     assert ramps == [], "Sin asentamiento confirmado por falla no se dispara la rampa"
     assert backend.i == 0
+
+
+# ── C-21 — centrado Gauss/Donut al final del escaneo del confocal dual ──────
+# `_compute_center` llamaba `center_of_gauss2D(Zf)` / `center_of_donut2D(Zf)` sin la semilla
+# `xo, yo` que ambas exigen (`analysis/psf.py`): con el centrado Gauss o Donut, el `TypeError`
+# saltaba en `_finish_ramp_scan` después de cerrar los obturadores y antes del retorno de la
+# platina y de la señal de fin del escaneo.
+
+_C21_METHODS = [  # (TOP, BOT): los tres métodos, cada uno en el canal que lo ofrece
+    ("center of mass", "center of mass"),
+    ("center of gauss", "center of gauss"),
+    ("center of mass", "donut (Laguerre-Gauss)"),  # TOP por CM: el Donut falla por sí mismo
+]
+_C21_TRUTH_TOP, _C21_TRUTH_BOT = (20.0, 14.0), (15.0, 18.0)  # (columna, fila) en píxeles
+
+
+def _psf_image(n, col, row, donut=False):
+    yy, xx = np.mgrid[0:n, 0:n].astype(float)
+    r2 = ((xx - col) ** 2 + (yy - row) ** 2) / (2.0 * 3.0 ** 2)
+    return 7.0 * (r2 * np.exp(-r2) if donut else np.exp(-r2))
+
+
+def _c21_backend(monkeypatch, method_top, method_bot, grid):
+    """Confocal dual al final de un escaneo, con PSF sintéticas de centro conocido. La platina
+    y los obturadores se reemplazan por registros: el test no mueve nada, sólo anota qué se
+    habría comandado."""
+    assert method_top in cp_mod.METHOD_CENTER_TOP and method_bot in cp_mod.METHOD_CENTER_BOT
+    backend = cp_mod.ConfocalDualBackend()
+    n = backend.Nx
+    assert backend.Ny == n, "El test supone una imagen cuadrada, como el default del escaneo"
+    backend.x_pos = backend.y_pos = 50.0
+    backend.x_start, backend.y_start, backend.z_start = 50.0, 50.0, 10.0
+    backend.image_top = _psf_image(n, *_C21_TRUTH_TOP)
+    backend.image_bot = _psf_image(n, *_C21_TRUTH_BOT, donut=(method_bot == cp_mod.METHOD_CENTER_BOT[2]))
+    backend.method_center_top_opt = method_top
+    backend.method_center_bot_opt = method_bot
+    backend.is_grid_routine = grid
+    log = {"moves": [], "closes": []}
+    monkeypatch.setattr(cp_mod, "close_all_shutters", lambda: log["closes"].append(1) or True)
+    monkeypatch.setattr(cp_mod.pi, "MOV", lambda axes, pos: log["moves"].append((list(axes), list(pos))) or True)
+    return backend, log
+
+
+@pytest.mark.parametrize("method_top,method_bot", _C21_METHODS)
+def test_contraprop_scan_finishes_with_every_centering_method(app, monkeypatch, method_top, method_bot):
+    backend, log = _c21_backend(monkeypatch, method_top, method_bot, grid=False)
+    finished = []
+    backend.scanfinishedSignal.connect(lambda *args: finished.append(args))
+
+    backend._finish_ramp_scan(cp_mod.QTimer())
+
+    assert log["closes"] == [1]
+    assert len(finished) == 1, "El escaneo debe emitir scanfinishedSignal"
+    # El único movimiento es el retorno al punto de inicio, el mismo con los tres métodos: la
+    # corrección no agrega ni cambia ningún movimiento de la platina.
+    assert log["moves"] == [([1, 2, 3], [50.0, 50.0, 10.0])]
+    n = backend.Nx
+    dx, dy = backend.range_x / n, backend.range_y / n
+    for cm, (col, row) in ((backend.cm_top, _C21_TRUTH_TOP), (backend.cm_bot, _C21_TRUTH_BOT)):
+        x_um, y_um = cm
+        assert backend.x_pos - backend.range_x / 2 <= x_um <= backend.x_pos + backend.range_x / 2
+        assert backend.y_pos - backend.range_y / 2 <= y_um <= backend.y_pos + backend.range_y / 2
+        expected = (backend.x_pos - backend.range_x / 2 + dx / 2 + col * dx,
+                    backend.y_pos - backend.range_y / 2 + dy / 2 + row * dy)
+        assert abs(x_um - expected[0]) <= dx and abs(y_um - expected[1]) <= dy, (cm, expected)
+
+
+@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
+    "Defecto aparte, no exento (DEC-039): `gridScanFinishedSignal` declara np.ndarray en los "
+    "argumentos 3 y 4 y `_finish_ramp_scan` emite None, así que la grilla del contrapropagante "
+    "se detiene al final del escaneo con cualquier método de centrado. Corregirlo habilita el "
+    "flujo de impresión de `measurements.on_scan_finished` (platina y obturadores): fase 6.4."))
+@pytest.mark.parametrize("method_top,method_bot", _C21_METHODS)
+def test_contraprop_grid_scan_reaches_the_grid_routine(app, monkeypatch, method_top, method_bot):
+    backend, log = _c21_backend(monkeypatch, method_top, method_bot, grid=True)
+    finished = []
+    backend.gridScanFinishedSignal.connect(lambda *args: finished.append(args))
+    backend._finish_ramp_scan(cp_mod.QTimer())
+    assert len(finished) == 1

@@ -216,6 +216,41 @@ Fase 0 (hoy)
         Fase 6 (resto) ─► Fase 7 ─► despliegue de main en el laboratorio (tras el Grupo E del banco)
 ```
 
+## Hoja de ruta (actualizada el 2026-09-27)
+
+**Inmediato**
+1. **Cerrar el lote 1 de la fase 5** (C-16, C-22, C-21, C-48; `DEC-039`): suite completa, resultado en `DEC-039`, `graphify update .`, y commit del investigador.
+2. **Piloto del verificador** (fase 3). Se hace **en la sesión reiniciada**, con el árbol commiteado, porque M10 exige que nada escriba en el repositorio durante las corridas. El protocolo está en `F3_piloto/README.md`. Si se adopta, se conecta a las skills; si falla M1 o M3, se rediseña.
+3. **Cerrar la Ronda 3 de C-01** con las respuestas a P-a a P-d (`c01_ronda3/qa_ux_audit.md` §7.6).
+
+**C-01, Ronda 4**
+4. Mini Rondas 1-2 de instrumentación para la parada de emergencia propia de PyPrinting, "Cerrar todos · la grilla sigue" y la lectura a baja potencia (R4-17, R4-3, N-1 a N-4). Tocan obturadores: no son exentas.
+5. Tabla de reconciliación motor ↔ GUI (R4-1 a R4-31), e implementación de la opción E detrás de `TRACE_ACQ_BACKEND = "legacy_timer"`, que sigue siendo el valor por defecto. Incluye:
+   - el test de paridad de P0 contra el legado (N-7, N-8);
+   - la GUI de la v2;
+   - G-2 y G-3 (exentos);
+   - el manual.
+
+**Después**
+6. **Fase 4:** documentación, en las tandas a1-a8, con el verificador como control. El archivado en implementables o desconocidos empieza por la lista con la categoría propuesta para cada documento, que el investigador aprueba antes de mover nada.
+7. **Fase 6, resto:**
+   - latido de vida de las rutinas;
+   - persistencia y resincronización del espejo de detección;
+   - refactorización del contrapropagante (reutilizar módulos; el xfail de `gridScanFinishedSignal`);
+   - rutinas de grilla de PySpectrum (ACT-N1, AND, C-10, C-54);
+   - driver del Shamrock y la Andor, con offsets dinámicos y la rutina de calibración con 532 nm + filtro de densidad;
+   - C-03, C-30, C-31, C-33, C-34, C-45 y C-46.
+8. **Fase 7:**
+   - termometría por el método relativo;
+   - Monte Carlo con el mismo estimador que la medición, validado en [0, 0.3·a];
+   - ξ, y p por conteo;
+   - base honeycomb y presets;
+   - Picasso;
+   - el resto de los ítems b2.
+9. **Fase 8:** sesiones de banco con la batería `BANCO-01` a `BANCO-35`, primero con los láseres apagados.
+
+**Despliegue de `main` en la PC del laboratorio:** con `DEC-037` la traza de `main` ya lee igual que producción. Lo que falta es pasar el Grupo E del banco (`BANCO-15` a `BANCO-19`), que valida `DEC-036`. Si se activa la opción E, además `BANCO-26` a `BANCO-31`.
+
 ## Respuestas del investigador a la aprobación (2026-09-27)
 
 1. **Plan aprobado.**
@@ -241,6 +276,9 @@ Fase 0 (hoy)
 | 2026-09-27 | 6.1 | **Paso 0 de C-01 aplicado (`DEC-037`)**: la traza y Power BS vuelven a la lectura finita por tick de producción. Test nuevo con un doble que modela el buffer de DAQmx: falla antes de la reversión (4/4) y pasa después (4/4). | Hecho |
 | 2026-09-27 | 6.1 | Ronda 2 de C-01 (opción E): panel `software-architect`, `instrumentation` y `metrology`, en `c01_ronda2/`, con los scripts de simulación. Arreglo derivado: `task.close()` en `finally` (DEC-037, con test). Se agregó `BANCO-34` (revisión de trazas guardadas). | **Aprobada** (cuarta ronda), con tres aclaraciones pendientes: falla de adquisición, liberación automática del bloqueo, convivencia de dos programas (`BANCO-35`). Después sigue la Ronda 3 (GUI). |
 | 2026-09-27 | 3 | Ronda 4 del verificador (`DEC-038`):<br>• agente `provenance-verifier`, de sólo lectura;<br>• `tools/source_marks.py` (detector de cifras, marcas, cobertura, `check-report`, índice de bibliografía);<br>• tests de validez (fallan) y de cobertura (advierten), con controles negativos y 8/8 mutaciones detectadas;<br>• `CLAUDE.md` §6 y §9;<br>• materiales del piloto en `F3_piloto/`;<br>• de paso, arreglo de aislamiento de pyqtgraph en `tests/conftest.py`.<br>Suite 1010/1010. **El piloto queda pendiente para una sesión nueva**, porque el agente recién está disponible cuando se recargan los agentes. | Hecho (adopción pendiente del piloto) |
-| 2026-09-27 | 6.1 | Ronda 3 de C-01 (GUI):<br>• diseño de `scientific-gui-designer` en `c01_ronda3/gui_design.md`, con defectos nuevos de la GUI actual (G-1d, G-2, G-3, G-5, G-6, G-8);<br>• auditoría de `qa-ux-auditor` en curso;<br>• dato nuevo: la cadencia del legado PyPrinting es de ≈ 10 ms (`pointtimer.start(0)`), así que 20/20 en el legado son ≈ 200 ms. | En curso |
+| 2026-09-27 | 6.1 | Ronda 3 de C-01 (GUI):<br>• diseño de `scientific-gui-designer` en `c01_ronda3/gui_design.md`, con defectos nuevos de la GUI actual (G-1d, G-2, G-3, G-5, G-6, G-8);<br>• auditoría de `qa-ux-auditor` en curso;<br>• dato nuevo: la cadencia del legado PyPrinting es de ≈ 10 ms (`pointtimer.start(0)`), así que 20/20 en el legado son ≈ 200 ms.<br>Respuestas P1-P15 del investigador en la sexta ronda: P0 reproduce el legado.<br>Auditoría qa-ux en `c01_ronda3/qa_ux_audit.md`: 42 hallazgos (3 CRÍTICA, 17 ALTA). **QA-02**, verificado también en `7f5d10a`: "Cerrar Todos" no detiene la grilla y el nodo siguiente reabre el obturador. | Auditada. Respuestas P-C a P-L en la séptima ronda. Versión 2 del diseño (`gui_design_v2.md`) hecha: los 42 hallazgos tienen disposición y la reconciliación R4-1 a R4-24 está actualizada. Segunda pasada de qa-ux (§7 de `qa_ux_audit.md`): pasa a la Ronda 4 como MINOR_UX_POLISH_NEEDED con condiciones. 11 hallazgos nuevos, N-1 a N-11 (6 ALTA, ninguno CRÍTICO). N-1 a N-4 entran en la ronda de instrumentación de R4-17; N-7 y N-8 se resuelven antes de llamar "paridad" a P0 (R4-25 a R4-31). Preguntas P-a a P-d. Contestadas en la novena ronda. | **Ronda 3 cerrada.** Queda a confirmar en la Ronda 4 sólo la acción ante espejo abajo (cortar y pausar). |
+| 2026-09-27 | — | El investigador commiteó las fases 0-3, `DEC-037` y `DEC-038` (`4a3d3a4`). | Hecho |
+| 2026-09-27 | 5 | Primer lote de exentos (`DEC-039`): C-16, C-22 (con un refinamiento: el escaneo reutiliza el plan de la referencia), C-21 y C-48, cada uno con un test que falla primero. C-20, C-35 y los defectos G de la GUI pasan a la Ronda 4 de C-01.<br>Quedan registrados en `DEC-039` para otras fases, porque no son exentos:<br>• C-21b (`gridScanFinishedSignal` con `None`, fase 6.4);<br>• `_finish_ramp_scan` ignora el `bool` de `close_all_shutters()` (fase 6.4);<br>• la extrapolación plana de C-48 (fase 7);<br>• un residuo de 13 µm en `calibration_dock` (fase 6.6);<br>• la procedencia del HDF5 del escaneo lineal.<br>Suite: 1030 passed, 3 xfailed, 0 failed (corrida de diagnóstico). | Hecho |
+| 2026-09-27 | 5 | **Infraestructura de tests, pendiente:** las ventanas que los tests no cierran se acumulan (14 052 vivas al llegar a `test_sif_analyzer_gui::test_12`) y probablemente causan el aborto nativo intermitente de Qt (3 de 6 corridas completas). Arreglo exento, sólo tests: liberar las ventanas de cada módulo, cuidando las que tienen `QThread` corriendo, y validarlo en varias corridas. Ya hecho: el excepthook de captura en `conftest.py` y el aislamiento del `sleep` en `test_confocal.py`. | **Siguiente, después del piloto** |
 | 2026-09-27 | 8 | Batería de banco ampliada: grupo F (relevamiento, `BANCO-20` a `BANCO-25`) y grupo G (traza, `BANCO-26` a `BANCO-33`), con todas las dudas que el investigador dejó para verificar en el banco. | Hecho |
 | 2026-09-27 | 6.1 | Ronda 1 de C-01 (traza): panel instrumentation / experimentalist / devil-advocate; notas en `c01_ronda1/`. La cadencia real de 47.5 ms del QTimer de 35 ms se reprodujo con `c01_ronda1/timer_probe.py`. | Presentada; esperando respuestas del investigador |

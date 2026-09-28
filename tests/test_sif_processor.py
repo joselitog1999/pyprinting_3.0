@@ -321,6 +321,66 @@ class TestSifProcessor(unittest.TestCase):
         self.assertGreater(res_gauss['fwhm'], 0.0)
 
 
+# Oráculo independiente del código bajo prueba (C-16, fase pendiente de DEC-033): las hojas de
+# datos del Andor iXon3 885 y del sensor TI TC285SPD-30 dan píxeles de 8 x 8 µm. Se escribe como
+# literal a propósito: si el test derivara su expectativa de la constante que verifica, un valor
+# equivocado se confirmaría a sí mismo (así sobrevivió el 13 µm).
+DATASHEET_PITCH_UM = 8.0
+
+
+class TestDetectorPitchC16(unittest.TestCase):
+    """El Analizador SIF usa el pitch verificado del detector, no el 13 µm sin fuente.
+
+    Con 13 µm las escalas µm/px de los cinco objetivos salían infladas x1.625 y u_slit
+    subestimada un 38 % (C-16, V-15)."""
+
+    def test_pitch_constant_is_datasheet_value(self):
+        from core.sif_processor import CCD_PIXEL_PITCH_UM
+        self.assertEqual(CCD_PIXEL_PITCH_UM, DATASHEET_PITCH_UM)
+
+    def test_pitch_matches_canonical_detector_constant(self):
+        """Una sola geometría del detector en todo el proyecto (DEC-031)."""
+        from core.sif_processor import CCD_PIXEL_PITCH_UM
+        from pyspectrum.drivers.andor_ccd_driver import DETECTOR_PIXEL_PITCH_UM
+        self.assertEqual(CCD_PIXEL_PITCH_UM, DETECTOR_PIXEL_PITCH_UM)
+
+    def test_objective_scales_follow_datasheet_pitch(self):
+        for name, obj in MICROSCOPE_OBJECTIVES.items():
+            with self.subTest(objective=name):
+                np.testing.assert_allclose(obj["pixel_scale_um"], DATASHEET_PITCH_UM / obj["m_spec"], rtol=1e-12)
+        # Objetivo de agua 60x: M_spec = 1.25 * 250 mm / 3 mm = 104.17 -> 8 / 104.17 = 0.0768 µm/px.
+        np.testing.assert_allclose(
+            MICROSCOPE_OBJECTIVES["Olympus LUMPlanFLN 60x W (NA 1.00)"]["pixel_scale_um"], 0.0768, rtol=1e-9)
+
+    def test_objective_descriptions_quote_the_computed_scale(self):
+        """El texto descriptivo de cada objetivo cita su escala: no puede quedar con la del 13 µm."""
+        import re
+        for name, obj in MICROSCOPE_OBJECTIVES.items():
+            with self.subTest(objective=name):
+                m = re.search(r"([0-9]+\.[0-9]+)\s*µm/px", obj["description"])
+                self.assertIsNotNone(m, f"La descripción de {name} no cita una escala µm/px")
+                self.assertAlmostEqual(float(m.group(1)), obj["pixel_scale_um"], delta=6e-4)
+
+    def test_uncertainty_defaults_use_datasheet_pitch(self):
+        import inspect
+        from core.sif_processor import (compute_wavelength_uncertainty, fit_peak_advanced,
+                                         fit_extinction_multi_peak)
+        for fn in (compute_wavelength_uncertainty, fit_peak_advanced, fit_extinction_multi_peak):
+            with self.subTest(function=fn.__name__):
+                default = inspect.signature(fn).parameters["pixel_pitch_um"].default
+                self.assertEqual(default, DATASHEET_PITCH_UM)
+
+    def test_wavelength_uncertainty_slit_term_uses_datasheet_pitch(self):
+        """Rendija de 100 µm sobre píxeles de 8 µm = 12.5 px de ancho espectral (no 7.7 px)."""
+        from core.sif_processor import compute_wavelength_uncertainty
+        disp_nm_px = 0.1
+        wl = 500.0 + disp_nm_px * np.arange(1004)
+        u_c = compute_wavelength_uncertainty(wl, slit_width_um=100.0, calib_uncertainty_nm=0.08)
+        n_px_slit = 100.0 / DATASHEET_PITCH_UM
+        expected = np.sqrt((n_px_slit * disp_nm_px) ** 2 / 12.0 + disp_nm_px ** 2 / 12.0 + 0.08 ** 2)
+        np.testing.assert_allclose(u_c, expected, rtol=1e-9)
+
+
 if __name__ == '__main__':
     unittest.main()
 

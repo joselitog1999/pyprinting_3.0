@@ -45,13 +45,21 @@ except ImportError:
 # Lente tubo intermedia: f1 = 250 mm | Lente colimadora relé: f2 = 200 mm (Gamma = 1.25x)
 # Lente de inyección a Shamrock 500i: f_spec = 250 mm
 # Magnificación efectiva a la ranura: M_spec = Gamma * (f_spec / f_obj) = 312.5 mm / f_obj
-# Detector Andor iXon3 DU8285: pixel pitch = 13.0 um
+# Detector Andor iXon3 885 (cabezal DU8285_VP): pixel pitch = 8.0 um (C-16, DEC-033)
 # ==============================================================================
 F_RELE_1_MM = 250.0
 F_RELE_2_MM = 200.0
 GAMMA_RELE = F_RELE_1_MM / F_RELE_2_MM  # 1.25x
 F_SPEC_MM = 250.0
-CCD_PIXEL_PITCH_UM = 13.0
+# Pitch verificado del detector: hojas de datos del iXon3 885 y del sensor TI TC285SPD-30
+# (8 x 8 µm; DEC-033). El 13.0 que hubo acá no tenía fuente e inflaba las escalas µm/px x1.625
+# y subestimaba u_slit un 38 % (C-16). La fuente canónica es
+# pyspectrum/drivers/andor_ccd_driver.py::DETECTOR_PIXEL_PITCH_UM, pero no se importa: importar
+# cualquier submódulo de `pyspectrum` ejecuta pyspectrum/__init__.py, que carga la ventana
+# (PyQt6, core.nidaq y su hilo ShutterWatchdog) y vuelve a importar este módulo a medio
+# inicializar (import circular, verificado). Que ambos valgan lo mismo lo exigen
+# tests/test_sif_processor.py y tests/test_prompt_corpus_integrity.py.
+CCD_PIXEL_PITCH_UM = 8.0
 
 MICROSCOPE_OBJECTIVES = {
     "Olympus MPLN 10x Aire (NA 0.25)": {
@@ -62,8 +70,8 @@ MICROSCOPE_OBJECTIVES = {
         "na": 0.25,
         "medium": "Aire (n=1.0)",
         "m_spec": (GAMMA_RELE * F_SPEC_MM) / 18.00,  # 17.361x
-        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 18.00),  # 0.7488 um/px
-        "description": "Alineación rápida y localización de campo amplio (0.749 µm/px)"
+        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 18.00),  # 0.4608 um/px
+        "description": "Alineación rápida y localización de campo amplio (0.461 µm/px)"
     },
     "Olympus 20x Aire (NA 0.40)": {
         "name": "Olympus 20x",
@@ -73,8 +81,8 @@ MICROSCOPE_OBJECTIVES = {
         "na": 0.40,
         "medium": "Aire (n=1.0)",
         "m_spec": (GAMMA_RELE * F_SPEC_MM) / 9.00,   # 34.722x
-        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 9.00),   # 0.3744 um/px
-        "description": "Campo medio para localización de nanopartículas (0.374 µm/px)"
+        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 9.00),   # 0.2304 um/px
+        "description": "Campo medio para localización de nanopartículas (0.230 µm/px)"
     },
     "Nikon CFI S Plan Fluor 40x Aire (NA 0.60)": {
         "name": "Nikon 40x",
@@ -84,8 +92,8 @@ MICROSCOPE_OBJECTIVES = {
         "na": 0.60,
         "medium": "Aire (Collar 0-2 mm)",
         "m_spec": (GAMMA_RELE * F_SPEC_MM) / 5.00,   # 62.500x
-        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 5.00),   # 0.2080 um/px
-        "description": "Alta resolución aire con collar de cubreobjetos (0.208 µm/px)"
+        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 5.00),   # 0.1280 um/px
+        "description": "Alta resolución aire con collar de cubreobjetos (0.128 µm/px)"
     },
     "Olympus LUMPlanFLN 60x W (NA 1.00)": {
         "name": "Olympus 60x W",
@@ -95,8 +103,8 @@ MICROSCOPE_OBJECTIVES = {
         "na": 1.00,
         "medium": "Agua (n=1.333)",
         "m_spec": (GAMMA_RELE * F_SPEC_MM) / 3.00,   # 104.167x
-        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 3.00),   # 0.1248 um/px
-        "description": "Inmersión directa en agua sobre muestra (sin aberración esférica, 0.125 µm/px)"
+        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 3.00),   # 0.0768 um/px
+        "description": "Inmersión directa en agua sobre muestra (sin aberración esférica, 0.077 µm/px)"
     },
     "Nikon S Plan Fluor 100x Oil (NA 0.50-1.30)": {
         "name": "Nikon 100x Oil",
@@ -106,8 +114,8 @@ MICROSCOPE_OBJECTIVES = {
         "na": 1.30,
         "medium": "Aceite (n=1.515)",
         "m_spec": (GAMMA_RELE * F_SPEC_MM) / 2.00,   # 156.250x
-        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 2.00),   # 0.0832 um/px
-        "description": "Inmersión en aceite con diafragma iris variable (0.083 µm/px)"
+        "pixel_scale_um": CCD_PIXEL_PITCH_UM / ((GAMMA_RELE * F_SPEC_MM) / 2.00),   # 0.0512 um/px
+        "description": "Inmersión en aceite con diafragma iris variable (0.051 µm/px)"
     }
 }
 

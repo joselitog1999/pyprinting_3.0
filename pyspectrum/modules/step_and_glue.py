@@ -326,6 +326,32 @@ class Frontend(QtWidgets.QFrame):
         self.curve_fit.setData(wave_fit, spec_fit)
 
 
+def measured_window_nm(spectrometer) -> Optional[float]:
+    """Ancho espectral real que cubre el detector, leído de la calibración del espectrógrafo
+    en la posición actual. None si no se puede confiar en ella: geometría del detector no
+    verificada en el SDK, código de error, o un eje no finito o degenerado (p. ej. espejo).
+
+    Planificar con la ventana medida y no con una constante es lo que evita que un número
+    equivocado deje huecos en hardware mientras el mock, que comparte ese número, los tapa
+    (DEC-033). Una variación de la dispersión con λ de pocos % la absorbe el solapamiento.
+    Función de módulo para que el escaneo lineal planifique igual, sin una copia (C-22)."""
+    if getattr(spectrometer, "geometry_verified", True) is False:
+        return None
+    try:
+        if hasattr(spectrometer, "get_wavelength_axis_cubic"):
+            ret, axis = spectrometer.get_wavelength_axis_cubic(DEVICE, DETECTOR_WIDTH_PX)
+        else:
+            ret, axis = spectrometer.ShamrockGetCalibration(DEVICE, DETECTOR_WIDTH_PX)
+    except Exception as e:
+        print(f"[Step & Glue] No se pudo leer la calibración para planificar: {e}")
+        return None
+    axis = np.asarray(axis, dtype=np.float64)
+    if ret != SHAMROCK_SUCCESS or axis.size < 2 or not np.all(np.isfinite(axis)):
+        return None
+    span = float(axis.max() - axis.min())
+    return span if span > 0.0 else None
+
+
 class Backend(QtCore.QObject):
     """Motor de adquisición y cosido espectral continuo."""
 
@@ -381,28 +407,8 @@ class Backend(QtCore.QObject):
         print(f"[Step & Glue] Fondo de sustrato fijado (forma {self._substrate_signal.shape}).")
 
     def _measured_window_nm(self) -> Optional[float]:
-        """Ancho espectral real que cubre el detector, leído de la calibración del espectrógrafo
-        en la posición actual. None si no se puede confiar en ella: geometría del detector no
-        verificada en el SDK, código de error, o un eje no finito o degenerado (p. ej. espejo).
-
-        Planificar con la ventana medida y no con una constante es lo que evita que un número
-        equivocado deje huecos en hardware mientras el mock, que comparte ese número, los tapa
-        (DEC-033). Una variación de la dispersión con λ de pocos % la absorbe el solapamiento."""
-        if getattr(self.spectrometer, "geometry_verified", True) is False:
-            return None
-        try:
-            if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                ret, axis = self.spectrometer.get_wavelength_axis_cubic(DEVICE, DETECTOR_WIDTH_PX)
-            else:
-                ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, DETECTOR_WIDTH_PX)
-        except Exception as e:
-            print(f"[Step & Glue] No se pudo leer la calibración para planificar: {e}")
-            return None
-        axis = np.asarray(axis, dtype=np.float64)
-        if ret != SHAMROCK_SUCCESS or axis.size < 2 or not np.all(np.isfinite(axis)):
-            return None
-        span = float(axis.max() - axis.min())
-        return span if span > 0.0 else None
+        """Ventana real del detector en la posición actual; ver `measured_window_nm()`."""
+        return measured_window_nm(self.spectrometer)
 
     def _settle_wavelength(self, wl_center: float, timeout_s: float = GRATING_SETTLE_TIMEOUT_S) -> bool:
         """Settle del grating SIN sleep fijo: polling real de is_moving()/wait_until_ready()

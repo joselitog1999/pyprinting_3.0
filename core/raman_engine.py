@@ -69,6 +69,24 @@ RAMAN_REFERENCE_STANDARDS: Dict[str, Dict[str, Union[float, List[float], str]]] 
 #  1. LECTURA ROBUSTA DE ARCHIVOS ANDOR SOLIS
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Separadores de columna, en el orden en que se prueban sobre la primera fila de datos (C-48).
+# ";": CSV europeo, la coma es decimal. ",": CSV con punto decimal. None: tabulación o espacios
+# (`str.split()`), la coma es decimal, como en los .asc de Solis en español. Probar "," antes que
+# None no cambia ninguna fila que se leyera por espacios: con una coma decimal, el segundo tramo
+# separado por comas contiene el espacio entre columnas y no es un número.
+_COLUMN_DELIMITERS: Tuple[Optional[str], ...] = (";", ",", None)
+
+
+def _split_data_row(line: str, delimiter: Optional[str]) -> List[str]:
+    """Tokens de una fila de datos, normalizados a punto decimal, según el separador."""
+    if delimiter is None:
+        return line.replace(",", ".").split()
+    tokens = [t.strip() for t in line.split(delimiter)]
+    if delimiter == ";":
+        tokens = [t.replace(",", ".") for t in tokens]
+    return [t for t in tokens if t]
+
+
 def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], np.ndarray, np.ndarray]:
     """
     Lee un archivo de espectroscopía exportado por Andor Solis (.asc, .txt, .dat, .csv).
@@ -78,6 +96,9 @@ def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], 
       - Tolera variabilidad en el número de líneas de cabecera.
       - Soporta configuración regional dual: procesa comas decimales (español/Europa)
         o puntos decimales (inglés) de manera completamente transparente.
+      - Detecta el separador de columnas en la primera fila de datos: tabulación o espacios,
+        punto y coma, o coma. La coma decimal se admite con los dos primeros; un archivo con
+        coma decimal y coma como separador es ambiguo y no se admite.
     
     Retorna:
       metadata (dict): Diccionario con las propiedades de la adquisición.
@@ -106,6 +127,7 @@ def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], 
         raise ValueError(f"El archivo {filepath.name} está vacío o no se pudo decodificar.")
 
     data_start_idx = -1
+    delimiter: Optional[str] = None
 
     # Fase 1: Extracción de metadatos y detección del inicio de la tabla numérica
     for idx, line in enumerate(lines):
@@ -113,20 +135,22 @@ def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], 
         if not stripped:
             continue
 
-        # Verificar si la línea contiene tokens numéricos (separados por tab o espacio)
-        # Reemplazamos coma por punto para prueba de parseo
-        test_line = stripped.replace(",", ".")
-        tokens = test_line.split()
-
-        if len(tokens) >= 2:
-            try:
-                # Si ambos tokens son flotantes válidos, hemos alcanzado la matriz de datos
-                float(tokens[0])
-                float(tokens[1])
-                data_start_idx = idx
-                break
-            except ValueError:
-                pass
+        # Verificar si la línea contiene tokens numéricos con alguno de los separadores
+        # admitidos; el que funcione en la primera fila de datos rige para toda la tabla
+        for delim in _COLUMN_DELIMITERS:
+            tokens = _split_data_row(stripped, delim)
+            if len(tokens) >= 2:
+                try:
+                    # Si ambos tokens son flotantes válidos, hemos alcanzado la matriz de datos
+                    float(tokens[0])
+                    float(tokens[1])
+                    data_start_idx = idx
+                    delimiter = delim
+                    break
+                except ValueError:
+                    pass
+        if data_start_idx != -1:
+            break
 
         # Si aún no es dato numérico, registrar como metadato si contiene separador clave: valor
         if ":" in line:
@@ -144,8 +168,7 @@ def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], 
         stripped = line.strip()
         if not stripped:
             continue
-        cleaned = stripped.replace(",", ".")
-        tokens = cleaned.split()
+        tokens = _split_data_row(stripped, delimiter)
         if len(tokens) >= 2:
             try:
                 wl = float(tokens[0])
