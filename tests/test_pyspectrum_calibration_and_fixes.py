@@ -176,16 +176,18 @@ class TestCalibrationDock(unittest.TestCase):
         self.assertAlmostEqual(fwhm, 2.355 * true_sigma, delta=0.5)
 
     def test_grating_offset_flow(self):
-        self.fe.spin_grating_off.setValue(320)
-        self.fe.setGratingOffsetSignal.emit(1, 320)
-        _, val = self.be.spectrometer.ShamrockGetGratingOffset(DEVICE, 1)
-        self.assertEqual(val, 320)
+        # Pasos 9-10 (DEC-040): el dock sólo LEE el offset; escribirlo es de la transacción.
+        self.mock_spec.ShamrockSetGratingOffset(DEVICE, 1, 320)      # lo cambió otro programa
+        self.fe.combo_grating.setCurrentIndex(0)
+        self.fe.getGratingOffsetSignal.emit(1)
+        self.assertEqual(self.fe.spin_grating_off.value(), 320)
+        self.assertFalse(hasattr(self.fe, "setGratingOffsetSignal"))
 
     def test_detector_offset_flow(self):
-        self.fe.spin_detector_off.setValue(-75)
-        self.fe.setDetectorOffsetSignal.emit(-75)
-        _, val = self.be.spectrometer.ShamrockGetDetectorOffset(DEVICE)
-        self.assertEqual(val, -75)
+        self.mock_spec.ShamrockSetDetectorOffset(DEVICE, -75)
+        self.fe.getDetectorOffsetSignal.emit()
+        self.assertEqual(self.fe.spin_detector_off.value(), -75)
+        self.assertFalse(hasattr(self.fe, "setDetectorOffsetSignal"))
 
     def test_zero_order_flow(self):
         self.fe.gotoZeroOrderSignal.emit()
@@ -215,10 +217,13 @@ class TestSlitSynchronization(unittest.TestCase):
         from pyspectrum.modules.spectroscopy_context import spectroscopy_context
         self.assertEqual(spectroscopy_context.slit_width_um, 85.0)
 
-    def test_backend_set_slit_zero_pos_propagates_to_context(self):
-        self.be.set_slit_zero_position(INPUT_SLIT_PORT, -25)
+    def test_backend_read_slit_zero_pos_propagates_to_context(self):
+        # El cero de ranura se lee, no se escribe (R2-inst §3.2): lo leído llega al contexto.
+        self.mock_spec.ShamrockSetSlitZeroPosition(DEVICE, INPUT_SLIT_PORT, -25)
+        self.be.read_initial_values()
         from pyspectrum.modules.spectroscopy_context import spectroscopy_context
         self.assertEqual(spectroscopy_context.slit_zero_pos, -25)
+        self.assertFalse(hasattr(self.be, "set_slit_zero_position"))
 
     def test_backend_save_slit_pixel_propagates_to_context(self):
         # Mock disk saves to avoid altering default calibration file

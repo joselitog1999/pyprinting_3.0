@@ -43,7 +43,15 @@ _FAN_NAMES = {FAN_MODE_FULL: "full", FAN_MODE_LOW: "low", FAN_MODE_OFF: "off"}
 _TEMP_CODES = {"off": DRV_TEMP_OFF, "not_reached": DRV_TEMP_NOT_REACHED,
                "not_stabilized": DRV_TEMP_NOT_STABILIZED, "drifted": DRV_TEMP_DRIFT,
                "stabilized": DRV_TEMP_STABILIZED}
-_SHUTTER_NAMES = {0: "auto", 1: "open", 2: "closed"}
+# Modo del obturador y tipo de TTL como el legado (Camera_ps.py:645-663): abrir con TTL 1 (alto abre),
+# cerrar con TTL 0. La salida TTL de la cámara acciona el obturador del Shamrock (BANCO-22).
+_SHUTTER_NAMES = {0: ("auto", 1), 1: ("open", 1), 2: ("closed", 0)}
+
+# Conexión (decisión del investigador, 2026-09-29): con un setpoint numérico pylablib 1.4.3 no toca el
+# enfriador al conectar (sólo actúa con None, eligiendo uno automático y encendiéndolo, o con "off"), como
+# el legado con temperature=10. El estado base fija −60 °C y lo relee. Ventilador en bajo (R4-A-6); el
+# default de pylablib es "off".
+CONNECT_KWARGS = {"idx": 0, "ini_path": "", "temperature": -60, "fan_mode": "low"}
 
 
 class FrameNotReady(RuntimeError):
@@ -62,7 +70,7 @@ def _default_camera_factory():
     if ANDOR_SDK2_DLL_DIR:
         pll.par["devices/dlls/andor_sdk2"] = str(ANDOR_SDK2_DLL_DIR)
     from pylablib.devices.Andor import AndorSDK2Camera
-    return AndorSDK2Camera(idx=0, ini_path="", temperature=None, fan_mode="low")
+    return AndorSDK2Camera(**CONNECT_KWARGS)
 
 
 def _default_lib():
@@ -305,15 +313,21 @@ class PylablibAndorCCD:
         self._current_exposure_time = float(t_sec)
         return self._call(lambda: self._cam.set_exposure(float(t_sec)))
 
+    def get_exposure_time_checked(self) -> Tuple[int, Optional[float]]:
+        """Exposición real (GetAcquisitionTimings vía pylablib) con su código. Sin el eco del pedido."""
+        ret, e = self._get(self._cam.get_exposure if self.available else None, None)
+        return (ret, float(e) if ret == DRV_SUCCESS and e is not None else None)
+
     def get_exposure_time(self) -> float:
         ret, e = self._get(self._cam.get_exposure if self.available else None, self._current_exposure_time)
         return float(e)
 
     def set_shutter_mode(self, mode: int, closing_time_ms: int = 0, opening_time_ms: int = 0) -> int:
-        name = _SHUTTER_NAMES.get(int(mode))
-        if name is None:
+        entry = _SHUTTER_NAMES.get(int(mode))
+        if entry is None:
             return DRV_P1INVALID
-        return self._call(lambda: self._cam.setup_shutter(name, open_time=opening_time_ms or None,
+        name, ttl = entry
+        return self._call(lambda: self._cam.setup_shutter(name, ttl, open_time=opening_time_ms or None,
                                                           close_time=closing_time_ms or None))
 
     # ── Modos de lectura (coordenadas del SDK: desde 1, inclusivas) ───────────

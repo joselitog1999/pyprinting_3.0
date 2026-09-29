@@ -105,7 +105,9 @@ def test_goto_below_threshold_goes_through_the_quick_mirror(panel):
 
 def test_mirror_grating_from_the_combo_enters_through_the_service(panel):
     p, cam, spec = panel
-    p.cmb_grating.setCurrentIndex(GRATING_MIRROR - 1)
+    p.cmb_grating.setCurrentIndex(GRATING_MIRROR - 1)       # elegirla no mueve (paso 8, G-04)
+    assert spec.ShamrockGetGrating(DEVICE)[1] != GRATING_MIRROR
+    p.btn_goto_wavelength.click()
     assert spec.ShamrockGetGrating(DEVICE)[1] == GRATING_MIRROR
     assert si.get_interlock().mode == si.SPECULAR and _gain(cam) == 0
 
@@ -171,7 +173,6 @@ def test_window_badge_and_ctrl0_toggle(monkeypatch):
     finally:
         win.left_panel._refresh_timer.stop()
         win.close()
-        win.deleteLater()
 
 
 def test_live_viewer_shows_peak_fraction_only_in_specular():

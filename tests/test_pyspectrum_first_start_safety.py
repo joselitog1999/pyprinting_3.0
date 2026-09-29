@@ -89,8 +89,9 @@ def test_calibration_backend_startup_writes_no_offset_to_the_shamrock(calibratio
     backend, spectrometer = _make_backend()
     assert spectrometer.offset_writes() == [], (
         "el arranque escribió offsets al Shamrock; deben escribirse sólo por acción explícita")
-    # El archivo se sigue leyendo: sus valores quedan en el estado del backend.
-    assert backend.grating_offsets[1] == 12 and backend.detector_offset == 5
+    # El archivo se sigue leyendo, pero sus offsets son informativos (pasos 9-10): no pasan por leídos.
+    assert backend.file_offsets["grating_1"] == 12 and backend.file_offsets["detector"] == 5
+    assert backend.grating_offsets.get(1) is None and backend.detector_offset is None
 
 
 def test_loading_or_reloading_a_calibration_file_writes_no_offset(calibration_file):

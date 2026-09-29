@@ -549,13 +549,33 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
    del detector y la verificación de la red de 1200 l/mm con la rutina de 532 nm.
 2. **Imagen invertida en X (BANCO-56):** se comparó la Canon, en la app de cámara de PyPrinting 3.0, con
    el Andor en **Solis**, en orden cero. La imagen se ve igual en Y e invertida en X.
-   - Falta saber si Solis aplica alguna inversión de pantalla, y cómo se ve el mismo cuadro en el visor
-     de PySpectrum 3.0, que todavía no se abrió contra el equipo. Hasta entonces no se cambia ninguna
-     inversión por defecto.
+   - Solis **no invierte** la imagen (investigador, 2026-09-28).
+   - Falta ver el mismo cuadro en el visor de PySpectrum 3.0, que todavía no se probó contra el equipo.
+     Hasta entonces no se cambia ninguna inversión por defecto.
 3. **"spectrog" (BANCO-23):** es un archivo de `C:\Program Files\Andor SOLIS`.
 4. **Fotodiodo de 808 nm (BANCO-20, C-44):** hoy no está conectado. Se deja `config.PD_CHANNELS` como
    está anotado en PyPrinting (808 nm en `ai3`). El conflicto con el trigger Z queda registrado, sin
    efecto mientras el 808 no esté conectado; al conectarlo hay que reubicarlo.
+
+**R4-H — Conexión de la cámara y obturador del espectrómetro (2026-09-29).**
+1. **La cámara conecta con `temperature=-60`:** sí. Con un número, pylablib 1.4.3 no toca el enfriador al
+   conectar, como el legado con `temperature=10`. Antes, con `temperature=None`, pylablib elegía un setpoint
+   automático y encendía el enfriador. El estado base fija −60 °C y lo relee.
+2. **Obturador del Shamrock:** **no** se abre al arrancar (el legado lo abría). Se abre a pedido del
+   usuario, en alguna rutina o en el Live.
+   - *Implementación:* un único punto (`pyspectrum/services/spectrometer_shutter.py`) que abre y cierra por
+     los dos caminos del legado, el USB del Shamrock y el TTL de la cámara, porque no se sabe cuál manda
+     (BANCO-09).
+   - *Pendiente:* las rutinas de grilla (crecimiento, dímeros, luminiscencia, confocal) todavía no lo
+     abren; se agregan con AND-1. El Step & Glue y el escaneo lineal, en los pasos 11 y 12.
+
+**R4-I — Escaneo lineal (2026-09-29).**
+1. **Luz de la referencia:** como en Step & Glue. La rutina no abre ni cierra láseres: se usa la lámpara, o
+   el operador abre el láser desde [Obturadores]. La rutina renueva el latido mientras haya uno abierto y
+   registra cuáles estaban abiertos. Para el fondo cierra sólo el obturador del espectrómetro.
+2. **Cosido:** cada rutina conserva el suyo (el escaneo lineal, `glue_steps`; Step & Glue,
+   `sigmoidal_step_and_glue`). El escaneo lineal usa el motor de Step & Glue sólo para adquirir cada
+   ventana. La unificación queda para una ronda con metrología.
 
 ## Decisiones que siguen abiertas después de la segunda ronda
 

@@ -194,7 +194,9 @@ class TestResilientCancellation(unittest.TestCase):
         self.be = Backend(self.camera, self.spectrometer)
         self.be.make_connection(self.fe)
 
-    def test_abort_after_first_step_still_delivers_partial_glue(self):
+    def test_abort_after_first_step_keeps_the_window_and_glues_only_on_request(self):
+        # Paso 11 (Ronda 3 §4.3): un barrido incompleto no se cose solo; las ventanas quedan en disco y
+        # [Coser lo adquirido] las cose a pedido, rotuladas como incompletas.
         planned_n = {"n": None}
 
         def _maybe_abort(i, n, wl):
@@ -211,15 +213,15 @@ class TestResilientCancellation(unittest.TestCase):
         except Exception as e:
             self.fail(f"measure_step_and_glue lanzó una excepción tras cancelación: {e}")
 
-        self.assertEqual(len(finished), 1)
-        glued_w = finished[0][0]
-        self.assertGreater(len(glued_w), 0)
-
-        # El plan completo requería varios pasos (450-950nm con 20% de solape), pero se abortó
-        # tras el primero: sólo un paso fue efectivamente adquirido y cosido (cosido de 1 solo
-        # espectro == ese mismo espectro, sin necesidad de blending).
+        self.assertEqual(finished, [])
         self.assertGreater(planned_n["n"], 1)
         self.assertEqual(len(self.be._raw_wave_steps), 1)
+        self.assertFalse(self.be.last_result.complete)
+        self.assertTrue(self.be.last_result.windows[0].path.exists())
+
+        self.be.glue_acquired()
+        self.assertEqual(len(finished), 1)
+        self.assertGreater(len(finished[0][0]), 0)
 
     def test_stop_measurement_sets_abort_flag(self):
         self.be._abort_requested = False
@@ -346,9 +348,11 @@ class TestFrontendUI(unittest.TestCase):
         self.fe.measureStepGlueSignal.connect(lambda *args: received.append(args))
         self.fe.spin_overlap_pct.setValue(30)
         self.fe.chk_fit_raman.setChecked(True)
-        self.fe.edit_start_wl.setText("450.0")
-        self.fe.edit_end_wl.setText("950.0")
-        self.fe.edit_exp.setText("0.1")
+        from core.nidaq import confirm_detection_mirror_belief
+        confirm_detection_mirror_belief("down")      # si no, el diálogo del espejo (paso 11) pregunta
+        self.fe.edit_start_wl.setValue(450.0)
+        self.fe.edit_end_wl.setValue(950.0)
+        self.fe.edit_exp.setValue(0.1)
         self.fe._on_sandg_measure()
         start, end, overlap_pct, exp, norm, check_water, use_optical_core, subtract_substrate = received[-1]
         self.assertAlmostEqual(overlap_pct, 0.30)

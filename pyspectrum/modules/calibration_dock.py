@@ -55,20 +55,29 @@ CALIBRATION_TXT_FILE = Path(__file__).resolve().parent.parent / "calibration" / 
 CALIBRATION_FILE = Path(__file__).resolve().parent.parent / "calibration" / "pyspectrum_calibration.json"
 
 
+GRAT_OFFSET_MAX_STEPS = 20000      # rango del SDK (SHAMROCK_GRAT_OFFSET_MAX, R2-inst §3.1)
+DET_OFFSET_MAX_STEPS = 240000      # rango del SDK (SHAMROCK_DET_OFFSET_MAX, R2-inst §3.1)
+
+
+def _steps(value) -> str:
+    """Offset leído para el .txt: el número, o "desconocido" si no se pudo leer (nunca un valor inventado)."""
+    return "desconocido" if value is None else str(int(value))
+
+
 class CalibrationFrontend(QtWidgets.QFrame):
     """Interfaz gráfica modular con ventanitas de calibración del sistema."""
 
     gotoZeroOrderSignal = pyqtSignal()
     setSlitWidthSignal = pyqtSignal(float)
     getSlitZeroPosSignal = pyqtSignal(int)
-    setSlitZeroPosSignal = pyqtSignal(int, int)
     saveSlitPixelSignal = pyqtSignal(float)
     autoCalibrateSlitSignal = pyqtSignal()
 
+    # Los offsets se leen; no se escriben desde acá (pasos 9-10, G-10). El offset entero se escribe sólo
+    # con la transacción (pyspectrum/calibration/offset_transaction.py), desde la rutina (R4-B-1).
     getGratingOffsetSignal = pyqtSignal(int)
-    setGratingOffsetSignal = pyqtSignal(int, int)
     getDetectorOffsetSignal = pyqtSignal()
-    setDetectorOffsetSignal = pyqtSignal(int)
+    registerReadOffsetsSignal = pyqtSignal()
 
     readCubicCoeffsSignal = pyqtSignal()
     loadLampCalibSignal = pyqtSignal(str)
@@ -224,63 +233,69 @@ class CalibrationFrontend(QtWidgets.QFrame):
         slit_layout.addWidget(lbl_sz, 5, 0)
         self.spin_slit_zero = QtWidgets.QSpinBox()
         self.spin_slit_zero.setRange(-10000, 10000)
-        self.spin_slit_zero.setToolTip("Offset absoluto de pasos mecánicos del cero del slit en hardware.")
+        self.spin_slit_zero.setReadOnly(True)
+        self.spin_slit_zero.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.spin_slit_zero.setToolTip("Cero de la ranura en pasos de motor, leído del Shamrock. PySpectrum no lo "
+                                       "escribe (R2-inst §3.2).")
         slit_layout.addWidget(self.spin_slit_zero, 5, 1)
-
-        btn_set_sz = QtWidgets.QPushButton("Escribir SDK")
-        btn_set_sz.setToolTip("Escribe el offset de cero del slit directamente en la memoria no volátil del Shamrock.")
-        btn_set_sz.clicked.connect(lambda: self.setSlitZeroPosSignal.emit(INPUT_SLIT_PORT, self.spin_slit_zero.value()))
-        slit_layout.addWidget(btn_set_sz, 5, 2)
 
         vbox.addWidget(box_slit)
 
         # ── 2. Ventanita: Offset de Rejillas & Detector (SDK) ─────────────────
-        box_offset = QtWidgets.QGroupBox("⚙️ 2. Offsets de Rejilla & Detector (Shamrock SDK Oficial)")
-        box_offset.setToolTip("Ajuste de offsets mecánicos angulares para cada rejilla y posición de la brida del detector.")
+        box_offset = QtWidgets.QGroupBox("⚙️ 2. Offsets de red y detector (leídos del Shamrock)")
+        box_offset.setToolTip(
+            "Offsets de la torreta, en pasos de motor, leídos del Shamrock. Uno por red (150 y 1200) y uno del\n"
+            "detector, que por convención del laboratorio vale 0 (R4-A-2). Solis y el PySpectrum legado ven estos\n"
+            "mismos valores. Cuántos píxeles corre un paso no está medido en este equipo (BANCO-40).\n"
+            "Se escriben sólo desde la calibración, con la transacción de doble confirmación.")
         off_layout = QtWidgets.QGridLayout(box_offset)
         off_layout.setSpacing(6)
 
         off_layout.addWidget(QtWidgets.QLabel("Rejilla / Torret:"), 0, 0)
         self.combo_grating = QtWidgets.QComboBox()
-        self.combo_grating.addItem("1: 150 l/mm (Blaze 800 nm)", 1)
-        self.combo_grating.addItem("2: 1200 l/mm (Blaze 500 nm)", 2)
-        self.combo_grating.addItem("3: Espejo (Mirror)", 3)
-        self.combo_grating.setToolTip(
-            "Selecciona la red de difracción a calibrar:\n"
-            "• Red 1 (150 l/mm): Espectros de banda ultra-ancha (UV-Vis-NIR).\n"
-            "• Red 2 (1200 l/mm): Alta resolución espectral Raman y plasmónica fina.\n"
-            "• Red 3 (Espejo): Reflexión especular directa para microscopía confocal."
-        )
+        self.combo_grating.addItem("1: 150 l/mm", 1)
+        self.combo_grating.addItem("2: 1200 l/mm", 2)
+        self.combo_grating.addItem("3: espejo (no se calibra)", 3)
+        self.combo_grating.setToolTip("Red cuyo offset se muestra. Las líneas por mm y el blaze se leen del equipo "
+                                      "(GetGratingInfo). El espejo no se calibra.")
         self.combo_grating.currentIndexChanged.connect(self._on_grating_combo_changed)
         off_layout.addWidget(self.combo_grating, 0, 1, 1, 2)
 
         off_layout.addWidget(QtWidgets.QLabel("Grating Offset (pasos):"), 1, 0)
-        self.spin_grating_off = QtWidgets.QSpinBox()
-        self.spin_grating_off.setRange(-50000, 50000)
-        self.spin_grating_off.setToolTip("Offset angular correctivo en pasos de motor para la red seleccionada.")
+        self.spin_grating_off = self._read_only_steps_spin(GRAT_OFFSET_MAX_STEPS)
         off_layout.addWidget(self.spin_grating_off, 1, 1)
-
-        btn_set_go = QtWidgets.QPushButton("💾 Escribir Rejilla")
-        btn_set_go.setToolTip("Graba el offset de la red seleccionada en la memoria no volátil del Shamrock.")
-        btn_set_go.clicked.connect(self._on_write_grating_offset)
-        off_layout.addWidget(btn_set_go, 1, 2)
+        self.lbl_grating_mark = QtWidgets.QLabel("[?] sin leer")
+        off_layout.addWidget(self.lbl_grating_mark, 1, 2)
 
         off_layout.addWidget(QtWidgets.QLabel("Detector Offset (pasos):"), 2, 0)
-        self.spin_detector_off = QtWidgets.QSpinBox()
-        self.spin_detector_off.setRange(-50000, 50000)
-        self.spin_detector_off.setToolTip("Offset angular de la brida de acople del detector CCD respecto al plano focal.")
+        self.spin_detector_off = self._read_only_steps_spin(DET_OFFSET_MAX_STEPS)
+        self.spin_detector_off.setToolTip("Offset del detector, leído. Por convención del laboratorio vale 0 (R4-A-2); "
+                                          "PySpectrum no lo escribe.")
         off_layout.addWidget(self.spin_detector_off, 2, 1)
+        self.lbl_detector_mark = QtWidgets.QLabel("[?] sin leer")
+        off_layout.addWidget(self.lbl_detector_mark, 2, 2)
 
-        btn_set_do = QtWidgets.QPushButton("💾 Escribir Detector")
-        btn_set_do.setToolTip("Graba el offset del detector en la memoria no volátil del Shamrock.")
-        btn_set_do.clicked.connect(lambda: self.setDetectorOffsetSignal.emit(self.spin_detector_off.value()))
-        off_layout.addWidget(btn_set_do, 2, 2)
-
-        btn_read_offsets = QtWidgets.QPushButton("📥 Leer Offsets de Hardware (SDK)")
+        btn_read_offsets = QtWidgets.QPushButton("📥 Releer el equipo")
         btn_read_offsets.setStyleSheet("background-color: #F9E2AF; color: #11111B;")
-        btn_read_offsets.setToolTip("Lee todos los offsets mecánicos actuales almacenados en la electrónica del Shamrock.")
+        btn_read_offsets.setToolTip("Lee los offsets actuales del Shamrock. No escribe nada.")
         btn_read_offsets.clicked.connect(self._on_read_all_offsets)
         off_layout.addWidget(btn_read_offsets, 3, 0, 1, 3)
+
+        self.btn_register_read = QtWidgets.QPushButton("📝 Registrar lo leído en el archivo")
+        self.btn_register_read.setToolTip(
+            "Agrega al archivo de calibraciones una entrada MANUAL_ENTRY (EXPERIMENTAL) con los offsets de las\n"
+            "redes 1 y 2 tal como se leen ahora del equipo. No toca el equipo.")
+        self.btn_register_read.clicked.connect(self.registerReadOffsetsSignal.emit)
+        off_layout.addWidget(self.btn_register_read, 4, 0, 1, 3)
+
+        off_layout.addWidget(QtWidgets.QLabel("Historial (archivo local; sólo se agregan entradas):"), 5, 0, 1, 3)
+        self.table_history = QtWidgets.QTableWidget(0, 6)
+        self.table_history.setHorizontalHeaderLabels(["Fecha", "Tipo", "Red", "Valor (pasos)", "Resultado", "Operador"])
+        self.table_history.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table_history.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_history.setMinimumHeight(160)
+        self.table_history.horizontalHeader().setStretchLastSection(True)
+        off_layout.addWidget(self.table_history, 6, 0, 1, 3)
 
         vbox.addWidget(box_offset)
 
@@ -488,11 +503,28 @@ class CalibrationFrontend(QtWidgets.QFrame):
         if grating is not None:
             self.getGratingOffsetSignal.emit(int(grating))
 
-    def _on_write_grating_offset(self):
-        grating = self.combo_grating.currentData()
-        offset = self.spin_grating_off.value()
-        if grating is not None:
-            self.setGratingOffsetSignal.emit(int(grating), offset)
+    @staticmethod
+    def _read_only_steps_spin(limit: int) -> QtWidgets.QSpinBox:
+        spin = QtWidgets.QSpinBox()
+        spin.setRange(-int(limit) - 1, int(limit))
+        spin.setSpecialValueText("desconocido")      # el mínimo se muestra así: nunca un valor viejo
+        spin.setSuffix(" pasos")
+        spin.setReadOnly(True)
+        spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+        return spin
+
+    @staticmethod
+    def _show_read(spin: QtWidgets.QSpinBox, mark: QtWidgets.QLabel, value, code) -> None:
+        spin.blockSignals(True)
+        if value is None:
+            spin.setValue(spin.minimum())
+            mark.setText(f"[!] no leído (código {code})")
+            mark.setStyleSheet("color: #F38BA8;")
+        else:
+            spin.setValue(int(value))
+            mark.setText(f"[L {time.strftime('%H:%M:%S')}]")
+            mark.setStyleSheet("color: #A6ADC8;")
+        spin.blockSignals(False)
 
     def _on_read_all_offsets(self):
         grating = self.combo_grating.currentData()
@@ -538,19 +570,47 @@ class CalibrationFrontend(QtWidgets.QFrame):
         self.spin_slit_zero.blockSignals(False)
         self.lbl_status.setText(f"Slit actualizado: {width:.1f} µm (Zero pos: {zero_pos})")
 
-    @pyqtSlot(int, int)
-    def update_grating_offset(self, grating: int, offset: int):
-        self.spin_grating_off.blockSignals(True)
-        self.spin_grating_off.setValue(offset)
-        self.spin_grating_off.blockSignals(False)
-        self.lbl_status.setText(f"Offset Rejilla {grating}: {offset} pasos.")
+    @pyqtSlot(int, object, object)
+    def update_grating_offset(self, grating: int, offset, code):
+        if self.combo_grating.currentData() != grating:
+            return
+        self._show_read(self.spin_grating_off, self.lbl_grating_mark, offset, code)
+        self.lbl_status.setText(f"Offset de la red {grating}: "
+                                + (f"{offset} pasos (leído)." if offset is not None else "desconocido (falló la lectura)."))
 
-    @pyqtSlot(int)
-    def update_detector_offset(self, offset: int):
-        self.spin_detector_off.blockSignals(True)
-        self.spin_detector_off.setValue(offset)
-        self.spin_detector_off.blockSignals(False)
-        self.lbl_status.setText(f"Offset Detector: {offset} pasos.")
+    @pyqtSlot(object, object)
+    def update_detector_offset(self, offset, code):
+        self._show_read(self.spin_detector_off, self.lbl_detector_mark, offset, code)
+
+    @pyqtSlot(object)
+    def set_history(self, entries):
+        """Llenado inicial del historial, del más nuevo al más viejo."""
+        self.table_history.setRowCount(0)
+        for entry in entries:
+            self._append_history_row(entry, at_top=False)
+
+    @pyqtSlot(object)
+    def prepend_history(self, entries):
+        """Entradas nuevas arriba, sin reconstruir la tabla (Ronda 3 §4.1)."""
+        for entry in entries:
+            self._append_history_row(entry, at_top=True)
+
+    def _append_history_row(self, entry, at_top: bool):
+        v = entry.values
+        value = v.get("offset", v.get("readback", v.get("offset_read")))
+        result = v.get("outcome") or ("respaldo" if entry.kind == "PRE_WRITE" else
+                                      "arranque" if entry.kind == "OBSERVED" else v.get("provenance", ""))
+        if entry.kind == "OBSERVED":
+            g = v.get("gratings", {})
+            value = "/".join(str(g.get(k, {}).get("offset")) for k in sorted(g))
+        cells = [entry.ts.replace("T", " ")[:19], entry.kind,
+                 str(entry.key.grating_index) if entry.key else "todas", str(value), str(result), entry.operator]
+        row = 0 if at_top else self.table_history.rowCount()
+        self.table_history.insertRow(row)
+        for col, text in enumerate(cells):
+            item = QtWidgets.QTableWidgetItem(text)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, entry.record_id)
+            self.table_history.setItem(row, col, item)
 
     @pyqtSlot(float, float, float, float)
     def update_cubic_coefficients(self, a: float, b: float, c: float, d: float):
@@ -596,8 +656,10 @@ class CalibrationBackend(QtCore.QObject):
     """Backend de gestión y sincronización de calibraciones ópticas."""
 
     slitInfoUpdatedSignal = pyqtSignal(float, int)
-    gratingOffsetUpdatedSignal = pyqtSignal(int, int)
-    detectorOffsetUpdatedSignal = pyqtSignal(int)
+    gratingOffsetUpdatedSignal = pyqtSignal(int, object, object)    # (red, offset leído o None, código)
+    detectorOffsetUpdatedSignal = pyqtSignal(object, object)        # (offset leído o None, código)
+    historyInitSignal = pyqtSignal(object)
+    historyAppendedSignal = pyqtSignal(object)
     cubicCoeffsUpdatedSignal = pyqtSignal(float, float, float, float)
     slitFitResultSignal = pyqtSignal(float, float, np.ndarray, np.ndarray, np.ndarray)
     activeCalibFileUpdatedSignal = pyqtSignal(str)
@@ -606,10 +668,11 @@ class CalibrationBackend(QtCore.QObject):
     waterVerificationResultSignal = pyqtSignal(float, float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray)
     darkNoiseResultSignal = pyqtSignal(float, float)
 
-    def __init__(self, camera=None, spectrometer=None, parent=None):
+    def __init__(self, camera=None, spectrometer=None, parent=None, repository=None):
         super().__init__(parent)
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
+        self._repository = repository
         self.lamp_calib = HalogenLampCalibration()
 
         # Estado de parámetros de calibración
@@ -617,8 +680,11 @@ class CalibrationBackend(QtCore.QObject):
         self.slit_center_x: float = 502.00
         self.slit_fwhm: float = 4.12
         self.slit_zero_pos: int = 0
-        self.grating_offsets: dict[int, int] = {1: 12, 2: -35, 3: 0}
-        self.detector_offset: int = 5
+        # Offsets LEÍDOS del equipo; None = desconocido (sin leer o lectura fallida). Nunca un valor por
+        # defecto ni del archivo: los del .txt quedan en `file_offsets`, como información (pasos 9-10).
+        self.grating_offsets: dict[int, Optional[int]] = {}
+        self.detector_offset: Optional[int] = None
+        self.file_offsets: dict[str, int] = {}
         self.cubic_coeffs: Tuple[float, float, float, float] = (450.124500, 0.301450, 1.250000e-06, -8.120000e-10)
         self.raman_reference_cm1: float = 520.50
         self.raman_measured_cm1: float = 520.50
@@ -640,14 +706,14 @@ class CalibrationBackend(QtCore.QObject):
         frontend.gotoZeroOrderSignal.connect(self.goto_zero_order)
         frontend.setSlitWidthSignal.connect(self.set_slit_width)
         frontend.getSlitZeroPosSignal.connect(self.get_slit_zero_position)
-        frontend.setSlitZeroPosSignal.connect(self.set_slit_zero_position)
         frontend.saveSlitPixelSignal.connect(self.save_slit_pixel)
         frontend.autoCalibrateSlitSignal.connect(self.auto_calibrate_slit)
 
         frontend.getGratingOffsetSignal.connect(self.get_grating_offset)
-        frontend.setGratingOffsetSignal.connect(self.set_grating_offset)
         frontend.getDetectorOffsetSignal.connect(self.get_detector_offset)
-        frontend.setDetectorOffsetSignal.connect(self.set_detector_offset)
+        frontend.registerReadOffsetsSignal.connect(self.register_read_offsets)
+        self.historyInitSignal.connect(frontend.set_history)
+        self.historyAppendedSignal.connect(frontend.prepend_history)
 
         frontend.readCubicCoeffsSignal.connect(self.read_cubic_coefficients)
         frontend.loadLampCalibSignal.connect(self.load_lamp_calibration)
@@ -674,10 +740,10 @@ class CalibrationBackend(QtCore.QObject):
         frontend.spin_pixel_x.setValue(self.slit_center_x)
         frontend.line_center.setValue(self.slit_center_x)
         frontend.update_slit_info(self.slit_width, self.slit_zero_pos)
-        frontend.update_detector_offset(self.detector_offset)
         frontend.update_cubic_coefficients(*self.cubic_coeffs)
         frontend.edit_calib_txt_path.setText(self.active_calib_file)
         self.read_initial_values()
+        self.publish_history()
 
     def read_initial_values(self):
         """Lee los valores actuales del hardware e inicializa la vista."""
@@ -695,17 +761,9 @@ class CalibrationBackend(QtCore.QObject):
                 slit_zero_pos=self.slit_zero_pos
             )
 
-            ret_g, g = self.spectrometer.ShamrockGetGrating(DEVICE)
-            if ret_g == SHAMROCK_SUCCESS:
-                ret_go, go = self.spectrometer.ShamrockGetGratingOffset(DEVICE, g)
-                if ret_go == SHAMROCK_SUCCESS:
-                    self.grating_offsets[int(g)] = int(go)
-                self.gratingOffsetUpdatedSignal.emit(int(g), self.grating_offsets.get(int(g), 0))
-
-            ret_do, do = self.spectrometer.ShamrockGetDetectorOffset(DEVICE)
-            if ret_do == SHAMROCK_SUCCESS:
-                self.detector_offset = int(do)
-            self.detectorOffsetUpdatedSignal.emit(self.detector_offset)
+            for g in (1, 2, 3):
+                self.get_grating_offset(g)
+            self.get_detector_offset()
 
             self.read_cubic_coefficients()
         except Exception as e:
@@ -739,49 +797,71 @@ class CalibrationBackend(QtCore.QObject):
             self.slit_zero_pos = int(val)
         self.statusSignal.emit(f"Slit Zero Position leído: {val} pasos.")
 
-    @pyqtSlot(int, int)
-    def set_slit_zero_position(self, index: int, offset: int):
-        self.slit_zero_pos = int(offset)
-        ret = self.spectrometer.ShamrockSetSlitZeroPosition(DEVICE, index, int(offset))
-        spectroscopy_context.set_slit_parameters(slit_zero_pos=self.slit_zero_pos)
-        if ret == SHAMROCK_SUCCESS:
-            self.statusSignal.emit(f"Slit Zero Position aplicado: {offset} pasos.")
-        else:
-            self.statusSignal.emit(f"Error al escribir Slit Zero Position ({ret}).")
-
     @pyqtSlot(int)
     def get_grating_offset(self, grating: int):
+        """Lee el offset de una red. Una lectura fallida deja "desconocido", nunca el valor anterior."""
         ret, off = self.spectrometer.ShamrockGetGratingOffset(DEVICE, int(grating))
-        if ret == SHAMROCK_SUCCESS:
-            self.grating_offsets[int(grating)] = int(off)
-        self.gratingOffsetUpdatedSignal.emit(int(grating), self.grating_offsets.get(int(grating), int(off)))
-
-    @pyqtSlot(int, int)
-    def set_grating_offset(self, grating: int, offset: int):
-        self.grating_offsets[int(grating)] = int(offset)
-        ret = self.spectrometer.ShamrockSetGratingOffset(DEVICE, int(grating), int(offset))
-        if ret == SHAMROCK_SUCCESS:
-            self.statusSignal.emit(f"Offset de Rejilla {grating} actualizado a {offset} pasos.")
-            self.gratingOffsetUpdatedSignal.emit(int(grating), int(offset))
-        else:
-            self.statusSignal.emit(f"Error al fijar offset de rejilla ({ret}).")
+        value = int(off) if ret == SHAMROCK_SUCCESS else None
+        self.grating_offsets[int(grating)] = value
+        self.gratingOffsetUpdatedSignal.emit(int(grating), value, ret)
 
     @pyqtSlot()
     def get_detector_offset(self):
         ret, off = self.spectrometer.ShamrockGetDetectorOffset(DEVICE)
-        if ret == SHAMROCK_SUCCESS:
-            self.detector_offset = int(off)
-        self.detectorOffsetUpdatedSignal.emit(self.detector_offset)
+        self.detector_offset = int(off) if ret == SHAMROCK_SUCCESS else None
+        self.detectorOffsetUpdatedSignal.emit(self.detector_offset, ret)
 
-    @pyqtSlot(int)
-    def set_detector_offset(self, offset: int):
-        self.detector_offset = int(offset)
-        ret = self.spectrometer.ShamrockSetDetectorOffset(DEVICE, int(offset))
-        if ret == SHAMROCK_SUCCESS:
-            self.statusSignal.emit(f"Offset de detector actualizado a {offset} pasos.")
-            self.detectorOffsetUpdatedSignal.emit(int(offset))
-        else:
-            self.statusSignal.emit(f"Error al fijar offset del detector ({ret}).")
+    # ── Archivo de calibraciones (paso 9) ──
+    @property
+    def repository(self):
+        if self._repository is None:
+            from pyspectrum.calibration.repository import get_repository
+            self._repository = get_repository()
+        return self._repository
+
+    def publish_history(self):
+        try:
+            entries = list(reversed(self.repository.history()))
+        except Exception as e:
+            self.statusSignal.emit(f"No se pudo leer el archivo de calibraciones: {e}")
+            return
+        self.historyInitSignal.emit(entries)
+
+    @pyqtSlot()
+    def register_read_offsets(self):
+        """[Registrar lo leído en el archivo]: una entrada MANUAL_ENTRY (EXPERIMENTAL) por red calibrable, con
+        el valor leído ahora. No toca el equipo (Ronda 3 §1.8, §1.11)."""
+        from pyspectrum.calibration.repository import CalibrationEntry, CalibrationKey
+        spec = self.spectrometer
+        ret_s, serial = spec.ShamrockGetSerialNumber(DEVICE)
+        ports = []
+        for flipper in (1, 2):
+            ret_p, port = spec.ShamrockGetFlipper(DEVICE, flipper)
+            ports.append(int(port) if ret_p == SHAMROCK_SUCCESS else None)
+        if ret_s != SHAMROCK_SUCCESS or None in ports:
+            self.statusSignal.emit("No se pudo leer la serie o los puertos del Shamrock: no se registró nada.")
+            return
+        added = []
+        for g in (1, 2):
+            info = spec.ShamrockGetGratingInfo(DEVICE, g)
+            ret_o, off = spec.ShamrockGetGratingOffset(DEVICE, g)
+            if not info or info[0] != SHAMROCK_SUCCESS or ret_o != SHAMROCK_SUCCESS:
+                self.statusSignal.emit(f"No se pudo leer la red {g}: no se registró.")
+                continue
+            key = CalibrationKey(str(serial), g, float(info[1]), ports[0], ports[1])
+            entry = CalibrationEntry.manual_entry(key, int(off), source="leído del equipo con PySpectrum 3.0",
+                                                  note="adoptado del equipo")
+            try:
+                self.repository.append(entry)
+            except OSError as e:
+                self.statusSignal.emit(f"No se pudo escribir el archivo de calibraciones: {e}")
+                return
+            added.append(entry)
+        if added:
+            self.historyAppendedSignal.emit(added)
+            self.statusSignal.emit(f"Registrado en el archivo: " +
+                                   ", ".join(f"red {e.key.grating_index} = {e.values['offset']} pasos" for e in added)
+                                   + ". No se escribió nada al equipo.")
 
     @pyqtSlot()
     def read_cubic_coefficients(self):
@@ -972,10 +1052,15 @@ class CalibrationBackend(QtCore.QObject):
             # 2. Offsets Hardware
             if config.has_section("OFFSETS_HARDWARE_SDK"):
                 sec = config["OFFSETS_HARDWARE_SDK"]
-                self.grating_offsets[1] = int(sec.get("grating_1_offset_steps", str(self.grating_offsets.get(1, 0))))
-                self.grating_offsets[2] = int(sec.get("grating_2_offset_steps", str(self.grating_offsets.get(2, 0))))
-                self.grating_offsets[3] = int(sec.get("grating_3_offset_steps", str(self.grating_offsets.get(3, 0))))
-                self.detector_offset = int(sec.get("detector_offset_steps", str(self.detector_offset)))
+                # Informativos: lo que estaba en el equipo cuando se guardó el archivo. No son una lectura
+                # ni se escriben (pasos 9-10); la referencia vive en el archivo de calibraciones.
+                self.file_offsets = {}
+                for name, field in (("grating_1", "grating_1_offset_steps"), ("grating_2", "grating_2_offset_steps"),
+                                    ("grating_3", "grating_3_offset_steps"), ("detector", "detector_offset_steps")):
+                    try:
+                        self.file_offsets[name] = int(sec.get(field))
+                    except (TypeError, ValueError):
+                        pass                      # ausente o "desconocido"
 
             # 3. Dispersión Cúbica
             if config.has_section("DISPERSION_CUBICA_EEPROM"):
@@ -1009,7 +1094,6 @@ class CalibrationBackend(QtCore.QObject):
                 slit_center_px=self.slit_center_x,
                 slit_zero_pos=self.slit_zero_pos
             )
-            self.detectorOffsetUpdatedSignal.emit(self.detector_offset)
             self.cubicCoeffsUpdatedSignal.emit(*self.cubic_coeffs)
 
             # Cargar un archivo NO escribe al Shamrock (DEC-040, C-04). Los offsets viven en el
@@ -1062,13 +1146,13 @@ slit_zero_position_steps = {self.slit_zero_pos}
 [OFFSETS_HARDWARE_SDK]
 # Offset angular en pasos de motor paso a paso para la torreta de rejillas (Shamrock SDK)
 # Rejilla 1: 150 l/mm (Blaze 800 nm, espectros amplios de nanopartículas)
-grating_1_offset_steps = {self.grating_offsets.get(1, 12)}
+grating_1_offset_steps = {_steps(self.grating_offsets.get(1))}
 # Rejilla 2: 1200 l/mm (Blaze 500 nm, alta resolución Raman / plasmónica fina)
-grating_2_offset_steps = {self.grating_offsets.get(2, -35)}
+grating_2_offset_steps = {_steps(self.grating_offsets.get(2))}
 # Rejilla 3: Espejo / Mirror (Alineación confocal de campo claro e imagen directa)
-grating_3_offset_steps = {self.grating_offsets.get(3, 0)}
+grating_3_offset_steps = {_steps(self.grating_offsets.get(3))}
 # Offset mecánico angular de la brida del detector CCD (Shamrock SDK)
-detector_offset_steps = {self.detector_offset}
+detector_offset_steps = {_steps(self.detector_offset)}
 
 [DISPERSION_CUBICA_EEPROM]
 # Polinomio de calibración de longitud de onda: lambda(p) = a + b*p + c*p^2 + d*p^3

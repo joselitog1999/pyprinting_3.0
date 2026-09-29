@@ -386,6 +386,10 @@ class _MockAndorCCD:
         with self._lock:
             return self._exposure_time
 
+    def get_exposure_time_checked(self) -> Tuple[int, Optional[float]]:
+        with self._lock:
+            return (DRV_SUCCESS, float(self._exposure_time))
+
     def set_emccd_gain(self, gain: int) -> int:
         with self._lock:
             g = max(0, min(1000, int(gain)))

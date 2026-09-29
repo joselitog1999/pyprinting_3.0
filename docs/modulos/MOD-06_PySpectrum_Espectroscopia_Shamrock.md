@@ -164,18 +164,20 @@ El módulo de **Raman Estático** permite la captura instantánea (Single-Shot y
 
 ---
 
-## 7. ❄️ Control Térmico y Ganancia EMCCD de la Cámara Andor iXon3
+## 7. ❄️ Control Térmico y Ganancia EMCCD de la Cámara Andor iXon3 (paso 8, `DEC-040`)
 
-- **Refrigeración Termoeléctrica Automática**: Al ingresar un setpoint térmico (típico: $-65\ ^\circ\text{C}$ o $-80\ ^\circ\text{C}$), el controlador invoca automáticamente `CoolerON()` en la biblioteca `atmcd64d.dll`, eliminando el riesgo de que el refrigerador Peltier permanezca inactivo.
-- **Selector de Amplificador de Salida**:
-  - *Modo Convencional (Bajo Ruido CCD)*: Desactiva el registro de ganancia EM para mediciones con alta señal donde prima el mínimo ruido de lectura.
-  - *Modo EMCCD (Multiplicador de Electrones)*: Habilita el control interactivo de ganancia.
-- **Control Dual de EM Gain**:
-  - Slider horizontal acoplado a casilla numérica (`QSpinBox`) al lado para ingreso numérico directo.
-  - Código de color de seguridad:
-    - 🟢 **Verde** ($0 - 100\times$): Régimen seguro de rutina.
-    - 🟡 **Amarillo** ($101 - 300\times$): Alta sensibilidad, precaución con saturación.
-    - 🔴 **Rojo** ($> 300\times$): Alerta de envejecimiento acelerado del sensor por fotocorriente excesiva.
+- **Estado base al arrancar** (`pyspectrum/modules/camera_baseline.py`): enfriador encendido a −60 °C, ventilador en low, HS de 13 MHz elegida por valor, VS de 1.9 µs, pre-amp 0, modo de ganancia 0 (DAC 0-255) con ganancia 0 releída, single scan e Image (R4-A-6, R4-B-8).
+- **Operación** (`pyspectrum/services/camera_control.py::CameraControlService`):
+  - setpoint validado contra `GetTemperatureRange`;
+  - enfriador verificado con `IsCoolerOn`;
+  - ventilador low (1) o high (0 = "full"), sin "off";
+  - HS por valor de la tabla de la cámara.
+
+  Con la cámara adquiriendo, el SDK rechaza estos cambios con `DRV_ACQUIRING`: quedan pendientes y se aplican cuando la cámara está IDLE, sin abortar nada.
+- **Lo que muestra el panel** (`pyspectrum/services/spectrometer_state.py`): una instantánea en la que cada campo es un `Reading` leído (`[L]`), enviado (`[E]`, sin getter en el SDK), fallido (`[!]`), sin leer (`[?]`) o no conectado (`[X]`).
+  - La temperatura se lee con su estado en palabras. Mientras la cámara adquiere, el SDK no la lee: se muestra "adquiriendo" con la última lectura sólo como referencia (banco, 2026-09-28).
+  - Con pylablib, el pre-amp es `[E]`: `get_preamp` de pylablib devuelve lo último enviado.
+- **Ganancia EM:** en unidades DAC, con el rango de `GetEMGainRange`. Se aplica con [Aplicar] y en condición especular queda bloqueada en 0 (paso 7).
 
 ---
 
@@ -191,19 +193,45 @@ Integrada en el `DockArea` principal (junto a Step & Glue y Raman) y accesible d
   $$I(x) = A \exp\left(-\frac{(x - x_0)^2}{2\sigma^2}\right) + y_0$$
   calcula con precisión subpíxel el centroide $x_0$ y el ancho a media altura (FWHM).
 
-### 8.2 Offsets de Rejilla & Detector en Hardware (SDK Oficial)
-Enlace nativo Ctypes con la biblioteca `ShamrockCIF.dll`:
-- **`ShamrockGetGratingOffset` / `ShamrockSetGratingOffset`**: Lectura y escritura de pasos de motor de compensación para cada red independiente (150 l/mm, 1200 l/mm, Espejo).
-- **`ShamrockGetDetectorOffset` / `ShamrockSetDetectorOffset`**: Lectura y escritura del offset de montaje del plano focal del detector CCD.
-- **`ShamrockGetSlitZeroPosition` / `ShamrockSetSlitZeroPosition`**: Calibración del punto cero de apertura mecánica de ranura.
+### 8.2 Offsets de red y detector: lectura, archivo de calibraciones y escritura (pasos 9 y 10, `DEC-040`)
+Los offsets son pasos de motor que el Shamrock guarda y que ven también Solis y el PySpectrum legado. Vigentes en el equipo (BANCO-25, R4-G): red de 150 l/mm = 87, red de 1200 l/mm = 195, espejo = 60, detector = 0.
+- **En la pestaña:** los offsets de cada red, el del detector y el cero de ranura se muestran **leídos**, con la marca `[L hh:mm:ss]`. Una lectura fallida se ve "desconocido" y `[!] no leído (código …)`, nunca el valor anterior. No hay botones de escritura directa: "Escribir Rejilla", "Escribir Detector" y "Escribir SDK" se retiraron. El detector (0 por convención, R4-A-2) y el cero de ranura no se escriben.
+- **Archivo de calibraciones** (`pyspectrum/calibration/repository.py`):
+  - Es un JSON Lines local a la PC y fuera de git, en el que sólo se agregan entradas: `%LOCALAPPDATA%\PyPrinting\pyspectrum\shamrock_calibration.jsonl`, o `config.SHAMROCK_CALIBRATION_PATH`.
+  - Tipos: `OBSERVED` (cada arranque), `MANUAL_ENTRY` ([Registrar lo leído en el archivo], EXPERIMENTAL), `PROPOSED`, `PRE_WRITE` (respaldo), `APPLIED` (resultado) y `SOFTWARE_CORRECTION`.
+  - La clave es serie + red + líneas/mm + puertos. La referencia es el último `APPLIED` confirmado o, si no hay, el último `MANUAL_ENTRY`.
+  - El historial se ve en la pestaña, con la entrada más nueva arriba.
+- **Al arrancar:** PySpectrum lee el Shamrock sólo con `Get*`, registra `OBSERVED` y compara con la referencia. Si algo difiere, está sin leer o hay una escritura sin confirmar, muestra un aviso persistente en la barra de estado; clic lleva a Calibraciones. **Nunca escribe** (R4-B-1).
+- **Escritura de offsets** (`pyspectrum/calibration/offset_transaction.py`, diálogo `pyspectrum/ui/offset_write_dialog.py`):
+  - Es la única ruta de `ShamrockSetGratingOffset`; un test de AST lo garantiza. Sólo las redes 1 y 2.
+  - Secuencia: leer → diferencias (1.ª confirmación) → respaldo `PRE_WRITE` → teclear el número de líneas de la red (2.ª) → releer → escribir → releer → `APPLIED`.
+  - Con un cambio de más de `config.THIRD_CONFIRMATION_STEPS` = 50 pasos se pide una 3.ª confirmación. No hay tope de política; el límite es sólo el rango del SDK, ±20 000.
+  - La confirmación vence a los 60 s. Si el equipo cambió entre la lectura y la escritura, no se escribe.
+  - Antes de escribir se toman la sesión, la cámara IDLE, la ganancia EM 0 releída y los obturadores cerrados, porque la escritura puede girar la torreta. Si la red escrita es la activa, se re-emite la λc.
+  - El diálogo tiene su propio botón E-STOP.
+  - Con NO COINCIDE, DESCONOCIDO o ESCRITURA FALLIDA, la única salida es "Volver al valor del respaldo", una transacción nueva (R4-D-3). No hay restauración desde el historial (R4-C-4).
+  - El diálogo se abre desde una propuesta de la calibración automática (paso 14), que todavía no está. "Proponer offset" queda deshabilitado hasta que BANCO-40 mida cuántos píxeles mueve un paso.
+  - Que el valor escrito sobreviva a apagar el Shamrock no está confirmado (BANCO-37, BANCO-37b).
 
 ### 8.3 Calibración Cúbica de Longitud de Onda y Respuesta Halógena
 - **Coeficientes EEPROM ($a, b, c, d$)**: Inspección directa de la relación $\lambda(p) = a + bp + cp^2 + dp^3$.
 - **Lámpara Halógena Trazable**: Carga de perfil patrón para corrección cromática instrumental.
 
-### 8.4 Mejoras en Step & Glue (`step_and_glue.py`)
-- **Botón `⏹ Detener Escaneo`**: Interrupción cooperativa limpia entre centros de banda sin dejar la torreta en estado indeterminado.
-- **Botón `💾 Guardar Espectro...`**: Exportación directa del espectro cosido a formato tabular ASCII (`.txt`, `.csv`) o contenedor NumPy comprimido (`.npz`).
+### 8.4 Step & Glue (paso 11, `DEC-040`)
+- **Motor** (`pyspectrum/modules/step_glue_engine.py`, sin Qt):
+  - `plan` (pura);
+  - `preflight`, que separa bloqueantes de advertencias;
+  - `run_windows`, que por centro ascendente mueve por el servicio de orden cero, relee λ (±0.01 nm), espera 0.3 s (provisorio, BANCO-39), lee el eje con su código, toma **una** `single_exposure` y **guarda la ventana a disco**.
+
+  Stop y E-STOP se revisan en cada tramo, y lo adquirido se entrega con `complete=False`, sin coser.
+- **Rutina** (`pyspectrum/modules/step_and_glue.py`):
+  - `StepGlueWorker` corre `run_windows` en un `QThread`;
+  - el `Backend`, en el hilo de la GUI, hace el preflight, toma la sesión (pausa el Live), abre el obturador del espectrómetro y, al terminar, lo cierra y libera;
+  - `measure_step_and_glue` es la misma secuencia, síncrona, para scripts y tests.
+- **Latido:** se renueva mientras haya un láser abierto, siempre sin argumento (R4-B-5, R4-C-3, C-29). La pausa "sin señal" sigue latiendo (D-17).
+- **Espejo de detección:** `core.nidaq.get_detection_mirror_belief()` (posición y fuente: sin información, comandado, o confirmado por el operador) y `confirm_detection_mirror_belief()` (D-10). La persistencia entre sesiones (C-08) sigue pendiente.
+- **Cosido:** el de siempre, `sigmoidal_step_and_glue`, sin cambios de fórmula.
+- **Botón `💾 Guardar Espectro...`**: exportación del espectro cosido a `.txt`, `.csv` o `.npz`.
 
 ---
 

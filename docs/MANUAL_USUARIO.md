@@ -681,34 +681,47 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 ├────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────┤
 │  PANEL IZQUIERDO PERMANENTE     │ [🔭1.Expl][🔬2.Raman][🧩3.S&G][🌱4.Cinet][📐5.Calib][🧬6.Confocal][✨7.Lumin]  │
 │  (~1/3, siempre visible)        ├───────────────────────────────────────────────────────────────────────────────┤
-│  📷 Cámara Andor EMCCD (iXon3)  │                                                                                │
-│   🟢 Temp: -65.0 °C  Set T:[-65]│         Área de Trabajo Central de la Pestaña Activa                          │
-│   ❄️ Enfriador: ON              │         (Visores 2D/1D, inspectores, máquinas de estado, plots interactivos)  │
-│   Amplificador: [EMCCD ▼]       │                                                                                │
-│   EM Gain: [ 0 ]                │                                                                                │
-│   Pre-Amp Gain: [ 1.0x ▼ ]      │                                                                                │
-│   Velocidad Lectura: [5.0MHz▼]  │                                                                                │
-│   Exposición (s): [ 0.05 ]      │                                                                                │
-│   Obturador Cámara: [ Auto ▼ ]  │
-│   Paleta 2D: [ Viridis ▼ ]      │                                                                                │
+│  📷 Cámara Andor (lo leído | pedido)                                                                            │
+│   [L] cámara conectada          │                                                                                │
+│   [L] Temp −59.8 °C · estabilizada                                                                               │
+│   setpoint [E] −60 °C  [−60 °C][Aplicar]                                                                         │
+│   [L] Enfriador encendido   [Apagar enfriador]                                                                   │
+│   Ventilador [E] low   (•) low ( ) high                                                                          │
+│   [L] 0 DAC            [ 0 DAC ][Aplicar]                                                                        │
+│   [L] 0.0500 s (real)  [0.0500 s][Aplicar]                                                                       │
+│   Lectura: [E] Image · [E] Single Scan                                                                           │
+│   Velocidades: [E] VS 1.9 µs · [E] HS 13 MHz · [E] pre-amp 0   [13 MHz ▼][Aplicar]                              │
 │  🌈 Espectrógrafo Shamrock 500i │                                                                                │
-│   Red: [ 150 líneas/mm ▼ ]      │                                                                                │
-│   Ranura Entrada: [ 50.0 ] µm   │                                                                                │
-│   Puerto Entrada/Salida: [..▼]  │                                                                                │
-│   λ actual: 532.00 nm           │                                                                                │
-│   λ Central: [ 532.00 ] [➡️Ir]  │                                                                                │
-│   [ 🪞 Ir a Orden Cero (0 nm) ] │                                                                                │
+│   [L] Red 1 · 150 l/mm   Red pedida [150 l/mm ▼]                                                                 │
+│   [L] λc (SDK): 532.00 nm   λc pedida [532.00]   destino: primer orden   [➡️ Ir a λ]                            │
+│   [L] 50.0 µm   [50.0 µm][Fijar]                                                                                 │
+│   [L] entrada … · salida …   [▼][▼][Fijar puertos]                                                               │
+│   🪞 Espejo rápido: [Orden cero (red actual)]  [Red espejo]                                                      │
 ├────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────┤
 │  🟢 PySpectrum 3.0 Listo | Carpeta de trabajo: C:/Users/josel/Documents/Data_PySpectrum                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+#### Lo leído y lo pedido en el panel izquierdo (paso 8, `DEC-040`)
+- **Columna izquierda, lo leído**, con una marca:
+  - `[L]` leído del equipo; si la lectura tiene más de 3 s, dice su edad;
+  - `[E]` enviado: el SDK no permite leerlo y sólo consta que el equipo lo aceptó. Así se ven el setpoint, el ventilador, los modos de lectura y de adquisición, VS, HS y pre-amp;
+  - `[! código]` falló la lectura o el envío;
+  - `[?]` sin leer; por ejemplo, la temperatura mientras la cámara adquiere, con el último valor sólo como referencia;
+  - `[X]` equipo no conectado, con el motivo.
+
+  Un valor viejo nunca se muestra como leído.
+- **Columna derecha, lo que pedís:** nada actúa al cambiar un combo o un número. Hace falta **[Aplicar]**, **[Fijar]** o **[Ir]**, y la rueda del ratón no cambia un control que no tiene foco.
+- **Enfriador:** refleja `IsCoolerOn`. Apagarlo pide confirmación con la temperatura actual.
+- **Ventilador:** low o high; "off" no se ofrece.
+- **Entre adquisiciones:** con la cámara adquiriendo (por ejemplo, con el Live), un cambio de setpoint, ventilador o HS queda **pendiente** y se aplica al terminar.
 
 #### Atajos de Teclado Globales (Shortcuts)
 | Atajo | Acción Primaria | Alcance / Pestañas Activas |
 |---|---|---|
 | `Ctrl+Space` | Alternar Adquisición Live View | Pestaña 1 (Exploración) y Pestaña 2 (Static Raman); no-op seguro en el resto |
 | `Ctrl+R` | Disparar Adquisición Primaria de la Pestaña | Static Raman, Step & Glue, Cinética, Mapeo Confocal, Luminiscencia |
-| `Ctrl+0` | Abrir Diálogo de Seguridad de Orden Cero | Global en todo momento |
+| `Ctrl+0` | Espejo rápido: entrar al orden cero con la red actual / volver (sin diálogo) | Global en todo momento |
 | `Ctrl+M` | Abrir / Enfocar Satélite Contrapropagante | Global (conmutación Master-Slave) |
 | `Ctrl+E` / `F12` | Parada de Emergencia Inmediata (`E-STOP`) | Global (cierre de todos los láseres y liberación de sesión) |
 | `Ctrl+1` a `Ctrl+7` | Conmutar a la Pestaña N de Trabajo | Global (1: Exploración, 2: Raman, 3: S&G, 4: Cinética, 5: Calib, 6: Confocal, 7: Lumin) |
@@ -743,6 +756,24 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 - **Herramientas Espectroscópicas**: Sustracción de fluorescencia AsLS (Whittaker), cursores duales Stokes y anti-Stokes para cálculo directo de temperatura fototérmica local $T$, y exportación FAIR estructurada en HDF5 / CSV.
 
 #### 3️⃣ Pestaña 3: Step & Glue Espectral (Cosido de Banda Ancha)
+- **Cómo corre un barrido (paso 11, `DEC-040`):**
+  - Antes de arrancar se ven el **plan** (ventanas, paso, duración estimada, ventana medida o nominal) y el **preflight**. No se arranca con:
+    - una ventana en condición especular;
+    - un centro fuera de los límites de la red;
+    - una exposición mayor que 10 s;
+    - la cámara o el Shamrock no conectados;
+    - normalizar sin archivo de lámpara real (nunca un perfil sintético).
+
+    Advierte, sin bloquear, si hay un láser abierto cuya línea cae en el barrido con ganancia EM mayor que 0.
+  - **Espejo de detección:** si el software no cree que está abajo, un diálogo ofrece "Bajar el espejo", "Ya está abajo: confirmo" o "Cancelar", más un botón E-STOP. El espejo no tiene sensor: es lo último que ordenó el software.
+  - **Durante el barrido:**
+    - corre en su propio hilo;
+    - cada ventana es una exposición real: el espectrógrafo se mueve y se relee, se verifica el eje λ y la ventana **se guarda en disco al terminar**, en `data_step_and_glue/sg_<fecha>/`;
+    - [Detener] responde en menos de un cuarto de segundo, también a mitad de una exposición;
+    - la rutina toma la sesión (pausa el Live), abre el obturador del espectrómetro y lo cierra al terminar.
+  - **Láseres:** la rutina nunca abre ni cierra un láser; si abriste uno, renueva el latido y registra en cada ventana cuáles estaban abiertos.
+  - **Primera ventana sin luz:** pausa y pregunta: [Seguir] o [Detener]. La ventana no se descarta.
+  - **Barrido incompleto** (Stop, E-STOP o falla): no se cose solo. [Coser lo adquirido] lo cose a pedido y lo rotula como incompleto.
 - **Algoritmo de Ponderación de Coseno Alzado (*Raised-Cosine*)**:
   $$w_1 = \cos^2\left(\frac{\pi}{2} \frac{\lambda - \lambda_a}{\lambda_b - \lambda_a}\right), \quad w_2 = \sin^2\left(\frac{\pi}{2} \frac{\lambda - \lambda_a}{\lambda_b - \lambda_a}\right)$$
   Garantiza $w_1 + w_2 = 1.0$ estricto a precisión de punto flotante de máquina ($\sim 2.2 \times 10^{-16}$), eliminando artefactos y saltos de discontinuidad en las uniones espectrales.
@@ -772,7 +803,7 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 #### 5️⃣ Pestaña 5: Calibraciones Modulares del Sistema (`calibration_dock.py`)
 Centraliza los ajustes metrológicos del espectrógrafo y del sensor Andor:
 1. **Ranura de Entrada & Pixel X Central**: Apertura motorizada (10 a 2500 µm), movimiento a Orden Cero (0.0 nm) y auto-calibración con ajuste gaussiano sub-píxel del centroide del slit.
-2. **Offsets de Rejilla & Detector (SDK ShamrockCIF.dll)**: Calibración no volátil de pasos mecánicos angulares para Red 1 (150 l/mm), Red 2 (1200 l/mm) y Espejo.
+2. **Offsets de red y detector (leídos del Shamrock)**: se muestran con la hora de lectura; una lectura fallida dice "desconocido". No se escriben desde botones. [Registrar lo leído en el archivo] guarda los valores actuales en el archivo de calibraciones local (sólo se agregan entradas; historial visible). Al arrancar, PySpectrum compara el equipo con ese archivo y avisa si difieren, sin escribir nada. La escritura de un offset es una transacción con respaldo, tecleo del número de líneas de la red (y 3.ª confirmación si el cambio supera 50 pasos) y relectura; sin restauración desde el historial (R4-C-4). Ver MOD-06 §8.2.
 3. **Calibración Cúbica EEPROM**: Lectura de los coeficientes de dispersión $\lambda(p) = a + bp + cp^2 + dp^3$.
 4. **Respuesta Radiométrica (Lámpara Halógena)**: Carga y normalización con curvas de calibración NIST.
 5. **Persistencia Centralizada (.txt)**: Almacenamiento y restauración completa de parámetros en archivo `.txt`.

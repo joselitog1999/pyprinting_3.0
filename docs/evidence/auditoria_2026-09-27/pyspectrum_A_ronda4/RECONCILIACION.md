@@ -74,10 +74,10 @@ Actualizado para bajar primero el riesgo del primer arranque:
    - La reconexión es en el lugar, sobre la misma instancia, y queda rechazada con una sesión activa o con la E-STOP.
    - `refresh_status()` sólo lee, y hay avisos antes de reiniciar la cámara.
    - En lugar del `DeviceRegistry` completo se optó por la reconexión en el lugar, que da la misma garantía sin tocar 16 módulos.
-5. **Paso 8:** estado base y servicio de estado (D-12 a D-15).
+5. ✅ **Paso 8:** estado base y servicio de estado (D-12 a D-15). Hecho (DEC-040): estado base al arrancar, instantánea leída con marcas, `CameraControlService` y panel leído/pedido. Pendiente: el `SpectrographWorker` en su propio hilo, que espera BANCO-39.
 6. ✅ **Paso 7:** orden cero (D-06, D-07a, D-08, D-18). Hecho (DEC-040): red mínima en los drivers, servicio, panel, insignia y E-STOP con ganancia 0 releída.
-7. **Pasos 9 y 10:** repositorio y transacción (D-03, D-04, D-07b, R4-D-3).
-8. **Pasos 11 y 12:** Step & Glue y escaneo lineal (D-09 a D-11, D-16, D-17).
+7. ✅ **Pasos 9 y 10:** repositorio y transacción (D-03, D-04, D-07b, R4-D-3). Hecho (DEC-040): repositorio local fuera de git, observación al arrancar sin escrituras, transacción con respaldo y doble confirmación, dock de sólo lectura y diálogo de escritura. La corrección fina (SOFTWARE_CORRECTION, D-04) se aplica recién cuando la produzca el paso 14.
+8. **Pasos 11 y 12:** Step & Glue y escaneo lineal (D-09 a D-11, D-16, D-17). ✅ Paso 11 hecho (DEC-040). Paso 12 con R4-I: luz como Step & Glue, cada rutina conserva su cosido.
 9. **Paso 13:** satélite huésped y orden de cierre, con la platina a (50, 50, 10) (R4-B-6).
 10. **Paso 14:** calibración automática (D-01, D-02, D-05).
 

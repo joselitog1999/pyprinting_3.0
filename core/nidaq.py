@@ -19,7 +19,7 @@ import time
 import sys
 import atexit
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, NamedTuple
 import numpy as np
 
 # Unificar 'nidaq' y 'core.nidaq' en sys.modules para evitar instancias duplicadas
@@ -105,6 +105,10 @@ if not SAFE_MODE:
 # líneas a la vez). No es por sí solo el estado confirmado: ver _unconfirmed_shutters.
 _shutter_signal: list[bool]       = [not SHUTTER_POLARITY[s] for s in SHUTTERS]
 _flipper_notch532_up: bool        = True
+# Creencia sobre el espejo de detección (D-10, C-08). El espejo es un MFF101 conmutador sin realimentación
+# (BANCO-21): el software sólo sabe lo que ordenó. "none" = sin información (posición "unknown").
+_mirror_belief_source: str       = "none"
+_mirror_belief_since = None
 _flipper_high_power: bool         = False
 _shutter_task                     = None
 _flipper_task0                    = None
@@ -696,6 +700,36 @@ def down_flipper() -> bool:
     return _pulse_flipper(True)
 
 
+class MirrorBelief(NamedTuple):
+    position: str          # "up" / "down" / "unknown"
+    source: str            # "none" / "commanded" / "operator_confirmed"
+    since: Optional[float]
+
+
+def _note_mirror_commanded() -> None:
+    global _mirror_belief_source, _mirror_belief_since
+    _mirror_belief_source, _mirror_belief_since = "commanded", time.time()
+
+
+def get_detection_mirror_belief() -> MirrorBelief:
+    """Qué cree el software sobre el espejo de detección (D-10). Sin información, "unknown"."""
+    with _nidaq_lock:
+        if _mirror_belief_source == "none":
+            return MirrorBelief("unknown", "none", None)
+        return MirrorBelief("up" if _flipper_notch532_up else "down", _mirror_belief_source, _mirror_belief_since)
+
+
+def confirm_detection_mirror_belief(position: str) -> MirrorBelief:
+    """El operador confirma la posición (p. ej. "Ya está abajo: confirmo"). No mueve nada (D-10)."""
+    global _flipper_notch532_up, _mirror_belief_source, _mirror_belief_since
+    if position not in ("up", "down"):
+        raise ValueError(f"Posición desconocida: '{position}'")
+    with _nidaq_lock:
+        _flipper_notch532_up = position == "up"
+        _mirror_belief_source, _mirror_belief_since = "operator_confirmed", time.time()
+    return get_detection_mirror_belief()
+
+
 def flipper_notch532(desired: str) -> bool:
     """Mueve el flipper notch 532. Devuelve True sólo si se confirmó (o no hacía falta moverlo)."""
     global _flipper_notch532_up
@@ -704,6 +738,7 @@ def flipper_notch532(desired: str) -> bool:
     with _nidaq_lock:
         if SAFE_MODE:
             _flipper_notch532_up = (desired == "up")
+            _note_mirror_commanded()
             print(f"[NI MOCK] flipper_notch532({desired})"); return True
         try:
             task = _get_flipper532_task()
@@ -712,6 +747,7 @@ def flipper_notch532(desired: str) -> bool:
                 return False
             if isinstance(task, _MockNITask):
                 _flipper_notch532_up = (desired == "up")
+                _note_mirror_commanded()
                 print(f"[NI MOCK] flipper_notch532({desired})"); return True
             need_up  = desired == "up"
             if need_up and not _flipper_notch532_up:
@@ -720,6 +756,7 @@ def flipper_notch532(desired: str) -> bool:
             elif not need_up and _flipper_notch532_up:
                 task.write(True); time.sleep(0.003); task.write(False)
                 _flipper_notch532_up = False
+            _note_mirror_commanded()
             return True
         except Exception as e:
             print(f"[NI-DAQ Error] flipper_notch532: {e}")

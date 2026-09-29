@@ -288,12 +288,12 @@ def test_left_panel_shows_stale_temperature_while_acquiring():
     from pyspectrum.drivers.shamrock_driver import get_shamrock
     from pyspectrum.ui.left_hardware_panel import LeftHardwarePanel
     panel = LeftHardwarePanel(andor_mod.get_andor_ccd(force_mock=True), get_shamrock(force_mock=True))
-    panel.camera = _TempOnlyCam((andor_mod.DRV_ACQUIRING, -60.0))
+    panel.camera = panel.state_service.camera = _TempOnlyCam((andor_mod.DRV_ACQUIRING, -60.0))
     panel._refresh_status()
     text = panel.lbl_temp_badge.text()
     assert "-60.0" in text and "adquiriendo" in text
     assert "Estabilizado" not in text and "Enfriando" not in text
-    panel.camera = _TempOnlyCam((andor_mod.DRV_ACQUIRING, float("nan")))
+    panel.camera = panel.state_service.camera = _TempOnlyCam((andor_mod.DRV_ACQUIRING, float("nan")))
     panel._refresh_status()
     assert "nan" not in panel.lbl_temp_badge.text()
 

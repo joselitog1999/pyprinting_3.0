@@ -12,6 +12,8 @@ pyspectrum/calibration/halogen_lamp.py (testeables sin GUI); glue_steps() (blend
 preexistente) permanece sin cambios y sigue siendo usado por linescan_spectroscopy.py.
 """
 from __future__ import annotations
+import os
+import threading
 import time
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -32,7 +34,13 @@ from pyspectrum.calibration.halogen_lamp import (
 )
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
 from pyspectrum.calibration.fit_raman_water import fit_signal_raman
-from core.nidaq import heartbeat_shutter
+from pyspectrum.modules.acquisition import ExposureRequest, Frame, single_exposure
+# El motor del paso 11 (DEC-040): plan, preflight y una exposición por ventana. `measured_window_nm` se
+# re-exporta desde acá porque el escaneo lineal la importa de este módulo.
+from pyspectrum.modules.step_glue_engine import (  # noqa: F401
+    PreflightReport, StepGlueRequest, frame_shape_for, heartbeat_tick, measured_window_nm, plan, preflight,
+    run_windows,
+)
 
 GRATING_SETTLE_TIMEOUT_S = 6.0
 
@@ -47,6 +55,9 @@ class Frontend(QtWidgets.QFrame):
     saveSpectrumSignal = pyqtSignal(str)
     exportHDF5Signal = pyqtSignal(str)
     lockSubstrateSignal = pyqtSignal()
+    resumeSignal = pyqtSignal(bool)              # [Seguir] / [Stop] tras "ventana 1 sin señal" (G8)
+    glueAcquiredSignal = pyqtSignal()            # [Coser lo adquirido] (Ronda 3 §4.3)
+    planRequestSignal = pyqtSignal(float, float, float, float, bool)   # (desde, hasta, solape, exp, zona central)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -102,12 +113,20 @@ class Frontend(QtWidgets.QFrame):
         param_grid.setSpacing(6)
 
         param_grid.addWidget(QtWidgets.QLabel("Tiempo Exp (s):"), 0, 0)
-        self.edit_exp = QtWidgets.QLineEdit("1.0")
-        self.edit_exp.setToolTip("Tiempo de integración en segundos para cada cuadro espectral individual.")
+        self.edit_exp = QtWidgets.QDoubleSpinBox()
+        self.edit_exp.setDecimals(4)
+        self.edit_exp.setRange(0.0001, 10.0)
+        self.edit_exp.setValue(1.0)
+        self.edit_exp.setSuffix(" s")
+        self.edit_exp.setToolTip("Tiempo de integración de cada ventana. Las rutinas aceptan hasta 10 s (R4-4).")
         param_grid.addWidget(self.edit_exp, 0, 1)
 
         param_grid.addWidget(QtWidgets.QLabel("Paso Único λ (nm):"), 1, 0)
-        self.edit_center_wl = QtWidgets.QLineEdit("532.0")
+        self.edit_center_wl = QtWidgets.QDoubleSpinBox()
+        self.edit_center_wl.setRange(0.0, 2000.0)
+        self.edit_center_wl.setDecimals(2)
+        self.edit_center_wl.setValue(532.0)
+        self.edit_center_wl.setSuffix(" nm")
         self.edit_center_wl.setToolTip("Longitud de onda central (nm) para la adquisición simple de paso único.")
         param_grid.addWidget(self.edit_center_wl, 1, 1)
 
@@ -127,12 +146,20 @@ class Frontend(QtWidgets.QFrame):
         sandg_grid.setSpacing(6)
 
         sandg_grid.addWidget(QtWidgets.QLabel("λ Inicial (nm):"), 0, 0)
-        self.edit_start_wl = QtWidgets.QLineEdit("450.0")
+        self.edit_start_wl = QtWidgets.QDoubleSpinBox()
+        self.edit_start_wl.setRange(0.0, 2000.0)
+        self.edit_start_wl.setDecimals(1)
+        self.edit_start_wl.setValue(500.0)
+        self.edit_start_wl.setSuffix(" nm")
         self.edit_start_wl.setToolTip("Longitud de onda inicial (nm) para el barrido multi-paso concatenado.")
         sandg_grid.addWidget(self.edit_start_wl, 0, 1)
 
         sandg_grid.addWidget(QtWidgets.QLabel("λ Final (nm):"), 1, 0)
-        self.edit_end_wl = QtWidgets.QLineEdit("950.0")
+        self.edit_end_wl = QtWidgets.QDoubleSpinBox()
+        self.edit_end_wl.setRange(0.0, 2000.0)
+        self.edit_end_wl.setDecimals(1)
+        self.edit_end_wl.setValue(900.0)
+        self.edit_end_wl.setSuffix(" nm")
         self.edit_end_wl.setToolTip("Longitud de onda final (nm) para el barrido multi-paso concatenado.")
         sandg_grid.addWidget(self.edit_end_wl, 1, 1)
 
@@ -161,8 +188,9 @@ class Frontend(QtWidgets.QFrame):
 
         # Opciones de procesamiento
         self.chk_norm_lamp = QtWidgets.QCheckBox("Normalizar con Lámpara Halógena")
-        self.chk_norm_lamp.setChecked(True)
-        self.chk_norm_lamp.setToolTip("Corrige la curva de respuesta instrumental espectral dividiendo por el perfil de la lámpara halógena.")
+        self.chk_norm_lamp.setChecked(False)
+        self.chk_norm_lamp.setToolTip("Corrige la curva de respuesta instrumental espectral dividiendo por el perfil de la lámpara halógena.\n"
+                                      "Sin un archivo de lámpara real no se inicia: nunca se normaliza con un perfil sintético.")
         controls_vlo.addWidget(self.chk_norm_lamp)
 
         self.chk_fit_poly = QtWidgets.QCheckBox("Ajuste Polinomial SPR (λ_max)")
@@ -186,6 +214,21 @@ class Frontend(QtWidgets.QFrame):
         substrate_box.addWidget(self.chk_sub_substrate)
         controls_vlo.addLayout(substrate_box)
 
+        # Plan y preflight (Ronda 3 §1.9-1.9.1): se recalculan con cada cambio, sin tocar el hardware
+        self.lbl_plan = QtWidgets.QLabel("Plan: —")
+        self.lbl_plan.setWordWrap(True)
+        self.lbl_plan.setStyleSheet("color: #A6ADC8; font-size: 8.5pt;")
+        self.lbl_plan.setToolTip("Paso ≈ W · (1 − solape). Por ventana: movimiento (≤ 0.3 s, provisorio hasta BANCO-39) +\n"
+                                 "exposición + lectura (≈ 0.08 s a 13 MHz).")
+        controls_vlo.addWidget(self.lbl_plan)
+        self.lbl_preflight = QtWidgets.QLabel("")
+        self.lbl_preflight.setWordWrap(True)
+        controls_vlo.addWidget(self.lbl_preflight)
+        for w in (self.edit_start_wl, self.edit_end_wl, self.edit_exp):
+            w.valueChanged.connect(lambda _v: self._request_plan())
+        self.spin_overlap_pct.valueChanged.connect(lambda _v: self._request_plan())
+        self.chk_optical_core.toggled.connect(lambda _v: self._request_plan())
+
         # Botones de Acción Step & Glue y Detención
         btn_box = QtWidgets.QHBoxLayout()
         self.btn_sandg = QtWidgets.QPushButton("🧩 Ejecutar Step and Glue")
@@ -200,6 +243,26 @@ class Frontend(QtWidgets.QFrame):
         self.btn_stop.clicked.connect(self._on_stop_measure)
         btn_box.addWidget(self.btn_stop)
         controls_vlo.addLayout(btn_box)
+
+        # Pausa por "ventana 1 sin señal" (G8): la ventana no se descarta
+        pause_box = QtWidgets.QHBoxLayout()
+        self.btn_resume = QtWidgets.QPushButton("▶ Seguir")
+        self.btn_resume.clicked.connect(lambda: self._answer_no_signal(True))
+        self.btn_resume.hide()
+        pause_box.addWidget(self.btn_resume)
+        self.btn_glue_partial = QtWidgets.QPushButton("🧵 Coser lo adquirido")
+        self.btn_glue_partial.setToolTip("Cose las ventanas de un barrido incompleto. El resultado queda rotulado como incompleto.")
+        self.btn_glue_partial.clicked.connect(self.glueAcquiredSignal.emit)
+        self.btn_glue_partial.hide()
+        pause_box.addWidget(self.btn_glue_partial)
+        controls_vlo.addLayout(pause_box)
+
+        self.table_windows = QtWidgets.QTableWidget(0, 5)
+        self.table_windows.setHorizontalHeaderLabels(["#", "λc pedida", "λc leída", "estado", "archivo"])
+        self.table_windows.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table_windows.setMinimumHeight(160)
+        self.table_windows.horizontalHeader().setStretchLastSection(True)
+        controls_vlo.addWidget(self.table_windows)
 
         # Barra de Progreso No Bloqueante
         self.progress_bar = QtWidgets.QProgressBar()
@@ -250,31 +313,121 @@ class Frontend(QtWidgets.QFrame):
         main_layout.addWidget(self.plot_widget, stretch=3)
 
     def _on_single_measure(self):
+        wl = float(self.edit_center_wl.value())
+        exp = float(self.edit_exp.value())
+        self.lbl_status.setText(f"Midiendo espectro simple en {wl:.1f} nm...")
+        self.measureSingleSignal.emit(wl, exp)
+
+    def _request_plan(self):
+        self.planRequestSignal.emit(float(self.edit_start_wl.value()), float(self.edit_end_wl.value()),
+                                    float(self.spin_overlap_pct.value()) / 100.0, float(self.edit_exp.value()),
+                                    self.chk_optical_core.isChecked())
+
+    def _confirm_mirror(self) -> bool:
+        """Advertencia del espejo de detección (R4-A-4, G4): la única con diálogo (Ronda 3 §1.9.1). El espejo no
+        tiene sensor: es lo último que ordenó el software (C-08, BANCO-21)."""
         try:
-            wl = float(self.edit_center_wl.text())
-            exp = float(self.edit_exp.text())
-            self.lbl_status.setText(f"Midiendo espectro simple en {wl:.1f} nm...")
-            self.measureSingleSignal.emit(wl, exp)
-        except ValueError:
-            pass
+            from core.nidaq import confirm_detection_mirror_belief, flipper_notch532, get_detection_mirror_belief
+            belief = get_detection_mirror_belief()
+        except Exception:
+            return True
+        if belief.position == "down":
+            return True
+        text = ("El software no sabe dónde está el espejo de detección." if belief.position == "unknown"
+                else "El software cree que el espejo de detección está ARRIBA.")
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Step & Glue: espejo de detección")
+        box.setText(text + "\nEl espejo no tiene sensor: esto es lo último que ordenó el software.\n"
+                           "Con el espejo arriba, la luz no llega al espectrómetro.")
+        b_down = box.addButton("Bajar el espejo y seguir", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        b_conf = box.addButton("Ya está abajo: confirmo y sigo", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        b_cancel = box.addButton("Cancelar", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        b_estop = box.addButton("🚨 E-STOP", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(b_cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_estop:
+            from pyspectrum.modules.hardware_session import hardware_session
+            hardware_session.emergency_stop()
+            return False
+        if clicked is b_down:
+            return bool(flipper_notch532("down"))
+        if clicked is b_conf:
+            confirm_detection_mirror_belief("down")
+            return True
+        return False
 
     def _on_sandg_measure(self):
-        try:
-            start_wl = float(self.edit_start_wl.text())
-            end_wl = float(self.edit_end_wl.text())
-            overlap_pct = float(self.spin_overlap_pct.value()) / 100.0
-            exp = float(self.edit_exp.text())
-            norm = self.chk_norm_lamp.isChecked()
-            check_water = self.chk_fit_raman.isChecked()
-            use_optical_core = self.chk_optical_core.isChecked()
-            subtract_substrate = self.chk_sub_substrate.isChecked()
-            self.lbl_water_ref.setText("")
-            self.lbl_status.setText(f"Ejecutando Step & Glue [{start_wl:.0f} - {end_wl:.0f} nm], solapamiento {self.spin_overlap_pct.value()}%...")
-            self.measureStepGlueSignal.emit(
-                start_wl, end_wl, overlap_pct, exp, norm, check_water, use_optical_core, subtract_substrate,
-            )
-        except ValueError:
-            pass
+        start_wl = float(self.edit_start_wl.value())
+        end_wl = float(self.edit_end_wl.value())
+        overlap_pct = float(self.spin_overlap_pct.value()) / 100.0
+        exp = float(self.edit_exp.value())
+        norm = self.chk_norm_lamp.isChecked()
+        check_water = self.chk_fit_raman.isChecked()
+        use_optical_core = self.chk_optical_core.isChecked()
+        subtract_substrate = self.chk_sub_substrate.isChecked()
+        if not self._confirm_mirror():
+            self.lbl_status.setText("Step & Glue cancelado (espejo de detección).")
+            return
+        self.lbl_water_ref.setText("")
+        self.btn_glue_partial.hide()
+        self.lbl_status.setText(f"Ejecutando Step & Glue [{start_wl:.0f} - {end_wl:.0f} nm], solapamiento {self.spin_overlap_pct.value()}%...")
+        self.measureStepGlueSignal.emit(
+            start_wl, end_wl, overlap_pct, exp, norm, check_water, use_optical_core, subtract_substrate,
+        )
+
+    def _answer_no_signal(self, go_on: bool):
+        self.btn_resume.hide()
+        self.resumeSignal.emit(go_on)
+
+    @pyqtSlot(str)
+    def show_status(self, message: str):
+        self.lbl_status.setText(message)
+
+    @pyqtSlot(object)
+    def show_plan(self, the_plan):
+        n = len(the_plan.centers)
+        step = (the_plan.centers[1] - the_plan.centers[0]) if n > 1 else 0.0
+        mins = the_plan.estimated_duration_s / 60.0
+        self.lbl_plan.setText(f"Plan: {n} ventanas · paso ≈ {step:.1f} nm · ≈ {mins:.1f} min · ventana "
+                              f"{the_plan.window_nm:.1f} nm ({the_plan.window_source})")
+        if not self.table_windows.rowCount() or getattr(self, "_plan_rows", None) != n:
+            self._plan_rows = n
+            self.table_windows.setRowCount(0)
+            for i, c in enumerate(the_plan.centers):
+                self.table_windows.insertRow(i)
+                for col, text in enumerate((str(i + 1), f"{c:.2f}", "", "pendiente", "")):
+                    self.table_windows.setItem(i, col, QtWidgets.QTableWidgetItem(text))
+
+    @pyqtSlot(object)
+    def show_preflight(self, report):
+        lines = [f"⛔ {b}" for b in report.blockers] + [f"⚠️ {w}" for w in report.warnings]
+        self.lbl_preflight.setText("\n".join(lines))
+        self.lbl_preflight.setStyleSheet(f"color: {'#F38BA8' if report.blockers else '#F9E2AF'}; font-size: 8.5pt;")
+
+    @pyqtSlot(object)
+    def on_window_acquired(self, w):
+        row = w.index
+        if row < self.table_windows.rowCount():
+            self.table_windows.setItem(row, 2, QtWidgets.QTableWidgetItem(f"{w.center_nm_read:.2f}"))
+            state = "✓ en disco" + (" · LIGHT_CHANGED" if w.light_changed else "")
+            self.table_windows.setItem(row, 3, QtWidgets.QTableWidgetItem(state))
+            self.table_windows.setItem(row, 4, QtWidgets.QTableWidgetItem(w.path.name if w.path else ""))
+
+    @pyqtSlot(int)
+    def on_no_signal(self, index: int):
+        self.lbl_status.setText(f"Ventana {index + 1}: sin señal por encima del fondo. ¿Espejo arriba o lámpara "
+                                f"apagada? [Seguir] o [Detener].")
+        self.btn_resume.show()
+
+    @pyqtSlot(object)
+    def on_sweep_finished(self, result):
+        self.btn_resume.hide()
+        done = len(result.windows)
+        for row in range(done, self.table_windows.rowCount()):
+            state = "interrumpida (sin datos)" if row == done and not result.complete else "no adquirida"
+            self.table_windows.setItem(row, 3, QtWidgets.QTableWidgetItem(state))
+        self.btn_glue_partial.setVisible(not result.complete and done > 0)
 
     def _on_stop_measure(self):
         self.lbl_status.setText("⏹ Detención solicitada por el usuario...")
@@ -326,46 +479,89 @@ class Frontend(QtWidgets.QFrame):
         self.curve_fit.setData(wave_fit, spec_fit)
 
 
-def measured_window_nm(spectrometer) -> Optional[float]:
-    """Ancho espectral real que cubre el detector, leído de la calibración del espectrógrafo
-    en la posición actual. None si no se puede confiar en ella: geometría del detector no
-    verificada en el SDK, código de error, o un eje no finito o degenerado (p. ej. espejo).
+class StepGlueWorker(QtCore.QObject):
+    """Corre `run_windows` en su propio `QThread` (G1, paso 11). La GUI sigue respondiendo y Stop / E-STOP
+    se ven en el tramo siguiente. La pausa por "sin señal" sigue latiendo (D-17)."""
 
-    Planificar con la ventana medida y no con una constante es lo que evita que un número
-    equivocado deje huecos en hardware mientras el mock, que comparte ese número, los tapa
-    (DEC-033). Una variación de la dispersión con λ de pocos % la absorbe el solapamiento.
-    Función de módulo para que el escaneo lineal planifique igual, sin una copia (C-22)."""
-    if getattr(spectrometer, "geometry_verified", True) is False:
-        return None
+    windowAcquired = pyqtSignal(object)
+    progress = pyqtSignal(int, int, float)
+    noSignal = pyqtSignal(int)
+    finished = pyqtSignal(object)
+
+    def __init__(self, request, the_plan, camera, spectrometer, run_dir: Path, abort_event: threading.Event):
+        super().__init__()
+        self.request, self.plan = request, the_plan
+        self.camera, self.spectrometer = camera, spectrometer
+        self.run_dir = run_dir
+        self._abort = abort_event
+        self._resume_event = threading.Event()
+        self._resume_answer = True
+
+    def resume(self, go_on: bool):
+        self._resume_answer = bool(go_on)
+        self._resume_event.set()
+
+    def _wait_answer(self, window) -> bool:
+        self.noSignal.emit(window.index)
+        tick = heartbeat_tick()
+        while not self._resume_event.wait(0.1):
+            tick()                               # la pausa sigue latiendo (D-17)
+            if self._abort.is_set() or _estopped():
+                return False
+        self._resume_event.clear()
+        return self._resume_answer
+
+    @pyqtSlot()
+    def run(self):
+        res = run_windows(self.plan, self.request, self.camera, self.spectrometer, run_dir=self.run_dir,
+                          should_abort=self._abort.is_set, on_tick=heartbeat_tick(), is_estopped=_estopped,
+                          on_window=self.windowAcquired.emit, on_no_signal=self._wait_answer,
+                          on_progress=lambda i, n, f: self.progress.emit(i, n, f))
+        self.finished.emit(res)
+
+
+def _estopped() -> bool:
+    from pyspectrum.modules.hardware_session import hardware_session
+    return bool(hardware_session.is_emergency_stopped)
+
+
+def _mirror_position() -> str:
     try:
-        if hasattr(spectrometer, "get_wavelength_axis_cubic"):
-            ret, axis = spectrometer.get_wavelength_axis_cubic(DEVICE, DETECTOR_WIDTH_PX)
-        else:
-            ret, axis = spectrometer.ShamrockGetCalibration(DEVICE, DETECTOR_WIDTH_PX)
-    except Exception as e:
-        print(f"[Step & Glue] No se pudo leer la calibración para planificar: {e}")
-        return None
-    axis = np.asarray(axis, dtype=np.float64)
-    if ret != SHAMROCK_SUCCESS or axis.size < 2 or not np.all(np.isfinite(axis)):
-        return None
-    span = float(axis.max() - axis.min())
-    return span if span > 0.0 else None
+        from core.nidaq import get_detection_mirror_belief
+        return get_detection_mirror_belief().position
+    except Exception:
+        return "unknown"
+
+
+def _open_lasers() -> List[str]:
+    try:
+        from core.nidaq import get_open_shutter_names
+        return list(get_open_shutter_names())
+    except Exception:
+        return []
 
 
 class Backend(QtCore.QObject):
-    """Motor de adquisición y cosido espectral continuo."""
+    """Step & Glue sobre el motor (paso 11, DEC-040). La GUI usa `start_sweep`, que corre en un QThread;
+    `measure_step_and_glue` es la misma secuencia, síncrona, para scripts y tests."""
 
     spectrumFinishedSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, np.ndarray, float)
     fitFinishedSignal = pyqtSignal(np.ndarray, np.ndarray)
     stepProgressSignal = pyqtSignal(int, int, float)  # (step_idx, n_steps, wl_center)
     waterReferenceCheckedSignal = pyqtSignal(str)
+    statusSignal = pyqtSignal(str)
+    preflightSignal = pyqtSignal(object)      # PreflightReport
+    planSignal = pyqtSignal(object)           # StepGluePlan
+    windowAcquiredSignal = pyqtSignal(object)  # WindowResult
+    noSignalSignal = pyqtSignal(int)
+    sweepFinishedSignal = pyqtSignal(object)  # StepGlueResult
 
     def __init__(self, camera=None, spectrometer=None, parent=None):
         super().__init__(parent)
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
         self.lamp_calib = HalogenLampCalibration()
-        self._abort_requested = False
+        self._abort_event = threading.Event()
         self._last_wave = np.array([])
         self._last_spec = np.array([])
         self._last_norm = np.array([])
@@ -373,60 +569,321 @@ class Backend(QtCore.QObject):
         self._raw_spec_steps: List[np.ndarray] = []
         self._last_frame_2d: Optional[np.ndarray] = None  # matriz cosida (H, W_total) en modo Imagen 2D
         self._substrate_signal: Optional[np.ndarray] = None  # fondo de sustrato fijado ("Lock Sustrato")
-        # Trazabilidad de la planificación del último barrido (DEC-033), exportada al HDF5.
         self._last_window_nm: Optional[float] = None
         self._last_window_source: str = ""
         self._last_coverage_gaps: List[tuple] = []
+        self.last_result = None                 # StepGlueResult del último barrido
+        # Carpeta de las ventanas: la de trabajo de PySpectrum (la ventana la actualiza). Nunca el directorio
+        # actual: los tests y un lanzamiento desde el repo no deben dejar datos dentro del repositorio.
+        base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or str(Path.home() / "Documents" / "Data_PySpectrum")
+        self.data_dir = Path(base) / "step_and_glue"
+        self._thread: Optional[QtCore.QThread] = None
+        self._worker: Optional[StepGlueWorker] = None
+        self._sweep_opts: Dict = {}
 
-    def make_connection(self, frontend: Frontend):
+    @property
+    def _abort_requested(self) -> bool:
+        return self._abort_event.is_set()
+
+    @_abort_requested.setter
+    def _abort_requested(self, value: bool) -> None:
+        self._abort_event.set() if value else self._abort_event.clear()
+
+    def make_connection(self, frontend: "Frontend"):
         frontend.measureSingleSignal.connect(self.measure_single_spectrum)
-        frontend.measureStepGlueSignal.connect(self.measure_step_and_glue)
+        frontend.measureStepGlueSignal.connect(self.start_sweep)
         frontend.stopMeasurementSignal.connect(self.stop_measurement)
         frontend.saveSpectrumSignal.connect(self.save_spectrum)
         frontend.exportHDF5Signal.connect(self.export_hdf5)
         frontend.lockSubstrateSignal.connect(self.lock_substrate)
+        frontend.resumeSignal.connect(self.resume)
+        frontend.glueAcquiredSignal.connect(self.glue_acquired)
+        frontend.planRequestSignal.connect(self.publish_plan)
         self.spectrumFinishedSignal.connect(frontend.update_spectrum_plot)
         self.fitFinishedSignal.connect(frontend.update_fit_plot)
         self.stepProgressSignal.connect(frontend.update_progress)
         self.waterReferenceCheckedSignal.connect(frontend.update_water_reference_status)
+        self.statusSignal.connect(frontend.show_status)
+        self.preflightSignal.connect(frontend.show_preflight)
+        self.planSignal.connect(frontend.show_plan)
+        self.windowAcquiredSignal.connect(frontend.on_window_acquired)
+        self.noSignalSignal.connect(frontend.on_no_signal)
+        self.sweepFinishedSignal.connect(frontend.on_sweep_finished)
 
     @pyqtSlot()
     def stop_measurement(self):
-        self._abort_requested = True
+        self._abort_event.set()
         print("[Step & Glue] Solicitud de detención recibida.")
+
+    @pyqtSlot(bool)
+    def resume(self, go_on: bool):
+        if self._worker is not None:
+            self._worker.resume(go_on)
+
+    # ── pedido, plan y preflight ──
+    def _request(self, start_wl, end_wl, overlap, exp_time, normalize, use_optical_core) -> StepGlueRequest:
+        ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+        g = self.camera.get_emccd_gain() if hasattr(self.camera, "get_emccd_gain") else 0
+        gain = int(g[1]) if isinstance(g, (tuple, list)) else int(g)
+        read_mode = self.camera.get_read_mode() if hasattr(self.camera, "get_read_mode") else READ_MODE_FVB
+        lamp_file = getattr(self.lamp_calib, "source_path", None) if normalize else None
+        return StepGlueRequest(float(start_wl), float(end_wl), float(overlap), float(exp_time), int(read_mode),
+                               int(grating) if ret_g == SHAMROCK_SUCCESS else -1, gain,
+                               normalize_with_lamp=bool(normalize), lamp_file=lamp_file,
+                               use_optical_core=bool(use_optical_core))
+
+    @pyqtSlot(float, float, float, float, bool)
+    def publish_plan(self, start_wl: float, end_wl: float, overlap: float, exp_time: float, use_optical_core: bool):
+        """Plan en vivo para la GUI: puro, sin tocar el hardware salvo lecturas (Ronda 3 §1.9)."""
+        try:
+            req = self._request(start_wl, end_wl, overlap, exp_time, False, use_optical_core)
+            self.planSignal.emit(plan(req, self.spectrometer, measured_window=self._measured_window_nm()))
+        except Exception as e:
+            self.statusSignal.emit(f"No se pudo calcular el plan: {e}")
+
+    def _prepare(self, start_wl, end_wl, overlap, exp_time, normalize, use_optical_core):
+        req = self._request(start_wl, end_wl, overlap, exp_time, normalize, use_optical_core)
+        the_plan = plan(req, self.spectrometer, measured_window=self._measured_window_nm())
+        rep = preflight(req, the_plan, self.camera, self.spectrometer, mirror_position=_mirror_position(),
+                        open_shutters=_open_lasers())
+        self._last_window_nm, self._last_window_source = the_plan.window_nm, the_plan.window_source
+        self.planSignal.emit(the_plan)
+        self.preflightSignal.emit(rep)
+        return req, the_plan, rep
+
+    def _begin(self) -> bool:
+        from pyspectrum.modules.hardware_session import hardware_session
+        from pyspectrum.services.spectrometer_shutter import open_spectrometer_shutter
+        if not hardware_session.acquire_session("Step & Glue", auto_pause_live=True):
+            self.statusSignal.emit("Step & Glue no arrancó: el hardware está ocupado o la E-STOP está activa.")
+            return False
+        res = open_spectrometer_shutter(self.camera, self.spectrometer)      # G6, R4-H-2
+        if not res.ok:
+            self.statusSignal.emit(f"⛔ {res.detail} No se inicia el barrido.")
+            hardware_session.release_session("Step & Glue")
+            return False
+        return True
+
+    def _end(self):
+        from pyspectrum.modules.hardware_session import hardware_session
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter
+        res = close_spectrometer_shutter(self.camera, self.spectrometer)
+        if not res.ok:
+            self.statusSignal.emit(f"⚠️ {res.detail}")
+        hardware_session.release_session("Step & Glue", restore_live=False)
+
+    def _run_dir(self) -> Path:
+        return Path(self.data_dir) / time.strftime("sg_%Y%m%d_%H%M%S")
+
+    # ── barrido en su hilo (GUI) ──
+    @pyqtSlot(float, float, float, float, bool, bool, bool, bool)
+    def start_sweep(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
+                    normalize: bool, check_water: bool = False, use_optical_core: bool = False,
+                    subtract_substrate: bool = False):
+        if self._thread is not None:
+            self.statusSignal.emit("Ya hay un barrido en curso.")
+            return
+        req, the_plan, rep = self._prepare(start_wl, end_wl, overlap_pct, exp_time, normalize, use_optical_core)
+        if rep.blockers:
+            self.statusSignal.emit("⛔ No se inicia: " + "; ".join(rep.blockers))
+            return
+        if not self._begin():
+            return
+        self._abort_event.clear()
+        self._sweep_opts = dict(start_wl=start_wl, end_wl=end_wl, normalize=normalize, check_water=check_water,
+                                subtract_substrate=subtract_substrate)
+        self._thread = QtCore.QThread()
+        self._worker = StepGlueWorker(req, the_plan, self.camera, self.spectrometer, self._run_dir(), self._abort_event)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.windowAcquired.connect(self.windowAcquiredSignal.emit)
+        self._worker.progress.connect(lambda i, n, f: self._on_progress(i, n, the_plan))
+        self._worker.noSignal.connect(self.noSignalSignal.emit)
+        self._worker.finished.connect(self._on_worker_finished)
+        self._thread.start()
+
+    def _on_progress(self, i, n, the_plan):
+        center = the_plan.centers[min(max(i - 1, 0), len(the_plan.centers) - 1)] if the_plan.centers else 0.0
+        self.stepProgressSignal.emit(i, n, center)
+
+    @pyqtSlot(object)
+    def _on_worker_finished(self, result):
+        self._end()
+        if self._thread is not None:
+            self._thread.quit()
+            self._thread.wait(2000)
+        self._thread, self._worker = None, None
+        self._conclude(result, **self._sweep_opts)
+
+    # ── barrido síncrono (scripts, tests) ──
+    @pyqtSlot(float, float, float, float, bool, bool, bool, bool)
+    def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
+                               normalize: bool, check_water: bool = False, use_optical_core: bool = False,
+                               subtract_substrate: bool = False):
+        req, the_plan, rep = self._prepare(start_wl, end_wl, overlap_pct, exp_time, normalize, use_optical_core)
+        if rep.blockers:
+            self.statusSignal.emit("⛔ No se inicia: " + "; ".join(rep.blockers))
+            return None
+        if not self._begin():
+            return None
+        self._abort_event.clear()
+        try:
+            def on_window(w):
+                self.windowAcquiredSignal.emit(w)
+                self.stepProgressSignal.emit(w.index + 1, len(the_plan.centers), w.center_nm_requested)
+
+            def on_no_signal(w):
+                self.statusSignal.emit("⚠️ Ventana 1 sin señal por encima del fondo: ¿espejo arriba o lámpara apagada?")
+                return True
+            result = run_windows(the_plan, req, self.camera, self.spectrometer, run_dir=self._run_dir(),
+                                 should_abort=self._abort_event.is_set, on_tick=heartbeat_tick(), is_estopped=_estopped,
+                                 on_window=on_window, on_no_signal=on_no_signal)
+        finally:
+            self._end()
+        self._conclude(result, start_wl=start_wl, end_wl=end_wl, normalize=normalize, check_water=check_water,
+                       subtract_substrate=subtract_substrate)
+        return result
+
+    # ── resultado ──
+    def _conclude(self, result, *, start_wl, end_wl, normalize, check_water, subtract_substrate):
+        self.last_result = result
+        self._raw_wave_steps = [w.wavelength_axis for w in result.windows]
+        self._raw_spec_steps = [self._minus_substrate(w.data, subtract_substrate) for w in result.windows]
+        self.sweepFinishedSignal.emit(result)
+        if not result.windows:
+            self.statusSignal.emit(f"Step & Glue sin datos: {result.detail}")
+            return
+        if not result.complete:
+            # Un resultado incompleto no se cose solo (Ronda 3 §4.3): [Coser lo adquirido] lo hace a pedido.
+            self.statusSignal.emit(f"Barrido incompleto ({len(result.windows)} de {len(result.plan.centers)} "
+                                   f"ventanas, {result.stop_reason.value}): {result.detail}. Las ventanas están "
+                                   f"en disco; [Coser lo adquirido] cose lo que hay.")
+            return
+        self._last_coverage_gaps = coverage_gaps_nm(self._raw_wave_steps, start_wl, end_wl)
+        self._glue_and_emit(start_wl, end_wl, normalize, check_water, incomplete=False)
+
+    @pyqtSlot()
+    def glue_acquired(self):
+        """[Coser lo adquirido]: cose las ventanas de un barrido incompleto y lo rotula así."""
+        res = self.last_result
+        if res is None or not res.windows:
+            self.statusSignal.emit("No hay ventanas adquiridas para coser.")
+            return
+        w0 = res.windows[0].center_nm_requested
+        w1 = res.windows[-1].center_nm_requested
+        self._glue_and_emit(w0 - res.plan.window_nm / 2, w1 + res.plan.window_nm / 2, False, False,
+                            incomplete=not res.complete)
+
+    def _minus_substrate(self, data, subtract):
+        if subtract and self._substrate_signal is not None:
+            if self._substrate_signal.shape == np.shape(data):
+                return np.asarray(data) - self._substrate_signal
+            print(f"[Step & Glue] Fondo de sustrato ignorado: forma incompatible "
+                  f"({self._substrate_signal.shape} vs {np.shape(data)}).")
+        return np.asarray(data)
+
+    def _glue_and_emit(self, start_wl, end_wl, normalize, check_water, incomplete: bool):
+        raw_waves, raw_data = self._raw_wave_steps, self._raw_spec_steps
+        is_2d_mode = bool(raw_data) and np.ndim(raw_data[0]) == 2
+        if is_2d_mode:
+            glued_w, glued_frame = sigmoidal_step_and_glue_2d(raw_waves, raw_data)
+            glued_s = np.mean(glued_frame, axis=0)
+        else:
+            glued_w, glued_s = sigmoidal_step_and_glue(raw_waves, raw_data)
+            glued_frame = None
+        self._last_frame_2d = glued_frame
+        norm_w, norm_s = np.array([]), np.array([])
+        if normalize:
+            norm_w = glued_w
+            if is_2d_mode:
+                norm_s = np.mean(self.lamp_calib.normalize_spectrum(glued_w, glued_frame), axis=0)
+            else:
+                norm_s = self.lamp_calib.normalize_spectrum(glued_w, glued_s)
+            target_w, target_s = norm_w, norm_s
+        else:
+            target_w, target_s = glued_w, glued_s
+        wave_fit, spec_fit, lambda_max = fit_signal_polynomial(target_w, target_s, ends_notch=start_wl + 10,
+                                                               final_wave=end_wl - 10)
+        if len(wave_fit) > 0:
+            self.fitFinishedSignal.emit(wave_fit, spec_fit)
+        if check_water:
+            self.waterReferenceCheckedSignal.emit(self._check_water_reference(target_w, target_s))
+        self._last_wave, self._last_spec, self._last_norm = glued_w, glued_s, norm_s
+        self.spectrumFinishedSignal.emit(glued_w, glued_s, norm_w, norm_s, lambda_max)
+        if incomplete:
+            self.statusSignal.emit(f"Cosido INCOMPLETO (ventanas 1-{len(raw_waves)} de "
+                                   f"{len(self.last_result.plan.centers) if self.last_result else '?'}).")
+
+    # ── espectro único y sustrato: una exposición real (R4-5) ──
+    def _one_exposure(self, exp_time: float):
+        read_mode = self.camera.get_read_mode() if hasattr(self.camera, "get_read_mode") else READ_MODE_FVB
+        frame = single_exposure(self.camera, ExposureRequest(float(exp_time), frame_shape_for(read_mode)),
+                                should_abort=self._abort_event.is_set, on_tick=heartbeat_tick(),
+                                is_estopped=_estopped)
+        if not isinstance(frame, Frame):
+            self.statusSignal.emit(f"⛔ No se pudo adquirir: {frame.detail}")
+            return None
+        data = np.asarray(frame.data)
+        return data
 
     @pyqtSlot()
     def lock_substrate(self):
-        """Memoriza el cuadro/espectro actual del detector como fondo de sustrato (código
-        legado: 'Lock Signal on Sustrate'), en el modo de lectura real activo en este
-        instante (1D o 2D), para restarlo píxel a píxel de cada paso de un barrido posterior."""
-        if self.camera.get_read_mode() == READ_MODE_IMAGE:
-            self._substrate_signal = self.camera.get_most_recent_image().copy()
-        else:
-            self._substrate_signal = self.camera.get_1d_spectrum().copy()
-        print(f"[Step & Glue] Fondo de sustrato fijado (forma {self._substrate_signal.shape}).")
+        """Fondo de sustrato ("Lock Signal on Sustrate" del legado): una exposición real con la exposición y el
+        modo de lectura vigentes, restada después píxel a píxel de cada ventana."""
+        from pyspectrum.modules.hardware_session import hardware_session
+        if not hardware_session.acquire_session("Step & Glue — Sustrato", auto_pause_live=True):
+            return
+        try:
+            from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
+            open_spectrometer_shutter(self.camera, self.spectrometer)
+            try:
+                exp = float(self.camera.get_exposure_time()) if hasattr(self.camera, "get_exposure_time") else 0.1
+                data = self._one_exposure(exp)
+            finally:
+                close_spectrometer_shutter(self.camera, self.spectrometer)
+            if data is not None:
+                self._substrate_signal = data.copy()
+                print(f"[Step & Glue] Fondo de sustrato fijado (forma {self._substrate_signal.shape}).")
+        finally:
+            hardware_session.release_session("Step & Glue — Sustrato")
 
     def _measured_window_nm(self) -> Optional[float]:
-        """Ventana real del detector en la posición actual; ver `measured_window_nm()`."""
         return measured_window_nm(self.spectrometer)
 
-    def _settle_wavelength(self, wl_center: float, timeout_s: float = GRATING_SETTLE_TIMEOUT_S) -> bool:
-        """Settle del grating SIN sleep fijo: polling real de is_moving()/wait_until_ready()
-        del driver Shamrock (patrón idéntico a
-        linescan_spectroscopy.py::LineScanSpectroscopyWorker._settle_wavelength, DEC-009),
-        con heartbeat del obturador renovado en cada tick de espera."""
-        self.spectrometer.ShamrockSetWavelength(DEVICE, wl_center)
-        t_end = time.time() + timeout_s
-        while self.spectrometer.is_moving():
-            if self._abort_requested:
-                return False
-            heartbeat_shutter(30.0)
-            if time.time() > t_end:
-                print(f"[Step & Glue] Timeout de asentamiento del grating a {wl_center:.1f} nm (> {timeout_s}s).")
-                return False
-            time.sleep(0.01)
-        heartbeat_shutter(30.0)
-        return True
+    @pyqtSlot(float, float)
+    def measure_single_spectrum(self, lambda_center: float, exp_time: float):
+        from pyspectrum.modules.hardware_session import hardware_session
+        from pyspectrum.modules.zero_order_service import get_zero_order_service
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
+        if not hardware_session.acquire_session("Step & Glue — Espectro Único", auto_pause_live=True):
+            return
+        try:
+            ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+            mv = get_zero_order_service(self.camera, self.spectrometer).move(int(grating), float(lambda_center))
+            if not mv.ok:
+                self.statusSignal.emit(f"⛔ El espectrógrafo no fue a {lambda_center:.2f} nm: {mv.detail}")
+                return
+            ret_a, wave_1d = self.spectrometer.get_wavelength_axis_cubic(DEVICE, DETECTOR_WIDTH_PX)
+            wave_1d = np.asarray(wave_1d, dtype=np.float64)
+            if ret_a != SHAMROCK_SUCCESS or not np.all(np.isfinite(wave_1d)):
+                self.statusSignal.emit(f"⛔ No se pudo leer el eje λ del Shamrock (código {ret_a}).")
+                return
+            open_spectrometer_shutter(self.camera, self.spectrometer)
+            try:
+                data = self._one_exposure(exp_time)
+            finally:
+                close_spectrometer_shutter(self.camera, self.spectrometer)
+            if data is None:
+                return
+            spec_1d = data if data.ndim == 1 else np.mean(data, axis=0)
+            wave_fit, spec_fit, lambda_max = fit_signal_polynomial(wave_1d, spec_1d, ends_notch=lambda_center - 10,
+                                                                   final_wave=wave_1d[-1])
+            if len(wave_fit) > 0:
+                self.fitFinishedSignal.emit(wave_fit, spec_fit)
+            self._last_wave, self._last_spec, self._last_norm = wave_1d, spec_1d, np.array([])
+            self.spectrumFinishedSignal.emit(wave_1d, spec_1d, np.array([]), np.array([]), lambda_max)
+        finally:
+            hardware_session.release_session("Step & Glue — Espectro Único")
 
     @pyqtSlot(str)
     def save_spectrum(self, filepath: str):
@@ -458,13 +915,17 @@ class Backend(QtCore.QObject):
         try:
             ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
             ret_s, slit_width = self.spectrometer.ShamrockGetSlit(DEVICE)
+            result = self.last_result
             metadata = {
-                "grating": int(grating),
-                "grating_name": NAME_GRATINGS[grating - 1] if 1 <= grating <= len(NAME_GRATINGS) else str(grating),
-                "slit_width_um": float(slit_width),
+                "grating": int(grating) if ret_g == SHAMROCK_SUCCESS else -1,
+                "grating_name": NAME_GRATINGS[grating - 1] if ret_g == SHAMROCK_SUCCESS and 1 <= grating <= len(NAME_GRATINGS) else "desconocida",
+                "slit_width_um": float(slit_width) if ret_s == SHAMROCK_SUCCESS else float("nan"),
                 "window_nm": self._last_window_nm,
                 "window_source": self._last_window_source or None,
                 "coverage_gaps_nm": np.asarray(self._last_coverage_gaps, dtype=np.float64).reshape(-1),
+                "complete": bool(result.complete) if result is not None else True,
+                "stop_reason": result.stop_reason.value if result is not None else "",
+                "open_lasers_per_window": [",".join(w.open_lasers) for w in result.windows] if result is not None else [],
             }
             # /glued_spectrum es la matriz 2D completa (H, W_total) cuando el barrido se hizo en
             # modo Imagen; de lo contrario, el vector 1D cosido.
@@ -489,171 +950,3 @@ class Backend(QtCore.QObject):
             return f"⚠️ Referencia Raman Agua: banda O-H (~3400 cm⁻¹) débil o no detectada (amplitud {amplitude_oh:.0f}) — verificar el cosido."
         except Exception as e:
             return f"⚠️ No se pudo verificar la referencia Raman de agua: {e}"
-
-    @pyqtSlot(float, float)
-    def measure_single_spectrum(self, lambda_center: float, exp_time: float):
-        from pyspectrum.modules.hardware_session import hardware_session
-        if not hardware_session.acquire_session("Step & Glue — Espectro Único"):
-            return
-        try:
-            # 1. Configurar espectrógrafo y cámara
-            if not self._settle_wavelength(lambda_center):
-                return
-            self.camera.set_exposure_time(exp_time)
-
-            # 2. Adquirir y leer (prioriza lectura 1D por hardware de bajo ruido si está activa)
-            if hasattr(self.camera, "get_1d_spectrum") and getattr(self.camera, "_read_mode", READ_MODE_IMAGE) in (READ_MODE_FVB, READ_MODE_SINGLE_TRACK):
-                spec_1d = self.camera.get_1d_spectrum()
-            else:
-                frame = self.camera.get_most_recent_image()
-                spec_1d = np.mean(frame, axis=0)
-
-            # Calibración cúbica de EEPROM o estándar
-            if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                ret, wave_1d = self.spectrometer.get_wavelength_axis_cubic(DEVICE, len(spec_1d))
-            else:
-                ret, wave_1d = self.spectrometer.ShamrockGetCalibration(DEVICE, len(spec_1d))
-
-            # 3. Ajuste opcional
-            wave_fit, spec_fit, lambda_max = fit_signal_polynomial(wave_1d, spec_1d, ends_notch=lambda_center - 10, final_wave=wave_1d[-1])
-            if len(wave_fit) > 0:
-                self.fitFinishedSignal.emit(wave_fit, spec_fit)
-
-            self.spectrumFinishedSignal.emit(wave_1d, spec_1d, np.array([]), np.array([]), lambda_max)
-        finally:
-            hardware_session.release_session("Step & Glue — Espectro Único")
-
-    @pyqtSlot(float, float, float, float, bool, bool, bool, bool)
-    def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
-                               normalize: bool, check_water: bool = False, use_optical_core: bool = False,
-                               subtract_substrate: bool = False):
-        from pyspectrum.modules.hardware_session import hardware_session
-        if not hardware_session.acquire_session("Step & Glue", auto_pause_live=True):
-            return
-
-        try:
-            # Centros espectrales con la ventana medida en la calibración real (DEC-033); la
-            # ventana fija del legado si el operador eligió la Zona Óptica Central, o la nominal
-            # de la hoja de datos si la calibración no es confiable.
-            ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
-            measured = None if use_optical_core else self._measured_window_nm()
-            self._last_window_nm, self._last_window_source = resolve_step_window_nm(
-                grating, DETECTOR_WIDTH_PX, use_optical_core, measured,
-            )
-            self._last_coverage_gaps = []
-            centers = compute_step_centers(
-                start_wl, end_wl, overlap_pct, grating=grating, num_pixels=DETECTOR_WIDTH_PX,
-                use_optical_core=use_optical_core, window_nm=measured,
-            )
-            n_steps = len(centers)
-
-            # Modo 1D (FVB/Single-Track) vs 2D (Imagen): según el modo de lectura REAL de la
-            # cámara en este instante (mismo criterio que static_raman.py::_acquire_and_emit,
-            # Fase 3 — la cámara es un singleton compartido entre pestañas).
-            is_2d_mode = (self.camera.get_read_mode() == READ_MODE_IMAGE)
-
-            raw_waves: List[np.ndarray] = []
-            raw_data: List[np.ndarray] = []  # espectros 1D o cuadros 2D según is_2d_mode
-
-            self._abort_requested = False
-            self.camera.set_exposure_time(exp_time)
-
-            for i, wl_c in enumerate(centers):
-                if self._abort_requested:
-                    print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por el usuario ({i}/{n_steps} pasos completados).")
-                    break
-
-                # 1. Pausar la cámara (aborta cualquier adquisición residual antes de mover la red)
-                self.camera.abort_acquisition()
-
-                # 2. Mover el Shamrock y esperar asentamiento mecánico real
-                if not self._settle_wavelength(wl_c):
-                    print(f"[Step & Glue] Escaneo abortado en {wl_c:.1f} nm por fallo/timeout de asentamiento del grating.")
-                    break
-
-                if hasattr(self.spectrometer, "get_wavelength_axis_cubic"):
-                    ret, w_cal = self.spectrometer.get_wavelength_axis_cubic(DEVICE, 1004)
-                else:
-                    ret, w_cal = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-
-                # 3. Adquirir espectro (1D) o cuadro (2D)
-                if is_2d_mode:
-                    data_i = self.camera.get_most_recent_image()
-                else:
-                    data_i = self.camera.get_1d_spectrum()
-
-                # Resta de fondo de sustrato fijado ("Lock Sustrato"), pixel a pixel, antes de
-                # la normalización y el cosido (código legado: taking_signal_sustrate()).
-                if subtract_substrate and self._substrate_signal is not None:
-                    if self._substrate_signal.shape == data_i.shape:
-                        data_i = data_i - self._substrate_signal
-                    else:
-                        print(
-                            f"[Step & Glue] Fondo de sustrato ignorado en {wl_c:.1f} nm: forma "
-                            f"incompatible ({self._substrate_signal.shape} vs {data_i.shape})."
-                        )
-
-                raw_waves.append(w_cal)
-                raw_data.append(data_i)
-
-                # 4. Barra de progreso no bloqueante
-                self.stepProgressSignal.emit(i + 1, n_steps, wl_c)
-
-            # Cosido resiliente: incluso si se abortó a mitad de camino, cose y entrega lo
-            # obtenido hasta ese punto (no se descartan datos parciales).
-            if not raw_waves:
-                print("[Step & Glue] Adquisición abortada sin datos.")
-                return
-
-            # Verificación posterior con los ejes REALES de cada ventana. Un barrido abortado no
-            # cubre el rango por diseño, así que sólo se evalúa si terminó completo.
-            if len(raw_waves) == n_steps:
-                self._last_coverage_gaps = coverage_gaps_nm(raw_waves, start_wl, end_wl)
-                if self._last_coverage_gaps:
-                    tramos = ", ".join(f"{a:.1f}-{b:.1f} nm" for a, b in self._last_coverage_gaps)
-                    print(f"[Step & Glue] ADVERTENCIA: rango sin medir entre ventanas: {tramos} "
-                          f"(ventana planificada {self._last_window_nm:.2f} nm, {self._last_window_source}).")
-
-            if is_2d_mode:
-                glued_w, glued_frame = sigmoidal_step_and_glue_2d(raw_waves, raw_data)
-                glued_s = np.mean(glued_frame, axis=0)  # curva representativa 1D para el gráfico
-            else:
-                glued_w, glued_s = sigmoidal_step_and_glue(raw_waves, raw_data)
-                glued_frame = None
-            self._last_frame_2d = glued_frame
-
-            # Normalización con lámpara halógena (broadcast fila a fila en modo 2D)
-            norm_w, norm_s = np.array([]), np.array([])
-            lambda_max = 0.0
-
-            if normalize:
-                norm_w = glued_w
-                if is_2d_mode:
-                    norm_frame = self.lamp_calib.normalize_spectrum(glued_w, glued_frame)
-                    norm_s = np.mean(norm_frame, axis=0)
-                else:
-                    norm_s = self.lamp_calib.normalize_spectrum(glued_w, glued_s)
-                target_w, target_s = norm_w, norm_s
-            else:
-                target_w, target_s = glued_w, glued_s
-
-            # Ajuste de SPR
-            wave_fit, spec_fit, lambda_max = fit_signal_polynomial(target_w, target_s, ends_notch=start_wl + 10, final_wave=end_wl - 10)
-            if len(wave_fit) > 0:
-                self.fitFinishedSignal.emit(wave_fit, spec_fit)
-
-            # Verificación de referencia Raman de agua (banda O-H ~3400 cm⁻¹)
-            if check_water:
-                msg = self._check_water_reference(target_w, target_s)
-                self.waterReferenceCheckedSignal.emit(msg)
-
-            # Cachear último resultado (para Guardar TXT/NPZ y Exportar HDF5)
-            self._last_wave = glued_w
-            self._last_spec = glued_s
-            self._last_norm = norm_s
-            self._raw_wave_steps = raw_waves
-            self._raw_spec_steps = raw_data
-
-            self.spectrumFinishedSignal.emit(glued_w, glued_s, norm_w, norm_s, lambda_max)
-        finally:
-            hardware_session.release_session("Step & Glue")

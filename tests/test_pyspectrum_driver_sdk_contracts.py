@@ -178,3 +178,53 @@ def test_random_track_uses_the_exported_sdk_name(monkeypatch):
     cam._connected = True
     assert cam.set_random_track([(10, 20), (40, 60)]) == andor_mod.DRV_SUCCESS
     assert cam._dll.calls == [("SetRandomTracks", 2, [10, 20, 40, 60])]
+
+
+# ── Métodos que usa el código de producción: tienen que existir en el driver REAL ──────────────
+# Los pasos 9 y 10 llamaban a ShamrockGetGratingInfo y ShamrockGetNumberGratings, que sólo tenía el
+# simulador: en el banco habrían fallado con AttributeError (hallazgo del 2026-09-28).
+
+def test_every_shamrock_method_called_in_production_exists_on_the_real_driver():
+    import ast
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    called = set()
+    for path in (root / "pyspectrum").rglob("*.py"):
+        if path.name == "shamrock_driver.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr.startswith("Shamrock")):
+                called.add(node.func.attr)
+    missing = sorted(n for n in called if not hasattr(shamrock_mod.ShamrockDriver, n))
+    assert missing == []
+
+
+class _GratingDll:
+    def ShamrockGetNumberGratings(self, device, n_ptr):
+        n_ptr._obj.value = 3
+        return shamrock_mod.SHAMROCK_SUCCESS
+
+    def ShamrockGetGratingInfo(self, device, grating, lines_ptr, blaze_buf, home_ptr, offset_ptr):
+        table = {1: (150.0, b"800", -9147, 87), 2: (1200.0, b"500", 759864, 195), 3: (0.0, b"Mirr", 1528009, 60)}
+        lines, blaze, home, off = table[grating.value]
+        lines_ptr._obj.value, home_ptr._obj.value, offset_ptr._obj.value = lines, home, off
+        blaze_buf.value = blaze
+        return shamrock_mod.SHAMROCK_SUCCESS
+
+    def ShamrockGetWavelengthLimits(self, device, grating, min_ptr, max_ptr):
+        min_ptr._obj.value, max_ptr._obj.value = (0.0, 1500.0)
+        return shamrock_mod.SHAMROCK_SUCCESS
+
+
+def test_real_driver_reads_grating_info_like_the_legacy(monkeypatch):
+    """Valores de BANCO-25 (sonda en la sesión del legado): (ret, líneas, blaze, home, offset)."""
+    monkeypatch.setattr(shamrock_mod.ShamrockDriver, "_init_dll", lambda self: None)
+    drv = shamrock_mod.ShamrockDriver()
+    drv._dll, drv._connected = _GratingDll(), True
+    assert drv.ShamrockGetNumberGratings(shamrock_mod.DEVICE) == (shamrock_mod.SHAMROCK_SUCCESS, 3)
+    ret, lines, blaze, home, off = drv.ShamrockGetGratingInfo(shamrock_mod.DEVICE, 2)
+    assert (ret, lines, blaze, home, off) == (shamrock_mod.SHAMROCK_SUCCESS, 1200.0, "500", 759864, 195)
+    assert drv.ShamrockGetWavelengthLimits(shamrock_mod.DEVICE, 1) == (shamrock_mod.SHAMROCK_SUCCESS, 0.0, 1500.0)
+    drv._connected = False
+    assert drv.ShamrockGetGratingInfo(shamrock_mod.DEVICE, 1)[0] == shamrock_mod.SHAMROCK_NOT_INITIALIZED

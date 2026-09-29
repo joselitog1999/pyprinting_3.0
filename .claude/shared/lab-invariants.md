@@ -155,11 +155,11 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 > `DEC-039` (C-16): sus escalas µm/px salían infladas ×1.625 y u_slit subestimada un 38 %. Ahora vale
 > 8 µm, y un test del gate impide que las dos constantes vuelvan a diferir.
 >
-> **Offsets del Shamrock**: el código escribe al Shamrock, en cada arranque, offsets inventados
-> (red 1 = 12, red 2 = −35, detector 5) desde `pyspectrum/modules/calibration_dock.py` (C-04), y
-> por eso PySpectrum 3.0 sigue bloqueado contra el hardware. Los offsets pasarán a ser un
-> parámetro con procedencia (fecha y método), calibrable con el láser de 532 nm y el filtro de
-> densidad (fase 6.6; R1-7, R2-9).
+> **Offsets del Shamrock** (pasos 9 y 10, `DEC-040`): PySpectrum 3.0 ya **no escribe** offsets al
+> arrancar ni al cargar un archivo (C-04 resuelto). Los lee, los registra en el archivo de calibraciones
+> local (`pyspectrum/calibration/repository.py`) y los compara. La única ruta de escritura es la
+> transacción de `pyspectrum/calibration/offset_transaction.py` (respaldo, doble confirmación y
+> relectura), desde la calibración con el láser de 532 nm y el filtro de densidad (paso 14; R1-7, R2-9).
 
 ## 4. Atajos de teclado globales (PySpectrum)
 

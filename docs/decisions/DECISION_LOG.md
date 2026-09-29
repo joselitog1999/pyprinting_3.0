@@ -819,6 +819,78 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
     * Los movimientos siguen en el hilo de la GUI, como antes. El `SpectrographWorker` (D-12) queda para el paso 8.
     * Step & Glue con un centro bajo el umbral queda frenado por la red del driver (`SHAMROCK_P2INVALID`); el rechazo del plan antes de mover (G3) es del paso 11.
   * **Tests:** `tests/test_specular_interlock.py` (30), `tests/test_zero_order_service.py` (24), `tests/test_zero_order_panel.py` (11), escritos antes del código. 8 mutaciones de seguridad, todas detectadas, entre ellas: Z4 acepta cualquier ganancia, Z6 ignora el cierre, la salida restituye la ganancia, la E-STOP no toca la ganancia y el Shamrock no mira la ganancia. El conftest arranca cada test en primer orden y devuelve el simulador del Shamrock a 532 nm (singleton).
+* **Pasos 9 y 10: repositorio de calibraciones y transacción de escritura de offsets (D-03, D-04, D-07b, D-07c, R4-D-3).** Diseño aprobado en las Rondas 1-4; se implementó sin re-deliberar. Valores vigentes: los guardados en el equipo (R4-G: 87, 195, espejo 60, detector 0).
+  * **Repositorio** (`pyspectrum/calibration/repository.py`, R2-arq §2.5):
+    * JSON Lines local a la PC y fuera de git, en el que sólo se agregan entradas; el constructor rechaza una ruta dentro del repositorio. Por defecto `%LOCALAPPDATA%\PyPrinting\pyspectrum\shamrock_calibration.jsonl`, o `config.SHAMROCK_CALIBRATION_PATH`.
+    * Cada append hace flush, fsync y lock; un `OSError` se propaga. Una línea truncada se saltea y se cuenta.
+    * Tipos OBSERVED, MANUAL_ENTRY, PROPOSED, PRE_WRITE, APPLIED y SOFTWARE_CORRECTION, con `record_id`, `ts`, `operator` y `software`.
+    * Clave: serie, red, líneas/mm (±0.5) y puertos. Referencia: el último APPLIED(CONFIRMED) o, si no hay, el último MANUAL_ENTRY.
+    * `CalibrationVerdict` (D-03): ninguno dice "validado".
+    * Detecta PRE_WRITE huérfanos (H-17d).
+  * **Arranque:** `observe_spectrograph` lee con Get* (serie, puertos, `GetGratingInfo`, offsets, detector, cero de ranura), registra OBSERVED y compara. **Nunca escribe.** Una lectura fallida es "desconocido". La ventana muestra un aviso persistente, no modal, en la barra de estado (§1.11).
+  * **Transacción** (`pyspectrum/calibration/offset_transaction.py`, R2-arq §2.6 y R2-inst §3.3):
+    * Única ruta de `ShamrockSetGratingOffset`; un test de AST lo garantiza. Sólo redes 1 y 2, con |offset| ≤ 20 000, que es validez y no política (D-07c).
+    * Secuencia: `prepare`, `confirm_diff` (PRE_WRITE; sin él no se escribe), `write_token` (teclear las líneas de la red; 3.ª confirmación si |Δ| > `config.THIRD_CONFIRMATION_STEPS` = 50) y `confirm_write`.
+    * `confirm_write` relee (STALE_TOKEN si cambió) y verifica sesión, cámara IDLE, ganancia 0 releída y obturadores confirmados. Escribe, relee, registra APPLIED y re-emite la λc si la red escrita es la activa.
+    * Los tokens vencen a los 60 s.
+    * `backup_return()` sólo después de WRITE_FAILED, READBACK_FAILED o MISMATCH: una transacción nueva hacia el respaldo, con su `source_record_id` (R4-D-3).
+  * **GUI:**
+    * Calibraciones sin escritura directa (G-10): offsets, detector y cero de ranura de sólo lectura, con `[L hh:mm:ss]` o "desconocido".
+    * Los offsets del .txt quedan como informativos (`file_offsets`): no pasan por leídos. Se retiraron los valores inventados 12/−35/5.
+    * [Registrar lo leído en el archivo] agrega MANUAL_ENTRY y el historial inserta arriba.
+    * Diálogo de escritura (`pyspectrum/ui/offset_write_dialog.py`, §1.7): cinco pasos con su propio E-STOP (H-01), sin botón por defecto (H-23), con cuenta regresiva y "Volver al valor del respaldo".
+    * Todavía no hay entrada al diálogo desde la GUI: la da la calibración automática (paso 14), y "Proponer offset" requiere la S de BANCO-40.
+  * **Tests:**
+    * `tests/test_calibration_repository.py` (15), `tests/test_offset_write_transaction.py` (20), `tests/test_calibration_dock_offsets.py` (7) y `tests/test_offset_write_dialog.py` (8).
+    * 10 mutaciones, todas detectadas: no releer antes de escribir, ignorar el respaldo fallido, no exigir el tecleo, no exigir la 3.ª confirmación, saltear las precondiciones, token que no vence, un MISMATCH como referencia, que la observación escriba, mostrar el valor viejo y volver al valor pedido en lugar del respaldo.
+    * Se reescribieron cinco tests viejos que codificaban la escritura directa o el archivo como "leído".
+    * El conftest apunta el archivo a una carpeta temporal para que los tests nunca escriban el de la PC.
+* **Paso 8, parte de GUI: el panel muestra lo leído y separa lo pedido (D-12, D-13, D-14, D-15; H-08, H-09, H-10, H-22, H-27).** Diseño aprobado en las Rondas 1-4; se implementó sin re-deliberar.
+  * **Estado leído** (`pyspectrum/services/spectrometer_state.py`):
+    * `ReadStatus` (READ_OK, SENT_OK, READ_FAILED, NOT_READ, NOT_CONNECTED) y `Reading` con marca y edad.
+    * `SentRegistry` para lo que no tiene getter: los seis de D-15 más el pre-amp con pylablib, el setpoint y la salida del estado base.
+    * `read_camera_state` y `read_spectrograph_state`: nunca un valor viejo como leído. Una temperatura durante la adquisición es NOT_READ, con el último valor sólo en el detalle.
+    * `SpectrometerStateService` publica la instantánea.
+  * **Control de la cámara** (`pyspectrum/services/camera_control.py`, D-13):
+    * Setpoint validado contra `GetTemperatureRange`, enfriador releído con `IsCoolerOn`, ventilador low/high sin off, HS por valor (H-08).
+    * Todo pedido espera el fin de la adquisición: queda pendiente y `apply_pending()` lo aplica en IDLE.
+  * **Panel** (`pyspectrum/ui/left_hardware_panel.py`):
+    * Columna izquierda leída con marcas; columna derecha de pedido con [Aplicar] (setpoint, ganancia, exposición, HS, amplificador, obturador), [Fijar] (ranura y puertos, con relectura) e [Ir] (red y λ).
+    * El combo de red ya no mueve al cambiar (G-04), y la rueda no actúa sin foco (H-10). Apagar el enfriador pide confirmación (H-27).
+    * Se quitó el combo de pre-amp: queda de sólo lectura. El rango de la ganancia sale de `GetEMGainRange` y el del setpoint de `GetTemperatureRange`.
+    * El interlock especular se publica desde la instantánea.
+  * **Driver:** el Shamrock real ganó `ShamrockGetNumberGratings`, `ShamrockGetGratingInfo` y `ShamrockGetWavelengthLimits`, con `argtypes`. Los pasos 9 y 10 ya los usaban y sólo existían en el simulador, así que en el banco habrían fallado. Un test de AST exige ahora que todo método `Shamrock*` llamado en producción exista en el driver real.
+  * **Simplificación respecto del diseño:** ranura, puertos y movimientos corren todavía en el hilo de la GUI. El `SpectrographWorker` en un `QThread` queda para después de BANCO-39 (si `SetGrating`/`SetWavelength` bloquean). Si se hace, la pausa del Live tiene que seguir invocándose en el hilo de la GUI.
+  * **Tests:**
+    * `tests/test_spectrometer_state.py` (11), `tests/test_camera_control_service.py` (7) y `tests/test_left_panel_read_request.py` (11).
+    * 9 mutaciones, todas detectadas.
+    * Se reescribieron ocho tests que codificaban la acción directa de combos, el combo de pre-amp o el enfriador como estado del widget.
+* **Paso 11: Step & Glue sobre un motor, en su propio hilo (D-09 a D-11, D-16, D-17; H-03, H-06).** Diseño aprobado en las Rondas 1-4; se implementó sin re-deliberar.
+  * **Contradicciones resueltas con la reconciliación, que prevalece:**
+    * la pausa "sin señal" **sigue latiendo** (D-17; el audit H-04 decía lo contrario). Coincide con la regla del investigador de que el watchdog nunca corta una rutina en curso;
+    * un láser abierto dentro del barrido con ganancia > 0 **se avisa** (D-11; el audit H-06 lo bloqueaba).
+  * **Motor** (`pyspectrum/modules/step_glue_engine.py`, sin Qt):
+    * `StepGlueRequest` (con `grating` y `em_gain` del estado vigente), `StepGluePlan` (con `estimated_duration_s`), `PreflightReport`, `WindowResult`, `StepGlueResult` y `StopReason`.
+    * Preflight: bloquean la ventana especular, los límites de la red, la exposición > `config.MAX_ROUTINE_EXPOSURE_S` (10 s, nuevo), un equipo no conectado, normalizar sin lámpara real y una red cambiada. Advierten el espejo no "abajo" y el láser abierto con ganancia.
+    * `run_windows`: movimiento por el servicio con relectura, eje verificado, una `single_exposure`, ventana a disco (`.npz` con metadatos, incluidos los láseres abiertos y `light_changed`), detección de "sin señal" en la ventana 1 (PROVISORIO, BANCO-53) y cosido sólo si está completo.
+  * **Rutina** (`pyspectrum/modules/step_and_glue.py`):
+    * `StepGlueWorker` en `QThread`. El backend toma la sesión y abre y cierra el obturador en el hilo de la GUI, porque la pausa del Live tiene que correr ahí.
+    * `measure_step_and_glue` queda como API síncrona.
+    * El espectro único y el fondo de sustrato también pasan a una exposición real (R4-5).
+  * **GUI:**
+    * spinboxes en lugar de texto libre (G-16), 500-900 nm por defecto (G-17), "Normalizar" destildado (G-18);
+    * plan y preflight en vivo;
+    * diálogo del espejo con tres opciones y E-STOP propio;
+    * tabla de ventanas;
+    * [Seguir] tras "sin señal" y [Coser lo adquirido].
+  * **Otros cambios:**
+    * `core/nidaq.py` gana `MirrorBelief`, `get_detection_mirror_belief()` y `confirm_detection_mirror_belief()` (D-10); la persistencia (C-08) sigue pendiente.
+    * `HalogenLampCalibration.source_path` es None con el perfil sintético.
+  * **Error corregido en el camino:** el motor le pasaba el solape a `compute_step_centers` como porcentaje (20) y la función lo espera como fracción (0.20). Lo detectó un test viejo de DEC-033; el test del plan ahora verifica el paso entre ventanas.
+  * **Tests:**
+    * `tests/test_step_glue_engine.py` (22), `tests/test_step_glue_worker.py` (4) y `tests/test_detection_mirror_belief.py` (3).
+    * 10 mutaciones, todas detectadas.
+    * Se reescribió el test que exigía coser el resultado parcial automáticamente.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

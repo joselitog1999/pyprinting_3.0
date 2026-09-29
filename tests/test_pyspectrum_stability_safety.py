@@ -587,12 +587,12 @@ class TestPySpectrumSafety(unittest.TestCase):
         with mock.patch.object(calibration_dock, "CALIBRATION_TXT_FILE", fixture):
             be = calibration_dock.CalibrationBackend(self.camera, self.spectrometer)
 
-        # 1. Verificar carga inicial desde el archivo de calibración
+        # 1. Verificar carga inicial desde el archivo de calibración. Los offsets del archivo son
+        #    informativos (pasos 9-10): no pasan por leídos del equipo.
         self.assertAlmostEqual(be.slit_center_x, 502.00, places=1)
         self.assertEqual(be.slit_width, 50.0)
-        self.assertEqual(be.grating_offsets[1], 12)
-        self.assertEqual(be.grating_offsets[2], -35)
-        self.assertEqual(be.detector_offset, 5)
+        self.assertEqual(be.file_offsets, {"grating_1": 12, "grating_2": -35, "grating_3": 0, "detector": 5})
+        self.assertIsNone(be.grating_offsets.get(1))
 
         # 1b. Al conectar la vista, el backend muestra lo que tiene el EQUIPO, no el archivo: la
         # carga ya no escribe los offsets al Shamrock (DEC-040), así que la relectura trae los del
@@ -605,7 +605,7 @@ class TestPySpectrumSafety(unittest.TestCase):
         self.assertEqual(be.grating_offsets[int(grating)], int(device_grating_offset))
         self.assertEqual(be.detector_offset, int(device_detector_offset))
 
-        # 2. Modificar valores
+        # 2. Modificar valores (los offsets, como si se hubieran leído del equipo)
         be.slit_center_x = 502.40
         be.slit_width = 75.0
         be.grating_offsets[1] = 20
@@ -627,9 +627,9 @@ class TestPySpectrumSafety(unittest.TestCase):
             self.assertTrue(load_ok)
             self.assertAlmostEqual(be2.slit_center_x, 502.40, places=2)
             self.assertEqual(be2.slit_width, 75.0)
-            self.assertEqual(be2.grating_offsets[1], 20)
-            self.assertEqual(be2.grating_offsets[2], -40)
-            self.assertEqual(be2.detector_offset, 8)
+            self.assertEqual(be2.file_offsets["grating_1"], 20)
+            self.assertEqual(be2.file_offsets["grating_2"], -40)
+            self.assertEqual(be2.file_offsets["detector"], 8)
         finally:
             if Path(tmp_path).exists():
                 Path(tmp_path).unlink(missing_ok=True)

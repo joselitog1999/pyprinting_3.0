@@ -34,6 +34,7 @@ class HalogenLampCalibration:
         self.wave_lamp = np.linspace(450, 950, 1004)
         self.spec_lamp = np.ones_like(self.wave_lamp)
         self.is_loaded = False
+        self.source_path: Optional[Path] = None      # None = perfil sintético: no sirve para normalizar (G-18)
         self._load_reference_data(data_path)
 
     def _load_reference_data(self, data_path: Optional[str] = None):
@@ -48,6 +49,7 @@ class HalogenLampCalibration:
                 self.wave_lamp = data[:, 0]
                 self.spec_lamp = data[:, 1]
                 self.is_loaded = True
+                self.source_path = p
                 print(f"[Lamp Calibration] Perfil halógeno cargado ({len(self.wave_lamp)} puntos) desde {p.name}")
             except Exception as e:
                 print(f"[Lamp Calibration] Error al leer {p} ({e}). Generando perfil sintético.")
@@ -66,6 +68,7 @@ class HalogenLampCalibration:
         intensity = (2.0 * h * c**2) / (wl_m**5 * (np.exp((h * c) / (wl_m * k * T)) - 1.0))
         self.spec_lamp = intensity / np.max(intensity) * 50000.0
         self.is_loaded = True
+        self.source_path = None
 
     def get_lamp_profile(self) -> Tuple[np.ndarray, np.ndarray]:
         return self.wave_lamp, self.spec_lamp

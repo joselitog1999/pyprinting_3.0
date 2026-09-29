@@ -44,22 +44,22 @@ class TestLeftHardwarePanel(unittest.TestCase):
         self.spectrometer = get_shamrock(force_mock=True)
         self.panel = LeftHardwarePanel(self.camera, self.spectrometer, step_glue_tab_index=2)
 
-    def test_preamp_and_hsspeed_combos_populated_from_hardware(self):
-        self.assertEqual(self.panel.cmb_preamp.count(), self.camera.get_number_preamp_gains())
-        self.assertGreater(self.panel.cmb_preamp.count(), 0)
+    def test_hsspeed_combo_populated_from_hardware_by_value(self):
+        # Paso 8: la HS se elige por valor (MHz) de la tabla de la cámara; el pre-amp es de sólo lectura.
         self.assertEqual(self.panel.cmb_hsspeed.count(), self.camera.get_number_hs_speeds())
         self.assertGreater(self.panel.cmb_hsspeed.count(), 0)
+        self.assertFalse(hasattr(self.panel, "cmb_preamp"))
 
-    def test_preamp_selection_applies_to_camera(self):
-        self.panel.cmb_preamp.setCurrentIndex(1)
-        self.assertEqual(self.camera.get_preamp_gain_index(), 1)
-
-    def test_hsspeed_selection_applies_to_camera(self):
+    def test_hsspeed_selection_applies_only_with_apply(self):
+        before = self.camera.get_hs_speed_index()
         self.panel.cmb_hsspeed.setCurrentIndex(2)
+        self.assertEqual(self.camera.get_hs_speed_index(), before)
+        self.panel.btn_apply_hs.click()
         self.assertEqual(self.camera.get_hs_speed_index(), 2)
 
-    def test_shutter_mode_applies_to_camera(self):
+    def test_shutter_mode_applies_only_with_apply(self):
         self.panel.cmb_shutter_mode.setCurrentIndex(2)  # Siempre Cerrado
+        self.panel.btn_apply_shutter.click()
         self.assertEqual(self.camera.get_shutter_mode(), 2)
 
     def test_set_context_disables_manual_wavelength_on_step_and_glue_tab(self):
@@ -79,8 +79,11 @@ class TestLeftHardwarePanel(unittest.TestCase):
         self.panel._on_gain_changed()
         self.assertEqual(self.camera.get_emccd_gain(), 150)
 
-    def test_grating_change_updates_spectrograph(self):
+    def test_grating_change_updates_spectrograph_with_ir(self):
+        # Paso 8 (G-04): elegir la red no mueve; se mueve con [Ir].
         self.panel.cmb_grating.setCurrentIndex(1)
+        self.assertEqual(self.spectrometer.ShamrockGetGrating(0)[1], 1)
+        self.panel.btn_goto_wavelength.click()
         ret, grating = self.spectrometer.ShamrockGetGrating(0)
         self.assertEqual(grating, 2)
 

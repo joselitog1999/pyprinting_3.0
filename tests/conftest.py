@@ -17,6 +17,12 @@ if str(BASE_DIR) not in sys.path:
 
 os.environ.setdefault("PYPRINTING_SAFE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Los tests nunca escriben el archivo de calibraciones real de la PC (paso 9): uno temporal por corrida.
+import tempfile as _tempfile
+os.environ["PYSPECTRUM_CALIBRATION_PATH"] = str(
+    Path(_tempfile.mkdtemp(prefix="pyspectrum_cal_")) / "shamrock_calibration.jsonl")
+# Ni en el repo ni en Documentos: las ventanas de Step & Glue de los tests van a una carpeta temporal.
+os.environ["PYSPECTRUM_ROUTINE_DATA_DIR"] = _tempfile.mkdtemp(prefix="pyspectrum_data_")
 
 # Causa raíz real de "ImportError: DLL load failed while importing QtWidgets" (visto de
 # forma intermitente en toda la sesión, antes atribuido incorrectamente a un problema de

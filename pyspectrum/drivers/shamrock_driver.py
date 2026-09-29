@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import sys
 import time
-from ctypes import POINTER, c_int, c_float, byref, create_string_buffer, cdll, windll
+from ctypes import POINTER, c_char_p, c_int, c_float, byref, create_string_buffer, cdll, windll
 from pathlib import Path
 import threading
 from typing import Tuple, List, Optional
@@ -120,6 +120,13 @@ _SHAMROCK_ARGTYPES = {
     # wrapper legado (Shamrock_ps.py: "unsigned int ShamrockAtZeroOrder(int device, int * atZeroOrder)").
     "ShamrockAtZeroOrder": (c_int, POINTER(c_int)),
     "ShamrockGotoZeroOrder": (c_int,),
+    # Identidad de la torreta (pasos 8-10), firmas del wrapper legado (Shamrock_ps.py):
+    # ShamrockGetNumberGratings(int device, int* n); ShamrockGetGratingInfo(int device, int grating,
+    # float* lines, char* blaze, int* home, int* offset); ShamrockGetWavelengthLimits(int device,
+    # int grating, float* min, float* max).
+    "ShamrockGetNumberGratings": (c_int, POINTER(c_int)),
+    "ShamrockGetGratingInfo": (c_int, c_int, POINTER(c_float), c_char_p, POINTER(c_int), POINTER(c_int)),
+    "ShamrockGetWavelengthLimits": (c_int, c_int, POINTER(c_float), POINTER(c_float)),
 }
 
 
@@ -235,6 +242,9 @@ class _MockShamrock:
 
     def ShamrockGetNumberGratings(self, device: int = DEVICE) -> Tuple[int, int]:
         return (SHAMROCK_SUCCESS, 3)
+
+    def ShamrockGetWavelengthLimits(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, float, float]:
+        return (SHAMROCK_SUCCESS, 0.0, 0.0 if int(grating) == GRATING_MIRROR else 1500.0)
 
     def ShamrockGetGratingInfo(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, float, str, int, int]:
         lines_map = {1: 150.0, 2: 1200.0, 3: 0.0}
@@ -782,6 +792,46 @@ class ShamrockDriver:
                 print(f"[Shamrock] Error ShamrockGotoZeroOrder: {e}")
                 return SHAMROCK_COMMUNICATION_ERROR
         return _guarded_move(self, device, None, 0.0, _move, "orden cero")
+
+    def ShamrockGetNumberGratings(self, device: int = DEVICE) -> Tuple[int, int]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0)
+        with self._lock:
+            try:
+                n = c_int()
+                ret = self._dll.ShamrockGetNumberGratings(c_int(device), byref(n))
+                return (ret, int(n.value))
+            except Exception as e:
+                print(f"[Shamrock] Error ShamrockGetNumberGratings: {e}")
+                return (SHAMROCK_COMMUNICATION_ERROR, 0)
+
+    def ShamrockGetGratingInfo(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, float, str, int, int]:
+        """(ret, líneas/mm, blaze, home, offset), como el legado. En el equipo (BANCO-25): red 1 = 150 l/mm,
+        blaze 800; red 2 = 1200 l/mm, blaze 500; red 3 = espejo (0 l/mm, "Mirr")."""
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, 0.0, "", 0, 0)
+        with self._lock:
+            try:
+                lines, home, off = c_float(), c_int(), c_int()
+                blaze = create_string_buffer(256)
+                ret = self._dll.ShamrockGetGratingInfo(c_int(device), c_int(grating), byref(lines), blaze,
+                                                       byref(home), byref(off))
+                return (ret, float(lines.value), blaze.value.decode(errors="replace"), int(home.value), int(off.value))
+            except Exception as e:
+                print(f"[Shamrock] Error ShamrockGetGratingInfo: {e}")
+                return (SHAMROCK_COMMUNICATION_ERROR, 0.0, "", 0, 0)
+
+    def ShamrockGetWavelengthLimits(self, device: int = DEVICE, grating: int = 1) -> Tuple[int, float, float]:
+        if not self._connected or self._dll is None:
+            return (SHAMROCK_NOT_INITIALIZED, float("nan"), float("nan"))
+        with self._lock:
+            try:
+                lo, hi = c_float(), c_float()
+                ret = self._dll.ShamrockGetWavelengthLimits(c_int(device), c_int(grating), byref(lo), byref(hi))
+                return (ret, float(lo.value), float(hi.value))
+            except Exception as e:
+                print(f"[Shamrock] Error ShamrockGetWavelengthLimits: {e}")
+                return (SHAMROCK_COMMUNICATION_ERROR, float("nan"), float("nan"))
 
     def ShamrockAtZeroOrder(self, device: int = DEVICE) -> Tuple[int, int]:
         if not self._connected or self._dll is None:

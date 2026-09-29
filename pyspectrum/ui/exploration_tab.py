@@ -94,8 +94,12 @@ class ExplorationWorker(QtCore.QObject):
             self._timer.setInterval(35)  # ~28 fps, mismo intervalo que camera_andor.py::Backend
             self._timer.timeout.connect(self._acquire_frame)
         try:
-            if hasattr(self.spectrometer, "ShamrockSetShutter"):
-                self.spectrometer.ShamrockSetShutter(DEVICE, 1)
+            # El obturador del espectrómetro se abre en el Live (investigador, 2026-09-29), por los dos
+            # caminos del legado: USB del Shamrock y TTL de la cámara.
+            from pyspectrum.services.spectrometer_shutter import open_spectrometer_shutter
+            res = open_spectrometer_shutter(self.camera, self.spectrometer)
+            if not res.ok:
+                self.liveErrorSignal.emit(res.detail)
         except Exception:
             pass
         self.camera.start_acquisition()
@@ -107,8 +111,10 @@ class ExplorationWorker(QtCore.QObject):
             self._timer.stop()
         self.camera.abort_acquisition()
         try:
-            if hasattr(self.spectrometer, "ShamrockSetShutter"):
-                self.spectrometer.ShamrockSetShutter(DEVICE, 0)
+            from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter
+            res = close_spectrometer_shutter(self.camera, self.spectrometer)
+            if not res.ok:
+                self.liveErrorSignal.emit(res.detail)
         except Exception:
             pass
 

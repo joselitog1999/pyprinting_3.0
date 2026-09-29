@@ -625,10 +625,47 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self._setup_shortcuts()
 
         self.statusBar().showMessage(f"PySpectrum 3.0 Listo. Carpeta de trabajo: {self.work_dir}")
+        self._observe_calibration_at_startup()
         if self.camera_baseline_report.blocks_acquisition:
             self.statusBar().showMessage(
                 "⚠️ Cámara: el estado base no se confirmó (" + self.camera_baseline_report.summary()
                 + "). Las adquisiciones deben quedar bloqueadas hasta resolverlo.")
+
+    def _observe_calibration_at_startup(self):
+        """Paso 9 (DEC-040): lee los offsets del Shamrock sólo con Get*, registra OBSERVED en el archivo de
+        calibraciones y compara. Nunca escribe al equipo (R4-B-1). Si algo difiere, un aviso persistente y
+        no modal (Ronda 3 §1.11); el arranque sigue."""
+        self.lbl_calibration_warning = QtWidgets.QPushButton("")
+        self.lbl_calibration_warning.setFlat(True)
+        self.lbl_calibration_warning.clicked.connect(lambda: self.tabs_workflow.setCurrentIndex(TAB_CALIBRATION))
+        self.lbl_calibration_warning.hide()
+        self.statusBar().addPermanentWidget(self.lbl_calibration_warning)
+        self.calibration_startup_report = None
+        if not getattr(self.spectrometer, "available", True):
+            return
+        try:
+            from pyspectrum.calibration.repository import get_repository, observe_spectrograph
+            report = observe_spectrograph(self.spectrometer, get_repository())
+        except Exception as e:
+            print(f"[PySpectrum] No se pudo comparar los offsets con el archivo de calibraciones: {e}")
+            return
+        self.calibration_startup_report = report
+        warnings = report.warnings()
+        for w in warnings:
+            print(f"[PySpectrum] Calibración: {w}")
+        if warnings:
+            more = f"  (+{len(warnings) - 1} avisos)" if len(warnings) > 1 else ""
+            self.lbl_calibration_warning.setText(f"⚠️ {warnings[0]}{more}")
+            self.lbl_calibration_warning.setToolTip("\n".join(warnings) + "\n\nNada se escribió al equipo. "
+                                                    "Clic: ir a Calibraciones.")
+            self.lbl_calibration_warning.setStyleSheet("QPushButton { color: #F9E2AF; font-weight: bold; }")
+            self.lbl_calibration_warning.show()
+        elif report.first_use:
+            self.lbl_calibration_warning.setText("ℹ️ No había archivo de calibraciones: se creó uno con lo leído "
+                                                 "del equipo (OBSERVED).")
+            self.lbl_calibration_warning.setToolTip(str(getattr(get_repository(), "path", "")))
+            self.lbl_calibration_warning.setStyleSheet("QPushButton { color: #89B4FA; }")
+            self.lbl_calibration_warning.show()
 
     def _on_main_tab_changed(self, idx: int):
         self.left_panel.set_context(idx)
@@ -724,6 +761,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         self.sandg_backend = StepGlueBackend(self.camera, self.spectrometer)
         self.sandg_backend.make_connection(self.sandg_widget)
+        self.sandg_backend.data_dir = self.work_dir / "step_and_glue"
 
         self.raman_backend = StaticRamanBackend(self.camera, self.spectrometer)
         self.raman_backend.make_connection(self.raman_widget, self.raman_container.inspector_widget)
@@ -824,6 +862,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta de Trabajo", str(self.work_dir))
         if d:
             self.work_dir = Path(d)
+            self._propagate_work_dir()
             self.statusBar().showMessage(f"Carpeta activa: {self.work_dir}")
 
     def _create_daily_directory(self):
@@ -833,7 +872,13 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             daily = Path(d) / today_str
             daily.mkdir(parents=True, exist_ok=True)
             self.work_dir = daily
+            self._propagate_work_dir()
             self.statusBar().showMessage(f"Carpeta del día creada y activa: {self.work_dir}")
+
+    def _propagate_work_dir(self):
+        """Las rutinas que guardan por su cuenta (Step & Glue, paso 11) escriben en la carpeta de trabajo."""
+        if hasattr(self, "sandg_backend"):
+            self.sandg_backend.data_dir = self.work_dir / "step_and_glue"
 
     def _open_directory(self):
         if self.work_dir.exists():

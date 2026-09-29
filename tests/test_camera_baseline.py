@@ -225,9 +225,11 @@ def test_pyspectrum_startup_applies_the_baseline_and_the_panel_shows_it(monkeypa
     try:
         rep = win.camera_baseline_report
         assert rep is not None and not rep.blocks_acquisition, rep.summary()
+        # Paso 8: el panel muestra lo LEÍDO (IsCoolerOn) y lo ENVIADO ([E] setpoint), no el widget.
         assert win.left_panel.spin_temp.value() == -60
-        assert win.left_panel.btn_cooler.isChecked() is True
-        assert "Enfriador: ON" in win.left_panel.btn_cooler.text()
+        assert "[E] -60 °C" in win.left_panel.lbl_setpoint.text()
+        assert "[L]" in win.left_panel.lbl_cooler_read.text() and "encendido" in win.left_panel.lbl_cooler_read.text()
+        assert "[E] low" in win.left_panel.lbl_fan.text()
     finally:
         win.close()
         hardware_session.clear_emergency()

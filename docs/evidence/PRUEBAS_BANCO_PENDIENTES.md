@@ -284,6 +284,18 @@ estable si la prueba adquiere datos.
   obturador cerrado manualmente desde Control de Espectro; escuchar o ver la actuación.
 - **Aceptación**: en operación normal no aparece "SIN confirmar"; con el obturador cerrado el
   cuadro es oscuro (sólo bias y ruido).
+- **Además (R4-H, 2026-09-29): cuál de los dos caminos manda.**
+  - Qué sabemos:
+    - el único obturador está en el Shamrock y hay un cable TTL de la cámara al Shamrock (BANCO-22);
+    - el legado lo abre por USB **una vez al arrancar** (`ShamrockSetShutter(DEVICE, 1)`) y después lo
+      abre y cierra por el TTL de la cámara (`setup_shutter('open', 1)` / `('closed', 0)`).
+  - Qué hace 3.0: no abre al arrancar. Abre a pedido, en las rutinas o en el Live, **por los dos
+    caminos**, y cierra también por los dos (`pyspectrum/services/spectrometer_shutter.py`).
+  - Anotar con la tapa y la lámpara:
+    - (a) si con sólo el USB abierto (y el TTL de la cámara cerrado) el cuadro es oscuro o no;
+    - (b) lo mismo al revés;
+    - (c) si al encender el Shamrock el obturador arranca cerrado.
+  - Con eso se sabe si uno de los dos caminos sobra, y si el TTL de "cerrado" con tipo 0 cierra de verdad.
 - **Resultado**: —
 
 ### ☐ BANCO-10 — Un cuadro real nunca es todo-ceros
@@ -483,6 +495,12 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
     hasta pegar la salida de `pip show`;
   - falta la versión del driver NI-DAQmx;
   - "spectrog": es un archivo de `C:\Program Files\Andor SOLIS` (investigador, R4-G).
+  - **Requisito para correr PySpectrum 3.0 en el banco (2026-09-28):** pylablib 1.4.3 trae la extensión
+    compilada de Andor sólo para ciertas versiones de Python. En el banco está `utils.cp311-win_amd64.pyd`
+    (Python 3.11, entorno `envspectrum`). En la PC de desarrollo (Python 3.13) no está, y
+    `pylablib.devices.Andor` no se puede importar: los tests usan una cámara falsa. El entorno de 3.0 en
+    el banco tiene que ser Python 3.11 con pylablib 1.4.3, como el del legado. Verificar con
+    `python -c "from pylablib.devices.Andor import AndorSDK2Camera"` antes del primer arranque.
 
 ### ◐ BANCO-24 — Cadencia real de la traza (legado y 3.0), desde archivos guardados
 - **Procedimiento**: abrir 5 a 10 `NP_xxx.txt` de impresiones recientes hechas con el
@@ -739,7 +757,8 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 - **Precisado (investigador, R4-G):** la Canon, en la app de cámara de PyPrinting 3.0, contra el Andor
   en **Solis**, en orden cero.
 - **Falta:**
-  - saber si Solis invierte la imagen al mostrarla (opciones de pantalla o de rotación de Solis);
+  - ~~saber si Solis invierte la imagen al mostrarla~~: **no la invierte** (investigador, 2026-09-28).
+    El cuadro del Andor, tal como lo entrega la cámara, está invertido en X respecto de la Canon;
   - ver el mismo cuadro en el visor de Exploración de PySpectrum 3.0 cuando se abra contra el equipo
     (bloque A completo). El visor de 3.0 muestra el arreglo crudo con la fila 0 arriba. Hasta esa
     comparación no se cambia ninguna inversión por defecto.

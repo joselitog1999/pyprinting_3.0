@@ -87,6 +87,16 @@ SPECULAR_MARGIN_FRAC = 0.10
 # Exposición de la primera entrada al orden cero de la sesión (R4-D-2); después se recuerda la
 # última que usó el operador. En especular no hay tope de exposición: sólo la ganancia EM queda en 0.
 SPECULAR_DEFAULT_EXPOSURE_S = 0.1
+
+# Calibraciones del Shamrock (pasos 9 y 10 del bloque A, DEC-040).
+# Archivo local a la PC y fuera de git (R4-A-5). None = %LOCALAPPDATA%\PyPrinting\pyspectrum\shamrock_calibration.jsonl
+SHAMROCK_CALIBRATION_PATH = os.getenv("PYSPECTRUM_CALIBRATION_PATH") or None
+# Un cambio de offset de más de estos pasos pide una tercera confirmación, con el cambio estimado en nm
+# (R4-B-10, D-07b). Se ajusta cuando BANCO-40 mida cuántos píxeles mueve un paso.
+THIRD_CONFIRMATION_STEPS = 50
+
+# Exposición máxima por cuadro en las rutinas (R4-4: hasta 10 s en Raman; el driver acepta 60 s, R4-B-9).
+MAX_ROUTINE_EXPOSURE_S = 10.0
 RATE_SINGLE_CHANNEL = 1.25e6
 RATE_MULTICHANNEL   = 1.0e6
 

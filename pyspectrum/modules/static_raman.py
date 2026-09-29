@@ -915,21 +915,13 @@ class StaticRamanBackend(QtCore.QObject):
         `report=False` suprime el aviso propio para que el llamador componga un único mensaje
         final con el resultado completo, en vez de que cada paso pise al anterior.
         """
-        if not hasattr(self.spectrometer, "ShamrockSetShutter"):
-            return True
-        action = "apertura" if open_shutter else "cierre"
-        try:
-            ret = self.spectrometer.ShamrockSetShutter(DEVICE, 1 if open_shutter else 0)
-        except Exception as e:
+        # Los dos caminos del legado: USB del Shamrock y TTL de la cámara (investigador, 2026-09-29).
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
+        fn = open_spectrometer_shutter if open_shutter else close_spectrometer_shutter
+        res = fn(getattr(self, "camera", None), self.spectrometer)
+        if not res.ok:
             if report:
-                self.statusMessageSignal.emit(f"⚠️ Falló la {action} del obturador del espectrógrafo: {e}")
-            return False
-        if ret != SHAMROCK_SUCCESS:
-            if report:
-                self.statusMessageSignal.emit(
-                f"⚠️ El obturador del espectrógrafo no confirmó la {action} (código {ret}). "
-                "El espectro puede no ser válido."
-            )
+                self.statusMessageSignal.emit(f"⚠️ {res.detail} El espectro puede no ser válido.")
             return False
         return True
 
