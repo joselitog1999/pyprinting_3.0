@@ -437,6 +437,8 @@ class Backend(QtCore.QObject):
                 ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
                 f.attrs["grating"] = int(grating) if ret_g == 20202 else -1
                 f.attrs["cube_axes"] = "x, y, lambda"
+                from pyspectrum.calibration.repository import spectrum_software_correction, write_correction_attrs
+                write_correction_attrs(f.attrs, spectrum_software_correction(self.spectrometer))   # R3-gui §4.6
             self._saved_path = str(path)
         except Exception as e:
             self.statusSignal.emit(f"⚠️ No se pudo guardar el cubo: {e}")

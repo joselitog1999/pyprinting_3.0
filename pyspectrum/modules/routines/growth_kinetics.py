@@ -818,10 +818,12 @@ class GrowthKineticsBackend(QtCore.QObject):
         try:
             os.makedirs(save_dir, exist_ok=True)
             base = os.path.join(save_dir, f"GrowthNode_{idx:03d}")
+            from pyspectrum.calibration.repository import correction_header_text
+            corr = correction_header_text(self.spectrometer)        # R3-gui §4.6; λmax también depende del eje
             np.savetxt(base + "_kinetics.txt", np.column_stack([t_points, lmax_points]),
-                       header="t_s\tlambda_max_nm  (serie de exposiciones reales)", fmt="%.4f")
+                       header="t_s\tlambda_max_nm  (serie de exposiciones reales)\n" + corr, fmt="%.4f", encoding="utf-8")
             np.savetxt(base + "_final_spectrum.txt", np.column_stack([wave_axis, spec]),
-                       header="wavelength_nm\tintensity", fmt="%.4f")
+                       header="wavelength_nm\tintensity\n" + corr, fmt="%.4f", encoding="utf-8")
         except OSError as e:
             print(f"[GrowthGrid] No se pudo guardar el nodo {idx}: {e}")
 

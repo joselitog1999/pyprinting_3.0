@@ -909,15 +909,21 @@ class Backend(QtCore.QObject):
             return
         try:
             p = Path(filepath)
+            from pyspectrum.calibration.repository import correction_header_lines, spectrum_software_correction
+            correction = spectrum_software_correction(self.spectrometer)      # R3-gui §4.6
             if p.suffix == ".npz":
-                np.savez_compressed(p, wavelength=self._last_wave, intensity=self._last_spec, normalized=self._last_norm)
+                import json
+                np.savez_compressed(p, wavelength=self._last_wave, intensity=self._last_spec, normalized=self._last_norm,
+                                    metadata=np.array(json.dumps(correction)))
             else:
                 data = np.column_stack([self._last_wave, self._last_spec])
                 header = "Wavelength_nm\tIntensity_Counts"
                 if len(self._last_norm) == len(self._last_wave) and len(self._last_norm) > 0:
                     data = np.column_stack([self._last_wave, self._last_spec, self._last_norm])
                     header += "\tNormalized_Intensity"
-                np.savetxt(p, data, delimiter="\t", header=header, comments="# ")
+                # Primero la línea de columnas (formato de Solis: los importadores leen la primera línea)
+                header = header + "\n" + "\n".join(correction_header_lines(correction))
+                np.savetxt(p, data, delimiter="\t", header=header, comments="# ", encoding="utf-8")
             print(f"[Step & Glue] Espectro guardado con éxito en: {p}")
         except Exception as e:
             print(f"[Step & Glue] Error al guardar espectro: {e}")

@@ -552,6 +552,7 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         self.profile_axis: Optional[ea.ProfileAxis] = None
         self._axis_width: Optional[int] = None
         self._axis_mode: Optional[str] = None
+        self._last_position = None       # (λc, red) del último spectrographMoved atendido
         self.background: Optional[ea.Background] = None
         self._bg_valid = False
         self._last_fit_t = float("-inf")
@@ -1096,6 +1097,12 @@ class ExplorationTabWidget(QtWidgets.QWidget):
 
     @pyqtSlot(float, int)
     def _on_spectrograph_moved(self, wavelength_nm: float, grating: int) -> None:
+        # El panel izquierdo publica la posición en cada sondeo (1 s), se haya movido o no: el eje del
+        # Shamrock se relee y los ajustes se rehacen sólo si cambian la red o λc.
+        position = (round(float(wavelength_nm), 4), int(grating))
+        if position == self._last_position:
+            return
+        self._last_position = position
         self._invalidate_axis()
 
     def _invalidate_axis(self) -> None:
@@ -1341,10 +1348,12 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         if getattr(self, "_hprof", None) is not None:
             cuts = {"horizontal": self._hprof, "vertical": self._vprof}
         subtract = self.chk_bg_subtract.isChecked() and self._bg_valid
+        from pyspectrum.calibration.repository import spectrum_software_correction
+        correction = spectrum_software_correction(getattr(self._live_source, "spectrometer", None))
         try:
             path = ea.save_exploration_h5(ea.default_save_path(data_dir), raw=raw, background=self.background,
                                           subtract=subtract, axis=axis, cuts=cuts, metadata=meta,
-                                          full_info=full_info)
+                                          full_info=full_info, correction=correction)
         except Exception as exc:
             self.statusMessageSignal.emit(f"No se pudo guardar el cuadro: {exc}")
             return

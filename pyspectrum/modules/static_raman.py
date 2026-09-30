@@ -791,6 +791,9 @@ class StaticRamanBackend(QtCore.QObject):
 
         if inspector is not None:
             self.frame2DAcquiredSignal.connect(inspector.set_frame_2d)
+            # El inspector no tiene el espectrógrafo: la corrección fina se la da el backend (R3-gui §4.6).
+            from pyspectrum.calibration.repository import spectrum_software_correction
+            inspector.correction_provider = lambda: spectrum_software_correction(self.spectrometer)
             if hasattr(inspector, "set_live_state"):
                 self.liveStateChangedSignal.connect(inspector.set_live_state)
 
@@ -1021,6 +1024,9 @@ class StaticRamanBackend(QtCore.QObject):
                 for k, v in metadata.items():
                     if not k.startswith("_"):
                         f.write(f"# {k}: {v}\n")
+                from pyspectrum.calibration.repository import correction_header_text
+                for line in correction_header_text(self.spectrometer).splitlines():   # R3-gui §4.6
+                    f.write(f"# {line}\n")
                 f.write("# ------------------------------------------------------------\n")
                 f.write("Wavelength_nm\tRaman_Shift_cm-1\tCounts_ADC\n")
                 for w, rs, c in zip(wl_arr, raman_shift, counts):

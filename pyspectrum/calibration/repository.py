@@ -355,6 +355,86 @@ def active_software_correction(repo: "CalibrationRepository", key: CalibrationKe
     return SoftwareCorrectionState(g, "APLICADA", **base)
 
 
+C_SW_POLICY = "no aplicada al eje λ guardado (R4-C-6): el eje es el del SDK; λ(p) = λ_SDK(p + c_sw)"
+
+
+def spectrum_software_correction(spec, repo: Optional["CalibrationRepository"] = None, device: int = 0) -> Dict[str, Any]:
+    """La corrección fina para el metadato de un espectro guardado (R3-gui §4.6).
+
+    Se calcula al guardar, con la red, el offset, la serie, los puertos y la geometría que el equipo tiene en
+    ese momento, y con la misma regla que el arranque (`active_software_correction`). Se informa **siempre**:
+    APLICADA, SUSPENDIDA (con el motivo), NINGUNA, NO_APLICA (la red espejo) o DESCONOCIDA (no se pudo
+    identificar el espectrógrafo). Nunca rompe un guardado: una lectura que falla es DESCONOCIDA."""
+    meta: Dict[str, Any] = {"c_sw_status": "DESCONOCIDA", "c_sw_px": None, "u_c_sw_px": None,
+                            "c_sw_convention": C_SW_CONVENTION, "c_sw_grating": None, "c_sw_record_id": None,
+                            "c_sw_source_record_id": None, "c_sw_ts": None, "c_sw_reason": "",
+                            "c_sw_policy": C_SW_POLICY}
+
+    def unknown(why: str) -> Dict[str, Any]:
+        meta["c_sw_reason"] = why
+        return meta
+
+    if spec is None:
+        return unknown("no hay espectrógrafo")
+    try:
+        ret, serial = spec.ShamrockGetSerialNumber(device)
+        if ret != _SHAMROCK_SUCCESS or not serial:
+            return unknown(f"no se pudo leer el número de serie (código {ret})")
+        ports = []
+        for flipper in (1, 2):
+            ret, port = spec.ShamrockGetFlipper(device, flipper)
+            if ret != _SHAMROCK_SUCCESS:
+                return unknown(f"no se pudo leer el puerto {flipper} (código {ret})")
+            ports.append(int(port))
+        ret, grating = spec.ShamrockGetGrating(device)
+        if ret != _SHAMROCK_SUCCESS:
+            return unknown(f"no se pudo leer la red (código {ret})")
+        grating = int(grating)
+        meta["c_sw_grating"] = grating
+        info = spec.ShamrockGetGratingInfo(device, grating)
+        if not info or info[0] != _SHAMROCK_SUCCESS:
+            return unknown("no se pudo leer la red (GetGratingInfo)")
+        lines = float(info[1])
+        if lines == 0.0:
+            meta["c_sw_status"] = "NO_APLICA"
+            meta["c_sw_reason"] = "la red espejo (0 l/mm) no se calibra"
+            return meta
+        ret_o, off = spec.ShamrockGetGratingOffset(device, grating)
+        offset_read = int(off) if ret_o == _SHAMROCK_SUCCESS else None
+        geometry = None
+        ret_n, n_px = spec.ShamrockGetNumberPixels(device)
+        ret_w, width = spec.ShamrockGetPixelWidth(device)
+        if ret_n == _SHAMROCK_SUCCESS and ret_w == _SHAMROCK_SUCCESS:
+            geometry = {"n_px": int(n_px), "pixel_width_um": float(width)}
+    except Exception as e:
+        return unknown(f"falló la lectura del espectrógrafo ({e})")
+    repo = repo if repo is not None else get_repository()
+    st = active_software_correction(repo, CalibrationKey(str(serial), grating, lines, ports[0], ports[1]),
+                                    offset_read=offset_read, geometry=geometry)
+    meta.update(c_sw_status=st.status, c_sw_px=st.c_sw_px, u_c_sw_px=st.u_c_sw_px, c_sw_record_id=st.record_id,
+                c_sw_source_record_id=st.source_record_id, c_sw_ts=st.ts, c_sw_reason=st.reason)
+    return meta
+
+
+def correction_attr_values(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Los campos listos para atributos de HDF5 o encabezados: None pasa a texto vacío (h5py no guarda None)."""
+    return {k: ("" if v is None else v) for k, v in meta.items()}
+
+
+def correction_header_lines(meta: Dict[str, Any]) -> List[str]:
+    return [f"{k}: {v}" for k, v in correction_attr_values(meta).items()]
+
+
+def correction_header_text(spec, repo: Optional["CalibrationRepository"] = None) -> str:
+    """Encabezado de texto (una línea por campo) para los espectros que se guardan en .txt."""
+    return "\n".join(correction_header_lines(spectrum_software_correction(spec, repo)))
+
+
+def write_correction_attrs(attrs, meta: Dict[str, Any]) -> None:
+    for k, v in correction_attr_values(meta).items():
+        attrs[k] = v
+
+
 @dataclass(frozen=True)
 class OffsetComparison:
     grating_index: int

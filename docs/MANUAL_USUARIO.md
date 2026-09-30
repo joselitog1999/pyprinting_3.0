@@ -870,7 +870,10 @@ Dos sub-pestañas: **Calibración de λ (automática)** (paso 14, `DEC-040`) y *
   - **CANCELADA.**
 - **[Aplicar corrección fina]** (sólo con ACEPTADA o CON RESERVA):
   - guarda la corrección por debajo de un paso en el archivo. Es sólo de PySpectrum: Solis y el legado no la ven;
-  - al arrancar vale sólo si el offset de esa red sigue siendo el mismo con el que se midió; si no, queda suspendida y el arranque avisa.
+  - al arrancar vale sólo si el offset de esa red sigue siendo el mismo con el que se midió; si no, queda suspendida y el arranque avisa;
+  - **va en cada espectro guardado**, con su estado, aunque no haya corrección: `c_sw_status` (APLICADA, SUSPENDIDA, NINGUNA, NO_APLICA para la red espejo, o DESCONOCIDA si no se pudo identificar el espectrógrafo), `c_sw_px`, `u_c_sw_px`, `c_sw_convention` = λ(p) = λ_SDK(p + c_sw), el `record_id` y la fecha. El eje λ guardado es el del SDK: la corrección **no** está aplicada; para usarla, recalculá el eje con la convención.
+    - Dónde: las ventanas y el espectro pegado de Step & Glue, el escaneo lineal, luminiscencia, crecimiento, el mapa hiperespectral, Raman (txt y HDF5 del inspector 2D) y los cuadros de Exploración.
+    - Se calcula al guardar, con la red, el offset, la serie, los puertos y la geometría del equipo en ese momento, con la misma regla que el arranque.
 - **[Proponer offset…]:** deshabilitado hasta que BANCO-40 mida cuántos píxeles mueve un paso. Cuando se habilite, abre la transacción de escritura de siempre.
 - **Si no se ve la línea:** la rutina se detiene. Un clic sobre la línea en el perfil fija dónde buscar, y [Reintentar con la semilla] corre esa red otra vez. El registro queda marcado "semilla del operador".
 

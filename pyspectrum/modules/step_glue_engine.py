@@ -277,7 +277,8 @@ def _has_signal(spec1d: np.ndarray) -> bool:
 
 
 def _save_window(run_dir: Path, w_index: int, center_req: float, center_read: float, axis, data, frame: Frame,
-                 open_lasers, light_changed, request: StepGlueRequest, the_plan: StepGluePlan) -> Path:
+                 open_lasers, light_changed, request: StepGlueRequest, the_plan: StepGluePlan,
+                 correction: Optional[dict] = None) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     path = run_dir / f"ventana_{w_index + 1:02d}_{center_req:.1f}nm.npz"
     meta = {"index": w_index, "center_nm_requested": center_req, "center_nm_read": center_read,
@@ -286,6 +287,7 @@ def _save_window(run_dir: Path, w_index: int, center_req: float, center_read: fl
             "em_gain_dac": request.em_gain, "window_nm": the_plan.window_nm, "window_source": the_plan.window_source,
             "open_lasers": list(open_lasers), "light_changed": bool(light_changed),
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    meta.update(correction or {})            # c_sw en el metadato de cada espectro (R3-gui §4.6)
     np.savez(path, wavelength=np.asarray(axis, dtype=np.float64), data=np.asarray(data),
              metadata=np.array(json.dumps(meta)))
     return path
@@ -306,6 +308,9 @@ def run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectr
     windows: List[WindowResult] = []
     n = len(the_plan.centers)
     first_lasers: Optional[Tuple[str, ...]] = None
+    # La red y su offset no cambian durante el barrido (sólo λc): una lectura al empezar alcanza.
+    from pyspectrum.calibration.repository import spectrum_software_correction
+    correction = spectrum_software_correction(spectrometer)
 
     def result(reason: StopReason, detail: str = "") -> StepGlueResult:
         complete = reason == StopReason.COMPLETED
@@ -369,7 +374,7 @@ def run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectr
             first_lasers = lasers
         changed = lasers != first_lasers
         path = _save_window(Path(run_dir), i, center, float(wl_read), axis, data, frame, lasers, changed,
-                            request, the_plan)
+                            request, the_plan, correction=correction)
         w = WindowResult(i, center, float(wl_read), axis, data, spec1d, frame.exposure_s_actual, frame.frame_index,
                          frame.t_start, frame.t_end, lasers, changed, path)
         windows.append(w)

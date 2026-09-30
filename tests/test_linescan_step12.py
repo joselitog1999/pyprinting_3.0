@@ -99,6 +99,9 @@ def test_full_scan_writes_hdf5_in_the_routine_data_dir_with_metadata(worker):
         assert attrs["glue_window_source"] in ("measured", "nominal")
         assert len(attrs["glue_centers_nm"]) >= 3
         assert "open_lasers_at_start" in attrs and attrs["stitching"] == "glue_steps"
+        # c_sw siempre en el metadato (R3-gui §4.6), también sin corrección fina
+        assert attrs["c_sw_status"] in ("APLICADA", "SUSPENDIDA", "NINGUNA", "NO_APLICA", "DESCONOCIDA")
+        assert "no aplicada al eje" in attrs["c_sw_policy"] and "c_sw_px" in attrs
 
 
 def test_a_failed_move_is_reported_not_acquired_at_the_old_wavelength(worker, monkeypatch):

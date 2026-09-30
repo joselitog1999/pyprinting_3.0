@@ -414,7 +414,8 @@ def default_save_path(data_dir, now: Optional[_dt.datetime] = None) -> Path:
 
 
 def save_exploration_h5(path, *, raw, background: Optional[Background], subtract: bool, axis: ProfileAxis,
-                        cuts: Dict[str, np.ndarray], metadata: Dict[str, Any], full_info: Dict[str, Any]) -> Path:
+                        cuts: Dict[str, np.ndarray], metadata: Dict[str, Any], full_info: Dict[str, Any],
+                        correction: Optional[Dict[str, Any]] = None) -> Path:
     import h5py
     from pyspectrum.calibration.repository import _software_version
     path = Path(path)
@@ -440,7 +441,12 @@ def save_exploration_h5(path, *, raw, background: Optional[Background], subtract
         f.attrs["camera_full_info_json"] = json.dumps(_jsonable(full_info), ensure_ascii=False)
         f.attrs["provenance"] = "EXPERIMENTAL"
         f.attrs["software_version"] = _software_version()
-        f.attrs["c_sw_policy"] = "no aplicada al eje (R4-C-6)"
+        if correction:
+            from pyspectrum.calibration.repository import write_correction_attrs
+            write_correction_attrs(f.attrs, correction)            # R3-gui §4.6
+        else:
+            f.attrs["c_sw_status"] = "DESCONOCIDA"
+            f.attrs["c_sw_policy"] = "no aplicada al eje λ guardado (R4-C-6)"
         for k, v in metadata.items():
             f.attrs[str(k)] = _attr_value(v)
     return path

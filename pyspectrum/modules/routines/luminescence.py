@@ -742,8 +742,10 @@ class LuminescenceBackend(QtCore.QObject):
         try:
             os.makedirs(save_dir, exist_ok=True)
             base = os.path.join(save_dir, f"LuminescenceNode_{idx:03d}")
+            from pyspectrum.calibration.repository import correction_header_text
             np.savetxt(base + "_spectrum.txt", np.column_stack([wave_axis, spec]),
-                       header=f"wavelength_nm\tintensity  (una exposición real; lectura {mode})", fmt="%.4f")
+                       header=f"wavelength_nm\tintensity  (una exposición real; lectura {mode})\n"
+                       + correction_header_text(self.spectrometer), fmt="%.4f", encoding="utf-8")   # R3-gui §4.6
         except OSError as e:
             print(f"[LuminescenceGrid] No se pudo guardar el nodo {idx}: {e}")
 

@@ -1080,6 +1080,8 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 open_lasers_at_end=",".join(_open_lasers()),
                 stitching="glue_steps",
             )
+            from pyspectrum.calibration.repository import correction_attr_values, spectrum_software_correction
+            metadata.update(correction_attr_values(spectrum_software_correction(self.spectrometer)))   # R3-gui §4.6
             if self.mode == 'step_and_glue':
                 metadata.update(
                     glue_start_wl_nm=cfg['glue_start'], glue_end_wl_nm=cfg['glue_end'],

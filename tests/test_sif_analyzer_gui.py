@@ -17,6 +17,11 @@ if WORKSPACE_ROOT not in sys.path:
 from PyQt6.QtWidgets import QApplication
 from sif_analyzer import SifAnalyzerWindow
 
+# Las ventanas cerradas quedan vivas: si el recolector de basura las destruye más tarde, sip borra sus
+# escenas de pyqtgraph en medio del processEvents de otro test y PyQt6 aborta (LinearRegionItem ya borrado
+# dentro de boundingRect). Mismo criterio que el resto de la suite.
+_KEEP_ALIVE = []
+
 app = QApplication.instance()
 if app is None:
     app = QApplication([sys.argv[0], "-platform", "offscreen"])
@@ -35,6 +40,7 @@ class TestSifAnalyzerGUI(unittest.TestCase):
 
     def tearDown(self):
         self.window.close()
+        _KEEP_ALIVE.append(self.window)
 
     def test_01_instantiation_and_empty_state(self):
         """Verifica que la ventana se instancie limpiamente con las 7 ventanas de proceso (Fase 4)."""

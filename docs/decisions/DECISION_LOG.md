@@ -951,7 +951,7 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
     * Ctrl+R no la inicia (H-02);
     * el cierre de PySpectrum la cancela y lo dice en la pregunta.
   * **Pendiente:**
-    * `c_sw` en el metadato de cada espectro guardado (R3-gui §4.6);
+    * ~~`c_sw` en el metadato de cada espectro guardado (R3-gui §4.6)~~: hecho el 2026-09-30 (ver más abajo);
     * la escritura, después de BANCO-40;
     * BANCO-58, la primera corrida en el banco.
   * **Tests:** `test_spectral_line_fit.py` (20), `test_offset_calibration.py` (20), `test_software_correction.py` (10) y `test_auto_calibration_panel.py` (9). 17 mutaciones, todas detectadas; cuatro no se detectaban al principio y cada una sumó un test (T4, el 532 cerrado entre llegadas y la saturación en la sonda y en las llegadas).
@@ -1051,6 +1051,30 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
       * Ahora es un método ligado, con un test que verifica que el widget destruido se libera.
       * Después del arreglo la suite completa pasó. La relación con el test de Step & Glue es probable, no está demostrada: es una sola corrida, y la bisección no aisló un archivo.
   * **Banco:** BANCO-61; BANCO-56 decide la inversión.
+* **`c_sw` en el metadato de cada espectro guardado (R3-gui §4.6; 2026-09-30).** Exento: ejecuta el diseño aprobado en la Ronda 3 del bloque A y no cambia fórmulas ni el eje.
+  * **Qué se agregó:** `repository.spectrum_software_correction(spec)`, que se calcula al guardar con la red, el offset, la serie, los puertos y la geometría del equipo en ese momento, y la misma regla del arranque (`active_software_correction`).
+    * **Estados:** APLICADA, SUSPENDIDA (con el motivo), NINGUNA, NO_APLICA (la red espejo) o DESCONOCIDA. Una lectura que falla nunca rompe un guardado.
+    * **Formateadores:** `correction_header_lines` / `correction_header_text` (txt) y `write_correction_attrs` / `correction_attr_values` (HDF5: None → "").
+  * **Dónde se guarda:** las ventanas (npz) y el espectro pegado (txt y npz) de Step & Glue, el escaneo lineal (/metadata), luminiscencia y crecimiento (txt; también la cinética de λmax), el mapa hiperespectral, Raman (txt) y el HDF5 del inspector 2D, y Exploración.
+    * El inspector no tiene el espectrógrafo: se lo da el backend de Raman.
+    * **Fuera:** `calibration_dock` y la lámpara halógena, que son productos de calibración, no espectros medidos.
+  * **Defecto encontrado de paso:** `np.savetxt` escribe en latin-1 por defecto. Con "λ" en el encabezado, guardar un nodo de luminiscencia o de crecimiento lanzaba `UnicodeEncodeError`, y esas rutinas sólo atajan `OSError`. Ahora guardan en UTF-8.
+  * En los txt la primera línea sigue siendo la de columnas (formato de Solis, `test_solis_ascii_and_npz_export_compatibility`); las de c_sw van después.
+  * **Tests:** `tests/test_spectrum_correction_metadata.py` (16) y una aserción en `test_linescan_step12`. 14 mutaciones, todas detectadas.
+* **Causa de la falla intermitente de `test_stop_responds_within_a_tranche` (2026-09-30), corregida.** Es un defecto del paquete 2 de Exploración.
+  * **Qué pasaba:** el panel izquierdo publica la posición del espectrógrafo (`set_spectrograph_position`) en cada sondeo, cada 1 s, se haya movido o no. La pestaña contestaba cada vez releyendo el eje del Shamrock (USB) y rehaciendo los dos ajustes gaussianos, en el hilo de la interfaz.
+  * **Cómo se vio en la suite:** con los widgets que un módulo de tests mantiene vivos, eso saturaba el hilo principal y demoraba el Stop de Step & Glue (2.5 a 2.9 s contra 1.5 s). Falló en 5 de 6 corridas completas; solo, pasa siempre.
+  * **Cómo se encontró:** con un muestreo de las pilas de todos los hilos cada 20 ms durante el test. Se descartaron antes el recolector de basura (medido: ninguna pausa larga dentro del test) y el estado global (interlock en primer orden, cámara quieta).
+  * **Arreglo:** la pestaña sólo recalcula si cambian la red o λc, con su test (falla antes: 6 recálculos por un movimiento). Además, `test_exploration_tools` desconecta sus widgets del contexto global al terminar.
+  * La hipótesis anterior (la pérdida de widgets) era un defecto real, pero no la causa de este test.
+* **Aborto de Qt en la suite completa por ventanas de `sif_analyzer` liberadas al recolector (2026-09-30), corregido.**
+  * **Qué se vio:** después de los cambios anteriores, la suite con la captura de pytest abortaba (`Fatal Python error: Aborted`) dentro de `processEvents` de un test de `sif_analyzer`. Sin captura pasaba entera.
+  * **Qué se hizo para encontrarlo:**
+    * un manejador de mensajes de Qt escrito fuera de la captura mostró la causa: `RuntimeError: wrapped C/C++ object of type LinearRegionItem has been deleted` dentro de `LinearRegionItem.boundingRect`;
+    * un subconjunto de archivos lo reprodujo en otro test de `sif_analyzer`.
+  * **Causa:** los seis archivos `test_sif_analyzer_*` creaban una ventana por test y sólo la cerraban. Al soltar pytest la instancia del test, la ventana quedaba para el recolector, y sip destruía sus escenas de pyqtgraph cuando el recolector corría, aunque fuera en medio de otro test.
+    * El defecto estaba en los tests desde antes. Los cambios de hoy sólo movieron el momento del recolector.
+  * **Arreglo:** esas ventanas quedan vivas en `_KEEP_ALIVE`, como en el resto de la suite. Después, la suite completa pasó con captura: 1543 passed, 3 xfailed, 0 failed, con `test_stop_responds_within_a_tranche` incluido.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

@@ -24,6 +24,22 @@ from pyspectrum.ui.exploration_tab import ExplorationTabWidget, ExplorationWorke
 _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(["pytest"])
 _KEEP = []                                           # pyqtgraph: que el recolector no destruya los ViewBox
 
+
+@pytest.fixture(autouse=True, scope="module")
+def _release_kept_widgets():
+    """Los widgets quedan vivos (pyqtgraph), pero al terminar el módulo se desconectan del contexto global y
+    se apagan el ajuste y el temporizador del fondo: si no, siguen reaccionando a los movimientos del
+    espectrógrafo de los tests siguientes (Step & Glue) y cargan el hilo de la interfaz."""
+    yield
+    from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+    for w in _KEEP:
+        try:
+            spectroscopy_context.spectrographMoved.disconnect(w._on_spectrograph_moved)
+        except (TypeError, RuntimeError):
+            pass
+        w.chk_fit.setChecked(False)
+        w._bg_timer.stop()
+
 H, W = 60, 200
 
 
@@ -466,3 +482,32 @@ def test_a_destroyed_widget_is_not_kept_alive_by_the_global_context():
         _app.processEvents()
         gc.collect()
     assert ref() is None
+
+
+def test_the_axis_is_recomputed_only_when_the_spectrograph_really_moves():
+    """El panel izquierdo publica la posición del espectrógrafo en cada sondeo (1 s), se haya movido o no.
+    La pestaña no puede releer el eje del Shamrock ni rehacer los ajustes cada segundo: sólo si cambian la
+    red o λc. Antes, con varias pestañas vivas, eso saturaba el hilo de la interfaz."""
+    from pyspectrum.modules.spectroscopy_context import spectroscopy_context
+    saved = (spectroscopy_context._wavelength, spectroscopy_context._grating)   # el contexto es global
+    try:
+        _check_axis_recompute(spectroscopy_context)
+    finally:
+        spectroscopy_context._wavelength, spectroscopy_context._grating = saved
+
+
+def _check_axis_recompute(spectroscopy_context):
+    w, _ = _widget()
+    calls = []
+    lam = np.linspace(500.0, 520.0, W)
+    w.set_axis_provider(lambda width: calls.append(width) or ea.profile_axis(si.FIRST_ORDER, lam, width))
+    w.update_image(_gauss_frame())
+    n0 = len(calls)
+    spectroscopy_context.set_spectrograph_position(633.0, 1)
+    n1 = len(calls)
+    for _ in range(5):
+        spectroscopy_context.set_spectrograph_position(633.0, 1)   # el sondeo, sin movimiento
+    assert len(calls) == n1 and n1 == n0 + 1
+    spectroscopy_context.set_spectrograph_position(700.0, 1)
+    spectroscopy_context.set_spectrograph_position(700.0, 2)
+    assert len(calls) == n1 + 2

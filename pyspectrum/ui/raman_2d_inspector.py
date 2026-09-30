@@ -38,7 +38,7 @@ def compute_roi_mean_std(frame_2d: np.ndarray, roi_rows: Tuple[int, int]) -> Tup
 def export_raman_2d_to_hdf5(
     filepath: str, frame_2d: np.ndarray, wavelengths: np.ndarray, roi_rows: Tuple[int, int],
     laser_nm: Optional[float] = None, grating_name: str = "", read_mode_name: str = "",
-    acquired_at: str = "",
+    acquired_at: str = "", extra_attrs: Optional[dict] = None,
 ) -> str:
     """Exporta un cuadro 2D Raman a HDF5 estructurado (/raw_2d, /spectrum_mean, /std,
     /wavelengths + metadatos de ROI/láser/Shamrock/timestamp). Degradación segura si h5py no
@@ -60,6 +60,8 @@ def export_raman_2d_to_hdf5(
         f.attrs["acquired_at"] = acquired_at or ""
         f.attrs["roi_y_min"] = int(roi_rows[0])
         f.attrs["roi_y_max"] = int(roi_rows[1])
+        for k, v in (extra_attrs or {}).items():          # p. ej. la corrección fina c_sw (R3-gui §4.6)
+            f.attrs[k] = "" if v is None else v
         f.create_dataset("raw_2d", data=np.asarray(frame_2d, dtype=np.float32), **comp)
         f.create_dataset("spectrum_mean", data=mean.astype(np.float64), **comp)
         f.create_dataset("std", data=std.astype(np.float64), **comp)
@@ -302,10 +304,12 @@ class Raman2DInspectorWidget(QtWidgets.QWidget):
     def export_hdf5_to_path(self, path: str):
         if self.frame_2d is None or self.wavelengths is None:
             return
+        provider = getattr(self, "correction_provider", None)
         export_raman_2d_to_hdf5(
             path, self.frame_2d, self.wavelengths, self.roi_rows,
             laser_nm=self.laser_nm, grating_name=self.grating_name,
             read_mode_name=self.read_mode_name, acquired_at=self.acquired_at,
+            extra_attrs=provider() if provider is not None else None,
         )
 
     def _on_export_clicked(self):

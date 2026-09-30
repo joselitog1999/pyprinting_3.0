@@ -26,6 +26,11 @@ if app is None:
 from core.sif_processor import fit_extinction_multi_peak, baseline_asls
 from sif_analyzer import SifAnalyzerWindow
 
+# Las ventanas cerradas quedan vivas: si el recolector de basura las destruye más tarde, sip borra sus
+# escenas de pyqtgraph en medio del processEvents de otro test y PyQt6 aborta (LinearRegionItem ya borrado
+# dentro de boundingRect). Mismo criterio que el resto de la suite.
+_KEEP_ALIVE = []
+
 
 def _gauss(x, a, c, w):
     sigma = w / 2.3548
@@ -139,6 +144,7 @@ class TestSifAnalyzerMultiPeakGUIIntegration(unittest.TestCase):
 
     def tearDown(self):
         self.window.close()
+        _KEEP_ALIVE.append(self.window)
 
     def _require_fbin(self):
         if not os.path.isfile(self.fbin_path):
