@@ -70,11 +70,11 @@ class TestLuminescenceNotchFlipperAndGrid(unittest.TestCase):
 
         self.widget.notchFlipperSignal.emit(False)  # retirar
         self.assertFalse(self.backend._notch_down)
-        self.assertIn("Fuera del haz", self.widget.lbl_notch_status.text())
+        self.assertIn("arriba", self.widget.lbl_notch_status.text())  # es el espejo de detección
 
         self.widget.notchFlipperSignal.emit(True)  # insertar
         self.assertTrue(self.backend._notch_down)
-        self.assertIn("Dentro del haz", self.widget.lbl_notch_status.text())
+        self.assertIn("abajo", self.widget.lbl_notch_status.text())
 
         self.assertEqual(states, [False, True])
 
@@ -88,7 +88,8 @@ class TestLuminescenceNotchFlipperAndGrid(unittest.TestCase):
         luminescence.close_shutter = lambda name: (shutter_events.append(("close", name)), orig_close(name))[-1]
 
         try:
-            config_dict = {"laser": "532 nm (green)", "exp_time": 0.02, "autofocus_every": 1, "save_dir": tempfile.mkdtemp()}
+            config_dict = {"laser": "532 nm (green)", "exp_time": 0.02, "autofocus_every": 1, "save_dir": tempfile.mkdtemp(),
+                           "mirror": "down"}  # AND-1: el operador confirma el espejo
             self.backend.start_grid(config_dict)
             _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=10.0)
         finally:
@@ -101,16 +102,15 @@ class TestLuminescenceNotchFlipperAndGrid(unittest.TestCase):
         self.assertFalse(hardware_session.is_busy)
 
     def test_grid_acquisition_is_read_mode_aware(self):
+        """AND-1: el espectro es una exposición real 1D; desde Imagen se pasa a FVB, Single-Track se respeta."""
         from pyspectrum.drivers.andor_ccd_driver import READ_MODE_IMAGE, READ_MODE_FVB
-
-        self.camera._read_mode = READ_MODE_IMAGE
-        spec_2d = self.backend._acquire_read_mode_aware()
-        self.assertEqual(spec_2d.ndim, 1)
-        self.assertEqual(len(spec_2d), self.camera.width)
-
-        self.camera._read_mode = READ_MODE_FVB
-        spec_1d = self.backend._acquire_read_mode_aware()
-        self.assertEqual(spec_1d.ndim, 1)
+        from pyspectrum.modules.routines.grid_runner import GridRunner
+        runner = GridRunner(self.camera, tick=lambda: None)
+        self.camera.set_read_mode(READ_MODE_IMAGE)
+        spec, mode = runner.spectrum_1d(0.01)
+        self.assertEqual(spec.shape, (1004,))
+        self.assertEqual(self.camera.get_read_mode(), READ_MODE_FVB)
+        self.assertIn("FVB", mode)
 
     def test_emergency_stop_during_grid_closes_shutter_and_ends_without_hang(self):
         self.backend.generate_grid(1, 1, 3.0, 0.0, 5.0, 5.0, 5.0)
@@ -124,7 +124,8 @@ class TestLuminescenceNotchFlipperAndGrid(unittest.TestCase):
         QTimer.singleShot(5, hardware_session.emergency_stop)
 
         try:
-            config_dict = {"laser": "808 nm (IR)", "exp_time": 0.02, "autofocus_every": 1, "save_dir": tempfile.mkdtemp()}
+            config_dict = {"laser": "808 nm (IR)", "exp_time": 0.02, "autofocus_every": 1, "save_dir": tempfile.mkdtemp(),
+                           "mirror": "down"}
             self.backend.start_grid(config_dict)
             _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=10.0)
         finally:
@@ -162,16 +163,24 @@ class TestCalibrationWaterAndDarkNoise(unittest.TestCase):
         wave_axis = np.linspace(500.0, 800.0, 1004)
         # Pico Raman de agua sintético a 650.5 nm (1.5 nm de corrimiento respecto al teórico 649.0 nm)
         spec = 300.0 + 4000.0 * np.exp(-0.5 * ((wave_axis - 650.5) / 3.0) ** 2)
-        self.backend.camera.get_1d_spectrum = lambda: spec
-        self.backend.camera.get_read_mode = lambda: 0  # READ_MODE_FVB
-        self.backend.spectrometer.ShamrockGetCalibration = lambda dev, n: (0, wave_axis)
+        # Dobles sobre los simuladores compartidos: se restauran al terminar, para no contaminar a los tests
+        # que siguen (AND-1 verifica el código de GetCalibration, que acá es 20202 = SHAMROCK_SUCCESS).
+        patched = [(self.backend.camera, "get_1d_spectrum", lambda: spec),
+                   (self.backend.camera, "get_read_mode", lambda: 0),  # READ_MODE_FVB
+                   (self.backend.spectrometer, "ShamrockGetCalibration", lambda dev, n: (20202, wave_axis))]
+        for obj, name, fn in patched:
+            setattr(obj, name, fn)
 
         results = []
         self.backend.waterVerificationResultSignal.connect(
             lambda shift, obs, r2, wr, sr, wf, sf: results.append((shift, obs, r2))
         )
 
-        self.backend.verify_water_calibration()
+        try:
+            self.backend.verify_water_calibration()
+        finally:
+            for obj, name, _fn in patched:
+                obj.__dict__.pop(name, None)
 
         self.assertEqual(len(results), 1)
         shift_nm, observed_peak_nm, r2 = results[0]

@@ -92,6 +92,9 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-54 | Tiempo de reenfriado del iXon3 a −60 °C después de "Reconectar cámara" | PySpectrum bloque A (Ronda 3, qa-ux) | Sin láser; tapa puesta | ☐ |
 | BANCO-55 | Driver propio de la cámara contra pylablib, la referencia probada en el banco (R4-E) | PySpectrum bloque A (DEC-040) | Solis cerrado, sin láser, tapa puesta | ☐ |
 | BANCO-56 | Orientación de la imagen del Andor en orden cero frente a la cámara | PySpectrum bloque A, paso 7 (espejo rápido) | Orden cero, lámpara, sin láser | ◐ 2026-09-28 (observación) |
+| BANCO-57 | Cierre de PySpectrum 3.0 con el satélite PyPrinting abierto | PySpectrum bloque A, paso 13 | Sin láser; platina conectada | ☐ |
+| BANCO-58 | Primera calibración automática de λ en SÓLO MEDIR | PySpectrum bloque A, paso 14 | **532 atenuado por el filtro de densidad y el notch; con aprobación** | ☐ |
+| BANCO-59 | Rutinas de grilla de 3.0: espejo, potencia y láser por fase | PySpectrum AND-1 (R4-K) | **Láser; con aprobación** | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -771,6 +774,50 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 - **Procedimiento sugerido:** con la lámpara y una muestra con una marca asimétrica (una letra o un
   borde de cubreobjetos), en orden cero, mover la platina +X y +Y y anotar hacia dónde se mueve la
   marca en la cámara y en el visor del Andor. Anotar también el programa y la red.
+
+### ☐ BANCO-57 — Cierre de PySpectrum 3.0 con el satélite PyPrinting abierto
+- **Qué se prueba:** el orden de cierre del paso 13 sobre el equipo. En el simulador ya se verificó que no se cuelga, que pregunta una vez y que la platina termina en `PI_HOME_POS`.
+- **Procedimiento (sin láser):**
+  1. Abrir PySpectrum 3.0 y anotar la posición de la platina después del home.
+  2. Mover la platina a otra posición y abrir PyPrinting desde el menú: la platina **no** debe moverse.
+  3. Cerrar PyPrinting solo: la platina **no** debe moverse, y los obturadores de PySpectrum deben seguir operables. Repetir 2 y 3 con el contrapropagante (R4-J).
+  4. Volver a abrir PyPrinting y cerrar PySpectrum. Anotar:
+     - el texto de la pregunta;
+     - el tiempo total del cierre;
+     - la posición final de la platina (se espera 50, 50, 10);
+     - el espejo de detección: tiene que quedar abajo (R4-J);
+     - si apareció el aviso final.
+  5. Abrir Solis o el PySpectrum legado: la cámara y el Shamrock tienen que estar libres (`ShamrockClose` y `ShutDown`, BANCO-23). Anotar la temperatura del CCD al abrir: el enfriador vuelve a ambiente.
+  6. Abrir PySpectrum 3.0 otra vez: al conectar, la platina **no** debe moverse, porque ya está en home.
+- **Aceptación:** ningún movimiento de la platina fuera de los pasos 4 y 6; el cierre termina sin aviso; los equipos quedan libres.
+- **Resultado:** fecha — / tiempo de cierre — / posición final — / observaciones —
+
+### ☐ BANCO-58 — Primera calibración automática de λ en SÓLO MEDIR ⚠️ abre el 532 (atenuado), con aprobación
+- **Qué se prueba:** la rutina del paso 14 contra el equipo. No escribe ningún offset; el 532 se abre sólo durante los cuadros.
+- **Antes:**
+  1. Controles negativos:
+     - con el obturador del 532 cerrado desde el panel, la rutina tiene que terminar en "No se ve la línea" y no calibrar ruido;
+     - lo mismo con el espejo de detección arriba;
+     - con la ganancia EM distinta de 0, el preflight no la deja arrancar.
+  2. Anotar en Solis los offsets de las dos redes (control cruzado).
+- **Corrida:**
+  - con el notch puesto y el espejo abajo, correr las dos redes con los valores por defecto;
+  - anotar la duración total (tope de 10 min), el SNR de la línea con 0.10 s y si hubo saturación;
+  - si con 0.10 s la línea queda débil (SNR < 20) o satura, anotarlo: la exposición fija es de R4-D-4.
+- **Repetibilidad:** con la red de 150, repetir con 25 llegadas mínimas (Avanzado) para medir s_rep por red (#2 del presupuesto).
+- **Si el investigador lo aprueba (P3):** la misma corrida con "532 atenuado, sin notch", para comparar el centro con el de la fuga (#5).
+- **Aceptación:** el 532 queda cerrado al terminar; no cambia ningún offset (relectura en Solis igual a la de antes); cada red deja su registro PROPOSED y su HDF5.
+- **Resultado:** fecha — / r y c_sw por red — / s_rep — / duración — / veredictos — / observaciones —
+
+### ☐ BANCO-59 — Rutinas de grilla de 3.0: espejo, potencia y láser por fase ⚠️ láser, con aprobación
+- **Qué se prueba:** AND-1 en el equipo, empezando por una grilla de 1 × 2 nodos sobre una zona sin muestra valiosa.
+- **Espejo (R4-K, P2):** con el espejo confirmado arriba, correr una luminiscencia de 1 nodo. Verificar que la luz llega al espectrómetro cuando la rutina lo baja, y que al terminar vuelve arriba.
+  - **Crecimiento:** confirmar que el espectro se ve con el espejo **abajo**, como decidió el investigador. El legado lo ponía arriba (`Growth_ps.py:788`). Si con el espejo abajo no hay espectro, anotarlo y no seguir.
+- **Potencia (P3):** anotar el pulso de baja antes del centrado y el de alta antes del crecimiento o la impresión, y medir la potencia en la muestra en cada caso.
+- **Centrado:** el centrado confocal ahora abre el láser, en potencia baja. Confirmar que la imagen del fotodiodo muestra la partícula.
+- **Tiempos:** anotar cuánto tarda un nodo, contando los asentamientos del legado (0.5 s, 2 s en dímeros, 0.15 s del espejo y 0.5 s del láser).
+- **Mapa hiperespectral:** un mapa de 3 × 3 con la exposición mínima útil. Comprobar que cada píxel es distinto y que el HDF5 queda en la carpeta de trabajo.
+- **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación
 - **Procedimiento**: una grilla de 5×5 con campo oscuro grabando, con un control sin coloide.

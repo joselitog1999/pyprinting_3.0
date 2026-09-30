@@ -23,6 +23,7 @@
 | `PHY-009` | Crystallography | Honeycomb closed-form $\sigma_{\text{pos}}$ inversion (1st/2nd shell Bragg ratio) — CAT-315 §7.1 had a spurious $\sqrt{2}$ factor vs. the codebase's own established Debye-Waller convention | `CORRECTED` (2026-09-23) | Numerical verification, this session; CAT-308 §3.1 (original, correct) | `core/lattice_disorder.py::compute_hexagonal_bragg_indexing` |
 | `SW-003` | Instrumentation/Metrology | Spectroscopy detector is an iXon3 885 (`DU8285_VP`, TI TC285SPD) with 8.0 µm pixels, not 13 µm; with the SR-500i nominal dispersion a detector window spans 103.05 / 11.57 nm (150 / 1200 l/mm) | `CORRECTED` (2026-09-26) | Andor iXon3 885 and TI TC285SPD-30 datasheets; Andor Shamrock 500i datasheet p. 6; Solis `.sif` headers; legacy code; DEC-033 | `pyspectrum/drivers/andor_ccd_driver.py`, `pyspectrum/drivers/shamrock_driver.py`, `pyspectrum/calibration/halogen_lamp.py` |
 | `SW-004` | Instrumentation | Legacy PySpectrum passes 1002 (vertical axis) as the Shamrock's pixel count; its wavelength axes are probably shifted by ~1 px | `OPEN` (inference, 2026-09-26) | Legacy code reading; DEC-033 | `scratch/pyspectrum-legacy/Instrument_Shamrock_ps.py`, `Spectrum_ps.py` |
+| `MET-001` | Metrology | The laser-line centre estimator (Gaussian + linear background, ±3 FWHM, recentred) is unbiased (≤ 0.02 px) and within 15 % of the Cramér-Rao bound on synthetic pixel-integrated lines; its 2u interval covers 92-98 % | `SUPPORTED` (simulated only, 2026-09-29) | `pyspectrum_A_ronda2/metrology.md` §2.1, §2.4; DEC-040 step 14 | `core/spectral_line_fit.py` |
 
 ---
 
@@ -302,4 +303,25 @@ next_step: "Measure the position of a known line (Hg/Ne lamp, or the Si 520.7 cm
 validation:
   last_verified: "2026-09-26"
   verified_by: "Legacy code reading (this session) — inference, not measured"
+```
+
+### MET-001: Laser-Line Centre Estimator for the λ Calibration
+```yaml
+claim_id: "MET-001"
+statement: "On synthetic pixel-integrated Gaussian lines with Poisson and read noise (the model metrology used in Round 2), the estimator in core/spectral_line_fit.py has |bias| <= 0.02 px across sub-pixel phases, a spread <= 1.15 x the numerical Cramér-Rao bound at SNR >= 20, and its 2u interval covers 92-98 % of cases. A constant-background fit on a 2 e-/px slope is biased (negative control)."
+status: "SUPPORTED"
+domain: "metrology"
+scope: "SIMULATED only. The real line shape (notch transmission, multimode laser, slit profile) is not in the model; term #5 of the budget (asymmetry of the notch leak) has no value yet."
+assumptions:
+  - "Symmetric line profile; linear background within ±3 FWHM."
+  - "Frames of one arrival are independent (the across-frame variance is the noise)."
+implementation:
+  - path: "core/spectral_line_fit.py"
+    symbol: "estimate_line_center(), reject_cosmic_rays_temporal(), calibration_residual_px(), build_budget(), expanded_uncertainty()"
+decision: "DEC-040 (step 14)"
+validation:
+  test_suite: "tests/test_spectral_line_fit.py (20 tests: T1 bias, T2 efficiency, T3 coverage, T4 sloped background, T5 cosmic rays, T6 narrow line, T7 saturation, T8 no line, T9 residual sign, T13 budget)"
+  pending_bench_confirmation: "BANCO-58 (first run on the bench: s_rep with M = 25, and the notch-leak asymmetry P3)."
+  last_verified: "2026-09-29"
+  verified_by: "Synthetic data, this session"
 ```

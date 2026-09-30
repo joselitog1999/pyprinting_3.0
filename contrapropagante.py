@@ -1122,7 +1122,16 @@ class ContrapropaganteMainWindow(QMainWindow):
         if hasattr(self, "_dock_state"):
             self.dockArea.restoreState(self._dock_state)
 
+    def close_from_host(self):
+        """Cierre ordenado por el anfitrión (paso 13, DEC-040): el anfitrión ya terminó los hilos. Sin
+        pregunta: un segundo diálogo durante el cierre era parte del deadlock V3."""
+        self._closing_from_host = True
+        self.close()
+
     def closeEvent(self, event):
+        if getattr(self, "_closing_from_host", False):
+            event.accept()
+            return
         reply = QMessageBox.question(
             self, "Salir", "¿Cerrar Microscopio Contrapropagante?",
             QMessageBox.StandardButton.No | QMessageBox.StandardButton.Yes)
@@ -1179,13 +1188,18 @@ class Backend(QObject):
 
     fileSignal = pyqtSignal(str)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, host=None, **kwargs):
         super().__init__(*args, **kwargs)
-        pi.connect()
+        # Hospedado por PySpectrum (core.host_context.HostContext, paso 13; decisión del investigador del
+        # 2026-09-29): no conecta la platina, que es del anfitrión. Suelto: como siempre.
+        self.host = host
+        own_stage = host is None
+        if own_stage:
+            pi.connect()
 
-        self.nanoWorker = NanoBackend()
+        self.nanoWorker = NanoBackend(connect_stage=own_stage)
         self.shuttersWorker = ShuttersBackend()
-        self.focusWorker = FocusBackend()
+        self.focusWorker = FocusBackend(connect_stage=own_stage)
         self.traceWorker = TraceBackend()
         self.confocalDualWorker = ConfocalDualBackend()
         self.printingWorker = MeasBackend(mode="printing")
@@ -1262,7 +1276,7 @@ class Backend(QObject):
             self.confocalDualWorker.stop_scan)
 
 
-def create_contrapropagante_satellite(parent=None):
+def create_contrapropagante_satellite(parent=None, host=None):
     """Crea la ventana Contrapropagante + su Backend + hilos de trabajo, lista para
     embeberse como ventana satélite subyugable dentro de OTRA aplicación PyQt6 ya en
     ejecución (Fase 5, DEC-019 — típicamente PySpectrum 3.0 vía pyspectrum/window.py):
@@ -1274,8 +1288,11 @@ def create_contrapropagante_satellite(parent=None):
     instrumentThread = QThread()
     confocalThread = QThread()
     cameraThread = QThread()
+    instrumentThread.setObjectName("instrumentThread")
+    confocalThread.setObjectName("confocalThread")
+    cameraThread.setObjectName("cameraThread")
 
-    backend = Backend()
+    backend = Backend(host=host)
     win = ContrapropaganteMainWindow(parent)
     win.make_connection(backend)
 

@@ -620,6 +620,21 @@ class Backend(QtCore.QObject):
         if self._worker is not None:
             self._worker.resume(go_on)
 
+    def shutdown(self, timeout_ms: int = 3000):
+        """Cierre de PySpectrum (paso 13): pide Stop, suelta una pausa de "sin señal" y espera el hilo con
+        tope. El resultado parcial no se cose ni se informa: el programa se está cerrando."""
+        from pyspectrum.services.shutdown import ShutdownStep
+        self._shutting_down = True
+        self.stop_measurement()
+        if self._worker is not None:
+            self._worker.resume(False)
+        if self._thread is None:
+            return ShutdownStep("Step & Glue", True, "sin barrido en curso")
+        self._thread.quit()
+        if self._thread.wait(timeout_ms):
+            return ShutdownStep("Step & Glue", True, "barrido detenido")
+        return ShutdownStep("Step & Glue", False, f"el hilo del barrido no terminó en {timeout_ms / 1000:g} s")
+
     # ── pedido, plan y preflight ──
     def _request(self, start_wl, end_wl, overlap, exp_time, normalize, use_optical_core) -> StepGlueRequest:
         ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
@@ -708,6 +723,8 @@ class Backend(QtCore.QObject):
 
     @pyqtSlot(object)
     def _on_worker_finished(self, result):
+        if getattr(self, "_shutting_down", False):
+            return                  # el cierre ya detuvo el hilo y cerró los equipos (paso 13)
         self._end()
         if self._thread is not None:
             self._thread.quit()

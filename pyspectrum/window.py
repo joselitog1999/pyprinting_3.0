@@ -608,7 +608,14 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         # ── Pestaña 5: Calibraciones del Sistema ──────────────────────────────
         self.calib_widget = CalibrationFrontend()
-        self.tabs_workflow.addTab(self.calib_widget, "🎯 5. Calibraciones")
+        # Paso 14: la calibración automática de λ va primero; la pestaña de siempre queda al lado.
+        from pyspectrum.ui.auto_calibration_panel import AutoCalibrationController, AutoCalibrationPanel
+        self.auto_cal_controller = AutoCalibrationController(self.camera, self.spectrometer, parent=self)
+        self.auto_cal_panel = AutoCalibrationPanel(self.auto_cal_controller)
+        self.calib_tabs = QtWidgets.QTabWidget()
+        self.calib_tabs.addTab(self.auto_cal_panel, "Calibración de λ (automática)")
+        self.calib_tabs.addTab(self.calib_widget, "Offsets, historial, ranura y lámpara")
+        self.tabs_workflow.addTab(self.calib_tabs, "🎯 5. Calibraciones")
 
         # ── Pestaña 6: Mapeo Confocal Hiperespectral ──────────────────────────
         self.confocal_widget = ConfocalFrontend()
@@ -797,6 +804,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.linescan_widget, self.linescan_worker, self.linescan_thread = create_linescan_routine(
             self.camera, self.spectrometer, parent=self
         )
+        self.linescan_worker.data_dir = self.work_dir / "linescan"
 
         self.nano_dialog = QtWidgets.QDialog(self)
         self.nano_dialog.setWindowTitle("Control de Platina PI Piezoeléctrica")
@@ -879,6 +887,18 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         """Las rutinas que guardan por su cuenta (Step & Glue, paso 11) escriben en la carpeta de trabajo."""
         if hasattr(self, "sandg_backend"):
             self.sandg_backend.data_dir = self.work_dir / "step_and_glue"
+        if hasattr(self, "linescan_worker"):
+            self.linescan_worker.data_dir = self.work_dir / "linescan"
+        if hasattr(self, "auto_cal_controller"):
+            self.auto_cal_controller.data_dir = self.work_dir / "calibration"
+        if hasattr(self, "confocal_backend"):
+            self.confocal_backend.data_dir = self.work_dir / "confocal_map"
+        if hasattr(self, "lumin_backend"):
+            self.lumin_backend.data_dir = str(self.work_dir / "luminescence")
+        if hasattr(self, "growth_backend"):
+            self.growth_backend.data_dir = str(self.work_dir / "growth")
+        if hasattr(self, "dimers_backend"):
+            self.dimers_backend.data_dir = str(self.work_dir / "dimers")
 
     def _open_directory(self):
         if self.work_dir.exists():
@@ -911,10 +931,14 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         automáticamente mientras PySpectrum tenga el control exclusivo del hardware."""
         if self.contrapropagante_satellite is None:
             import contrapropagante
-            win, backend, threads = contrapropagante.create_contrapropagante_satellite(parent=self)
+            from core.host_context import HostContext
+            # Huésped (paso 13; decisión del investigador del 2026-09-29): no conecta la platina.
+            win, backend, threads = contrapropagante.create_contrapropagante_satellite(
+                parent=self, host=HostContext("PySpectrum 3.0"))
             self.contrapropagante_satellite = win
             self._contrapropagante_backend = backend
             self._contrapropagante_threads = threads
+            win.closeSignal.connect(self._forget_contrapropagante)
         self.contrapropagante_satellite.show()
         self.contrapropagante_satellite.raise_()
         self.contrapropagante_satellite.activateWindow()
@@ -924,63 +948,115 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         subyugada, compartiendo la misma sesión y evitando conflictos con la platina PI (DEC-019)."""
         if self.microscopio_derecho_satellite is None:
             import app
-            win, backend, threads = app.create_app_satellite(parent=self)
+            # Huésped (paso 13): no conecta la platina ni cambia el perfil; su cierre no la desconecta.
+            win, backend, threads = app.create_app_satellite(parent=self, host=app.HostContext("PySpectrum 3.0"))
             self.microscopio_derecho_satellite = win
             self._microscopio_derecho_backend = backend
             self._microscopio_derecho_threads = threads
+            win.closeSignal.connect(self._forget_microscopio_derecho)
         self.microscopio_derecho_satellite.show()
         self.microscopio_derecho_satellite.raise_()
         self.microscopio_derecho_satellite.activateWindow()
 
+    def _forget_microscopio_derecho(self):
+        """El operador cerró el satélite (ya se liberó y terminó sus hilos): reabrirlo crea uno nuevo."""
+        self.microscopio_derecho_satellite = None
+        self._microscopio_derecho_backend = None
+        self._microscopio_derecho_threads = []
+
+    def _forget_contrapropagante(self):
+        self.contrapropagante_satellite = None
+        self._contrapropagante_backend = None
+        self._contrapropagante_threads = []
+
+    def _open_guests(self):
+        from pyspectrum.services.shutdown import GuestHandle
+        guests = []
+        if self.microscopio_derecho_satellite is not None:
+            be = self._microscopio_derecho_backend
+            guests.append(GuestHandle("PyPrinting", release=be.release_as_guest,
+                                      threads=list(self._microscopio_derecho_threads),
+                                      close_from_host=self.microscopio_derecho_satellite.close_from_host))
+        if self.contrapropagante_satellite is not None:
+            guests.append(GuestHandle("El contrapropagante", release=lambda: None,
+                                      threads=list(self._contrapropagante_threads),
+                                      close_from_host=self.contrapropagante_satellite.close_from_host))
+        return guests
+
+    def _build_shutdown(self, guests):
+        """Orden de cierre (paso 13, DEC-040; R2-arq §3.3). window.py sólo arma la lista."""
+        from config import pi, PI_HOME_POS
+        from core.nidaq import close_all_shutters, flipper_notch532
+        from pyspectrum.services import shutdown as sd
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter
+
+        def both(*fns):
+            for fn in fns:
+                fn()
+
+        def spectrometer_shutter():
+            r = close_spectrometer_shutter(self.camera, self.spectrometer)
+            return sd.ShutdownStep("obturador del espectrómetro", bool(r.ok), r.detail)
+
+        def shamrock():
+            self.spectrometer.close()        # ShamrockClose en el driver real
+
+        def camera():
+            try:
+                self.camera.abort_acquisition()
+            finally:
+                self.camera.close()          # como el legado (pylablib close): el enfriador deja de enfriar
+
+        routines = [
+            ("Live de exploración", lambda: sd.stop_in_thread(self.exploration_worker, "stop_live",
+                                                              self.exploration_thread, "Live de exploración")),
+            ("hilo de exploración", lambda: sd.quit_thread(self.exploration_thread, "de exploración")),
+            ("Live Raman", lambda: self.raman_backend.toggle_live(False)),
+            # ConfocalBackend vive en confocal_thread (ANOM-HYPERSPEC-01): stop_scan corre en su hilo.
+            # request_stop corta una exposición en curso desde este hilo; stop_scan cierra en el suyo
+            ("escaneo confocal", lambda: (self.confocal_backend.request_stop(),
+                                          sd.stop_in_thread(self.confocal_backend, "stop_scan",
+                                                            self.confocal_thread, "escaneo confocal"))[1]),
+            ("hilo confocal", lambda: sd.quit_thread(self.confocal_thread, "confocal")),
+            ("luminiscencia", self.lumin_backend.shutdown),
+            ("cinética", self.growth_backend.shutdown),
+            ("dímeros", self.dimers_backend.shutdown),
+            ("Step & Glue", self.sandg_backend.shutdown),
+            ("calibración λ", self.auto_cal_controller.shutdown),
+            ("escaneo lineal", self.linescan_worker.cancel_scan),
+            ("hilo del escaneo lineal", lambda: sd.quit_thread(self.linescan_thread, "del escaneo lineal")),
+        ]
+        devices = [("obturador del espectrómetro", spectrometer_shutter), ("Shamrock", shamrock), ("cámara", camera)]
+        def mirror_down():
+            ok = flipper_notch532("down")            # como el legado al cerrar (Shutters_ps.py:201)
+            return sd.ShutdownStep("espejo de detección", bool(ok), "abajo" if ok else "la placa no confirmó el pulso")
+
+        return sd.ShutdownCoordinator(estop=hardware_session.emergency_stop, routines=routines, guests=guests,
+                                      close_shutters=close_all_shutters, devices=devices,
+                                      park=lambda: sd.park_stage(pi, PI_HOME_POS), mirror=mirror_down)
+
     def closeEvent(self, event):
+        from config import PI_HOME_POS
+        from pyspectrum.services.shutdown import closing_question_text
+        if getattr(self, "_shut_down", False):
+            event.accept()          # los equipos ya se cerraron: no se repite la secuencia
+            return
+        guests = self._open_guests()
         reply = QtWidgets.QMessageBox.question(
-            self, 'Cerrar PySpectrum 3.0',
-            '¿Desea cerrar la sesión de PySpectrum y apagar cámaras y láseres?',
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No
+            self, '¿Cerrar PySpectrum?', closing_question_text(
+                PI_HOME_POS, [g.name for g in guests],
+                ["Hay una calibración en curso: se cancela y se guarda lo medido."]
+                if self.auto_cal_controller.running else []),
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
         )
-        if reply == QtWidgets.QMessageBox.StandardButton.Yes:
-            hardware_session.emergency_stop()
-            # ExplorationWorker vive en exploration_thread: misma razón que ConfocalBackend
-            # más abajo — se detiene vía QMetaObject bloqueante antes de terminar el hilo.
-            QtCore.QMetaObject.invokeMethod(
-                self.exploration_worker, "stop_live",
-                QtCore.Qt.ConnectionType.BlockingQueuedConnection,
-            )
-            self.exploration_thread.quit()
-            self.exploration_thread.wait(3000)
-            self.raman_backend.toggle_live(False)
-            # ConfocalBackend vive en confocal_thread (ANOM-HYPERSPEC-01): una llamada
-            # directa a stop_scan() desde el hilo GUI tocaría self.scan_timer (que
-            # pertenece al otro hilo) sin marshalling — se invoca vía QMetaObject para
-            # que el propio confocal_thread la ejecute, bloqueando hasta que termine.
-            QtCore.QMetaObject.invokeMethod(
-                self.confocal_backend, "stop_scan",
-                QtCore.Qt.ConnectionType.BlockingQueuedConnection,
-            )
-            self.confocal_thread.quit()
-            self.confocal_thread.wait(3000)
-            self.lumin_backend.stop_luminescence()
-            self.lumin_backend.abort_grid()
-            self.growth_backend.stop_growth()
-            self.growth_backend.abort_grid()
-            self.dimers_backend.abort_sequence()
-            self.linescan_worker.cancel_scan()
-            self.linescan_thread.quit()
-            self.linescan_thread.wait(3000)
-            if self.contrapropagante_satellite is not None:
-                for t in self._contrapropagante_threads:
-                    t.quit()
-                for t in self._contrapropagante_threads:
-                    t.wait(3000)
-                self.contrapropagante_satellite.close()
-            if self.microscopio_derecho_satellite is not None:
-                for t in self._microscopio_derecho_threads:
-                    t.quit()
-                for t in self._microscopio_derecho_threads:
-                    t.wait(3000)
-                self.microscopio_derecho_satellite.close()
-            from core.nidaq import close_all_shutters
-            close_all_shutters()
-            event.accept()
-        else:
+        if reply != QtWidgets.QMessageBox.StandardButton.Yes:
             event.ignore()
+            return
+        self._shut_down = True
+        report = self._build_shutdown(guests).run()
+        self.contrapropagante_satellite = self.microscopio_derecho_satellite = None
+        if report.problems:
+            QtWidgets.QMessageBox.warning(self, "Cierre de PySpectrum",
+                                          "Estos pasos del cierre no se confirmaron:\n\n" + report.summary())
+        event.accept()

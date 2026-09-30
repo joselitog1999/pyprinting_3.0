@@ -13,6 +13,7 @@ Threads:
 """
 from __future__ import annotations
 import os, sys, time
+from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime
 
@@ -25,7 +26,8 @@ from PyQt6.QtGui     import QAction, QKeySequence
 from pyqtgraph.dockarea import DockArea, Dock
 
 from config          import pi, DEFAULT_DATA_PATH, LAST_POS_FILE, SAFE_MODE
-from nidaq           import flipper_notch532, close_all_tasks
+from nidaq           import flipper_notch532, close_all_tasks, close_all_shutters
+from core.host_context import HostContext   # PyPrinting como huésped de PySpectrum (paso 13)
 from nanopositioning import Frontend as NanoFrontend,    Backend as NanoBackend
 from shutters        import Frontend as ShuttersFrontend, Backend as ShuttersBackend
 from focus           import Frontend as FocusFrontend,    Backend as FocusBackend
@@ -63,6 +65,15 @@ def move_stage_to_absolute_xy(nano_backend, target_x_um: float, target_y_um: flo
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+@dataclass
+class GuestShutdownReport:
+    """Resultado de `Backend.release_as_guest()`. `problems` vacío = todo confirmado."""
+    shutters_confirmed: bool = False
+    camera: str = ""
+    position: str = ""
+    problems: list = field(default_factory=list)
+
+
 class Frontend(QMainWindow):
 
     selectDirSignal    = pyqtSignal(str)
@@ -278,7 +289,16 @@ class Frontend(QMainWindow):
         if hasattr(self, "_dock_state"):
             self.dockArea.restoreState(self._dock_state)
 
+    def close_from_host(self):
+        """Cierre ordenado por el anfitrión (paso 13): el anfitrión ya liberó el backend y terminó los
+        hilos. Sin pregunta, porque un segundo diálogo durante el cierre era parte del deadlock V3."""
+        self._closing_from_host = True
+        self.close()
+
     def closeEvent(self, event):
+        if getattr(self, "_closing_from_host", False):
+            event.accept()
+            return
         reply = QMessageBox.question(
             self, "Salir", "¿Cerrar PyPrinting?",
             QMessageBox.StandardButton.No | QMessageBox.StandardButton.Yes)
@@ -423,17 +443,23 @@ class Backend(QObject):
     fileSignal = pyqtSignal(str)
     gridSignal = pyqtSignal(str, np.ndarray)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, host: HostContext | None = None, **kwargs):
         super().__init__(*args, **kwargs)
-        from core.hardware_manager import hardware_manager
-        hardware_manager.set_profile("pyprinting", rescan=False)
-        pi.connect()
+        # Suelto: conecta la platina (home) y fija su perfil, como siempre. Hospedado (paso 13, V2 y V11):
+        # ni una cosa ni la otra; si el anfitrión no conectó la platina, el huésped la ve no conectada.
+        self.host = host
+        self._guest_report: GuestShutdownReport | None = None
+        if host is None:
+            from core.hardware_manager import hardware_manager
+            hardware_manager.set_profile("pyprinting", rescan=False)
+            pi.connect()
 
-        self.nanoWorker      = NanoBackend()
+        own_stage = host is None
+        self.nanoWorker      = NanoBackend(connect_stage=own_stage)
         self.shuttersWorker  = ShuttersBackend()
-        self.focusWorker     = FocusBackend()
+        self.focusWorker     = FocusBackend(connect_stage=own_stage)
         self.traceWorker     = TraceBackend()
-        self.confocalWorker  = ConfocalBackend()
+        self.confocalWorker  = ConfocalBackend(connect_stage=own_stage)
         self.printingWorker  = MeasBackend(mode="printing")
         self.dimersWorker    = MeasBackend(mode="dimers")
         self.cameraWorker    = CameraBackend()
@@ -601,13 +627,70 @@ class Backend(QObject):
         pi.disconnect()
         print(f"[App] Cierre limpio — {datetime.now()}")
 
+    def _save_last_position(self) -> str:
+        try:
+            pos = pi.qPOS()
+            last_pos = [round(pos["1"], 3), round(pos["2"], 3), round(pos["3"], 3)]
+            np.savetxt(LAST_POS_FILE, last_pos)
+            print(f"[App] Posición guardada: {last_pos}")
+            return f"guardada {last_pos}"
+        except Exception as e:
+            print(f"[App] No se pudo guardar posición: {e}")
+            return f"no se pudo guardar: {e}"
+
+    def release_as_guest(self) -> GuestShutdownReport:
+        """Cierre del satélite hospedado (paso 13; R2-arq §3.1). Corre con los hilos del satélite vivos:
+        detiene la cámara en su hilo sólo si ese hilo corre, cierra los obturadores con el resultado y
+        guarda la posición. No desconecta la platina (lleva a (0, 0, 0)), no cierra las tareas DAQ ni
+        pulsa el espejo: son del anfitrión (V1). Se ejecuta una sola vez."""
+        if self._guest_report is not None:
+            return self._guest_report
+        report = GuestShutdownReport()
+        cam = getattr(self, "cameraWorker", None)
+        method = next((m for m in ("close", "stop_camera") if cam is not None and hasattr(cam, m)), None)
+        cam_thread = cam.thread() if cam is not None else None
+        if method is None:
+            report.camera = "sin cámara"
+        elif cam_thread is None or not cam_thread.isRunning():
+            report.camera = "su hilo no corre: no se invoca"
+        else:
+            try:
+                if cam_thread is QThread.currentThread():
+                    getattr(cam, method)()
+                else:
+                    QMetaObject.invokeMethod(cam, method, Qt.ConnectionType.BlockingQueuedConnection)
+                report.camera = "detenida en su hilo"
+            except Exception as e:
+                report.camera = f"error: {e}"
+                report.problems.append(f"cámara: {e}")
+        try:
+            report.shutters_confirmed = bool(close_all_shutters())
+        except Exception as e:
+            report.problems.append(f"obturadores: error al cerrarlos ({e})")
+        else:
+            if not report.shutters_confirmed:
+                report.problems.append("obturadores: cierre no confirmado (cuenta como abierto)")
+        report.position = self._save_last_position()
+        print(f"[App] Satélite liberado ({self.host.name if self.host else 'suelto'}): cámara {report.camera}; "
+              f"obturadores {'confirmados' if report.shutters_confirmed else 'SIN CONFIRMAR'}.")
+        self._guest_report = report
+        return report
+
+    @pyqtSlot()
+    def on_frontend_closed(self):
+        """El operador cerró la ventana. Hospedado: se libera sin tocar los recursos del anfitrión."""
+        if self.host is not None:
+            self.release_as_guest()
+        else:
+            self.close_all()
+
     def make_connection(self, frontend: Frontend):
         frontend.selectDirSignal.connect(self.selectDir)
         frontend.openDirSignal.connect(self.openDir)
         frontend.createDirSignal.connect(self.create_daily_directory)
         frontend.loadPositionSignal.connect(self.load_last_position)
         frontend.loadGridSignal.connect(self.load_grid)
-        frontend.closeSignal.connect(self.close_all)
+        frontend.closeSignal.connect(self.on_frontend_closed)
         frontend.nanoWidget.make_connection(self.nanoWorker)
         frontend.traceWidget.make_connection(self.traceWorker)
         frontend.focusWidget.make_connection(self.focusWorker)
@@ -616,20 +699,27 @@ class Backend(QObject):
         frontend.dimersWidget.make_connection(self.dimersWorker)
 
 
-def create_app_satellite(parent=None):
+def create_app_satellite(parent=None, host: HostContext | None = None):
     """Crea la ventana principal de PyPrinting (microscopio simple) + su Backend + hilos de
     trabajo, lista para embeberse como ventana satélite subyugable dentro de OTRA aplicación
     PyQt6 ya en ejecución (Fase 5, DEC-019 — típicamente PySpectrum 3.0). NO crea un
     QApplication propio ni bloquea con app.exec(). Los 3 QThread se detienen automáticamente
-    al cerrar la ventana (closeSignal). Devuelve (gui, worker, threads)."""
+    al cerrar la ventana (closeSignal). Devuelve (gui, worker, threads).
+
+    Con `host`, el satélite es huésped (paso 13): no conecta la platina ni cambia el perfil, y su
+    cierre no desconecta la platina ni cierra las tareas DAQ. Cuando lo cierra el anfitrión, el orden lo
+    lleva el anfitrión: `worker.release_as_guest()`, después los hilos, después `gui.close_from_host()`."""
     gui    = Frontend(parent)
-    worker = Backend()
+    worker = Backend(host=host)
     gui.make_connection(worker)
     worker.make_connection(gui)
 
     instrumentThread = QThread()
     confocalThread   = QThread()
     cameraThread     = QThread()
+    instrumentThread.setObjectName("instrumentThread")
+    confocalThread.setObjectName("confocalThread")
+    cameraThread.setObjectName("cameraThread")
 
     worker.nanoWorker.moveToThread(instrumentThread)
     worker.shuttersWorker.moveToThread(instrumentThread)

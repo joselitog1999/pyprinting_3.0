@@ -293,6 +293,68 @@ class CalibrationRepository:
 
 # ── Observación al arrancar ──────────────────────────────────────────────────
 
+FINE_CORRECTION_VERDICTS = ("ACEPTADA", "ACEPTADA_CON_RESERVA")
+C_SW_CONVENTION = "lambda(p) = lambda_SDK(p + c_sw)"
+
+
+@dataclass(frozen=True)
+class SoftwareCorrectionState:
+    """Estado de la corrección fina de una red al arrancar (R3-gui §4.6)."""
+    grating_index: int
+    status: str                        # APLICADA / SUSPENDIDA / NINGUNA
+    c_sw_px: Optional[float] = None
+    u_c_sw_px: Optional[float] = None
+    record_id: Optional[str] = None
+    source_record_id: Optional[str] = None
+    ts: Optional[str] = None
+    reason: str = ""
+
+
+def apply_fine_correction(repo: "CalibrationRepository", calibration: CalibrationEntry) -> CalibrationEntry:
+    """[Aplicar corrección fina] (paso 14c; D-04): agrega una SOFTWARE_CORRECTION con la c_sw de una
+    calibración ACEPTADA o CON RESERVA. No escribe al equipo: la corrección es sólo de PySpectrum (R4-B 2),
+    y se guarda aparte del eje λ, como metadato (R4-C-6)."""
+    v = calibration.values
+    verdict = v.get("verdict")
+    if verdict not in FINE_CORRECTION_VERDICTS:
+        raise ValueError(f"La corrección fina sólo se aplica desde ACEPTADA o CON RESERVA, no desde {verdict}.")
+    if calibration.key is None or v.get("c_sw_px") is None or v.get("grating_offset_after") is None:
+        raise ValueError("La calibración no tiene identidad, corrección u offset con el que se midió.")
+    entry = CalibrationEntry("SOFTWARE_CORRECTION", calibration.key, method="fine_correction",
+                             note=f"desde la calibración {calibration.record_id}",
+                             values={"source_record_id": calibration.record_id, "c_sw_px": float(v["c_sw_px"]),
+                                     "u_c_sw_px": v.get("u_c_sw_px"), "grating_offset": int(v["grating_offset_after"]),
+                                     "declared_geometry": v.get("declared_geometry"), "c_sw_convention": C_SW_CONVENTION,
+                                     "source_verdict": verdict, "provenance": "EXPERIMENTAL"})
+    repo.append(entry)
+    return entry
+
+
+def active_software_correction(repo: "CalibrationRepository", key: CalibrationKey, *, offset_read: Optional[int],
+                               geometry: Optional[Dict[str, Any]]) -> SoftwareCorrectionState:
+    """La última corrección fina de esa red (misma serie, puertos y líneas). Vale sólo si el offset leído es
+    el mismo con el que se midió y la geometría coincide; si no, SUSPENDIDA con el motivo."""
+    entries = [e for e in repo.history(key) if e.kind == "SOFTWARE_CORRECTION"]
+    g = int(key.grating_index)
+    if not entries:
+        return SoftwareCorrectionState(g, "NINGUNA")
+    e = entries[-1]
+    v = e.values
+    base = dict(c_sw_px=v.get("c_sw_px"), u_c_sw_px=v.get("u_c_sw_px"), record_id=e.record_id,
+                source_record_id=v.get("source_record_id"), ts=e.ts)
+    if offset_read is None:
+        return SoftwareCorrectionState(g, "SUSPENDIDA", reason="no se pudo leer el offset de la red", **base)
+    if int(offset_read) != int(v.get("grating_offset", -10 ** 9)):
+        return SoftwareCorrectionState(g, "SUSPENDIDA", reason=f"se midió con el offset {v.get('grating_offset')} y "
+                                                                 f"el equipo tiene {offset_read}", **base)
+    ref_geom = v.get("declared_geometry")
+    if ref_geom and geometry and (int(ref_geom.get("n_px", -1)) != int(geometry.get("n_px", -2)) or
+                                  abs(float(ref_geom.get("pixel_width_um", -1)) - float(geometry.get("pixel_width_um", -2))) > 1e-9):
+        return SoftwareCorrectionState(g, "SUSPENDIDA", reason=f"la geometría del detector cambió ({ref_geom} → {geometry})",
+                                       **base)
+    return SoftwareCorrectionState(g, "APLICADA", **base)
+
+
 @dataclass(frozen=True)
 class OffsetComparison:
     grating_index: int
@@ -316,6 +378,7 @@ class StartupCalibrationReport:
     first_use: bool
     observed_record_id: Optional[str]
     append_error: Optional[str] = None
+    software_corrections: List[SoftwareCorrectionState] = field(default_factory=list)
 
     def warnings(self) -> List[str]:
         out: List[str] = []
@@ -334,6 +397,10 @@ class StartupCalibrationReport:
             out.append(f"Offset del detector: equipo {self.detector_offset} pasos, 0 por convención (R4-A-2).")
         elif self.detector_status == "NO_LEIDO":
             out.append("Offset del detector desconocido (falló la lectura).")
+        for c in self.software_corrections:
+            if c.status == "SUSPENDIDA":
+                out.append(f"La corrección fina de la red {c.grating_index} ({c.c_sw_px:+.2f} px) está suspendida: "
+                           f"{c.reason}. Volvé a calibrar esa red.")
         for e in self.orphan_pre_writes:
             v = e.values
             out.append(f"Hay una escritura de offset sin confirmar ({e.ts}, red "
@@ -412,6 +479,24 @@ def observe_spectrograph(spec, repo: CalibrationRepository, *, entrance_port: Op
               "detector_offset": {"value": det_off, "ret": ret_d},
               "slit_zero": {"value": int(zero) if ret_z == _SHAMROCK_SUCCESS else None, "ret": ret_z}}
     orphans = repo.orphan_pre_writes() if not first_use else []
+    geometry = None
+    try:
+        ret_n, n_px = spec.ShamrockGetNumberPixels(device)
+        ret_w, width = spec.ShamrockGetPixelWidth(device)
+        if ret_n == _SHAMROCK_SUCCESS and ret_w == _SHAMROCK_SUCCESS:
+            geometry = {"n_px": int(n_px), "pixel_width_um": float(width)}
+    except Exception:
+        geometry = None
+    corrections: List[SoftwareCorrectionState] = []
+    if serial is not None and p_in is not None and p_out is not None:
+        for r in rows:
+            if r.lines_per_mm:
+                st = active_software_correction(repo, CalibrationKey(serial, r.grating_index, r.lines_per_mm, p_in, p_out),
+                                                offset_read=r.device, geometry=geometry)
+                if st.status != "NINGUNA":
+                    corrections.append(st)
+    values["software_corrections"] = [{"grating": c.grating_index, "status": c.status, "c_sw_px": c.c_sw_px,
+                                       "record_id": c.record_id, "reason": c.reason} for c in corrections]
     entry = CalibrationEntry.observed(values)
     append_error = None
     try:
@@ -419,7 +504,7 @@ def observe_spectrograph(spec, repo: CalibrationRepository, *, entrance_port: Op
     except OSError as e:
         append_error = str(e)
     return StartupCalibrationReport(serial, p_in, p_out, rows, det_off, det_status, orphans, first_use,
-                                    None if append_error else entry.record_id, append_error)
+                                    None if append_error else entry.record_id, append_error, corrections)
 
 
 _REPOSITORY: Optional[CalibrationRepository] = None

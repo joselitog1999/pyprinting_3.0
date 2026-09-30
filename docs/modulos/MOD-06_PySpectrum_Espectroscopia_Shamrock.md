@@ -213,6 +213,33 @@ Los offsets son pasos de motor que el Shamrock guarda y que ven también Solis y
   - El diálogo se abre desde una propuesta de la calibración automática (paso 14), que todavía no está. "Proponer offset" queda deshabilitado hasta que BANCO-40 mida cuántos píxeles mueve un paso.
   - Que el valor escrito sobreviva a apagar el Shamrock no está confirmado (BANCO-37, BANCO-37b).
 
+### 8.2.1 Calibración automática de λ, modo SÓLO MEDIR (paso 14, `DEC-040`)
+
+Diseño: metrología (`pyspectrum_A_ronda2/metrology.md` §1-§4), instrumentación (`instrumentation.md` §4), GUI (`pyspectrum_A_ronda3/gui_design.md` §1.6) y reconciliación D-01, D-02 y D-05.
+
+- **Estimador** (`core/spectral_line_fit.py`, sin Qt ni hardware):
+  - gaussiana + fondo lineal, sin ponderar, en ±3 FWHM con la ventana recentrada;
+  - rechazo temporal de rayos cósmicos (media con recorte a 5σ entre cuadros). No usa el despike espacial;
+  - u = max(covarianza escalada, Tipo A entre cuadros);
+  - χ² con la varianza entre cuadros agrupada más la del oscuro restado;
+  - banderas ASIMETRÍA, ANCHO, BORDE, SATURADA, SIN LÍNEA y SEMILLA DEL OPERADOR.
+
+  Con datos sintéticos (`tests/test_spectral_line_fit.py`): sesgo ≤ 0.02 px en todas las fases subpíxel, desvío ≤ 1.15 × la cota de Cramér-Rao y cobertura de 2u entre 0.92 y 0.98. El fondo constante sí se sesga sobre una pendiente (control negativo).
+- **Residuo:** $r = \hat x - p_{SDK}(\lambda_{ref})$. La corrección fina es $c_{sw} = -\bar r$, con la convención $\lambda(p) = \lambda_{SDK}(p + c_{sw})$.
+- **Rutina** (`pyspectrum/calibration/offset_calibration.py`):
+  - 150 → 1200, nunca el espejo;
+  - una sonda de luz en cuadro completo para ubicar la traza (± 4 filas) y un oscuro con el 532 cerrado;
+  - M secuencial de 9 a 25, más una llegada de deriva y el recorrido a ±0.35 W;
+  - K1 (u ≤ 0.22 / 0.43 px), K3 (s_rep ≤ 1 px), K4, K5, K6 (SNR ≥ 20, sin banderas, χ² en [0.5, 2]) y K7 (deriva ≤ 3·s_rep).
+
+  **No hay modo de escritura:** `OffsetCalibrationConfig(dry_run=False)` se rechaza, y el puerto no tiene ningún método que escriba un offset (hay un test de AST).
+- **Registro:** una entrada `PROPOSED` por red empezada, con los campos de metrología §4.1, y los crudos en `work_dir/calibration/cal_*.h5` con su SHA-256.
+- **Corrección fina:** `apply_fine_correction` agrega una `SOFTWARE_CORRECTION`. `active_software_correction` la valida al arrancar (offset, serie, puertos y geometría). `observe_spectrograph` informa las suspendidas.
+- **Pendiente:**
+  - poner `c_sw` en el metadato de cada espectro guardado (R3-gui §4.6);
+  - la escritura, después de BANCO-40;
+  - los términos #5-#7 del presupuesto (notch, derivas).
+
 ### 8.3 Calibración Cúbica de Longitud de Onda y Respuesta Halógena
 - **Coeficientes EEPROM ($a, b, c, d$)**: Inspección directa de la relación $\lambda(p) = a + bp + cp^2 + dp^3$.
 - **Lámpara Halógena Trazable**: Carga de perfil patrón para corrección cromática instrumental.
@@ -252,19 +279,25 @@ Rutina de escaneo horizontal 1D con la platina PI E-517 ($X_{\text{start}} \to X
 
 **Doble modalidad de lectura CCD** por posición: bineo de hardware acotado al ROI vertical de la mancha confocal (`READ_MODE_SINGLE_TRACK`, evita el FVB puro de 1002 filas que degradaría el SNR al sumar filas oscuras sin luz — detalle cuantitativo en `[[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3#7.2]]`) y modo pixel-a-pixel 2D (`READ_MODE_IMAGE`) sobre el mismo ROI, para diagnóstico de heterogeneidad espacial, aberración cromática y alineación en la rendija.
 
-**Protocolo**: referencia fija ($I_{ref}$, $I_{ref\_bg}$ con lámpara abierta/cerrada, ambos modos) seguida de un barrido de señal $I_{sig}(x)$ sin ciclar obturadores en cada punto; $T(\lambda,x)$ y $E(\lambda,x)=-\log_{10}T(\lambda,x)$ se calculan con las mismas funciones que el analizador SIF (`core/sif_processor.py`). Persistencia nativa en HDF5 comprimido (`shuffle`+`gzip`-4), esquema detallado en `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO#5. Contenedor HDF5 del Escaneo Lineal Espectral]]`.
+**Protocolo**: referencia fija ($I_{ref}$ con el obturador del espectrómetro abierto, $I_{ref\_bg}$ con ese obturador cerrado, ambos modos; la rutina no abre ni cierra láseres, R4-I) seguida de un barrido de señal $I_{sig}(x)$ sin ciclar obturadores en cada punto; $T(\lambda,x)$ y $E(\lambda,x)=-\log_{10}T(\lambda,x)$ se calculan con las mismas funciones que el analizador SIF (`core/sif_processor.py`). Persistencia nativa en HDF5 comprimido (`shuffle`+`gzip`-4), esquema detallado en `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO#5. Contenedor HDF5 del Escaneo Lineal Espectral]]`.
 
-Procedimiento paso a paso completo: `[[MANUAL_USUARIO#4.5 Procedimiento Operativo Estandarizado (SOP del Escaneo Lineal Espectral)]]`.
+**Contratos del bloque A (paso 12, `DEC-040`):**
+- cada cuadro es una exposición real (`single_exposure`);
+- cada ventana del modo Step & Glue se mueve por el servicio de orden cero, con λ releída y el eje verificado. Una falla detiene la rutina con el motivo: nunca un eje NaN ni una ventana en la λ anterior;
+- el latido se renueva sólo con un láser abierto, sin argumento;
+- el HDF5 va a `carpeta de trabajo/linescan/`, con red, ventana, centros, ganancia, láseres abiertos al empezar y al terminar, y `stitching = "glue_steps"`. El cosido no cambió (R4-I).
+
+Procedimiento paso a paso completo: `[[MANUAL_USUARIO#4.6 Procedimiento Operativo Estandarizado (SOP del Escaneo Lineal Espectral)]]`.
 
 ### 10.1 ⚠️ Límites de Validez y Modos de Falla — Escaneo Lineal Espectral
 
 | Condición Límite / Caso de Borde | Manifestación en la GUI | Mitigación Inmediata del Operador |
 | :--- | :--- | :--- |
-| Saturación del ADC del iXon3 durante la adquisición de Referencia (lámpara abierta). | Meseta plana en el valor máximo de cuentas en la vista previa/espectro; no dispara el banner de señal débil (que solo vigila el extremo bajo, $<3\sigma$). | Reducir **`Exp. 1D (s)`**/**`Exp. 2D (s)`** y repetir **`📥 Tomar Referencia (Fase A)`**; verificar en **`🔍 Vista Previa del Sensor`** antes de reintentar. |
+| Saturación del ADC del iXon3 durante la adquisición de Referencia (obturador del espectrómetro abierto). | Meseta plana en el valor máximo de cuentas en la vista previa/espectro; no dispara el banner de señal débil (que solo vigila el extremo bajo, $<3\sigma$). | Reducir **`Exp. 1D (s)`**/**`Exp. 2D (s)`** y repetir **`📥 Tomar Referencia (Fase A)`**; verificar en **`🔍 Vista Previa del Sensor`** antes de reintentar. |
 | $T(\lambda)$ indefinida en los bordes UV/NIR donde la emisión de la lámpara halógena cae a cero. | Picos espurios o ruido amplificado en los extremos del plot 1D y en las columnas límite del heatmap 2D; el motor aplica `noise_threshold` para evitar la división exacta por cero, pero el resultado carece de significado físico. | Acotar λ Inicial/λ Final al rango con emisión útil; subir el Multiplicador σ_dark en **`⚙️ Avanzado`**; recortar los bordes al exportar con **`🎨 Exportar Curva`**. |
 | Pérdida de paso piezoeléctrico o intento de posicionar fuera de $0$–$100\ \mu\text{m}$ en la platina PI E-517. | Los spinboxes clampean automáticamente al límite físico; si el asentamiento no confirma on-target dentro del timeout, el escaneo se detiene con diálogo "Error en Escaneo Lineal" (timeout de piezo). | Inspeccionar mecánicamente la platina, presionar **`📍 Tomar Posición Actual`** para releer la posición real y reajustar la recta antes de reintentar **`🚀 Iniciar Escaneo`**. |
-| Señal de referencia débil: $(I_{ref}-BG_{ref}) < 3\sigma$ en más del 50% del espectro. | Banner ámbar no modal bajo la cabecera; **`🚀 Iniciar Escaneo`** permanece deshabilitado aunque ya se haya presionado Tomar Referencia. | Confirmar que **`Fuente (Lámpara)`** corresponda al obturador real, reencuadrar el ROI en la vista previa y repetir la Referencia. |
-| Timeout de asentamiento de la red de difracción entre centros espectrales (modo "Espectro Completo — Step & Glue"). | El escaneo se detiene, la barra de progreso deja de avanzar y aparece un diálogo de error con la longitud de onda afectada. | Verificar que la torreta de redes no esté obstruida y reintentar; si persiste, reducir el rango λ o el Solapamiento para disminuir la cantidad de saltos de red por punto. |
+| Señal de referencia débil: $(I_{ref}-BG_{ref}) < 3\sigma$ en más del 50% del espectro. | Banner ámbar no modal bajo la cabecera; **`🚀 Iniciar Escaneo`** permanece deshabilitado aunque ya se haya presionado Tomar Referencia. | Confirmar que la luz esté puesta (lámpara, o un láser abierto desde [Obturadores]: la rutina no los abre), reencuadrar el ROI en la vista previa y repetir la Referencia. |
+| El espectrógrafo no llega a un centro, la λ no se relee dentro de ±0.01 nm o el eje λ no se puede leer (modo "Espectro Completo — Step & Glue"). | El escaneo se detiene y un diálogo de error dice la λ pedida, la releída y el código. Nunca se guarda un paso en la λ anterior ni con un eje NaN (paso 12). | Verificar que la torreta de redes no esté obstruida y reintentar; si persiste, reducir el rango λ o el Solapamiento para disminuir la cantidad de saltos de red por punto. |
 
 ---
 
@@ -367,6 +400,26 @@ PySpectrum 3.0 es la aplicación maestra del laboratorio. `contrapropagante.py` 
 
 **Acceso**: menú `🔧 Herramientas → Microscopio Contrapropagante (Ventana Satélite Subyugada)` (`Ctrl+M`), o `pyspectrum/window.py::_open_contrapropagante()`. Internamente usa `contrapropagante.py::create_contrapropagante_satellite(parent)` — la misma lógica de `main()` extraída a una función reutilizable, sin crear un `QApplication` propio ni bloquear con `app.exec()`, con sus 3 `QThread` (instrumento/confocal/cámara) detenidos automáticamente al cerrar la ventana. `app.py::create_app_satellite()` es el equivalente para el microscopio simple.
 
+**Huésped y orden de cierre (paso 13, `DEC-040`; R2-arq §3; R4-B 6).**
+- **Apertura.** PySpectrum crea PyPrinting con `create_app_satellite(parent, host=HostContext("PySpectrum 3.0"))`. El `Backend` hospedado no llama a `set_profile` ni a `pi.connect()` (V2, V11), y los constructores de platina, foco y confocal reciben `connect_stage=False`.
+- **Cierre por el operador.** El `closeSignal` va a `on_frontend_closed()`, que en modo hospedado llama a `release_as_guest()`. Esa llamada corre una sola vez y hace tres cosas:
+  - detiene la cámara Canon en su hilo, sólo si ese hilo corre;
+  - cierra los obturadores con el resultado;
+  - guarda la posición.
+
+  Nunca llama a `pi.disconnect()`, `close_all_tasks()` ni `flipper_notch532` (V1).
+- **Cierre de PySpectrum.** `pyspectrum/services/shutdown.py::ShutdownCoordinator` sigue este orden:
+  1. E-STOP;
+  2. rutinas (`stop_in_thread` nunca invoca en un hilo que no corre; `quit_thread` espera con tope);
+  3. huéspedes: primero `release_as_guest` con sus hilos vivos, después se terminan sus hilos y por último `close_from_host()`, sin diálogo. Es la inversión del orden que causaba el deadlock V3;
+  4. `close_all_shutters()` confirmado;
+  5. obturador del espectrómetro, Shamrock y cámara;
+  6. espejo de detección abajo (`flipper_notch532("down")`, como el legado; R4-J), sólo con los obturadores confirmados;
+  7. `park_stage(pi, PI_HOME_POS)`, sólo con los obturadores confirmados.
+
+  Un paso que falla se anota en el `ShutdownReport` y el cierre sigue.
+- **Contrapropagante (R4-J).** También es huésped: `create_contrapropagante_satellite(parent, host=HostContext(...))` no conecta la platina, y su ventana cierra sin preguntar cuando la cierra PySpectrum. `HostContext` vive en `core/host_context.py`.
+
 **Protocolo de subyugación**: `ContrapropaganteMainWindow`/`app.py::Frontend` se conectan a `spectroscopy_context.subjugatedModeChanged(bool)` **y** a `hardware_session.sessionChangedSignal(str, bool)`. `sessionChangedSignal` es el driver primario y atómico (trae nombre del dueño + estado juntos, evitando una condición de carrera de orden de señales entre ambos bus detectada durante el desarrollo). Banner ámbar (`#FAB387`/`#11111B`, 28px) `🔒 SUBJUGADO A {master} — Modo Solo Monitoreo`. `set_actuators_enabled(bool)` en cada Frontend compartido (`core/nanopositioning.py`, `core/shutters.py`, `modules/focus.py`, `modules/confocal.py`, `contrapropagante.py::ConfocalDualFrontend`) deshabilita únicamente los actuadores manuales — **excepciones de seguridad deliberadas**: `btn_close_all` (shutters) y `scanButtonstop`/`saveimageButton` (confocal) permanecen siempre habilitados (vías de escape); los displays de telemetría (posición PI, traza de fotodiodo, imagen confocal) **nunca** se deshabilitan.
 
 **Wiring central único**: `pyspectrum/window.py::_setup_threads_and_backends()` conecta `hardware_session.sessionChangedSignal → spectroscopy_context.set_subjugated(busy)` **una sola vez** — todas las rutinas de PySpectrum ya pasan por el mismo singleton `hardware_session`, así que Step & Glue, Mapeo Confocal, Cinética, etc. subyugan/liberan automáticamente sin wiring individual. Indicador en la barra de herramientas: `🔗 Platina PI: Conectada [Libre/Subyugada]`.
@@ -382,6 +435,8 @@ PySpectrum 3.0 es la aplicación maestra del laboratorio. `contrapropagante.py` 
 `tests/test_hardware_session_master_slave.py` (24): transición a Modo Solo Monitoreo y restauración en los 4 grupos de widgets subyugables (incl. excepciones de seguridad), telemetría confirmada siempre activa, paridad `app.py`, wiring central del bus, E-STOP (cierra shutters, libera sesión, libera la ventana satélite), `run_z_autofocus`/`run_confocal_centering`/`get_stage_coordinates` en `SAFE_MODE` sin colisiones de hilos. Full suite: 0 regresiones nuevas.
 
 ### 12.17 Fase 6 — Reconstrucción de Pestañas 4 y 5: Grilla de Crecimiento Automatizado y Secuencia de Impresión de Dímeros (`[[DECISION_LOG#DEC-020]]`)
+
+> **Superado en parte por AND-1 (§12.21, `DEC-040`).** Adquisición, espera de la platina, filtro de densidad y espejo cambiaron. El "filtro notch" de la luminiscencia es el espejo de detección. Lo que sigue describe la versión anterior y se conserva como registro.
 
 Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` (Luciana/CIBION, leído directamente para verificar la lógica antes de reimplementar) como una segunda sub-pestaña **añadida** dentro de `GrowthKineticsPanel` y `DimersWidget` — el modo puntual/de polarización histórico (Fase 1-5) queda intacto en la primera sub-pestaña, sin cambios de atributos ni señales.
 
@@ -404,6 +459,8 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
 `tests/test_growth_kinetics_routine.py` (9): generación paramétrica N×M, carga `.txt` (2 columnas y matriz legada 3×N), corrida completa deteniéndose por cada uno de los 3 criterios (λ_max, caída de fotodiodo, `t_max_s`) con `run_z_autofocus`/`run_confocal_centering` mockeados y conteo de llamadas verificado, pausa + salto manual + reanudación, y E-STOP durante el tracking espectral (cierra obturador, termina sin colgarse). `tests/test_dimers_routine.py` (5): generación/carga de grilla, ciclo completo de dos partículas verificando la posición exacta de NP2 (centroide mockeado + offset configurado en nm), re-enfoque cada K pares, y E-STOP durante la espera de traza de impresión (cierra obturador, termina sin colgarse). Full suite: 0 regresiones nuevas.
 
 ### 12.19 Fase 7 (Cierre) — Pestaña 7 Luminiscencia (Filtro Notch 532 + Grilla), Verificación de Calibración con Agua, Perfil de Ruido Oscuro y Atajos Globales (`[[DECISION_LOG#DEC-021]]`)
+
+> **Superado en parte por AND-1 (§12.21, `DEC-040`).** Adquisición, espera de la platina, filtro de densidad y espejo cambiaron. El "filtro notch" de la luminiscencia es el espejo de detección. Lo que sigue describe la versión anterior y se conserva como registro.
 
 **Arquitectura final de las 7 pestañas del shell** (`pyspectrum/window.py`, constantes `TAB_*`): 1️⃣ Exploración, 2️⃣ Static Raman, 3️⃣ Step & Glue, 4️⃣ Cinética de Crecimiento, 5️⃣ Calibraciones, 6️⃣ Mapeo Confocal, 7️⃣ **Luminiscencia (nueva, Fase 7)** — agregada al final (`TAB_LUMINESCENCE = 6`) en vez de insertarse en la posición que su nombre legado sugeriría, para no renumerar/romper los índices `TAB_*` ya consumidos por `LeftHardwarePanel.set_context()` y por los tests existentes. Dímeros permanece como diálogo lanzado desde el menú `🧪 Rutinas` (no se pidió embeberlo en esta fase); Luminiscencia sí se embebió — su menú "Rutinas → Luminiscencia" fue removido al quedar redundante.
 
@@ -429,6 +486,28 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
 `tests/test_pyspectrum_luminescence_and_calibration.py` (13): default seguro y toggle del Flipper Notch 532, corrida completa de grilla con verificación de apertura/cierre de obturador, rama de adquisición consciente del modo de lectura, E-STOP durante el tracking (cierra obturador, sin colgarse); verificación de agua contra un espectro sintético con corrimiento conocido (confirma que el corrimiento calculado coincide con el inyectado); ruido oscuro confirmando la llamada real a `close_all_shutters()` y la habilitación del botón de guardado; persistencia `.npz` y su no-op seguro sin medición previa; los 7 atajos de pestaña; Ctrl+Space en Exploración y no-op en el resto; despacho de Ctrl+R verificado con espías de `.click()` por pestaña (sin disparar adquisiciones reales, para no dejar timers/sesiones de hardware corriendo entre tests); atajo de E-STOP. Dos tests preexistentes actualizados por el conteo de pestañas (5→6 pasa a 6→7, no es una regresión sino una actualización de aserción correcta tras la 7ª pestaña aditiva). Full suite: 0 regresiones nuevas.
 
 ---
+
+### 12.21 AND-1 — Rutinas de grilla sobre los contratos del bloque A (`DEC-040`; R4-K)
+
+- **`pyspectrum/modules/routines/grid_runner.py`** (sin Qt): `GridRunner`, con estas primitivas:
+  - `move_to`: `config.wait_on_target` con tope. Si no confirma, cierra los obturadores y levanta `GridSafetyPause` (C-54);
+  - `set_power("low" | "high")`: `up_flipper` / `down_flipper`, y espera latiendo 0.5 s (2 s en dímeros);
+  - `set_mirror("up" | "down")`: `flipper_notch532` y 0.15 s, nunca con un láser de la rutina abierto;
+  - `laser`: apertura y cierre confirmados, y 0.5 s después de abrir;
+  - `expose` y `spectrum_1d`: `single_exposure`. Una falla levanta `NodeFailed`, nunca devuelve ceros.
+
+  Latido: `heartbeat_tick()` sin argumento.
+- **`routine_thread.py`:** `RoutineThread` corre el cuerpo en un `QThread`. Hace esto:
+  - toma la sesión, registra el espejo que confirmó el operador y abre el obturador del espectrómetro;
+  - maneja Stop, pausa, seguir y siguiente con eventos entre hilos;
+  - al terminar, pase lo que pase, cierra los láseres y el obturador del espectrómetro y devuelve el espejo (salvo con E-STOP), y suelta la sesión.
+- **`optical_support.move_stage_to`:** espera con `wait_on_target` y levanta `StageNotOnTarget` (C-54). El centrado confirma la posición final.
+- **Mapa hiperespectral (C-10):**
+  - `move_to` + `expose` en FVB por píxel; un píxel fallido va a NaN y a la máscara `failed`;
+  - el cubo se guarda en HDF5 (`cube`, `failed`, `map_2d`, `x_um`, `y_um`, `wavelength_nm`, `complete`);
+  - `request_stop()` corta una exposición desde otro hilo, y `scanFinishedSignal` se emite una sola vez.
+- **Luminiscencia, crecimiento y dímeros:** en `RoutineThread`, con las fases de §12.17 y §12.19 corregidas según R4-K (P3: potencia y láser del centrado como el legado; P4: serie de exposiciones; P5: sin espectro final de dímeros; P6: nodo fallido; P7: la pausa cierra el láser).
+- **Sentido del espejo:** abajo = espectrómetro (confirmado por el investigador para el crecimiento, R4-K). El legado del crecimiento lo ponía arriba (`Growth_ps.py:788`); lo confirma BANCO-59.
 
 ## 13. 🔗 Referencias Cruzadas
 - [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|📘 SYS-301: Shamrock 500i, iXon3 y Óptica Confocal]]

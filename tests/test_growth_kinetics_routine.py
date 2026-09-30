@@ -136,6 +136,7 @@ class TestGrowthGridStateMachine(unittest.TestCase):
                 "use_lambda_stop": True, "lambda_target_nm": 1.0,  # cualquier lmax ajustado dispara de inmediato
                 "use_photodiode_stop": False, "photodiode_drop_pct": None,
                 "t_max_s": 30.0, "interval_s": 0.01, "save_dir": tempfile.mkdtemp(),
+                "mirror": "down",  # AND-1: lo confirma el operador
             }
             self.backend.start_grid(config_dict)
             _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=10.0)
@@ -161,6 +162,7 @@ class TestGrowthGridStateMachine(unittest.TestCase):
             "use_lambda_stop": False, "lambda_target_nm": None,
             "use_photodiode_stop": True, "photodiode_drop_pct": 20.0,
             "t_max_s": 30.0, "interval_s": 0.01, "save_dir": tempfile.mkdtemp(),
+            "mirror": "down",  # AND-1: lo confirma el operador
         }
         self.backend.start_grid(config_dict)
         _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=10.0)
@@ -176,6 +178,7 @@ class TestGrowthGridStateMachine(unittest.TestCase):
             "use_lambda_stop": False, "lambda_target_nm": None,
             "use_photodiode_stop": False, "photodiode_drop_pct": None,
             "t_max_s": 0.03, "interval_s": 0.01, "save_dir": tempfile.mkdtemp(),
+            "mirror": "down",  # AND-1: lo confirma el operador
         }
         self.backend.start_grid(config_dict)
         _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=10.0)
@@ -183,37 +186,46 @@ class TestGrowthGridStateMachine(unittest.TestCase):
         self.assertEqual(self.backend.idx, 1)
         self.assertFalse(hardware_session.is_busy)
 
-    def test_pause_next_node_and_resume(self):
-        """Corre 3 nodos con t_max_s como único criterio (0.15s c/u). Pausa mientras el nodo 0
-        aún está trackeando: éste debe completarse igual (la pausa sólo bloquea el AVANCE al
-        siguiente nodo, nunca interrumpe uno ya en curso). Luego fuerza el salto manual del
-        nodo 1 con "Siguiente Nodo" y reanuda para completar el nodo 2."""
+    def test_pause_closes_the_laser_next_node_and_resume(self):
+        """R4-K P7: la pausa durante el seguimiento cierra el láser y seguir lo reabre. "Siguiente nodo"
+        termina el seguimiento del nodo en curso; al reanudar, la grilla completa los nodos que faltan."""
+        from core import nidaq
+        from PyQt6 import QtWidgets
         self.backend.generate_grid(1, 3, 3.0, 0.0, 5.0, 5.0, 5.0)
         config_dict = {
-            "laser": "532 nm (green)", "exp_time": 0.01, "autofocus_every": 1, "center_seed": False,
+            "laser": "532 nm (green)", "exp_time": 0.01, "autofocus_every": 10, "center_seed": False,
             "use_lambda_stop": False, "lambda_target_nm": None,
             "use_photodiode_stop": False, "photodiode_drop_pct": None,
-            "t_max_s": 0.15, "interval_s": 0.02, "save_dir": tempfile.mkdtemp(),
+            "t_max_s": 30.0, "interval_s": 0.02, "save_dir": tempfile.mkdtemp(),
+            "mirror": "down",
         }
-        QTimer.singleShot(60, self.backend.pause_grid)
         self.backend.start_grid(config_dict)
+        import time as _t
 
-        # Bombea eventos hasta que el nodo 0 termine y la corrida quede pausada antes del nodo 1.
-        loop = QEventLoop()
-        QTimer.singleShot(1500, loop.quit)
-        loop.exec()
+        def pump(cond, timeout=10.0):
+            t_end = _t.monotonic() + timeout
+            while not cond() and _t.monotonic() < t_end:
+                QtWidgets.QApplication.processEvents()
+                _t.sleep(0.01)
+            return cond()
 
-        self.assertTrue(self.backend._grid_paused)
-        self.assertEqual(self.backend.idx, 1, "El nodo 0 debe completarse a pesar de la pausa solicitada durante su tracking")
-        self.assertEqual(self.backend.states[0], NODE_DONE)
+        self.assertTrue(pump(lambda: len(self.backend._node_t_points) >= 2))    # ya está siguiendo el nodo 0
+        self.backend.pause_grid()
+        self.assertTrue(pump(lambda: "532 nm (green)" not in nidaq.get_open_shutter_names()))
+        _t.sleep(0.2)
+        self.assertEqual(self.backend.idx, 0)
+        self.assertNotIn("532 nm (green)", nidaq.get_open_shutter_names())    # en pausa, láser cerrado
 
         self.backend.next_node_grid()
-        self.assertEqual(self.backend.idx, 2)
-        self.assertEqual(self.backend.states[1], NODE_DONE)
-
         self.backend.resume_grid()
-        _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=10.0)
+        self.assertTrue(pump(lambda: self.backend.idx >= 1))
+        self.assertEqual(self.backend.states[0], NODE_DONE)
+        self.backend.next_node_grid()
+        self.assertTrue(pump(lambda: self.backend.idx >= 2))
+        self.backend.next_node_grid()
+        _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=15.0)
         self.assertEqual(self.backend.idx, 3)
+        self.assertFalse(hardware_session.is_busy)
 
 
 class TestGrowthGridEmergencyStopResilience(unittest.TestCase):
@@ -250,9 +262,11 @@ class TestGrowthGridEmergencyStopResilience(unittest.TestCase):
             "use_lambda_stop": False, "lambda_target_nm": None,
             "use_photodiode_stop": False, "photodiode_drop_pct": None,
             "t_max_s": 30.0, "interval_s": 0.01, "save_dir": tempfile.mkdtemp(),
+            "mirror": "down",  # AND-1: lo confirma el operador
         }
         # Dispara el E-STOP a mitad de camino de la fase de tracking espectral (varios ticks de 10ms después).
-        QTimer.singleShot(80, hardware_session.emergency_stop)
+        # Con potencia, espejo y láser (≈ 1.8 s de asentamientos, R4-K) el seguimiento empieza después.
+        QTimer.singleShot(2500, hardware_session.emergency_stop)
 
         try:
             self.backend.start_grid(config_dict)

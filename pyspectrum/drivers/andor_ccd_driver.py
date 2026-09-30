@@ -59,6 +59,7 @@ SHUTTER_MODE_CLOSED = 2
 # transcriptos en cinco lugares que no concordaban entre sí (ver DEC-031); ahora todo
 # consumidor los importa de acá, de modo que corregirlos sea una edición en un solo punto.
 DETECTOR_WIDTH_PX = 1004
+ADC_MAX_COUNTS = 16383          # iXon3 885: ADC de 14 bit ([DS-iXon] p. 2; C-25)
 DETECTOR_HEIGHT_PX = 1002
 
 # Pitch físico del píxel, en µm/px. Convierte anchos de ranura (µm) a píxeles del eje
@@ -493,6 +494,10 @@ class _MockAndorCCD:
         self._last_read_index = self._images_acquired
         return (DRV_SUCCESS, data)
 
+    def _light_factor(self) -> float:
+        """0 con el obturador cerrado (modo 2): la cámara acciona el obturador del Shamrock por TTL."""
+        return 0.0 if int(getattr(self, "_shutter_mode", 0)) == 2 else 1.0
+
     def get_most_recent_image(self) -> np.ndarray:
         """Genera un cuadro sintético realista (ruido + ranura + resonancia plasmónica)."""
         self._frame_count += 1
@@ -510,7 +515,8 @@ class _MockAndorCCD:
         # Línea de bombeo láser estrecha (532 nm)
         laser_peak = 4500.0 * np.exp(-0.5 * ((xx + 1.8) / 0.08)**2)
 
-        signal = slit_profile * (spr_peak + laser_peak + 150.0)
+        # Con el obturador cerrado (TTL de la cámara al Shamrock, BANCO-22) sólo llega oscuridad
+        signal = slit_profile * (spr_peak + laser_peak + 150.0) * self._light_factor()
 
         frame = (dark_counts + signal).astype(np.float32)
         # En modo EMCCD (0), aplicar ganancia de multiplicación de electrones
@@ -529,7 +535,7 @@ class _MockAndorCCD:
         x = np.linspace(-5, 5, self.width)
         spr_peak = 1200.0 * np.exp(-0.5 * ((x - 0.5) / 1.2)**2)
         laser_peak = 4500.0 * np.exp(-0.5 * ((x + 1.8) / 0.08)**2)
-        signal_base = (spr_peak + laser_peak + 150.0)
+        signal_base = (spr_peak + laser_peak + 150.0) * self._light_factor()
 
         # Ruido de lectura analógico cobrado UNA SOLA VEZ por columna (no multiplicado por filas)
         read_noise = np.random.normal(0, 4.0, self.width)

@@ -768,7 +768,7 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
   - **Espejo de detección:** si el software no cree que está abajo, un diálogo ofrece "Bajar el espejo", "Ya está abajo: confirmo" o "Cancelar", más un botón E-STOP. El espejo no tiene sensor: es lo último que ordenó el software.
   - **Durante el barrido:**
     - corre en su propio hilo;
-    - cada ventana es una exposición real: el espectrógrafo se mueve y se relee, se verifica el eje λ y la ventana **se guarda en disco al terminar**, en `data_step_and_glue/sg_<fecha>/`;
+    - cada ventana es una exposición real: el espectrógrafo se mueve y se relee, se verifica el eje λ y la ventana **se guarda en disco al terminar**, en `carpeta de trabajo/step_and_glue/sg_<fecha>/`;
     - [Detener] responde en menos de un cuarto de segundo, también a mitad de una exposición;
     - la rutina toma la sesión (pausa el Live), abre el obturador del espectrómetro y lo cierra al terminar.
   - **Láseres:** la rutina nunca abre ni cierra un láser; si abriste uno, renueva el latido y registra en cada ventana cuáles estaban abiertos.
@@ -788,12 +788,17 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 
 #### 4️⃣ Pestaña 4: Cinética de Crecimiento Plasmónico (*Growth Kinetics*)
 - **Grillas Paramétricas y Carga de Archivos**: Generación de mallas $N \times M$ o importación de archivos `.txt` (compatibilidad con matrices legadas $3 \times N$). Botón `📍 Usar Posición Actual como Origen` para fijar el marco de referencia en coordenadas absolutas de la platina PI.
-- **Máquina de Estados Automatizada por Nodo**:
-  1. Movimiento de la platina piezoeléctrica mediante `move_stage_to()` con timeout de asentamiento.
-  2. Autofoco Z axial por correlación cruzada en fotodiodo cada $N_{\text{autofocus}}$ nodos (`run_z_autofocus()`).
-  3. Micro-escaneo confocal opcional para centrado de semilla (`run_confocal_centering()`).
-  4. Apertura del obturador del láser de síntesis con renovación periódica de latido (`heartbeat_shutter()`).
-  5. Tracking espectral continuo y ajuste lorentziano/polinomial del máximo plasmónico $\lambda_{\max}(t)$ en vivo.
+- **Por nodo (AND-1, `DEC-040`), como el legado:**
+  1. la platina va al nodo y **confirma la llegada**;
+  2. autofoco cada $N$ nodos, con potencia baja y el espejo arriba;
+  3. centrado de la semilla (opcional), con potencia baja, el espejo arriba y **el láser abierto**. Antes se centraba con el láser cerrado;
+  4. crecimiento con potencia alta, el espejo abajo y el láser abierto: una serie de exposiciones reales con el ajuste de $\lambda_{\max}(t)$ en vivo.
+- **La pausa** cierra el láser, y **Reanudar** lo vuelve a abrir.
+  - **Antes de iniciar** hay que elegir en "Espejo de detección ahora" dónde está el espejo. No tiene sensor. La rutina lo mueve sola según la fase y al terminar lo devuelve a esa posición (R4-K). La elección no se recuerda: se confirma en cada corrida.
+  - **Corre en su propio hilo:** la ventana responde durante cada exposición, y [Detener], la pausa y el E-STOP actúan enseguida.
+  - **Cada espectro es una exposición real.** Si la cámara está en Imagen, pasa a FVB, y el archivo lo dice.
+  - **Si un nodo falla,** queda en rojo, deja un `_FAILED.txt` y la grilla sigue. Si la platina no llega o un obturador no confirma, la grilla se pausa con los obturadores cerrados. Reanudá cuando esté resuelto.
+  - **Los datos van a** `carpeta de trabajo/<rutina>/` si no elegiste otra carpeta.
 - **Criterios Duales de Parada Automática**:
   - *Criterio A*: Desplazamiento espectral $\lambda_{\max} \ge \lambda_{\text{target}}$.
   - *Criterio B*: Salto o caída de señal de fotodiodo $\ge \text{umbral}\%$.
@@ -801,7 +806,36 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 - Controles de ejecución: `Iniciar Grilla`, `Pausa`, `Reanudar`, `Siguiente Nodo`, `Abortar` y `E-STOP`.
 
 #### 5️⃣ Pestaña 5: Calibraciones Modulares del Sistema (`calibration_dock.py`)
-Centraliza los ajustes metrológicos del espectrógrafo y del sensor Andor:
+Dos sub-pestañas: **Calibración de λ (automática)** (paso 14, `DEC-040`) y **Offsets, historial, ranura y lámpara**.
+
+**Calibración de λ (automática), modo SÓLO MEDIR.** Reemplaza el ajuste a mano en Solis: mide dónde cae la fuga del 532 por el notch y cuánto se aparta de donde el eje del Shamrock pone 532 nm. **Nunca escribe al equipo.**
+- **Preparación:**
+  - elegir las redes (150 y 1200) y la fuente: la fuga del 532 por el notch, o el 532 atenuado sin notch;
+  - poner la λ de referencia en aire (532.000 nm por defecto), con su origen y su u. Sin dato, queda "—": la exactitud absoluta del eje es la de ese número;
+  - tildar "notch puesto" y "espejo de detección abajo". El software no puede saberlo. Las casillas se destildan al terminar cada corrida.
+- **Lo que fija la rutina sola:**
+  - ganancia EM en 0, releída;
+  - filtro de densidad en potencia baja;
+  - geometría del detector verificada (1004 × 8 µm);
+  - exposición fija de **0.10 s**, con un tope de **10 min** para la rutina completa (R4-D-4).
+- **La corrida:**
+  - cada llegada viene desde abajo (λc − 20 nm con la red de 150, λc − 3 nm con la de 1200);
+  - el 532 se abre sólo durante los cuadros, y el oscuro se toma con el 532 cerrado;
+  - se agregan llegadas desde 9 hasta 25, hasta que la incertidumbre de la corrección llega al objetivo;
+  - después, una llegada de control de deriva y, si se pidió, el recorrido de la línea a ±0.35 del ancho de la ventana.
+- **Cancelar o E-STOP:** cierra el 532 y guarda lo medido como CANCELADA.
+- **Resultado:** una fila por red, con el residuo, la corrección fina, los criterios K1-K7 (PROVISORIOS) y el veredicto:
+  - **CON RESERVA:** los criterios dan bien, pero la U no se declara porque faltan los términos del notch y de las derivas;
+  - **SÓLO MEDIDA:** faltó el recorrido;
+  - **RECHAZADA:** con el criterio que falló;
+  - **CANCELADA.**
+- **[Aplicar corrección fina]** (sólo con ACEPTADA o CON RESERVA):
+  - guarda la corrección por debajo de un paso en el archivo. Es sólo de PySpectrum: Solis y el legado no la ven;
+  - al arrancar vale sólo si el offset de esa red sigue siendo el mismo con el que se midió; si no, queda suspendida y el arranque avisa.
+- **[Proponer offset…]:** deshabilitado hasta que BANCO-40 mida cuántos píxeles mueve un paso. Cuando se habilite, abre la transacción de escritura de siempre.
+- **Si no se ve la línea:** la rutina se detiene. Un clic sobre la línea en el perfil fija dónde buscar, y [Reintentar con la semilla] corre esa red otra vez. El registro queda marcado "semilla del operador".
+
+La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y del sensor Andor:
 1. **Ranura de Entrada & Pixel X Central**: Apertura motorizada (10 a 2500 µm), movimiento a Orden Cero (0.0 nm) y auto-calibración con ajuste gaussiano sub-píxel del centroide del slit.
 2. **Offsets de red y detector (leídos del Shamrock)**: se muestran con la hora de lectura; una lectura fallida dice "desconocido". No se escriben desde botones. [Registrar lo leído en el archivo] guarda los valores actuales en el archivo de calibraciones local (sólo se agregan entradas; historial visible). Al arrancar, PySpectrum compara el equipo con ese archivo y avisa si difieren, sin escribir nada. La escritura de un offset es una transacción con respaldo, tecleo del número de líneas de la red (y 3.ª confirmación si el cambio supera 50 pasos) y relectura; sin restauración desde el historial (R4-C-4). Ver MOD-06 §8.2.
 3. **Calibración Cúbica EEPROM**: Lectura de los coeficientes de dispersión $\lambda(p) = a + bp + cp^2 + dp^3$.
@@ -811,27 +845,39 @@ Centraliza los ajustes metrológicos del espectrógrafo y del sensor Andor:
 7. **Perfil de Ruido Oscuro (Fase 7)**: Cierre forzado de obturadores (`close_all_shutters()`), adquisición de cuadro de fondo en el modo activo y guardado explícito en `dark_noise_profile.npz`.
 
 #### 6️⃣ Pestaña 6: Mapeo Confocal Hiperespectral
-- Coordinación síncrona entre el escaneo piezoeléctrico bidimensional de la platina PI y la adquisición espectral del detector CCD.
-- Construcción de hipercubos de datos $(X, Y, \lambda)$ para análisis espacial de dispersión, extinción y fotoluminiscencia.
+- **Cada píxel (AND-1, C-10):** la platina **confirma la llegada** y se toma una exposición real en FVB. Antes se leía el último cuadro sin esperar, así que un píxel podía llevar el espectro de otro.
+- **Un píxel que falla** queda en NaN y marcado; el mapa sigue. Una platina que no llega detiene el mapa con los obturadores cerrados.
+- **El espejo:** confirmá dónde está antes de iniciar. El mapa lo baja solo y al terminar lo devuelve.
+- **El cubo** $(X, Y, \lambda)$ se guarda en HDF5 en `carpeta de trabajo/confocal_map/`, también si se detiene (`complete = False`).
 
 #### 7️⃣ Pestaña 7: Luminiscencia & Anti-Stokes Embebida
 - **Sub-pestaña "Monitoreo Puntual"**: Seguimiento temporal clásico $I(\lambda, t)$ e intensidad integrada $I(t)$ bajo excitación láser en un punto fijo.
-- **Sub-pestaña "Grilla + Filtro Notch"**:
-  - **Control del Filtro Notch 532 nm**: Botones dedicados `⬇️ Insertar Notch (Bloquea Rayleigh)` y `⬆️ Retirar Notch`, comandando `core.nidaq.flipper_notch532("down"/"up")` con posición por defecto insertada dentro del haz para proteger el sensor.
-  - **Barrido en Grilla**: Ejecución multi-nodo con posicionamiento piezo, autofoco periódico y adquisición consciente del modo de lectura Andor (promedio espacial de filas en Modo Imagen 2D vs. lectura nativa en Modo 1D).
+- **Sub-pestaña de grilla:**
+  - **Espejo de detección:** los botones que decían "Insertar / Retirar Notch" mueven el **espejo de detección** (línea 7). "Notch" era un error de notación heredado del legado. Ahora dicen "Bajar espejo (espectrómetro)" y "Subir espejo (confocal / cámara)".
+  - **Por nodo (AND-1):** la platina confirma la llegada; autofoco cada $N$ nodos con el espejo arriba; espejo abajo y el láser abierto **sólo durante la exposición**.
+- **Monitoreo puntual:** una exposición real por cuadro.
+  - **Antes de iniciar** hay que elegir en "Espejo de detección ahora" dónde está el espejo. No tiene sensor. La rutina lo mueve sola según la fase y al terminar lo devuelve a esa posición (R4-K). La elección no se recuerda: se confirma en cada corrida.
+  - **Corre en su propio hilo:** la ventana responde durante cada exposición, y [Detener], la pausa y el E-STOP actúan enseguida.
+  - **Cada espectro es una exposición real.** Si la cámara está en Imagen, pasa a FVB, y el archivo lo dice.
+  - **Si un nodo falla,** queda en rojo, deja un `_FAILED.txt` y la grilla sigue. Si la platina no llega o un obturador no confirma, la grilla se pausa con los obturadores cerrados. Reanudá cuando esté resuelto.
+  - **Los datos van a** `carpeta de trabajo/<rutina>/` si no elegiste otra carpeta.
 
 ---
 
 ### 4.3 Rutinas Satélites: Caracterización y Fabricación de Dímeros (*Dimers*)
 
 Accesible desde el menú superior **`🧪 Rutinas → Caracterización de Dímeros Plasmónicos`**:
-- **Secuencia Automatizada de Fabricación**:
-  1. Impresión de NP 1 monitoreando el salto característico en el fotodiodo ($I_{\text{new}} > I_{\text{old}} \times \text{umbral}$).
-  2. Micro-escaneo confocal y ajuste gaussiano para hallar el centroide real sub-píxel de NP 1.
-  3. Desplazamiento piezoeléctrico de precisión al offset programado ($\Delta x, \Delta y\text{ en nm}$).
-  4. Impresión de NP 2 y post-escaneo de validación morfológica.
-  5. Espectroscopía óptica del dímero acoplado para evaluar acoplamiento de campo cercano y anisotropía de polarización (paralela vs perpendicular).
-  6. Re-enfoque axial periódico cada $K$ pares.
+- **Secuencia automatizada (AND-1, como el legado):**
+  1. la platina va a NP 1 y confirma la llegada;
+  2. impresión de NP 1 con potencia alta y el láser abierto, hasta el salto del fotodiodo ($I_{\text{new}} > I_{\text{old}} \times \text{umbral}$);
+  3. centrado de NP 1 con potencia baja y **el láser abierto**;
+  4. desplazamiento al offset ($\Delta x, \Delta y$ en nm) e impresión de NP 2;
+  5. post-escaneo de validación, con potencia baja y el láser abierto;
+  6. re-enfoque cada $K$ pares.
+
+  **Sin espectro final del dímero** (R4-K): el legado no lo tomaba. La potencia espera 2 s después de conmutar, como el legado.
+- **Polarización manual:** una exposición real por medición. El espejo lo deja el operador.
+- **Espejo:** los dímeros no lo mueven, pero hay que confirmar dónde está al iniciar.
 
 ---
 
@@ -846,6 +892,12 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
    - El botón **`Cerrar Todos (btn_close_all)`** permanece **siempre habilitado** para que el operador pueda cortar la emisión láser desde cualquier ventana.
    - Los botones de detención y guardado confocal permanecen activos.
 5. **Telemetría Continua**: Las lecturas en vivo de posición XYZ de la platina PI y la señal del fotodiodo vía NI-DAQmx continúan transmitiéndose sin colisiones de hilos.
+6. **PyPrinting y el contrapropagante como huéspedes (paso 13, `DEC-040`; R4-J):** el contrapropagante abierto desde PySpectrum tampoco conecta la platina al abrirse. Lo siguiente vale para PyPrinting. El PyPrinting que se abre desde el menú de PySpectrum usa la platina, las tareas de la placa y el espejo de detección de PySpectrum, pero no los administra:
+   - al abrirse **no conecta la platina** (conectarla la mandaría a home y liberaría su interlock) ni cambia el perfil de hardware. Si PySpectrum no tiene la platina conectada, el satélite la ve desconectada;
+   - al cerrarlo, cierra los obturadores, guarda la posición y detiene su cámara Canon. **No desconecta la platina**, que en PyPrinting suelto la lleva a (0, 0, 0), y tampoco cierra las tareas de la placa ni mueve el espejo;
+   - si se lo vuelve a abrir, se crea uno nuevo.
+
+   PyPrinting suelto (`python app.py`) sigue igual que antes.
 
 ---
 
@@ -864,8 +916,58 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
    - Clampeo estricto a un máximo de $5\times$ si el tiempo de exposición supera $1.0\ \text{s}$.
 4. **Tiempos de Asentamiento Óptico**:
    - Retardo automático de $4.0\ \text{s}$ para rotación de torreta de redes, $0.8\ \text{s}$ para ranuras y $0.3\ \text{s}$ para desplazamiento de longitud de onda antes de iniciar cualquier captura.
+5. **Cierre de PySpectrum (paso 13, `DEC-040`)**:
+   - **Una sola pregunta:** "Se cierran todos los obturadores, la platina va a (50, 50, 10) µm y la cámara se cierra: el enfriador deja de enfriar". La posición es `config.PI_HOME_POS` (R4-B 6): así, al volver a conectarse, la platina no se mueve. Si hay un satélite abierto, la misma pregunta avisa que también se cierra, sin mover la platina. El satélite no pregunta por su cuenta.
+   - **Orden:**
+     1. E-STOP;
+     2. las rutinas y sus hilos, incluido un barrido de Step & Glue en curso;
+     3. los satélites;
+     4. los obturadores, con el cierre confirmado;
+     5. el obturador del espectrómetro, el Shamrock y la cámara, en ese orden;
+     6. el espejo de detección abajo, como en el legado (R4-J);
+     7. la platina a (50, 50, 10).
+   - **Ninguna espera es infinita:** un hilo que no termina en 3 s o una platina que no llega en 5 s se anotan, y el cierre sigue.
+   - **La platina y el espejo no se mueven** si los obturadores no confirmaron el cierre (un cierre no confirmado cuenta como abierto, `DEC-036`).
+   - **Al final**, si algún paso no se confirmó, un aviso lo lista antes de que se cierre la ventana. Conviene anotarlo.
 
 ---
+
+### 4.6 Procedimiento Operativo Estandarizado (SOP del Escaneo Lineal Espectral)
+
+> Esta sección se había perdido en la reescritura del §4 (commit `8a5d666`), aunque `MOD-06 §10` la seguía enlazando. Se repone con la rutina del paso 12 (`DEC-040`, R4-I).
+
+> [!CAUTION]
+> **Checklist previo:**
+> - la luz la pone el operador: la lámpara encendida, o un láser abierto desde [Obturadores]. **La rutina no abre ni cierra láseres;**
+> - la recta de barrido dentro de $0$–$100\ \mu\text{m}$;
+> - el botón **`🚨 E-STOP`** de la barra superior accesible, sin diálogos modales encima.
+
+Protocolo de 8 pasos para un barrido lineal de transmisión/extinción (`[[MOD-06_PySpectrum_Espectroscopia_Shamrock#10. Escaneo Lineal Espectral (Transmisión/Extinción)|MOD-06 §10]]`):
+
+1. **Abrir la rutina:** menú **`🧪 Rutinas → Escaneo Lineal Espectral (Transmisión/Extinción)`**.
+2. **Definir el ROI vertical:** presionar **`🔍 Vista Previa del Sensor`** y arrastrar la banda horizontal sobre la vista previa, o editar **`Centro (px)`** y **`Altura (px)`**, hasta encuadrar la franja espectral.
+3. **Configurar la adquisición:**
+   - elegir **`Exp. 1D (s)`**, **`Exp. 2D (s)`** y **`Modo Espectral`**;
+   - con "Espectro Completo (Step & Glue)", completar λ Inicial, λ Final y Solapamiento;
+   - opcional: el Multiplicador σ_dark en **`⚙️ Avanzado`**.
+
+   El renglón **`Luz:`** sólo recuerda que la luz la pone el operador: ya no hay un selector de lámpara. El antiguo en realidad elegía un obturador láser.
+4. **Tomar la referencia:**
+   - posicionar la muestra y presionar **`📍 Tomar Posición Actual`**, o cargar X_ref, Y_ref y Z_ref a mano;
+   - presionar **`📥 Tomar Referencia (Fase A)`**. La señal se toma con el obturador del espectrómetro abierto y el fondo con ese obturador cerrado, en 1D y en 2D;
+   - si aparece el aviso ámbar de señal débil, no continuar: corregir la luz o el ROI y repetir este paso hasta que desaparezca.
+5. **Fijar la recta de barrido:** completar X inicial, X final, Y fijo, Z fijo y Paso ΔX, y revisar **`⏱ Tiempo estimado`**.
+6. **Ejecutar:** presionar **`🚀 Iniciar Escaneo`**, que se habilita recién con una referencia válida. Si el tiempo estimado supera 10 minutos, confirmar el diálogo.
+7. **Supervisar:**
+   - seguir la barra de progreso, **`Restante: ...`**, la curva 1D en vivo y el mapa 2D;
+   - **`⏹ Cancelar Escaneo`** detiene al terminar el punto actual; **`🚨 E-STOP`** corta de inmediato;
+   - si el espectrógrafo no llega a una λ, la λ no se relee o el eje λ no se puede leer, la rutina **se detiene y dice por qué**. Nunca guarda un paso medido en la λ anterior ni con un eje inventado.
+8. **Exportar y archivar:**
+   - el `.h5` queda en `carpeta de trabajo/linescan/`, con la ruta en el diálogo "Escaneo Finalizado";
+   - sus metadatos incluyen la red, la ventana, los centros, la ganancia EM y los láseres abiertos al empezar y al terminar;
+   - **`🎨 Exportar Curva`** abre el Estudio de Exportación sobre la curva 1D.
+
+> Límites de validez y modos de falla de esta rutina: `[[MOD-06_PySpectrum_Espectroscopia_Shamrock#10.1 Límites de Validez y Modos de Falla — Escaneo Lineal Espectral|MOD-06 §10.1]]`.
 
 ## 5. Módulo 03: Microscopio Contrapropagante (`contrapropagante.py`)
 

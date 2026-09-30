@@ -718,10 +718,13 @@ class Backend(QObject):
     reference_signal         = pyqtSignal(list)       # → [x_um, y_um, z_um] al set_reference
     connection_status_signal = pyqtSignal(bool, str)  # → (is_physical, status_text)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, connect_stage: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.current_regime = DEFAULT_COORDINATE_REGIME
-        self.reconnect()
+        # connect_stage=False: satélite huésped (paso 13, V11). La platina es del anfitrión: conectarla
+        # acá haría home y liberaría su interlock. "Reconectar" sigue siendo la acción del operador.
+        if connect_stage:
+            self.reconnect()
 
     @pyqtSlot(str)
     def set_regime(self, regime: str):

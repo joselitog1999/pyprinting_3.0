@@ -47,6 +47,11 @@ from modules.hardware_dashboard import HardwareDashboardWidget
 class TestNanopositioningRegimes(unittest.TestCase):
 
     def setUp(self):
+        # keyPressEvent se llama directo y consulta el foco global de la aplicación: una ventana de otro
+        # test (p. ej. la wiki científica) con un QLineEdit enfocado haría ignorar las flechas.
+        fw = QApplication.focusWidget()
+        if fw is not None:
+            fw.clearFocus()
         self.frontend = Frontend()
         self.backend = Backend()
         self.frontend.make_connection(self.backend)

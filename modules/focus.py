@@ -191,9 +191,10 @@ class Backend(QObject):
     plot_lockSignal  = pyqtSignal(np.ndarray, np.ndarray)
     plot_autoSignal  = pyqtSignal(np.ndarray, np.ndarray, np.ndarray)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, connect_stage: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
-        pi.connect()
+        if connect_stage:      # False en el satélite huésped (paso 13, V11): la platina es del anfitrión
+            pi.connect()
         self.laser = SHUTTERS[0] if len(SHUTTERS) > 0 else "532"
         self.locked_focus = False
         self._ramp_params()

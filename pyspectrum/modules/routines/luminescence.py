@@ -26,11 +26,13 @@ from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd, READ_MODE_IMAGE
 from pyspectrum.modules.hardware_session import hardware_session
 from pyspectrum.modules.optical_support import run_z_autofocus, move_stage_to, get_stage_coordinates
+from pyspectrum.modules.routines.grid_runner import GridSafetyPause, NodeFailed
 
 NODE_PENDING = 0
 NODE_CURRENT = 1
 NODE_DONE = 2
-_NODE_STATE_COLORS = {NODE_PENDING: "#45475A", NODE_CURRENT: "#F9E2AF", NODE_DONE: "#A6E3A1"}
+NODE_FAILED = 3          # la exposición del nodo falló (AND-1, R4-K P6): se registra y la grilla sigue
+_NODE_STATE_COLORS = {NODE_PENDING: "#45475A", NODE_CURRENT: "#F9E2AF", NODE_DONE: "#A6E3A1", NODE_FAILED: "#F38BA8"}
 
 _LUMINESCENCE_STYLE = """
     QLabel { color: #CDD6F4; font-weight: bold; }
@@ -43,6 +45,18 @@ _LUMINESCENCE_STYLE = """
 """
 
 
+def _mirror_combo() -> QtWidgets.QComboBox:
+    c = QtWidgets.QComboBox()
+    c.addItems(["— confirmá dónde está —", "abajo (espectrómetro)", "arriba (confocal / cámara)"])
+    c.setToolTip("El espejo de detección no tiene sensor: confirmá dónde está ahora. La rutina lo baja sola para "
+                 "medir y al terminar lo devuelve a esta posición (R4-K).")
+    return c
+
+
+def _mirror_choice(combo: QtWidgets.QComboBox):
+    return {1: "down", 2: "up"}.get(combo.currentIndex())
+
+
 class LuminescencePanel(QtWidgets.QWidget):
     """Panel de Luminiscencia embebible (Pestaña 7 del shell principal de PySpectrum 3.0).
     Expone dos sub-pestañas: "Monitoreo Puntual" (histórico, un único punto fijo) y "Grilla +
@@ -51,7 +65,8 @@ class LuminescencePanel(QtWidgets.QWidget):
     startLuminescenceSignal = pyqtSignal(str, float, int, float)
     stopLuminescenceSignal = pyqtSignal()
 
-    notchFlipperSignal = pyqtSignal(bool)  # True = insertar (dentro del haz), False = retirar
+    notchFlipperSignal = pyqtSignal(bool)  # espejo de detección: True = abajo (espectrómetro), False = arriba
+    mirrorConfirmedSignal = pyqtSignal(str)  # el operador confirma dónde está el espejo antes de iniciar (R4-K)
 
     generateGridSignal = pyqtSignal(int, int, float, float, float, float, float)
     loadGridFileSignal = pyqtSignal(str)
@@ -110,6 +125,10 @@ class LuminescencePanel(QtWidgets.QWidget):
 
         ctrl_vlo.addLayout(grid)
 
+        self.cmb_mirror = _mirror_combo()
+        ctrl_vlo.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"))
+        ctrl_vlo.addWidget(self.cmb_mirror)
+
         self.btn_run = QtWidgets.QPushButton("▶️ Iniciar Medición de Luminiscencia")
         self.btn_run.setStyleSheet("background-color: #CBA6F7; color: #11111B; font-weight: bold;")
         self.btn_run.setCheckable(True)
@@ -150,6 +169,12 @@ class LuminescencePanel(QtWidgets.QWidget):
                 exp = float(self.edit_exp.text())
                 n_frames = int(self.edit_nframes.text())
                 interval = float(self.edit_interval.text())
+                mirror = _mirror_choice(self.cmb_mirror)
+                if mirror is None:
+                    self.btn_run.setChecked(False)
+                    self.lbl_status.setText("Confirmá dónde está el espejo de detección antes de iniciar.")
+                    return
+                self.mirrorConfirmedSignal.emit(mirror)
 
                 self.btn_run.setText("⏹️ Detener Luminiscencia")
                 self.btn_run.setStyleSheet("background-color: #F38BA8; color: #11111B;")
@@ -188,18 +213,20 @@ class LuminescencePanel(QtWidgets.QWidget):
         ctrl_vlo.addWidget(lbl_title)
 
         # Control del Filtro Notch 532 nm (Flipper)
-        notch_box = QtWidgets.QGroupBox("🚫 Filtro Notch 532 nm (Supresión Rayleigh)")
+        # `flipper_notch532` mueve el ESPEJO DE DETECCIÓN (línea 7), no un filtro: "notch" es un error de
+        # notación heredado del legado (lab-invariants). Abajo = espectrómetro; arriba = confocal y cámara.
+        notch_box = QtWidgets.QGroupBox("🪞 Espejo de detección (flipper de la línea 7)")
         notch_layout = QtWidgets.QHBoxLayout(notch_box)
-        self.btn_notch_in = QtWidgets.QPushButton("⬇️ Insertar Notch (Bloquea Rayleigh)")
+        self.btn_notch_in = QtWidgets.QPushButton("⬇️ Bajar espejo (espectrómetro)")
         self.btn_notch_in.setStyleSheet("background-color: #CBA6F7; color: #11111B;")
         self.btn_notch_in.clicked.connect(lambda: self.notchFlipperSignal.emit(True))
-        self.btn_notch_out = QtWidgets.QPushButton("⬆️ Retirar Notch")
+        self.btn_notch_out = QtWidgets.QPushButton("⬆️ Subir espejo (confocal / cámara)")
         self.btn_notch_out.clicked.connect(lambda: self.notchFlipperSignal.emit(False))
         notch_layout.addWidget(self.btn_notch_in)
         notch_layout.addWidget(self.btn_notch_out)
         ctrl_vlo.addWidget(notch_box)
 
-        self.lbl_notch_status = QtWidgets.QLabel("Filtro Notch 532: Dentro del haz (bloqueando Rayleigh)")
+        self.lbl_notch_status = QtWidgets.QLabel("Espejo de detección: sin confirmar")
         self.lbl_notch_status.setStyleSheet("color: #CBA6F7; font-size: 9pt;")
         ctrl_vlo.addWidget(self.lbl_notch_status)
 
@@ -254,12 +281,16 @@ class LuminescencePanel(QtWidgets.QWidget):
         ctrl_vlo.addLayout(params)
 
         save_row = QtWidgets.QHBoxLayout()
-        self.edit_save_dir = QtWidgets.QLineEdit(os.path.join(os.getcwd(), "luminescence_grid_data"))
+        self.edit_save_dir = QtWidgets.QLineEdit("")
+        self.edit_save_dir.setPlaceholderText("carpeta de trabajo/luminescence")
         self.btn_pick_save_dir = QtWidgets.QPushButton("📁")
         self.btn_pick_save_dir.clicked.connect(self._on_pick_save_dir)
         save_row.addWidget(self.edit_save_dir)
         save_row.addWidget(self.btn_pick_save_dir)
         ctrl_vlo.addLayout(save_row)
+        self.cmb_grid_mirror = _mirror_combo()
+        ctrl_vlo.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"))
+        ctrl_vlo.addWidget(self.cmb_grid_mirror)
 
         exec_row = QtWidgets.QHBoxLayout()
         self.btn_grid_start = QtWidgets.QPushButton("▶️ Iniciar Grilla")
@@ -327,15 +358,20 @@ class LuminescencePanel(QtWidgets.QWidget):
             "laser": self.cmb_grid_laser.currentText(),
             "exp_time": self.spin_grid_exp.value(),
             "autofocus_every": self.spin_autofocus_every.value(),
-            "save_dir": self.edit_save_dir.text().strip() or ".",
+            "save_dir": self.edit_save_dir.text().strip(),
+            "mirror": _mirror_choice(self.cmb_grid_mirror),
         }
+        if config["mirror"] is None:
+            self.lbl_grid_progress.setText("Confirmá dónde está el espejo de detección antes de iniciar la grilla.")
+            return
+        self.cmb_grid_mirror.setCurrentIndex(0)        # la confirmación no se recuerda
         self.startGridSignal.emit(config)
 
     @pyqtSlot(bool)
     def update_notch_status(self, down: bool):
-        self.lbl_notch_status.setText(
-            "Filtro Notch 532: Dentro del haz (bloqueando Rayleigh)" if down else "Filtro Notch 532: Fuera del haz"
-        )
+        self.lbl_notch_status.setText("Espejo de detección: " + ("abajo (espectrómetro)" if down
+                                                                 else "arriba (confocal / cámara)")
+                                      + " — según el software; no tiene sensor")
 
     @pyqtSlot(np.ndarray, np.ndarray)
     def preview_grid(self, xs: np.ndarray, ys: np.ndarray):
@@ -379,13 +415,13 @@ class LuminescenceWidget(QtWidgets.QDialog):
         for attr_name in ("cmb_laser", "edit_exp", "edit_nframes", "edit_interval",
                           "btn_run", "progress_bar", "lbl_status", "plot_spec", "curve_spec",
                           "plot_time", "curve_time",
-                          "btn_notch_in", "btn_notch_out", "lbl_notch_status",
+                          "btn_notch_in", "btn_notch_out", "lbl_notch_status", "cmb_mirror", "cmb_grid_mirror",
                           "btn_generate_grid", "btn_load_grid", "btn_use_current_pos",
                           "btn_grid_start", "btn_grid_pause", "btn_grid_resume", "btn_grid_next", "btn_grid_abort",
                           "lbl_grid_progress", "plot_grid_map", "scatter_grid", "plot_grid_spec", "curve_grid_spec"):
             setattr(self, attr_name, getattr(self.panel, attr_name))
 
-        for sig_name in ("startLuminescenceSignal", "stopLuminescenceSignal", "notchFlipperSignal",
+        for sig_name in ("startLuminescenceSignal", "stopLuminescenceSignal", "notchFlipperSignal", "mirrorConfirmedSignal",
                          "generateGridSignal", "loadGridFileSignal", "useCurrentPosSignal", "startGridSignal",
                          "pauseGridSignal", "resumeGridSignal", "nextNodeGridSignal", "abortGridSignal"):
             setattr(self, sig_name, getattr(self.panel, sig_name))
@@ -401,12 +437,17 @@ class LuminescenceWidget(QtWidgets.QDialog):
 
 
 class LuminescenceBackend(QtCore.QObject):
-    """Motor de adquisición para mediciones de luminiscencia: modo puntual histórico (Fase 1-6)
-    más control del Flipper Notch 532 nm y máquina de estados de grilla (Fase 7, DEC-021)."""
+    """Luminiscencia puntual y en grilla sobre las primitivas del bloque A (AND-1, parte 3; R4-K).
+
+    Corre en su propio hilo (`RoutineThread`): la GUI y el E-STOP responden durante cada exposición. Cada
+    espectro es una exposición real (nunca "el último cuadro", R4-5). El espejo lo confirma el operador; la
+    rutina lo baja para medir y al terminar lo devuelve. Un nodo cuya exposición falla queda FALLIDO y la
+    grilla sigue (P6); una platina que no llega o un obturador sin confirmar pausan la grilla con los
+    obturadores cerrados (DEC-036)."""
 
     dataUpdatedSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, np.ndarray, int)
-
     notchStateChangedSignal = pyqtSignal(bool)
+    statusSignal = pyqtSignal(str)
 
     gridPreviewSignal = pyqtSignal(np.ndarray, np.ndarray)
     gridStateChangedSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, int)
@@ -420,19 +461,17 @@ class LuminescenceBackend(QtCore.QObject):
 
     def __init__(self, camera=None, spectrometer=None, parent=None):
         super().__init__(parent)
+        from pyspectrum.modules.routines.routine_thread import RoutineThread
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
-
-        self.t_points = []
-        self.i_points = []
+        self.t_points: List[float] = []
+        self.i_points: List[float] = []
         self.curr_frame = 0
         self.total_frames = 100
         self.laser_in_use = ""
-
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._step)
-
-        self._notch_down = True  # Estado seguro por defecto: dentro del haz (bloqueando Rayleigh)
+        self.timer = QTimer(self)                  # compatibilidad: ya no maneja la adquisición
+        self._notch_down = True                    # creencia del espejo de detección (True = abajo)
+        self._mirror_confirmed: Optional[str] = None
 
         self._pending_nodes: List[Tuple[float, float, Optional[float]]] = []
         self.nodes: List[Tuple[float, float, Optional[float]]] = []
@@ -442,18 +481,23 @@ class LuminescenceBackend(QtCore.QObject):
         self._grid_running = False
         self._grid_paused = False
         self._grid_abort_requested = False
+        base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or os.path.join(os.path.expanduser("~"), "Documents", "Data_PySpectrum")
+        self.data_dir = os.path.join(base, "luminescence")
 
+        self.point_thread = RoutineThread(self.SESSION_NAME_POINT, self)
+        self.grid_thread = RoutineThread(self.SESSION_NAME_GRID, self)
+        self.point_thread.finished.connect(self._on_point_finished)
+        self.grid_thread.finished.connect(self._on_grid_finished)
         hardware_session.emergencyStopSignal.connect(self.stop_luminescence)
         hardware_session.emergencyStopSignal.connect(self.abort_grid)
 
-    def make_connection(self, widget: LuminescenceWidget):
+    def make_connection(self, widget):
         widget.startLuminescenceSignal.connect(self.start_luminescence)
         widget.stopLuminescenceSignal.connect(self.stop_luminescence)
+        widget.mirrorConfirmedSignal.connect(self.confirm_mirror)
         self.dataUpdatedSignal.connect(widget.update_data)
-
         widget.notchFlipperSignal.connect(self.set_notch_flipper)
         self.notchStateChangedSignal.connect(widget.update_notch_status)
-
         widget.generateGridSignal.connect(self.generate_grid)
         widget.loadGridFileSignal.connect(self.load_grid_file)
         widget.useCurrentPosSignal.connect(self.use_current_position_as_origin)
@@ -462,86 +506,102 @@ class LuminescenceBackend(QtCore.QObject):
         widget.resumeGridSignal.connect(self.resume_grid)
         widget.nextNodeGridSignal.connect(self.next_node_grid)
         widget.abortGridSignal.connect(self.abort_grid)
-
         self.gridPreviewSignal.connect(widget.preview_grid)
         self.gridStateChangedSignal.connect(widget.update_grid_state)
         self.gridNodeProgressSignal.connect(widget.update_grid_progress)
         self.gridSpectrumUpdateSignal.connect(widget.update_grid_spectrum)
         self.gridFinishedSignal.connect(widget.on_grid_finished)
         self.originUpdatedSignal.connect(widget.set_origin_fields)
-
-        # Sincroniza el estado inicial del flipper con la UI recién conectada.
+        if hasattr(widget, "lbl_status"):
+            self.statusSignal.connect(widget.lbl_status.setText)
         widget.update_notch_status(self._notch_down)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Filtro Notch 532 nm (Flipper) — Fase 7
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── espejo de detección ──
     @pyqtSlot(bool)
     def set_notch_flipper(self, down: bool):
+        """Movimiento manual del espejo de detección (el "notch" del legado)."""
         flipper_notch532("down" if down else "up")
         self._notch_down = bool(down)
         self.notchStateChangedSignal.emit(self._notch_down)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Modo Puntual histórico (Fase 1-6, intacto)
-    # ══════════════════════════════════════════════════════════════════════════
+    @pyqtSlot(str)
+    def confirm_mirror(self, position: str):
+        if position in ("up", "down"):
+            self._mirror_confirmed = position
+
+    def _hw(self):
+        """Las acciones del hardware por los nombres de este módulo (los tests los interceptan acá)."""
+        from types import SimpleNamespace
+        from core import nidaq
+        mod = __import__(__name__, fromlist=["open_shutter"])
+        return SimpleNamespace(open_shutter=lambda n: mod.open_shutter(n), close_shutter=lambda n: mod.close_shutter(n),
+                               close_all_shutters=nidaq.close_all_shutters, up_flipper=nidaq.up_flipper,
+                               down_flipper=nidaq.down_flipper, flipper_notch532=lambda p: mod.flipper_notch532(p))
+
+    def _wave_axis(self):
+        ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        axis = np.asarray(axis, dtype=np.float64)
+        if ret != 20202 or axis.size != 1004 or not np.all(np.isfinite(axis)):
+            print(f"[{type(self).__name__}] Eje λ no confiable: código {ret}, {axis.size} puntos")
+            return None
+        return axis
+
+    # ── modo puntual ──
     @pyqtSlot(str, float, int, float)
     def start_luminescence(self, laser: str, exp_time: float, n_frames: int, interval: float):
-        if not hardware_session.acquire_session(self.SESSION_NAME_POINT):
-            self.stop_luminescence()
+        wave = self._wave_axis()
+        if wave is None:
+            self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la medición no arranca.")
+            self._emit_point_end()
             return
-
+        self.wave_axis = wave
         self.laser_in_use = laser
-        self.total_frames = n_frames
+        self.total_frames = int(n_frames)
         self.curr_frame = 0
-        self.t_points = []
-        self.i_points = []
-        self.t0 = time.time()
+        self.t_points, self.i_points = [], []
 
-        self.camera.set_exposure_time(exp_time)
-        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        def body(runner, ctl):
+            runner.set_mirror("down")                         # el espectro se mide con el espejo abajo
+            runner.laser(laser, True)
+            t0 = time.monotonic()
+            for k in range(self.total_frames):
+                runner.check()
+                t_frame = time.monotonic()
+                try:
+                    spec, _mode = runner.spectrum_1d(exp_time)
+                except NodeFailed as e:
+                    self.statusSignal.emit(f"Cuadro {k + 1} fallido: {e}")
+                    continue
+                self.t_points.append(time.monotonic() - t0)
+                self.i_points.append(float(np.sum(spec)))
+                self.curr_frame = k + 1
+                pct = int(100.0 * self.curr_frame / max(1, self.total_frames))
+                self.dataUpdatedSignal.emit(wave, spec, np.array(self.t_points), np.array(self.i_points), min(pct, 99))
+                runner.wait(max(0.0, float(interval) - (time.monotonic() - t_frame)))
+            return "done"
 
-        open_shutter(self.laser_in_use)
-
-        self.timer.setInterval(int(max(50, interval * 1000)))
-        self.timer.start()
+        err = self.point_thread.start(body, camera=self.camera, spectrometer=self.spectrometer,
+                                      mirror=self._mirror_confirmed, runner_kwargs={"hw": self._hw()})
+        self._mirror_confirmed = None
+        if err:
+            self.statusSignal.emit(f"⛔ {err}")
+            self._emit_point_end()
 
     @pyqtSlot()
     def stop_luminescence(self):
-        self.timer.stop()
-        if self.laser_in_use:
-            close_shutter(self.laser_in_use)
-            self.laser_in_use = ""
-        hardware_session.release_session(self.SESSION_NAME_POINT)
+        self.point_thread.stop()
+
+    def _emit_point_end(self):
         self.dataUpdatedSignal.emit(np.array([]), np.array([]), np.array(self.t_points), np.array(self.i_points), 100)
 
-    def _step(self):
-        if hardware_session.is_emergency_stopped:
-            self.stop_luminescence()
-            return
+    @pyqtSlot(str)
+    def _on_point_finished(self, outcome: str):
+        self.laser_in_use = ""
+        if outcome.startswith(("safety", "error")):
+            self.statusSignal.emit("⛔ " + outcome.split(": ", 1)[-1])
+        self._emit_point_end()
 
-        if self.curr_frame >= self.total_frames:
-            self.stop_luminescence()
-            return
-
-        heartbeat_shutter(30.0)
-
-        frame = self.camera.get_most_recent_image()
-        spec = np.mean(frame, axis=0)
-
-        t_now = time.time() - self.t0
-        i_total = float(np.sum(spec))
-
-        self.t_points.append(t_now)
-        self.i_points.append(i_total)
-        self.curr_frame += 1
-
-        pct = int(100.0 * self.curr_frame / self.total_frames)
-        self.dataUpdatedSignal.emit(self.wave_axis, spec, np.array(self.t_points), np.array(self.i_points), pct)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Modo Grilla + Notch (Fase 7, DEC-021)
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── grilla ──
     @pyqtSlot()
     def use_current_position_as_origin(self):
         x, y, z = get_stage_coordinates()
@@ -567,144 +627,135 @@ class LuminescenceBackend(QtCore.QObject):
         zs = data[:, 2] if data.shape[1] > 2 else [None] * len(xs)
         self._set_pending_nodes(list(zip(xs.tolist(), ys.tolist(), [float(z) if z is not None else None for z in zs])))
 
-    def _set_pending_nodes(self, nodes: List[Tuple[float, float, Optional[float]]]):
+    def _set_pending_nodes(self, nodes):
         self._pending_nodes = nodes
-        xs = np.array([n[0] for n in nodes])
-        ys = np.array([n[1] for n in nodes])
-        self.gridPreviewSignal.emit(xs, ys)
+        self.gridPreviewSignal.emit(np.array([n[0] for n in nodes]), np.array([n[1] for n in nodes]))
 
     @pyqtSlot(dict)
     def start_grid(self, config: dict):
         if not self._pending_nodes:
             hardware_session.statusWarningSignal.emit("No hay grilla generada/cargada para iniciar.")
             return
-        if not hardware_session.acquire_session(self.SESSION_NAME_GRID):
+        wave = self._wave_axis()
+        if wave is None:
+            self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la grilla no arranca.")
             return
-
-        self.grid_config = config
+        self.grid_config = dict(config)
         self.nodes = list(self._pending_nodes)
         self.states = [NODE_PENDING] * len(self.nodes)
         self.idx = 0
+        save_dir = self.grid_config.get("save_dir") or self.data_dir
+
+        def body(runner, ctl):
+            laser = self.grid_config["laser"]
+            exp_time = float(self.grid_config["exp_time"])
+            every = max(1, int(self.grid_config.get("autofocus_every", 1)))
+            total = len(self.nodes)
+            while self.idx < total:
+                ctl.wait_while_paused(runner, lambda: self.gridNodeProgressSignal.emit(self.idx, total, "En pausa."))
+                if ctl.take_skip():
+                    self.states[self.idx] = NODE_DONE
+                    self.idx += 1
+                    self._emit_grid_state()
+                    continue
+                self.states[self.idx] = NODE_CURRENT
+                self._emit_grid_state()
+                x, y, z = self.nodes[self.idx]
+                try:
+                    self.gridNodeProgressSignal.emit(self.idx, total, "Moviendo platina...")
+                    runner.move_to(x, y, z)
+                    if self.idx % every == 0:
+                        self.gridNodeProgressSignal.emit(self.idx, total, "Autofoco Z...")
+                        runner.set_mirror("up")                  # el autofoco usa el fotodiodo confocal
+                        run_z_autofocus(laser_color=laser)
+                    self.gridNodeProgressSignal.emit(self.idx, total, "Adquiriendo luminiscencia...")
+                    runner.set_mirror("down")
+                    runner.laser(laser, True)
+                    try:
+                        spec, mode = runner.spectrum_1d(exp_time)
+                    finally:
+                        runner.laser(laser, False)
+                    self.gridSpectrumUpdateSignal.emit(wave, spec)
+                    self._save_node_result(self.idx, wave, spec, save_dir, mode)
+                    self.states[self.idx] = NODE_DONE
+                except NodeFailed as e:
+                    self.states[self.idx] = NODE_FAILED
+                    self._save_node_failure(self.idx, save_dir, str(e))
+                    self.gridNodeProgressSignal.emit(self.idx, total, f"Nodo fallido: {e}")
+                except GridSafetyPause as e:
+                    self.states[self.idx] = NODE_PENDING
+                    self._emit_grid_state()
+                    self.statusSignal.emit(f"⛔ {e} Reanudá cuando esté resuelto.")
+                    self.gridNodeProgressSignal.emit(self.idx, total, f"Pausa de seguridad: {e}")
+                    ctl.pause.set()
+                    continue
+                self.idx += 1
+                self._emit_grid_state()
+            return "done"
+
+        err = self.grid_thread.start(body, camera=self.camera, spectrometer=self.spectrometer,
+                                     mirror=self.grid_config.get("mirror"), runner_kwargs={"hw": self._hw()})
+        if err:
+            self.statusSignal.emit(f"⛔ {err}")
+            hardware_session.statusWarningSignal.emit(err)
+            return
         self._grid_running = True
         self._grid_paused = False
         self._grid_abort_requested = False
         self._emit_grid_state()
-        QTimer.singleShot(0, self._process_next_node)
 
     @pyqtSlot()
     def pause_grid(self):
         self._grid_paused = True
+        self.grid_thread.pause()
 
     @pyqtSlot()
     def resume_grid(self):
-        if self._grid_paused and self._grid_running:
-            self._grid_paused = False
-            QTimer.singleShot(0, self._process_next_node)
+        self._grid_paused = False
+        self.grid_thread.resume()
 
     @pyqtSlot()
     def next_node_grid(self):
-        if not self._grid_running or self.idx >= len(self.nodes):
-            return
-        self.states[self.idx] = NODE_DONE
-        self.idx += 1
-        self._emit_grid_state()
-        if not self._grid_paused:
-            QTimer.singleShot(0, self._process_next_node)
+        if self._grid_running:
+            self.grid_thread.skip()
 
     @pyqtSlot()
     def abort_grid(self):
         if not self._grid_running:
             return
         self._grid_abort_requested = True
+        self.grid_thread.stop()
+
+    @pyqtSlot(str)
+    def _on_grid_finished(self, outcome: str):
         self._grid_running = False
-        laser = self.grid_config.get("laser", "")
-        if laser:
-            try:
-                close_shutter(laser)
-            except Exception as e:
-                print(f"[LuminescenceGrid] Error cerrando obturador en abort: {e}")
-        hardware_session.release_session(self.SESSION_NAME_GRID)
+        if outcome.startswith(("safety", "error")):
+            self.statusSignal.emit("⛔ " + outcome.split(": ", 1)[-1])
         self.gridFinishedSignal.emit()
 
     def _emit_grid_state(self):
         xs = np.array([n[0] for n in self.nodes])
         ys = np.array([n[1] for n in self.nodes])
-        states = np.array(self.states)
-        self.gridStateChangedSignal.emit(xs, ys, states, self.idx)
+        self.gridStateChangedSignal.emit(xs, ys, np.array(self.states), self.idx)
 
-    def _check_grid_abort(self) -> bool:
-        if self._grid_abort_requested or hardware_session.is_emergency_stopped or not self._grid_running:
-            self.abort_grid()
-            return True
-        return False
-
-    def _process_next_node(self):
-        if self._check_grid_abort():
-            return
-        if self._grid_paused:
-            return
-        if self.idx >= len(self.nodes):
-            self._finish_grid()
-            return
-
-        self.states[self.idx] = NODE_CURRENT
-        self._emit_grid_state()
-        x, y, z = self.nodes[self.idx]
-        cfg = self.grid_config
-        laser = cfg["laser"]
-        exp_time = float(cfg["exp_time"])
-        autofocus_every = max(1, int(cfg.get("autofocus_every", 1)))
-
-        self.gridNodeProgressSignal.emit(self.idx, len(self.nodes), "Moviendo platina...")
-        heartbeat_shutter(30.0)
-        move_stage_to(x, y, z)
-        if self._check_grid_abort():
-            return
-
-        if self.idx % autofocus_every == 0:
-            self.gridNodeProgressSignal.emit(self.idx, len(self.nodes), "Autofoco Z...")
-            run_z_autofocus(laser_color=laser)
-        if self._check_grid_abort():
-            return
-
-        self.gridNodeProgressSignal.emit(self.idx, len(self.nodes), "Adquiriendo luminiscencia...")
-        self.camera.set_exposure_time(exp_time)
-        ret, wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-        open_shutter(laser)
-        try:
-            heartbeat_shutter(30.0)
-            spec = self._acquire_read_mode_aware()
-        finally:
-            close_shutter(laser)
-        if self._check_grid_abort():
-            return
-
-        self.gridSpectrumUpdateSignal.emit(wave_axis, spec)
-        self._save_node_result(self.idx, wave_axis, spec, cfg.get("save_dir", "."))
-
-        self.states[self.idx] = NODE_DONE
-        self.idx += 1
-        self._emit_grid_state()
-        QTimer.singleShot(0, self._process_next_node)
-
-    def _acquire_read_mode_aware(self) -> np.ndarray:
-        """Adquiere el espectro respetando el modo de lectura real activo de la cámara Andor:
-        Imagen 2D (promedio de filas) o FVB/Single Track (lectura 1D directa de hardware)."""
-        if self.camera.get_read_mode() == READ_MODE_IMAGE:
-            frame = self.camera.get_most_recent_image()
-            return np.mean(frame, axis=0)
-        return self.camera.get_1d_spectrum()
-
-    def _save_node_result(self, idx: int, wave_axis: np.ndarray, spec: np.ndarray, save_dir: str):
+    def _save_node_result(self, idx: int, wave_axis: np.ndarray, spec: np.ndarray, save_dir: str, mode: str = ""):
         try:
             os.makedirs(save_dir, exist_ok=True)
             base = os.path.join(save_dir, f"LuminescenceNode_{idx:03d}")
             np.savetxt(base + "_spectrum.txt", np.column_stack([wave_axis, spec]),
-                      header="wavelength_nm\tintensity", fmt="%.4f")
+                       header=f"wavelength_nm\tintensity  (una exposición real; lectura {mode})", fmt="%.4f")
         except OSError as e:
             print(f"[LuminescenceGrid] No se pudo guardar el nodo {idx}: {e}")
 
-    def _finish_grid(self):
-        self._grid_running = False
-        hardware_session.release_session(self.SESSION_NAME_GRID)
-        self.gridFinishedSignal.emit()
+    def _save_node_failure(self, idx: int, save_dir: str, reason: str):
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            with open(os.path.join(save_dir, f"LuminescenceNode_{idx:03d}_FAILED.txt"), "w", encoding="utf-8") as f:
+                f.write(reason + "\n")
+        except OSError as e:
+            print(f"[LuminescenceGrid] No se pudo registrar la falla del nodo {idx}: {e}")
+
+    def shutdown(self, timeout_ms: int = 3000):
+        a = self.point_thread.shutdown(timeout_ms)
+        b = self.grid_thread.shutdown(timeout_ms)
+        return [a, b]

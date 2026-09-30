@@ -220,6 +220,10 @@ class _MockShamrock:
     def ShamrockClose(self) -> int:
         return SHAMROCK_SUCCESS
 
+    def close(self):
+        """Como el driver real: el cierre de PySpectrum llama a close() (paso 13)."""
+        self.ShamrockClose()
+
     def ShamrockGetSerialNumber(self, device: int = DEVICE) -> Tuple[int, str]:
         with self._lock:
             return (SHAMROCK_SUCCESS, self._serial)

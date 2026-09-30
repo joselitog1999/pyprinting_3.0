@@ -97,6 +97,10 @@ THIRD_CONFIRMATION_STEPS = 50
 
 # Exposición máxima por cuadro en las rutinas (R4-4: hasta 10 s en Raman; el driver acepta 60 s, R4-B-9).
 MAX_ROUTINE_EXPOSURE_S = 10.0
+# Calibración automática de λ (paso 14, R4-D-4): exposición fija y tope de la rutina completa. Al llegar al
+# tope se detiene, cierra el 532 y registra lo medido como CANCELADA.
+CAL_EXPOSURE_S = 0.10
+CAL_MAX_DURATION_S = 600
 RATE_SINGLE_CHANNEL = 1.25e6
 RATE_MULTICHANNEL   = 1.0e6
 

@@ -71,6 +71,11 @@ def _isolate_specular_interlock():
     if inst is not None and isinstance(inst, sh_mod._MockShamrock):
         inst._raw_set_grating(sh_mod.GRATING_150_LINES)
         inst._raw_set_wavelength(532.0)
+    # El simulador de cámara oscurece con el obturador cerrado: cada test arranca en "auto".
+    an_mod = sys.modules.get("pyspectrum.drivers.andor_ccd_driver")
+    cam = getattr(an_mod, "_andor_instance", None) if an_mod else None
+    if cam is not None and isinstance(cam, an_mod._MockAndorCCD):
+        cam._shutter_mode = 0
     yield
     lock.publish(si.FIRST_ORDER, "estado inicial de los tests (conftest)")
     lock.note_gain_reading(-1, 0)

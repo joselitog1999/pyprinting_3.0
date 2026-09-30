@@ -88,24 +88,30 @@ class TestPySpectrumStability(unittest.TestCase):
         # 1. LuminescenceBackend
         laser_green = SHUTTERS[0]
         laser_red = SHUTTERS[1]
+        # AND-1: corre en su propio hilo; el espejo lo confirma el operador antes de cada corrida
         l_be = LuminescenceBackend(self.camera, self.spectrometer)
         for _ in range(10):
+            l_be.confirm_mirror("down")
             l_be.start_luminescence(laser_green, 0.05, 50, 0.1)
-            self.assertTrue(l_be.timer.isActive())
+            self.assertTrue(l_be.point_thread.running)
             l_be.stop_luminescence()
-            self.assertFalse(l_be.timer.isActive())
+            self.assertTrue(l_be.point_thread.wait_finished(10))
+            self.assertFalse(l_be.point_thread.running)
 
         # 2. GrowthKineticsBackend
         g_be = GrowthKineticsBackend(self.camera, self.spectrometer)
         for _ in range(10):
+            g_be.confirm_mirror("down")                # AND-1: lo confirma el operador
             g_be.start_growth(laser_red, 0.05, 50, 0.1)
-            self.assertTrue(g_be.timer.isActive())
+            self.assertTrue(g_be.point_thread.running)
             g_be.stop_growth()
-            self.assertFalse(g_be.timer.isActive())
+            self.assertTrue(g_be.point_thread.wait_finished(10))
+            self.assertFalse(g_be.point_thread.running)
 
         # 3. ConfocalBackend
         c_be = hyperspectral_confocal.Backend(self.camera, self.spectrometer)
         for _ in range(10):
+            c_be.confirm_mirror("down")  # AND-1: lo confirma el operador
             c_be.start_scan(45.0, 50.0, 45.0, 50.0, 1.0, 0.05)
             self.assertTrue(c_be.scan_timer.isActive())
             c_be.stop_scan()
@@ -159,6 +165,7 @@ class TestPySpectrumStability(unittest.TestCase):
     def test_hyperspectral_cube_allocation_memory(self):
         """Verifica que el hipercubo hiperespectral (X, Y, λ) se reserve e indexe sin errores de límites."""
         c_be = hyperspectral_confocal.Backend(self.camera, self.spectrometer)
+        c_be.confirm_mirror("down")  # AND-1: lo confirma el operador
         c_be.start_scan(xmin=48.0, xmax=52.0, ymin=48.0, ymax=52.0, step=2.0, exp_time=0.01)
 
         self.assertEqual(c_be.nx, 3)
@@ -229,18 +236,17 @@ class TestPySpectrumLegacyRoutines(unittest.TestCase):
         received_packets = []
         backend.dataUpdatedSignal.connect(lambda w, s, t, i, p: received_packets.append((w, s, t, i, p)))
 
+        backend.confirm_mirror("down")                     # AND-1: lo confirma el operador
         backend.start_luminescence(SHUTTERS[0], 0.02, 5, 0.05)
-        # Simular 5 pasos de adquisición
-        for _ in range(5):
-            backend._step()
+        self.assertTrue(backend.point_thread.wait_finished(20))   # 5 exposiciones reales en su hilo
 
-        self.assertGreaterEqual(len(received_packets), 5)
-        last_wave, last_spec, last_t, last_i, progress = received_packets[-1]
-        self.assertEqual(len(last_wave), 1004)
+        frames = [p for p in received_packets if len(p[0]) == 1004]
+        self.assertEqual(len(frames), 5)
+        last_wave, last_spec, last_t, last_i, _ = frames[-1]
         self.assertEqual(len(last_spec), 1004)
         self.assertEqual(len(last_t), 5)
         self.assertEqual(len(last_i), 5)
-        self.assertEqual(progress, 100)
+        self.assertEqual(received_packets[-1][4], 100)
 
         # I(t) debe ser positiva
         self.assertTrue(np.all(last_i > 0))
@@ -257,9 +263,9 @@ class TestPySpectrumLegacyRoutines(unittest.TestCase):
             lambda w, s, wf, sf, t, lm_axis, lmax, p: results.append((lmax, p))
         )
 
+        backend.confirm_mirror("down")                 # AND-1: exposiciones reales en su hilo
         backend.start_growth(SHUTTERS[1], 0.02, 3, 0.05)
-        for _ in range(3):
-            backend._step()
+        self.assertTrue(backend.point_thread.wait_finished(20))
 
         self.assertEqual(len(results), 3)
         for lmax, p in results:
@@ -276,13 +282,15 @@ class TestPySpectrumLegacyRoutines(unittest.TestCase):
         emitted_diffs = []
         backend.dimerDataSignal.connect(lambda mode, w, s, diff: emitted_diffs.append((mode, diff)))
 
-        # 1. Polarización paralela
+        # 1. Polarización paralela (una exposición real en su hilo, AND-1)
         backend.acquire_polarization("parallel", 0.05)
+        self.assertTrue(backend.pol_thread.wait_finished(10))
         self.assertEqual(emitted_diffs[-1][0], "parallel")
         self.assertEqual(len(emitted_diffs[-1][1]), 0)  # Aún no hay perpendicular para restar
 
         # 2. Polarización perpendicular
         backend.acquire_polarization("perpendicular", 0.05)
+        self.assertTrue(backend.pol_thread.wait_finished(10))
         self.assertEqual(emitted_diffs[-1][0], "perpendicular")
         diff_spectrum = emitted_diffs[-1][1]
         self.assertEqual(len(diff_spectrum), 1004)
@@ -349,12 +357,18 @@ class TestPySpectrumSafety(unittest.TestCase):
         idx = SHUTTERS.index(laser)
         self.assertEqual(nidaq._shutter_signal[idx], not SHUTTER_POLARITY[laser])
 
-        # Inicio -> Debe abrirse
+        # Inicio -> Debe abrirse (en el hilo de la rutina, después de bajar el espejo; AND-1)
+        l_be.confirm_mirror("down")
         l_be.start_luminescence(laser, 0.05, 10, 0.1)
+        import time as _t
+        t_end = _t.monotonic() + 5
+        while nidaq._shutter_signal[idx] != SHUTTER_POLARITY[laser] and _t.monotonic() < t_end:
+            _t.sleep(0.01)
         self.assertEqual(nidaq._shutter_signal[idx], SHUTTER_POLARITY[laser])
 
         # Detención normal -> Debe cerrarse
         l_be.stop_luminescence()
+        self.assertTrue(l_be.point_thread.wait_finished(10))
         self.assertEqual(nidaq._shutter_signal[idx], not SHUTTER_POLARITY[laser])
 
     def test_heartbeat_watchdog_renewed_during_acquisition(self):
@@ -393,6 +407,7 @@ class TestPySpectrumSafety(unittest.TestCase):
         """Verifica que las coordenadas del escaneo confocal hiperespectral se clampeen a [0.0, 100.0] µm."""
         c_be = hyperspectral_confocal.Backend(self.camera, self.spectrometer)
         # Intentar valores peligrosamente fuera de rango: -30 µm a 160 µm
+        c_be.confirm_mirror("down")  # AND-1: lo confirma el operador
         c_be.start_scan(xmin=-30.0, xmax=160.0, ymin=-10.0, ymax=115.0, step=10.0, exp_time=0.01)
 
         self.assertGreaterEqual(c_be.xs[0], 0.0, "Coordenada X mínima menor a 0.0 µm")

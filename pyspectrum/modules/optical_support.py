@@ -30,8 +30,9 @@ def run_z_autofocus(laser_color: str = "532 nm (green)", timeout_s: float = 15.0
     autocorrelación (autodoneSignal se emitió antes de finalizar/timeout)."""
     from modules.focus import Backend as FocusBackend
     from config import SHUTTERS
-    from core.nidaq import heartbeat_shutter
+    from pyspectrum.modules.step_glue_engine import heartbeat_tick
 
+    tick = heartbeat_tick()
     fb = backend or FocusBackend()
     if laser_color in SHUTTERS:
         fb.laser = laser_color
@@ -49,7 +50,7 @@ def run_z_autofocus(laser_color: str = "532 nm (green)", timeout_s: float = 15.0
     fb.autofinishSignal.connect(_on_finish)
 
     heartbeat_timer = QTimer()
-    heartbeat_timer.timeout.connect(lambda: heartbeat_shutter(30.0))
+    heartbeat_timer.timeout.connect(tick)
     heartbeat_timer.start(5000)
 
     timeout_timer = QTimer()
@@ -58,7 +59,7 @@ def run_z_autofocus(laser_color: str = "532 nm (green)", timeout_s: float = 15.0
     timeout_timer.start(max(1, int(timeout_s * 1000)))
 
     try:
-        heartbeat_shutter(30.0)
+        tick()
         QMetaObject.invokeMethod(fb, "focus_autocorr_lin_x2", Qt.ConnectionType.QueuedConnection, Q_ARG(str, "pyspectrum"))
         loop.exec()
     finally:
@@ -92,32 +93,36 @@ def read_photodiode_level(n_samples: int = 5, channel_index: int = 0) -> float:
 _read_photodiode_sample = read_photodiode_level
 
 
+class StageNotOnTarget(RuntimeError):
+    """La platina no confirmó la llegada (C-54, DEC-036). Los obturadores ya se cerraron."""
+
+
 def move_stage_to(x_um: float, y_um: float, z_um: Optional[float] = None, timeout_s: float = 5.0) -> Tuple[float, float, float]:
-    """Desplaza la platina piezoeléctrica PI a (x_um, y_um[, z_um]), clampeando explícitamente a
-    [0, PI_STAGE_RANGE_UM] (además del clamping interno de config.pi.MOV) y esperando confirmación
-    real de asentamiento en lazo cerrado (pi.qONT()) con un timeout de seguridad propio — a
-    diferencia de core/nanopositioning.py, que no tiene timeout en su espera equivalente. Si
-    z_um es None, el eje Z no se toca (permite escaneos puramente XY). Devuelve la posición real
-    final leída por pi.qPOS()."""
-    from config import pi, PI_STAGE_RANGE_UM, PI_Z_RANGE_UM
+    """Desplaza la platina PI a (x_um, y_um[, z_um]), clampeada al recorrido de cada eje, y espera la
+    confirmación on-target con `config.wait_on_target` (tope `timeout_s`, latiendo). Si z_um es None, Z no
+    se toca. Devuelve la posición leída.
 
-    x_c = float(np.clip(x_um, 0.0, PI_STAGE_RANGE_UM))
-    y_c = float(np.clip(y_um, 0.0, PI_STAGE_RANGE_UM))
+    C-54 (AND-1): si la platina no confirma la llegada, cierra los obturadores y levanta
+    `StageNotOnTarget`. Antes seguía en silencio y devolvía la posición actual como si hubiera llegado."""
+    import config
+    from config import clamp_axis_um, wait_on_target
+    from pyspectrum.modules.step_glue_engine import heartbeat_tick
+
     axes = [1, 2]
-    targets = [x_c, y_c]
+    targets = [clamp_axis_um(1, x_um), clamp_axis_um(2, y_um)]
     if z_um is not None:
-        z_c = float(np.clip(z_um, 0.0, PI_Z_RANGE_UM))
         axes.append(3)
-        targets.append(z_c)
+        targets.append(clamp_axis_um(3, z_um))
 
-    pi.MOV(axes, targets)
-    t0 = time.time()
-    while time.time() - t0 < timeout_s:
-        if all(pi.qONT(axes).values()):
-            break
-        time.sleep(0.01)
-
-    pos = pi.qPOS()
+    stage = config.pi
+    ok = stage.MOV(axes, targets) is not False and wait_on_target(axes, timeout_s=timeout_s,
+                                                                   on_tick=heartbeat_tick(), stage=stage)
+    if not ok:
+        from core import nidaq
+        nidaq.close_all_shutters()
+        raise StageNotOnTarget(f"La platina no confirmó la llegada a {tuple(round(t, 3) for t in targets)} µm "
+                               f"en {timeout_s:g} s. Obturadores cerrados.")
+    pos = stage.qPOS()
     return (float(pos["1"]), float(pos["2"]), float(pos["3"]))
 
 
@@ -130,7 +135,8 @@ def run_confocal_centering(range_um: float = 1.0, pixels: int = 20, method: str 
     µm. Devuelve las coordenadas físicas optimizadas."""
     from config import pi, PI_STAGE_RANGE_UM
     from psf import center_of_mass, center_of_gauss2D
-    from core.nidaq import heartbeat_shutter
+    from pyspectrum.modules.step_glue_engine import heartbeat_tick
+    tick = heartbeat_tick()
 
     pos0 = pi.qPOS()
     x0, y0 = float(pos0["1"]), float(pos0["2"])
@@ -143,7 +149,7 @@ def run_confocal_centering(range_um: float = 1.0, pixels: int = 20, method: str 
         for ix, x in enumerate(xs):
             pi.MOV(1, float(np.clip(x, 0.0, PI_STAGE_RANGE_UM)))
             pi.MOV(2, float(np.clip(y, 0.0, PI_STAGE_RANGE_UM)))
-            heartbeat_shutter(30.0)
+            tick()
             image[iy, ix] = _read_photodiode_sample()
 
     cx, cy = center_of_mass(image)
@@ -160,9 +166,8 @@ def run_confocal_centering(range_um: float = 1.0, pixels: int = 20, method: str 
     x_target = float(np.clip(x_target, 0.0, PI_STAGE_RANGE_UM))
     y_target = float(np.clip(y_target, 0.0, PI_STAGE_RANGE_UM))
 
-    pi.MOV(1, x_target)
-    pi.MOV(2, y_target)
-
+    # la posición final sí importa: se confirma (C-54)
+    move_stage_to(x_target, y_target, None)
     return (x_target, y_target)
 
 

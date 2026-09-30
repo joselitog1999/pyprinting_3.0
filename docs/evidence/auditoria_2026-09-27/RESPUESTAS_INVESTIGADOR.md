@@ -577,6 +577,22 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
    `sigmoidal_step_and_glue`). El escaneo lineal usa el motor de Step & Glue sólo para adquirir cada
    ventana. La unificación queda para una ronda con metrología.
 
+**R4-J — Cierre de PySpectrum y satélites (2026-09-29, después del paso 13).**
+1. **Espejo de detección al cerrar:** sí, se baja como en el legado (`Shutters_ps.py:201`).
+   - *Implementación:* el cierre lo baja después de cerrar la cámara, **sólo** si los obturadores confirmaron el cierre, igual que la platina. Abajo manda la luz al espectrómetro, y un obturador sin confirmar cuenta como abierto (DEC-036).
+2. **Contrapropagante abierto desde PySpectrum:** sí, también es huésped. No conecta la platina al abrirse (`core/host_context.HostContext`). Suelto no cambia.
+
+**R4-K — AND-1, rutinas de grilla (2026-09-30).**
+1. **Hilo propio** para crecimiento, dímeros y luminiscencia: sí.
+2. **Espejo de detección:**
+   - la posición inicial la pone y la confirma el operador; los movimientos siguientes los hace la rutina;
+   - el espectro se mide con el espejo **abajo**, también en el crecimiento (el legado lo ponía arriba).
+3. **Filtro de densidad y láser del centrado:** como el legado.
+4. **Crecimiento:** una serie de exposiciones reales.
+5. **Espectro final de dímeros:** se quita.
+6. **Nodo con la exposición fallida:** se marca, se guarda y la grilla sigue. Las fallas de seguridad pausan.
+7. **Pausa del crecimiento:** cierra el láser, y seguir lo reabre.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** resuelto en R4-G, que reemplaza a R4-3: valen los guardados en el equipo (150 → 87, 1200 → 195, espejo → 60, detector → 0). Falta definir el protocolo del detector.

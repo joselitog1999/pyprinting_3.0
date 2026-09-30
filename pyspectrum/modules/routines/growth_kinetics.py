@@ -25,8 +25,11 @@ from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.modules.hardware_session import hardware_session
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
+from pyspectrum.modules.routines.grid_runner import GridSafetyPause, NodeFailed
+from pyspectrum.modules.routines.routine_thread import RoutineThread, mirror_choice, mirror_combo
 from pyspectrum.modules.optical_support import (
     run_z_autofocus, run_confocal_centering, move_stage_to, get_stage_coordinates, read_photodiode_level,
+    StageNotOnTarget,
 )
 
 
@@ -44,7 +47,8 @@ _GROWTH_KINETICS_CONTROLS_STYLE = """
 NODE_PENDING = 0
 NODE_CURRENT = 1
 NODE_DONE = 2
-_NODE_STATE_COLORS = {NODE_PENDING: "#45475A", NODE_CURRENT: "#F9E2AF", NODE_DONE: "#A6E3A1"}
+NODE_FAILED = 3          # la exposición del nodo falló (AND-1, R4-K P6): se registra y la grilla sigue
+_NODE_STATE_COLORS = {NODE_PENDING: "#45475A", NODE_CURRENT: "#F9E2AF", NODE_DONE: "#A6E3A1", NODE_FAILED: "#F38BA8"}
 
 
 class GrowthKineticsPanel(QtWidgets.QWidget):
@@ -57,6 +61,7 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
 
     # ── Señales del modo puntual histórico (sin cambios, Fase 1-5) ──────────────
     startGrowthSignal = pyqtSignal(str, float, int, float)
+    mirrorConfirmedSignal = pyqtSignal(str)  # el operador confirma dónde está el espejo antes de iniciar (R4-K)
     stopGrowthSignal = pyqtSignal()
 
     # ── Señales del modo grilla automatizada (Fase 6) ────────────────────────────
@@ -123,6 +128,10 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
         self.btn_run.clicked.connect(self._on_toggle_run)
         ctrl_vlo.addWidget(self.btn_run)
 
+        self.cmb_mirror = mirror_combo()
+        ctrl_vlo.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"))
+        ctrl_vlo.addWidget(self.cmb_mirror)
+
         self.progress_bar = QtWidgets.QProgressBar()
         self.progress_bar.setStyleSheet("QProgressBar { border: 1px solid #45475A; border-radius: 4px; text-align: center; color: #CDD6F4; } QProgressBar::chunk { background-color: #FAB387; }")
         self.progress_bar.setValue(0)
@@ -158,6 +167,13 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
                 exp = float(self.edit_exp.text())
                 n_frames = int(self.edit_nframes.text())
                 interval = float(self.edit_interval.text())
+                mirror = mirror_choice(self.cmb_mirror)
+                if mirror is None:
+                    self.btn_run.setChecked(False)
+                    self.lbl_peak.setText("Confirmá dónde está el espejo de detección antes de iniciar.")
+                    return
+                self.mirrorConfirmedSignal.emit(mirror)
+                self.cmb_mirror.setCurrentIndex(0)
 
                 self.btn_run.setText("⏹️ Detener Crecimiento")
                 self.btn_run.setStyleSheet("background-color: #F38BA8; color: #11111B;")
@@ -271,12 +287,17 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
 
         # Directorio de guardado
         save_row = QtWidgets.QHBoxLayout()
-        self.edit_save_dir = QtWidgets.QLineEdit(os.path.join(os.getcwd(), "growth_grid_data"))
+        self.edit_save_dir = QtWidgets.QLineEdit("")
+        self.edit_save_dir.setPlaceholderText("carpeta de trabajo/growth")
         self.btn_pick_save_dir = QtWidgets.QPushButton("📁")
         self.btn_pick_save_dir.clicked.connect(self._on_pick_save_dir)
         save_row.addWidget(self.edit_save_dir)
         save_row.addWidget(self.btn_pick_save_dir)
         ctrl_vlo.addLayout(save_row)
+
+        self.cmb_grid_mirror = mirror_combo()
+        ctrl_vlo.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"))
+        ctrl_vlo.addWidget(self.cmb_grid_mirror)
 
         # Controles de ejecución
         exec_row = QtWidgets.QHBoxLayout()
@@ -360,8 +381,13 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
             "photodiode_drop_pct": self.spin_photodiode_drop.value(),
             "t_max_s": self.spin_tmax.value(),
             "interval_s": 0.2,
-            "save_dir": self.edit_save_dir.text().strip() or ".",
+            "save_dir": self.edit_save_dir.text().strip(),
+            "mirror": mirror_choice(self.cmb_grid_mirror),
         }
+        if config["mirror"] is None:
+            self.lbl_grid_progress.setText("Confirmá dónde está el espejo de detección antes de iniciar la grilla.")
+            return
+        self.cmb_grid_mirror.setCurrentIndex(0)
         self.startGridSignal.emit(config)
 
     @pyqtSlot(np.ndarray, np.ndarray)
@@ -408,7 +434,7 @@ class GrowthKineticsWidget(QtWidgets.QDialog):
         self.panel = GrowthKineticsPanel(self)
         lay.addWidget(self.panel)
 
-        for attr_name in ("cmb_laser", "edit_exp", "edit_nframes", "edit_interval",
+        for attr_name in ("cmb_laser", "edit_exp", "edit_nframes", "edit_interval", "cmb_mirror", "cmb_grid_mirror",
                           "btn_run", "progress_bar", "lbl_peak", "plot_spec", "curve_spec",
                           "curve_fit", "plot_spr_time", "curve_spr",
                           "btn_generate_grid", "btn_load_grid", "btn_use_current_pos",
@@ -417,7 +443,7 @@ class GrowthKineticsWidget(QtWidgets.QDialog):
                           "plot_grid_spec", "curve_grid_spec"):
             setattr(self, attr_name, getattr(self.panel, attr_name))
 
-        for sig_name in ("startGrowthSignal", "stopGrowthSignal", "generateGridSignal", "loadGridFileSignal",
+        for sig_name in ("startGrowthSignal", "stopGrowthSignal", "mirrorConfirmedSignal", "generateGridSignal", "loadGridFileSignal",
                          "useCurrentPosSignal", "startGridSignal", "pauseGridSignal", "resumeGridSignal",
                          "nextNodeGridSignal", "abortGridSignal"):
             setattr(self, sig_name, getattr(self.panel, sig_name))
@@ -432,12 +458,20 @@ class GrowthKineticsWidget(QtWidgets.QDialog):
 
 
 class GrowthKineticsBackend(QtCore.QObject):
-    """Motor de adquisición y ajuste continuo para cinética de crecimiento (modo puntual
-    histórico, Fase 1-5) más la máquina de estados de grilla automatizada (Fase 6, DEC-020)."""
+    """Cinética de crecimiento puntual y en grilla sobre las primitivas del bloque A (AND-1, parte 4; R4-K).
+
+    En su propio hilo. Por nodo, como el legado (`Growth_ps.py`) con las correcciones de R4-K:
+    1. platina con llegada confirmada;
+    2. autofoco con potencia baja y el espejo arriba (fotodiodo confocal);
+    3. centrado de la semilla con potencia baja, el espejo arriba y el láser ABIERTO (antes se centraba con
+       el láser cerrado);
+    4. crecimiento con potencia alta, el espejo abajo y el láser abierto: una serie de exposiciones reales
+       (P4) con los criterios de parada A (λ_max), B (fotodiodo) y C (tiempo máximo).
+    La pausa cierra el láser y seguir lo reabre (P7). Un nodo con una exposición fallida queda FALLIDO y la
+    grilla sigue (P6); una platina que no llega pausa con los obturadores cerrados (DEC-036)."""
 
     growthUpdatedSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, int)
-
-    # ── Señales del modo grilla (Fase 6) ─────────────────────────────────────────
+    statusSignal = pyqtSignal(str)
     gridPreviewSignal = pyqtSignal(np.ndarray, np.ndarray)
     gridStateChangedSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, int)
     gridNodeProgressSignal = pyqtSignal(int, int, str)
@@ -452,18 +486,14 @@ class GrowthKineticsBackend(QtCore.QObject):
         super().__init__(parent)
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
-
-        # Estado modo puntual (histórico)
-        self.t_points = []
-        self.lmax_points = []
+        self.t_points: List[float] = []
+        self.lmax_points: List[float] = []
         self.curr_frame = 0
         self.total_frames = 200
         self.laser_in_use = ""
+        self.timer = QTimer(self)                  # compatibilidad: ya no maneja la adquisición
+        self._mirror_confirmed: Optional[str] = None
 
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._step)
-
-        # Estado modo grilla (Fase 6)
         self._pending_nodes: List[Tuple[float, float, Optional[float]]] = []
         self.nodes: List[Tuple[float, float, Optional[float]]] = []
         self.states: List[int] = []
@@ -476,15 +506,21 @@ class GrowthKineticsBackend(QtCore.QObject):
         self._node_lmax_points: List[float] = []
         self._node_last_spec: np.ndarray = np.array([])
         self._node_last_wave: np.ndarray = np.array([])
+        base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or os.path.join(os.path.expanduser("~"), "Documents", "Data_PySpectrum")
+        self.data_dir = os.path.join(base, "growth")
 
+        self.point_thread = RoutineThread(self.SESSION_NAME_POINT, self)
+        self.grid_thread = RoutineThread(self.SESSION_NAME_GRID, self)
+        self.point_thread.finished.connect(self._on_point_finished)
+        self.grid_thread.finished.connect(self._on_grid_finished)
         hardware_session.emergencyStopSignal.connect(self.stop_growth)
         hardware_session.emergencyStopSignal.connect(self.abort_grid)
 
-    def make_connection(self, widget: GrowthKineticsWidget):
+    def make_connection(self, widget):
         widget.startGrowthSignal.connect(self.start_growth)
         widget.stopGrowthSignal.connect(self.stop_growth)
+        widget.mirrorConfirmedSignal.connect(self.confirm_mirror)
         self.growthUpdatedSignal.connect(widget.update_growth_data)
-
         widget.generateGridSignal.connect(self.generate_grid)
         widget.loadGridFileSignal.connect(self.load_grid_file)
         widget.useCurrentPosSignal.connect(self.use_current_position_as_origin)
@@ -493,73 +529,93 @@ class GrowthKineticsBackend(QtCore.QObject):
         widget.resumeGridSignal.connect(self.resume_grid)
         widget.nextNodeGridSignal.connect(self.next_node_grid)
         widget.abortGridSignal.connect(self.abort_grid)
-
         self.gridPreviewSignal.connect(widget.preview_grid)
         self.gridStateChangedSignal.connect(widget.update_grid_state)
         self.gridNodeProgressSignal.connect(widget.update_grid_progress)
         self.gridSpectralUpdateSignal.connect(widget.update_grid_spectrum)
         self.gridFinishedSignal.connect(widget.on_grid_finished)
         self.originUpdatedSignal.connect(widget.set_origin_fields)
+        if hasattr(widget, "lbl_grid_progress"):
+            self.statusSignal.connect(widget.lbl_grid_progress.setText)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Modo Puntual histórico (Fase 1-5, intacto)
-    # ══════════════════════════════════════════════════════════════════════════
+    @pyqtSlot(str)
+    def confirm_mirror(self, position: str):
+        if position in ("up", "down"):
+            self._mirror_confirmed = position
+
+    def _hw(self):
+        """Las acciones del hardware por los nombres de este módulo (los tests los interceptan acá)."""
+        from types import SimpleNamespace
+        from core import nidaq
+        mod = __import__(__name__, fromlist=["open_shutter"])
+        return SimpleNamespace(open_shutter=lambda n: mod.open_shutter(n), close_shutter=lambda n: mod.close_shutter(n),
+                               close_all_shutters=nidaq.close_all_shutters, up_flipper=nidaq.up_flipper,
+                               down_flipper=nidaq.down_flipper, flipper_notch532=nidaq.flipper_notch532)
+
+    def _wave_axis(self):
+        ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        axis = np.asarray(axis, dtype=np.float64)
+        if ret != 20202 or axis.size != 1004 or not np.all(np.isfinite(axis)):
+            print(f"[{type(self).__name__}] Eje λ no confiable: código {ret}, {axis.size} puntos")
+            return None
+        return axis
+
+    @staticmethod
+    def _fit(wave, spec):
+        return fit_signal_polynomial(wave, spec, ends_notch=wave[0] + 10, final_wave=wave[-1] - 10)
+
+    # ── modo puntual ──
     @pyqtSlot(str, float, int, float)
     def start_growth(self, laser: str, exp_time: float, n_frames: int, interval: float):
-        if not hardware_session.acquire_session(self.SESSION_NAME_POINT):
-            self.stop_growth()
+        wave = self._wave_axis()
+        if wave is None:
+            self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la medición no arranca.")
             return
-
+        self.wave_axis = wave
         self.laser_in_use = laser
-        self.total_frames = n_frames
+        self.total_frames = int(n_frames)
         self.curr_frame = 0
-        self.t_points = []
-        self.lmax_points = []
-        self.t0 = time.time()
+        self.t_points, self.lmax_points = [], []
 
-        self.camera.set_exposure_time(exp_time)
-        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        def body(runner, ctl):
+            runner.set_mirror("down")
+            runner.laser(laser, True)
+            t0 = time.monotonic()
+            for k in range(self.total_frames):
+                runner.check()
+                t_frame = time.monotonic()
+                try:
+                    spec, _mode = runner.spectrum_1d(exp_time)
+                except NodeFailed as e:
+                    self.statusSignal.emit(f"Cuadro {k + 1} fallido: {e}")
+                    continue
+                wave_fit, spec_fit, lmax = self._fit(wave, spec)
+                self.t_points.append(time.monotonic() - t0)
+                self.lmax_points.append(float(lmax))
+                self.curr_frame = k + 1
+                pct = int(100.0 * self.curr_frame / max(1, self.total_frames))
+                self.growthUpdatedSignal.emit(wave, spec, wave_fit, spec_fit, np.array(self.t_points),
+                                              np.array(self.lmax_points), float(lmax), pct)
+                runner.wait(max(0.0, float(interval) - (time.monotonic() - t_frame)))
+            return "done"
 
-        open_shutter(self.laser_in_use)
-        self.timer.setInterval(int(max(50, interval * 1000)))
-        self.timer.start()
+        err = self.point_thread.start(body, camera=self.camera, spectrometer=self.spectrometer,
+                                      mirror=self._mirror_confirmed, runner_kwargs={"hw": self._hw()})
+        self._mirror_confirmed = None
+        if err:
+            self.statusSignal.emit(f"⛔ {err}")
 
     @pyqtSlot()
     def stop_growth(self):
-        self.timer.stop()
-        if self.laser_in_use:
-            close_shutter(self.laser_in_use)
-            self.laser_in_use = ""
-        hardware_session.release_session(self.SESSION_NAME_POINT)
+        self.point_thread.stop()
 
-    def _step(self):
-        if hardware_session.is_emergency_stopped:
-            self.stop_growth()
-            return
+    @pyqtSlot(str)
+    def _on_point_finished(self, outcome: str):
+        self.laser_in_use = ""
+        if outcome.startswith(("safety", "error")):
+            self.statusSignal.emit("⛔ " + outcome.split(": ", 1)[-1])
 
-        if self.curr_frame >= self.total_frames:
-            self.stop_growth()
-            return
-
-        heartbeat_shutter(30.0)
-
-        frame = self.camera.get_most_recent_image()
-        spec = np.mean(frame, axis=0)
-
-        wave_fit, spec_fit, lmax = fit_signal_polynomial(self.wave_axis, spec, ends_notch=self.wave_axis[0] + 10, final_wave=self.wave_axis[-1] - 10)
-
-        t_now = time.time() - self.t0
-        self.t_points.append(t_now)
-        self.lmax_points.append(lmax)
-        self.curr_frame += 1
-
-        pct = int(100.0 * self.curr_frame / self.total_frames)
-        self.growthUpdatedSignal.emit(self.wave_axis, spec, wave_fit, spec_fit,
-                                      np.array(self.t_points), np.array(self.lmax_points), lmax, pct)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Modo Grilla Automatizada (Fase 6, DEC-020)
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── grilla ──
     @pyqtSlot()
     def use_current_position_as_origin(self):
         x, y, z = get_stage_coordinates()
@@ -567,9 +623,7 @@ class GrowthKineticsBackend(QtCore.QObject):
 
     @pyqtSlot(int, int, float, float, float, float, float)
     def generate_grid(self, rows: int, cols: int, dx_um: float, dy_um: float, x0: float, y0: float, z0: float):
-        """Genera una grilla rectangular N×M de nodos absolutos (µm), análoga al generador
-        paramétrico del legado Growth_ps.py::grid_create, pero produciendo coordenadas
-        absolutas directamente (el origen X0/Y0/Z0 hace las veces de la antigua 'referencia')."""
+        """Grilla rectangular N×M de nodos absolutos (µm), como `Growth_ps.py::grid_create`."""
         nodes = []
         for i in range(rows):
             for j in range(cols):
@@ -578,8 +632,6 @@ class GrowthKineticsBackend(QtCore.QObject):
 
     @pyqtSlot(str)
     def load_grid_file(self, path: str):
-        """Carga una grilla desde un archivo .txt (formato legado: matriz 2×N/3×N o lista
-        N×2/N×3 de coordenadas X,Y[,Z] en µm; se detecta automáticamente la orientación)."""
         data = np.loadtxt(path)
         if data.ndim == 1:
             data = data.reshape(1, -1)
@@ -590,187 +642,174 @@ class GrowthKineticsBackend(QtCore.QObject):
         zs = data[:, 2] if data.shape[1] > 2 else [None] * len(xs)
         self._set_pending_nodes(list(zip(xs.tolist(), ys.tolist(), [float(z) if z is not None else None for z in zs])))
 
-    def _set_pending_nodes(self, nodes: List[Tuple[float, float, Optional[float]]]):
+    def _set_pending_nodes(self, nodes):
         self._pending_nodes = nodes
-        xs = np.array([n[0] for n in nodes])
-        ys = np.array([n[1] for n in nodes])
-        self.gridPreviewSignal.emit(xs, ys)
+        self.gridPreviewSignal.emit(np.array([n[0] for n in nodes]), np.array([n[1] for n in nodes]))
 
     @pyqtSlot(dict)
     def start_grid(self, config: dict):
         if not self._pending_nodes:
             hardware_session.statusWarningSignal.emit("No hay grilla generada/cargada para iniciar.")
             return
-        if not hardware_session.acquire_session(self.SESSION_NAME_GRID):
+        wave = self._wave_axis()
+        if wave is None:
+            self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la grilla no arranca.")
             return
-
-        self.grid_config = config
+        self.grid_config = dict(config)
         self.nodes = list(self._pending_nodes)
         self.states = [NODE_PENDING] * len(self.nodes)
         self.idx = 0
+        save_dir = self.grid_config.get("save_dir") or self.data_dir
+
+        def body(runner, ctl):
+            cfg = self.grid_config
+            laser = cfg["laser"]
+            every = max(1, int(cfg.get("autofocus_every", 1)))
+            total = len(self.nodes)
+            while self.idx < total:
+                ctl.wait_while_paused(runner, lambda: self.gridNodeProgressSignal.emit(self.idx, total, "En pausa."))
+                if ctl.take_skip():
+                    self.states[self.idx] = NODE_DONE
+                    self.idx += 1
+                    self._emit_grid_state()
+                    continue
+                self.states[self.idx] = NODE_CURRENT
+                self._emit_grid_state()
+                x, y, z = self.nodes[self.idx]
+                try:
+                    self.gridNodeProgressSignal.emit(self.idx, total, "Moviendo platina...")
+                    runner.move_to(x, y, z)
+                    if self.idx % every == 0:
+                        self.gridNodeProgressSignal.emit(self.idx, total, "Autofoco Z...")
+                        runner.set_power("low")
+                        runner.set_mirror("up")
+                        run_z_autofocus(laser_color=laser)
+                    if cfg.get("center_seed", False):
+                        self.gridNodeProgressSignal.emit(self.idx, total, "Centrado confocal de semilla...")
+                        runner.set_power("low")
+                        runner.set_mirror("up")
+                        runner.laser(laser, True)              # el centrado ve la semilla con el láser
+                        try:
+                            run_confocal_centering(range_um=1.0)
+                        except StageNotOnTarget as e:
+                            raise GridSafetyPause(str(e))
+                        finally:
+                            runner.laser(laser, False)
+                    self.gridNodeProgressSignal.emit(self.idx, total, "Irradiando y trackeando SPR...")
+                    runner.set_power("high")
+                    runner.set_mirror("down")                  # el espectro se mide con el espejo abajo (R4-K)
+                    runner.laser(laser, True)
+                    try:
+                        self._track_node_spectrum(runner, ctl, wave, cfg)
+                    finally:
+                        runner.laser(laser, False)
+                    self._save_node_result(self.idx, wave, self._node_last_spec, self._node_t_points,
+                                           self._node_lmax_points, save_dir)
+                    self.states[self.idx] = NODE_DONE
+                except NodeFailed as e:
+                    self.states[self.idx] = NODE_FAILED
+                    self._save_node_failure(self.idx, save_dir, str(e))
+                    self.gridNodeProgressSignal.emit(self.idx, total, f"Nodo fallido: {e}")
+                except GridSafetyPause as e:
+                    self.states[self.idx] = NODE_PENDING
+                    self._emit_grid_state()
+                    self.statusSignal.emit(f"⛔ {e} Reanudá cuando esté resuelto.")
+                    ctl.pause.set()
+                    continue
+                self.idx += 1
+                self._emit_grid_state()
+            return "done"
+
+        err = self.grid_thread.start(body, camera=self.camera, spectrometer=self.spectrometer,
+                                     mirror=self.grid_config.get("mirror"), runner_kwargs={"hw": self._hw()})
+        if err:
+            self.statusSignal.emit(f"⛔ {err}")
+            hardware_session.statusWarningSignal.emit(err)
+            return
         self._grid_running = True
         self._grid_paused = False
         self._grid_abort_requested = False
         self._emit_grid_state()
-        QTimer.singleShot(0, self._process_next_node)
 
-    @pyqtSlot()
-    def pause_grid(self):
-        self._grid_paused = True
-
-    @pyqtSlot()
-    def resume_grid(self):
-        if self._grid_paused and self._grid_running:
-            self._grid_paused = False
-            QTimer.singleShot(0, self._process_next_node)
-
-    @pyqtSlot()
-    def next_node_grid(self):
-        if not self._grid_running or self.idx >= len(self.nodes):
-            return
-        self.states[self.idx] = NODE_DONE
-        self.idx += 1
-        self._emit_grid_state()
-        if not self._grid_paused:
-            QTimer.singleShot(0, self._process_next_node)
-
-    @pyqtSlot()
-    def abort_grid(self):
-        if not self._grid_running:
-            return
-        self._grid_abort_requested = True
-        self._grid_running = False
-        laser = self.grid_config.get("laser", "")
-        if laser:
-            try:
-                close_shutter(laser)
-            except Exception as e:
-                print(f"[GrowthGrid] Error cerrando obturador en abort: {e}")
-        hardware_session.release_session(self.SESSION_NAME_GRID)
-        self.gridFinishedSignal.emit()
-
-    def _emit_grid_state(self):
-        xs = np.array([n[0] for n in self.nodes])
-        ys = np.array([n[1] for n in self.nodes])
-        states = np.array(self.states)
-        self.gridStateChangedSignal.emit(xs, ys, states, self.idx)
-
-    def _check_grid_abort(self) -> bool:
-        if self._grid_abort_requested or hardware_session.is_emergency_stopped or not self._grid_running:
-            self.abort_grid()
-            return True
-        return False
-
-    def _process_next_node(self):
-        if self._check_grid_abort():
-            return
-        if self._grid_paused:
-            return
-        if self.idx >= len(self.nodes):
-            self._finish_grid()
-            return
-
-        self.states[self.idx] = NODE_CURRENT
-        self._emit_grid_state()
-        x, y, z = self.nodes[self.idx]
-        cfg = self.grid_config
-        laser = cfg["laser"]
-        exp_time = float(cfg["exp_time"])
-        autofocus_every = max(1, int(cfg.get("autofocus_every", 1)))
-        center_seed = bool(cfg.get("center_seed", False))
-
-        self.gridNodeProgressSignal.emit(self.idx, len(self.nodes), "Moviendo platina...")
-        heartbeat_shutter(30.0)
-        move_stage_to(x, y, z)
-        if self._check_grid_abort():
-            return
-
-        if self.idx % autofocus_every == 0:
-            self.gridNodeProgressSignal.emit(self.idx, len(self.nodes), "Autofoco Z...")
-            run_z_autofocus(laser_color=laser)
-        if self._check_grid_abort():
-            return
-
-        if center_seed:
-            self.gridNodeProgressSignal.emit(self.idx, len(self.nodes), "Centrado confocal de semilla...")
-            run_confocal_centering(range_um=1.0)
-        if self._check_grid_abort():
-            return
-
-        self.gridNodeProgressSignal.emit(self.idx, len(self.nodes), "Irradiando y trackeando SPR...")
-        self.camera.set_exposure_time(exp_time)
-        ret, wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-        open_shutter(laser)
-        try:
-            self._track_node_spectrum(wave_axis, cfg)
-        finally:
-            close_shutter(laser)
-
-        if self._check_grid_abort():
-            return
-
-        self._save_node_result(self.idx, wave_axis, self._node_last_spec, self._node_t_points, self._node_lmax_points, cfg.get("save_dir", "."))
-
-        self.states[self.idx] = NODE_DONE
-        self.idx += 1
-        self._emit_grid_state()
-        QTimer.singleShot(0, self._process_next_node)
-
-    def _track_node_spectrum(self, wave_axis: np.ndarray, cfg: dict):
-        """Adquisición continua de alta velocidad con ajuste en vivo de λ_max y evaluación de
-        los 3 criterios de parada (A: λ_max objetivo, B: caída de fotodiodo, C: tiempo máximo,
-        siempre activo como colchón de seguridad)."""
+    def _track_node_spectrum(self, runner, ctl, wave_axis: np.ndarray, cfg: dict):
+        """Serie de exposiciones reales (P4) con ajuste de λ_max y los criterios de parada A (λ_max objetivo),
+        B (caída del fotodiodo) y C (tiempo máximo, siempre activo). La pausa cierra el láser y seguir lo
+        reabre (P7); "siguiente nodo" termina el seguimiento."""
         use_lambda_stop = bool(cfg.get("use_lambda_stop", False))
         lambda_target = cfg.get("lambda_target_nm")
         use_photodiode_stop = bool(cfg.get("use_photodiode_stop", False))
         photodiode_drop_pct = cfg.get("photodiode_drop_pct")
         t_max_s = float(cfg.get("t_max_s", 60.0))
         interval_s = float(cfg.get("interval_s", 0.2))
-
-        self._node_t_points = []
-        self._node_lmax_points = []
+        exp_time = float(cfg["exp_time"])
+        laser = cfg["laser"]
+        self._node_t_points, self._node_lmax_points = [], []
         self._node_last_spec = np.array([])
         self._node_last_wave = wave_axis
-
-        t0 = time.time()
-        state = {"i0_photodiode": None}
-        loop = QEventLoop()
-        timer = QTimer()
-        timer.setInterval(max(50, int(interval_s * 1000)))
-
-        def _tick():
-            if self._grid_abort_requested or hardware_session.is_emergency_stopped:
-                loop.quit()
+        i0 = None
+        t0 = time.monotonic()
+        while True:
+            runner.check()
+            if ctl.pause.is_set():
+                runner.laser(laser, False)
+                ctl.wait_while_paused(runner)
+                runner.laser(laser, True)
+            if ctl.take_skip():
                 return
-            heartbeat_shutter(30.0)
-            frame = self.camera.get_most_recent_image()
-            spec = np.mean(frame, axis=0) if hasattr(frame, "ndim") and frame.ndim == 2 else np.asarray(frame, dtype=float)
-            wave_fit, spec_fit, lmax = fit_signal_polynomial(wave_axis, spec, ends_notch=wave_axis[0] + 10, final_wave=wave_axis[-1] - 10)
-            elapsed = time.time() - t0
-
+            t_frame = time.monotonic()
+            spec, _mode = runner.spectrum_1d(exp_time)
+            _wf, _sf, lmax = self._fit(wave_axis, spec)
+            elapsed = time.monotonic() - t0
             self._node_t_points.append(elapsed)
             self._node_lmax_points.append(float(lmax))
             self._node_last_spec = spec
             self.gridSpectralUpdateSignal.emit(wave_axis, spec, float(lmax), float(elapsed))
-
-            stop = False
+            stop = elapsed >= t_max_s
             if use_lambda_stop and lambda_target is not None and lmax >= float(lambda_target):
                 stop = True
             if use_photodiode_stop and photodiode_drop_pct is not None:
                 level = read_photodiode_level()
-                if state["i0_photodiode"] is None:
-                    state["i0_photodiode"] = level if level > 0 else 1e-9
-                elif level <= state["i0_photodiode"] * (1.0 - float(photodiode_drop_pct) / 100.0):
+                if i0 is None:
+                    i0 = level if level > 0 else 1e-9
+                elif level <= i0 * (1.0 - float(photodiode_drop_pct) / 100.0):
                     stop = True
-            if elapsed >= t_max_s:
-                stop = True
             if stop:
-                loop.quit()
+                return
+            runner.wait(max(0.0, interval_s - (time.monotonic() - t_frame)))
 
-        timer.timeout.connect(_tick)
-        timer.start()
-        loop.exec()
-        timer.stop()
+    @pyqtSlot()
+    def pause_grid(self):
+        self._grid_paused = True
+        self.grid_thread.pause()
+
+    @pyqtSlot()
+    def resume_grid(self):
+        self._grid_paused = False
+        self.grid_thread.resume()
+
+    @pyqtSlot()
+    def next_node_grid(self):
+        if self._grid_running:
+            self.grid_thread.skip()
+
+    @pyqtSlot()
+    def abort_grid(self):
+        if not self._grid_running:
+            return
+        self._grid_abort_requested = True
+        self.grid_thread.stop()
+
+    @pyqtSlot(str)
+    def _on_grid_finished(self, outcome: str):
+        self._grid_running = False
+        if outcome.startswith(("safety", "error")):
+            self.statusSignal.emit("⛔ " + outcome.split(": ", 1)[-1])
+        self.gridFinishedSignal.emit()
+
+    def _emit_grid_state(self):
+        xs = np.array([n[0] for n in self.nodes])
+        ys = np.array([n[1] for n in self.nodes])
+        self.gridStateChangedSignal.emit(xs, ys, np.array(self.states), self.idx)
 
     def _save_node_result(self, idx: int, wave_axis: np.ndarray, spec: np.ndarray,
                           t_points: List[float], lmax_points: List[float], save_dir: str):
@@ -780,13 +819,19 @@ class GrowthKineticsBackend(QtCore.QObject):
             os.makedirs(save_dir, exist_ok=True)
             base = os.path.join(save_dir, f"GrowthNode_{idx:03d}")
             np.savetxt(base + "_kinetics.txt", np.column_stack([t_points, lmax_points]),
-                      header="t_s\tlambda_max_nm", fmt="%.4f")
+                       header="t_s\tlambda_max_nm  (serie de exposiciones reales)", fmt="%.4f")
             np.savetxt(base + "_final_spectrum.txt", np.column_stack([wave_axis, spec]),
-                      header="wavelength_nm\tintensity", fmt="%.4f")
+                       header="wavelength_nm\tintensity", fmt="%.4f")
         except OSError as e:
             print(f"[GrowthGrid] No se pudo guardar el nodo {idx}: {e}")
 
-    def _finish_grid(self):
-        self._grid_running = False
-        hardware_session.release_session(self.SESSION_NAME_GRID)
-        self.gridFinishedSignal.emit()
+    def _save_node_failure(self, idx: int, save_dir: str, reason: str):
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            with open(os.path.join(save_dir, f"GrowthNode_{idx:03d}_FAILED.txt"), "w", encoding="utf-8") as f:
+                f.write(reason + "\n")
+        except OSError as e:
+            print(f"[GrowthGrid] No se pudo registrar la falla del nodo {idx}: {e}")
+
+    def shutdown(self, timeout_ms: int = 3000):
+        return [self.point_thread.shutdown(timeout_ms), self.grid_thread.shutdown(timeout_ms)]

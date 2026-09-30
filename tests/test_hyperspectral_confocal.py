@@ -68,6 +68,7 @@ class TestHyperspectralShutterLifecycle(unittest.TestCase):
                           "Precondición: el shutter debe iniciar cerrado")
 
         be = hyperspectral_confocal.Backend(self.camera, self.spectrometer)
+        be.confirm_mirror("down")
         be.start_scan(45.0, 50.0, 45.0, 50.0, 1.0, 0.05, laser)
         self.assertEqual(be.laser_in_use, laser)
         self.assertEqual(nidaq._shutter_signal[idx], SHUTTER_POLARITY[laser],
@@ -83,6 +84,7 @@ class TestHyperspectralShutterLifecycle(unittest.TestCase):
         de la suite pre-existente test_pyspectrum_stability_safety.py) no deben romperse
         ni dejar el mapeo sin ningún láser seleccionado."""
         be = hyperspectral_confocal.Backend(self.camera, self.spectrometer)
+        be.confirm_mirror("down")
         be.start_scan(45.0, 50.0, 45.0, 50.0, 1.0, 0.05)  # sin 7mo argumento
         self.assertEqual(be.laser_in_use, SHUTTERS[0])
         be.stop_scan()
@@ -90,6 +92,7 @@ class TestHyperspectralShutterLifecycle(unittest.TestCase):
     def test_scan_step_renews_watchdog_heartbeat(self):
         laser = SHUTTERS[0]
         be = hyperspectral_confocal.Backend(self.camera, self.spectrometer)
+        be.confirm_mirror("down")
         be.start_scan(45.0, 47.0, 45.0, 47.0, 1.0, 0.01, laser)
         self.assertTrue(is_watchdog_armed())
 
@@ -112,6 +115,7 @@ class TestHyperspectralShutterLifecycle(unittest.TestCase):
         laser = SHUTTERS[0]
         idx = SHUTTERS.index(laser)
         be = hyperspectral_confocal.Backend(self.camera, self.spectrometer)
+        be.confirm_mirror("down")
         be.start_scan(45.0, 50.0, 45.0, 50.0, 1.0, 0.05, laser)
         self.assertEqual(nidaq._shutter_signal[idx], SHUTTER_POLARITY[laser])
 
@@ -151,6 +155,7 @@ class TestHyperspectralQThreadTopology(unittest.TestCase):
         QtWidgets.QMessageBox.question = lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes
         try:
             win = PySpectrumWindow()
+            win.confocal_backend.confirm_mirror("down")
             win.confocal_backend.start_scan(45.0, 55.0, 45.0, 55.0, 1.0, 0.01, SHUTTERS[0])
             win.close()  # no debe lanzar ni colgar
             self.assertFalse(win.confocal_thread.isRunning())

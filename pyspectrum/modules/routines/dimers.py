@@ -25,14 +25,18 @@ from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.modules.hardware_session import hardware_session
+from pyspectrum.modules.routines.grid_runner import GridSafetyPause, NodeFailed
+from pyspectrum.modules.routines.routine_thread import RoutineThread, mirror_choice, mirror_combo
 from pyspectrum.modules.optical_support import (
     run_z_autofocus, run_confocal_centering, move_stage_to, get_stage_coordinates, read_photodiode_level,
+    StageNotOnTarget,
 )
 
 NODE_PENDING = 0
 NODE_CURRENT = 1
 NODE_DONE = 2
-_NODE_STATE_COLORS = {NODE_PENDING: "#45475A", NODE_CURRENT: "#F9E2AF", NODE_DONE: "#A6E3A1"}
+NODE_FAILED = 3          # el par no se pudo completar (AND-1, R4-K P6): se registra y la secuencia sigue
+_NODE_STATE_COLORS = {NODE_PENDING: "#45475A", NODE_CURRENT: "#F9E2AF", NODE_DONE: "#A6E3A1", NODE_FAILED: "#F38BA8"}
 
 _DIMERS_STYLE = """
     QLabel { color: #CDD6F4; font-weight: bold; }
@@ -196,9 +200,10 @@ class DimersWidget(QtWidgets.QDialog):
         self.cmb_seq_laser = QtWidgets.QComboBox(); self.cmb_seq_laser.addItems(SHUTTERS)
         params.addWidget(self.cmb_seq_laser, 0, 1)
 
-        params.addWidget(QtWidgets.QLabel("Tiempo Exp Espectro (s):"), 1, 0)
-        self.spin_seq_exp = QtWidgets.QDoubleSpinBox(); self.spin_seq_exp.setRange(0.001, 60.0); self.spin_seq_exp.setValue(0.5); self.spin_seq_exp.setDecimals(3)
-        params.addWidget(self.spin_seq_exp, 1, 1)
+        # Sin espectro final del dímero (R4-K, P5): el legado no lo tomaba.
+        params.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"), 1, 0)
+        self.cmb_seq_mirror = mirror_combo()
+        params.addWidget(self.cmb_seq_mirror, 1, 1)
 
         params.addWidget(QtWidgets.QLabel("Offset NP2 Δx (nm):"), 2, 0)
         self.spin_offset_dx_nm = QtWidgets.QDoubleSpinBox(); self.spin_offset_dx_nm.setRange(-2000.0, 2000.0); self.spin_offset_dx_nm.setValue(100.0)
@@ -222,7 +227,8 @@ class DimersWidget(QtWidgets.QDialog):
         ctrl_vlo.addLayout(params)
 
         save_row = QtWidgets.QHBoxLayout()
-        self.edit_save_dir = QtWidgets.QLineEdit(os.path.join(os.getcwd(), "dimers_sequence_data"))
+        self.edit_save_dir = QtWidgets.QLineEdit("")
+        self.edit_save_dir.setPlaceholderText("carpeta de trabajo/dimers")
         self.btn_pick_save_dir = QtWidgets.QPushButton("📁")
         self.btn_pick_save_dir.clicked.connect(self._on_pick_save_dir)
         save_row.addWidget(self.edit_save_dir)
@@ -260,10 +266,9 @@ class DimersWidget(QtWidgets.QDialog):
         self.plot_seq_map.addItem(self.scatter_seq)
         plot_splitter.addWidget(self.plot_seq_map)
 
-        self.plot_seq_spec = pg.PlotWidget(title="<b>Espectro del Último Dímero Acoplado</b>")
-        self.plot_seq_spec.setLabels(bottom="Longitud de Onda (nm)", left="Intensidad")
-        self.curve_seq_spec = self.plot_seq_spec.plot(pen=pg.mkPen("#A6E3A1", width=2.0))
-        plot_splitter.addWidget(self.plot_seq_spec)
+        self.lbl_last_pair = QtWidgets.QLabel("Último par: —")
+        self.lbl_last_pair.setStyleSheet("color: #A6E3A1; font-size: 9pt;")
+        plot_splitter.addWidget(self.lbl_last_pair)
 
         layout.addWidget(plot_splitter, stretch=3)
         return page
@@ -293,14 +298,18 @@ class DimersWidget(QtWidgets.QDialog):
     def _on_start_sequence(self):
         config = {
             "laser": self.cmb_seq_laser.currentText(),
-            "exp_time": self.spin_seq_exp.value(),
             "dx_nm": self.spin_offset_dx_nm.value(),
             "dy_nm": self.spin_offset_dy_nm.value(),
             "trace_threshold_ratio": self.spin_trace_threshold.value(),
             "trace_max_s": self.spin_trace_max_s.value(),
             "refocus_every": self.spin_refocus_every.value(),
-            "save_dir": self.edit_save_dir.text().strip() or ".",
+            "save_dir": self.edit_save_dir.text().strip(),
+            "mirror": mirror_choice(self.cmb_seq_mirror),
         }
+        if config["mirror"] is None:
+            self.lbl_seq_progress.setText("Confirmá dónde está el espejo de detección antes de iniciar.")
+            return
+        self.cmb_seq_mirror.setCurrentIndex(0)
         self.startSequenceSignal.emit(config)
 
     @pyqtSlot(np.ndarray, np.ndarray)
@@ -320,9 +329,9 @@ class DimersWidget(QtWidgets.QDialog):
     def update_sequence_progress(self, idx: int, total: int, phase_label: str):
         self.lbl_seq_progress.setText(f"Par: {idx + 1} / {total} | Estado: {phase_label}")
 
-    @pyqtSlot(np.ndarray, np.ndarray, float, float, float, float)
-    def update_pair_finished(self, wave: np.ndarray, spec: np.ndarray, x1: float, y1: float, x2: float, y2: float):
-        self.curve_seq_spec.setData(wave, spec)
+    @pyqtSlot(float, float, float, float)
+    def update_pair_finished(self, x1: float, y1: float, x2: float, y2: float):
+        self.lbl_last_pair.setText(f"Último par: NP1 ({x1:.3f}, {y1:.3f}) µm · NP2 ({x2:.3f}, {y2:.3f}) µm")
 
     @pyqtSlot()
     def on_sequence_finished(self):
@@ -330,32 +339,39 @@ class DimersWidget(QtWidgets.QDialog):
 
 
 class DimersBackend(QtCore.QObject):
-    """Lógica de adquisición para dímeros plasmónicos: espectroscopía de polarización manual
-    (Fase 1-5, intacta) más la secuencia automatizada de fabricación NP1→NP2 (Fase 6, DEC-020)."""
+    """Dímeros plasmónicos: polarización manual y la secuencia automatizada NP1 → NP2, sobre las primitivas
+    del bloque A (AND-1, parte 5; R4-K).
+
+    En su propio hilo. Por par, como el legado (`Dimers_ps.py`) con las correcciones de R4-K:
+    1. platina a NP1 con llegada confirmada;
+    2. impresión de NP1 con potencia alta y el láser abierto, hasta el salto de la traza del fotodiodo;
+    3. centrado de NP1 con potencia baja y el láser ABIERTO (antes se centraba con el láser cerrado);
+    4. platina a NP1 + (Δx, Δy) e impresión de NP2;
+    5. post-escaneo de validación, con potencia baja y el láser abierto;
+    6. re-enfoque cada K pares, con potencia baja.
+    Sin espectro final (P5). La potencia espera 2 s después de conmutar, como el legado. Los dímeros no
+    mueven el espejo: se confirma al arrancar y queda donde está."""
 
     dimerDataSignal = pyqtSignal(str, np.ndarray, np.ndarray, np.ndarray)
-
-    # ── Señales de la secuencia automatizada (Fase 6) ────────────────────────────
+    statusSignal = pyqtSignal(str)
     gridPreviewSignal = pyqtSignal(np.ndarray, np.ndarray)
     gridStateChangedSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, int)
     sequenceProgressSignal = pyqtSignal(int, int, str)
-    pairFinishedSignal = pyqtSignal(np.ndarray, np.ndarray, float, float, float, float)
+    pairFinishedSignal = pyqtSignal(float, float, float, float)
     sequenceFinishedSignal = pyqtSignal()
     originUpdatedSignal = pyqtSignal(float, float, float)
 
     SESSION_NAME_POLARIZATION = "Dímeros Plasmónicos"
     SESSION_NAME_SEQUENCE = "Fabricación de Dímeros"
+    POWER_SETTLE_S = 2.0          # legado: 2 s después de conmutar el filtro de densidad (Dimers_ps.py)
 
     def __init__(self, camera=None, spectrometer=None, parent=None):
         super().__init__(parent)
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
-
         self.spec_par = None
         self.spec_perp = None
         self.wave_axis = np.linspace(450, 750, 1004)
-
-        # Estado de la secuencia automatizada (Fase 6)
         self._pending_nodes: List[Tuple[float, float, Optional[float]]] = []
         self.nodes: List[Tuple[float, float, Optional[float]]] = []
         self.states: List[int] = []
@@ -365,13 +381,16 @@ class DimersBackend(QtCore.QObject):
         self._seq_running = False
         self._seq_paused = False
         self._seq_abort_requested = False
-
+        base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or os.path.join(os.path.expanduser("~"), "Documents", "Data_PySpectrum")
+        self.data_dir = os.path.join(base, "dimers")
+        self.pol_thread = RoutineThread(self.SESSION_NAME_POLARIZATION, self)
+        self.seq_thread = RoutineThread(self.SESSION_NAME_SEQUENCE, self)
+        self.seq_thread.finished.connect(self._on_sequence_finished)
         hardware_session.emergencyStopSignal.connect(self.abort_sequence)
 
-    def make_connection(self, widget: DimersWidget):
+    def make_connection(self, widget):
         widget.acquirePolarizationSignal.connect(self.acquire_polarization)
         self.dimerDataSignal.connect(widget.update_dimer_data)
-
         widget.generateGridSignal.connect(self.generate_grid)
         widget.loadGridFileSignal.connect(self.load_grid_file)
         widget.useCurrentPosSignal.connect(self.use_current_position_as_origin)
@@ -380,32 +399,40 @@ class DimersBackend(QtCore.QObject):
         widget.resumeSequenceSignal.connect(self.resume_sequence)
         widget.nextPairSequenceSignal.connect(self.next_pair_sequence)
         widget.abortSequenceSignal.connect(self.abort_sequence)
-
         self.gridPreviewSignal.connect(widget.preview_grid)
         self.gridStateChangedSignal.connect(widget.update_grid_state)
         self.sequenceProgressSignal.connect(widget.update_sequence_progress)
         self.pairFinishedSignal.connect(widget.update_pair_finished)
         self.sequenceFinishedSignal.connect(widget.on_sequence_finished)
         self.originUpdatedSignal.connect(widget.set_origin_fields)
+        if hasattr(widget, "lbl_seq_progress"):
+            self.statusSignal.connect(widget.lbl_seq_progress.setText)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Espectroscopía de Polarización (Fase 1-5, intacta)
-    # ══════════════════════════════════════════════════════════════════════════
+    def _hw(self):
+        """Las acciones del hardware por los nombres de este módulo (los tests los interceptan acá)."""
+        from types import SimpleNamespace
+        from core import nidaq
+        mod = __import__(__name__, fromlist=["open_shutter"])
+        return SimpleNamespace(open_shutter=lambda n: mod.open_shutter(n), close_shutter=lambda n: mod.close_shutter(n),
+                               close_all_shutters=nidaq.close_all_shutters, up_flipper=nidaq.up_flipper,
+                               down_flipper=nidaq.down_flipper, flipper_notch532=nidaq.flipper_notch532)
+
+    # ── polarización manual: una exposición real (AND-1) ──
     @pyqtSlot(str, float)
     def acquire_polarization(self, mode: str, exp_time: float):
-        if not hardware_session.acquire_session(self.SESSION_NAME_POLARIZATION):
+        ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        axis = np.asarray(axis, dtype=np.float64)
+        if ret != 20202 or axis.size != 1004 or not np.all(np.isfinite(axis)):
+            self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock.")
             return
-        try:
-            self.camera.set_exposure_time(exp_time)
-            ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        self.wave_axis = axis
 
-            self.camera.start_acquisition()
-            frame = self.camera.get_most_recent_image()
-            if hasattr(frame, "ndim") and frame.ndim == 2:
-                spec = np.mean(frame, axis=0)
-            else:
-                spec = np.asarray(frame, dtype=float)
-
+        def body(runner, ctl):
+            try:
+                spec, _mode = runner.spectrum_1d(float(exp_time))
+            except NodeFailed as e:
+                self.statusSignal.emit(f"⛔ {e}")
+                return "failed"
             diff = np.array([])
             if mode == "parallel":
                 self.spec_par = spec
@@ -415,14 +442,15 @@ class DimersBackend(QtCore.QObject):
                 self.spec_perp = spec
                 if self.spec_par is not None and len(self.spec_par) == len(spec):
                     diff = self.spec_par - self.spec_perp
+            self.dimerDataSignal.emit(mode, axis, spec, diff)
+            return "done"
 
-            self.dimerDataSignal.emit(mode, self.wave_axis, spec, diff)
-        finally:
-            hardware_session.release_session(self.SESSION_NAME_POLARIZATION)
+        err = self.pol_thread.start(body, camera=self.camera, spectrometer=self.spectrometer, mirror=None,
+                                    require_mirror=False, runner_kwargs={"hw": self._hw()})
+        if err:
+            self.statusSignal.emit(f"⛔ {err}")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Secuencia Automatizada de Fabricación NP1→NP2 (Fase 6, DEC-020)
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── secuencia NP1 → NP2 ──
     @pyqtSlot()
     def use_current_position_as_origin(self):
         x, y, z = get_stage_coordinates()
@@ -448,205 +476,167 @@ class DimersBackend(QtCore.QObject):
         zs = data[:, 2] if data.shape[1] > 2 else [None] * len(xs)
         self._set_pending_nodes(list(zip(xs.tolist(), ys.tolist(), [float(z) if z is not None else None for z in zs])))
 
-    def _set_pending_nodes(self, nodes: List[Tuple[float, float, Optional[float]]]):
+    def _set_pending_nodes(self, nodes):
         self._pending_nodes = nodes
-        xs = np.array([n[0] for n in nodes])
-        ys = np.array([n[1] for n in nodes])
-        self.gridPreviewSignal.emit(xs, ys)
+        self.gridPreviewSignal.emit(np.array([n[0] for n in nodes]), np.array([n[1] for n in nodes]))
+
+    def _center(self, runner, laser: str) -> Tuple[float, float]:
+        """Centrado confocal con potencia baja y el láser abierto; una platina que no llega pausa."""
+        runner.set_power("low")
+        runner.laser(laser, True)
+        try:
+            return run_confocal_centering(range_um=1.0)
+        except StageNotOnTarget as e:
+            raise GridSafetyPause(str(e))
+        finally:
+            runner.laser(laser, False)
+
+    def _print(self, runner, ctl, laser: str, threshold_ratio: float, max_s: float) -> bool:
+        runner.set_power("high")
+        runner.laser(laser, True)
+        try:
+            return self._monitor_print_trace(runner, threshold_ratio, max_s)
+        finally:
+            runner.laser(laser, False)
+
+    def _monitor_print_trace(self, runner, threshold_ratio: float, max_s: float) -> bool:
+        """Salto de la traza del fotodiodo (I_new > I_old × umbral), como `Dimers_ps.py::grid_trace_detect`.
+        True si detectó el evento; False si se agotó el tiempo."""
+        t0 = time.monotonic()
+        i_old = None
+        while True:
+            runner.check()
+            level = read_photodiode_level()
+            if i_old is None:
+                i_old = level if level > 0 else 1e-9
+            elif level > i_old * threshold_ratio:
+                return True
+            if time.monotonic() - t0 >= max_s:
+                return False
+            runner.wait(0.05)
 
     @pyqtSlot(dict)
     def start_sequence(self, config: dict):
         if not self._pending_nodes:
             hardware_session.statusWarningSignal.emit("No hay grilla de posiciones NP1 generada/cargada.")
             return
-        if not hardware_session.acquire_session(self.SESSION_NAME_SEQUENCE):
-            return
-
-        self.seq_config = config
+        self.seq_config = dict(config)
         self.nodes = list(self._pending_nodes)
         self.states = [NODE_PENDING] * len(self.nodes)
         self.idx = 0
         self._pairs_done = 0
+        save_dir = self.seq_config.get("save_dir") or self.data_dir
+        if self.seq_config.get("mirror") == "down":
+            self.statusSignal.emit("Aviso: el espejo está abajo; el centrado y la traza usan el fotodiodo confocal.")
+
+        def body(runner, ctl):
+            cfg = self.seq_config
+            laser = cfg["laser"]
+            ratio = float(cfg.get("trace_threshold_ratio", 1.2))
+            trace_max_s = float(cfg.get("trace_max_s", 20.0))
+            refocus_every = max(1, int(cfg.get("refocus_every", 1)))
+            total = len(self.nodes)
+            while self.idx < total:
+                ctl.wait_while_paused(runner, lambda: self.sequenceProgressSignal.emit(self.idx, total, "En pausa."))
+                if ctl.take_skip():
+                    self.states[self.idx] = NODE_DONE
+                    self.idx += 1
+                    self._emit_seq_state()
+                    continue
+                self.states[self.idx] = NODE_CURRENT
+                self._emit_seq_state()
+                x, y, z = self.nodes[self.idx]
+                try:
+                    self.sequenceProgressSignal.emit(self.idx, total, "Moviendo a NP1...")
+                    runner.move_to(x, y, z)
+                    self.sequenceProgressSignal.emit(self.idx, total, "Imprimiendo NP1 (esperando salto de traza)...")
+                    self._print(runner, ctl, laser, ratio, trace_max_s)
+                    self.sequenceProgressSignal.emit(self.idx, total, "Centrando NP1 (confocal sub-píxel)...")
+                    x1, y1 = self._center(runner, laser)
+                    dx_um = float(cfg.get("dx_nm", 100.0)) / 1000.0
+                    dy_um = float(cfg.get("dy_nm", 0.0)) / 1000.0
+                    self.sequenceProgressSignal.emit(self.idx, total, "Desplazando offset nanométrico a NP2...")
+                    runner.move_to(x1 + dx_um, y1 + dy_um, None)
+                    self.sequenceProgressSignal.emit(self.idx, total, "Imprimiendo NP2 (esperando salto de traza)...")
+                    self._print(runner, ctl, laser, ratio, trace_max_s)
+                    self.sequenceProgressSignal.emit(self.idx, total, "Post-escaneo de validación morfológica...")
+                    x2, y2 = self._center(runner, laser)
+                    self._save_pair_result(self.idx, x1, y1, x2, y2, save_dir)
+                    self.pairFinishedSignal.emit(float(x1), float(y1), float(x2), float(y2))
+                    self.states[self.idx] = NODE_DONE
+                except NodeFailed as e:
+                    self.states[self.idx] = NODE_FAILED
+                    self.sequenceProgressSignal.emit(self.idx, total, f"Par fallido: {e}")
+                except GridSafetyPause as e:
+                    self.states[self.idx] = NODE_PENDING
+                    self._emit_seq_state()
+                    self.statusSignal.emit(f"⛔ {e} Reanudá cuando esté resuelto.")
+                    ctl.pause.set()
+                    continue
+                self.idx += 1
+                self._pairs_done += 1
+                self._emit_seq_state()
+                if self._pairs_done % refocus_every == 0:
+                    self.sequenceProgressSignal.emit(self.idx, total, "Re-enfoque axial periódico...")
+                    runner.set_power("low")
+                    run_z_autofocus(laser_color=laser)
+            return "done"
+
+        err = self.seq_thread.start(body, camera=self.camera, spectrometer=self.spectrometer,
+                                    mirror=self.seq_config.get("mirror"), needs_spectrometer=False,
+                                    restore_mirror=False,
+                                    runner_kwargs={"hw": self._hw(), "power_settle_s": self.POWER_SETTLE_S})
+        if err:
+            self.statusSignal.emit(f"⛔ {err}")
+            hardware_session.statusWarningSignal.emit(err)
+            return
         self._seq_running = True
         self._seq_paused = False
         self._seq_abort_requested = False
         self._emit_seq_state()
-        QTimer.singleShot(0, self._process_next_pair)
 
     @pyqtSlot()
     def pause_sequence(self):
         self._seq_paused = True
+        self.seq_thread.pause()
 
     @pyqtSlot()
     def resume_sequence(self):
-        if self._seq_paused and self._seq_running:
-            self._seq_paused = False
-            QTimer.singleShot(0, self._process_next_pair)
+        self._seq_paused = False
+        self.seq_thread.resume()
 
     @pyqtSlot()
     def next_pair_sequence(self):
-        if not self._seq_running or self.idx >= len(self.nodes):
-            return
-        self.states[self.idx] = NODE_DONE
-        self.idx += 1
-        self._emit_seq_state()
-        if not self._seq_paused:
-            QTimer.singleShot(0, self._process_next_pair)
+        if self._seq_running:
+            self.seq_thread.skip()
 
     @pyqtSlot()
     def abort_sequence(self):
         if not self._seq_running:
             return
         self._seq_abort_requested = True
+        self.seq_thread.stop()
+
+    @pyqtSlot(str)
+    def _on_sequence_finished(self, outcome: str):
         self._seq_running = False
-        laser = self.seq_config.get("laser", "")
-        if laser:
-            try:
-                close_shutter(laser)
-            except Exception as e:
-                print(f"[DimersSequence] Error cerrando obturador en abort: {e}")
-        hardware_session.release_session(self.SESSION_NAME_SEQUENCE)
+        if outcome.startswith(("safety", "error")):
+            self.statusSignal.emit("⛔ " + outcome.split(": ", 1)[-1])
         self.sequenceFinishedSignal.emit()
 
     def _emit_seq_state(self):
         xs = np.array([n[0] for n in self.nodes])
         ys = np.array([n[1] for n in self.nodes])
-        states = np.array(self.states)
-        self.gridStateChangedSignal.emit(xs, ys, states, self.idx)
+        self.gridStateChangedSignal.emit(xs, ys, np.array(self.states), self.idx)
 
-    def _check_seq_abort(self) -> bool:
-        if self._seq_abort_requested or hardware_session.is_emergency_stopped or not self._seq_running:
-            self.abort_sequence()
-            return True
-        return False
-
-    def _monitor_print_trace(self, threshold_ratio: float, max_s: float) -> bool:
-        """Monitorea la traza de fotodiodo y detecta el salto característico de un evento de
-        impresión fototérmica (I_new > I_old × threshold_ratio), replicando
-        Dimers_ps.py::grid_trace_detect. Devuelve True si detectó el evento, False si se agotó
-        el tiempo máximo sin detección."""
-        t0 = time.time()
-        state = {"i_old": None, "detected": False}
-        loop = QEventLoop()
-        timer = QTimer()
-        timer.setInterval(50)
-
-        def _tick():
-            if self._seq_abort_requested or hardware_session.is_emergency_stopped:
-                loop.quit()
-                return
-            heartbeat_shutter(30.0)
-            level = read_photodiode_level()
-            if state["i_old"] is None:
-                state["i_old"] = level if level > 0 else 1e-9
-            elif level > state["i_old"] * threshold_ratio:
-                state["detected"] = True
-                loop.quit()
-                return
-            if time.time() - t0 >= max_s:
-                loop.quit()
-
-        timer.timeout.connect(_tick)
-        timer.start()
-        loop.exec()
-        timer.stop()
-        return state["detected"]
-
-    def _process_next_pair(self):
-        if self._check_seq_abort():
-            return
-        if self._seq_paused:
-            return
-        if self.idx >= len(self.nodes):
-            self._finish_sequence()
-            return
-
-        self.states[self.idx] = NODE_CURRENT
-        self._emit_seq_state()
-        x, y, z = self.nodes[self.idx]
-        cfg = self.seq_config
-        laser = cfg["laser"]
-        exp_time = float(cfg["exp_time"])
-        threshold_ratio = float(cfg.get("trace_threshold_ratio", 1.2))
-        trace_max_s = float(cfg.get("trace_max_s", 20.0))
-
-        self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Moviendo a NP1...")
-        move_stage_to(x, y, z)
-        if self._check_seq_abort():
-            return
-
-        self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Imprimiendo NP1 (esperando salto de traza)...")
-        open_shutter(laser)
-        try:
-            self._monitor_print_trace(threshold_ratio, trace_max_s)
-        finally:
-            close_shutter(laser)
-        if self._check_seq_abort():
-            return
-
-        self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Centrando NP1 (confocal sub-píxel)...")
-        x1, y1 = run_confocal_centering(range_um=1.0)
-        if self._check_seq_abort():
-            return
-
-        dx_um = float(cfg.get("dx_nm", 100.0)) / 1000.0
-        dy_um = float(cfg.get("dy_nm", 0.0)) / 1000.0
-        self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Desplazando offset nanométrico a NP2...")
-        move_stage_to(x1 + dx_um, y1 + dy_um, None)
-        if self._check_seq_abort():
-            return
-
-        self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Imprimiendo NP2 (esperando salto de traza)...")
-        open_shutter(laser)
-        try:
-            self._monitor_print_trace(threshold_ratio, trace_max_s)
-        finally:
-            close_shutter(laser)
-        if self._check_seq_abort():
-            return
-
-        self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Post-escaneo de validación morfológica...")
-        x2, y2 = run_confocal_centering(range_um=1.0)
-        if self._check_seq_abort():
-            return
-
-        self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Espectroscopía del dímero acoplado...")
-        self.camera.set_exposure_time(exp_time)
-        ret, wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-        self.camera.start_acquisition()
-        frame = self.camera.get_most_recent_image()
-        spec = np.mean(frame, axis=0) if hasattr(frame, "ndim") and frame.ndim == 2 else np.asarray(frame, dtype=float)
-
-        self._save_pair_result(self.idx, wave_axis, spec, x1, y1, x2, y2, cfg.get("save_dir", "."))
-        self.pairFinishedSignal.emit(wave_axis, spec, float(x1), float(y1), float(x2), float(y2))
-
-        self.states[self.idx] = NODE_DONE
-        self.idx += 1
-        self._pairs_done += 1
-        self._emit_seq_state()
-
-        refocus_every = max(1, int(cfg.get("refocus_every", 1)))
-        if self._pairs_done % refocus_every == 0:
-            self.sequenceProgressSignal.emit(self.idx, len(self.nodes), "Re-enfoque axial periódico...")
-            run_z_autofocus(laser_color=laser)
-        if self._check_seq_abort():
-            return
-
-        QTimer.singleShot(0, self._process_next_pair)
-
-    def _save_pair_result(self, idx: int, wave_axis: np.ndarray, spec: np.ndarray,
-                          x1: float, y1: float, x2: float, y2: float, save_dir: str):
+    def _save_pair_result(self, idx: int, x1: float, y1: float, x2: float, y2: float, save_dir: str):
         try:
             os.makedirs(save_dir, exist_ok=True)
             base = os.path.join(save_dir, f"DimerPair_{idx:03d}")
-            np.savetxt(base + "_spectrum.txt", np.column_stack([wave_axis, spec]),
-                      header="wavelength_nm\tintensity", fmt="%.4f")
             with open(base + "_coords.txt", "w", encoding="utf-8") as f:
                 f.write(f"NP1_x_um\t{x1:.4f}\nNP1_y_um\t{y1:.4f}\nNP2_x_um\t{x2:.4f}\nNP2_y_um\t{y2:.4f}\n")
         except OSError as e:
             print(f"[DimersSequence] No se pudo guardar el par {idx}: {e}")
 
-    def _finish_sequence(self):
-        self._seq_running = False
-        hardware_session.release_session(self.SESSION_NAME_SEQUENCE)
-        self.sequenceFinishedSignal.emit()
+    def shutdown(self, timeout_ms: int = 3000):
+        return [self.seq_thread.shutdown(timeout_ms), self.pol_thread.shutdown(timeout_ms)]

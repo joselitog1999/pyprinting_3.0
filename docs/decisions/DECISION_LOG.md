@@ -891,6 +891,96 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
     * `tests/test_step_glue_engine.py` (22), `tests/test_step_glue_worker.py` (4) y `tests/test_detection_mirror_belief.py` (3).
     * 10 mutaciones, todas detectadas.
     * Se reescribió el test que exigía coser el resultado parcial automáticamente.
+* **Paso 12: escaneo lineal sobre los contratos del bloque A (R4-I).** Diseño aprobado en las Rondas 1-4 y decisión R4-I del investigador.
+  * **Luz:** la rutina no abre ni cierra láseres; se quitó el combo "lámpara", que en realidad elegía un obturador láser de la DAQ. La señal se toma con el obturador del espectrómetro abierto y el fondo con ese obturador cerrado.
+  * **Adquisición:** cada cuadro es una `single_exposure`, y cada adquisición fija su modo de lectura: Single-Track sobre el ROI, o Imagen con el sub-área. Antes se dormía la exposición más un margen y se leía el último cuadro, que en modo Step & Glue podía ser el 2D colapsado.
+  * **Espectrógrafo:** se mueve por el servicio de orden cero con relectura de λ, y el eje λ se verifica. Una falla se informa y detiene; nunca un eje NaN.
+  * **Latido:** `heartbeat_tick`, sólo con un láser abierto y sin argumento.
+  * **Salida:** HDF5 en `work_dir/linescan`, nunca en el directorio actual, con metadatos de red, ventana, centros, ganancia y láseres abiertos. El cosido sigue siendo `glue_steps` (R4-I).
+  * **Pendientes:**
+    * la sesión se toma en el hilo del worker y no pausa el Live (como antes). Pausarla desde ese hilo tocaría los timers del Live fuera del suyo; se resuelve con el `SpectrographWorker` (BANCO-39);
+    * el vuelo de vuelta a la primera ventana se aproxima desde arriba (R2-inst §4.3); se revisa con BANCO-48.
+  * **Simulador:** con el obturador de la cámara cerrado (modo 2) devuelve sólo oscuridad, como el banco (TTL al Shamrock). El conftest lo vuelve a "auto" en cada test.
+  * **Tests:** `tests/test_linescan_step12.py` (6), además de los de `tests/test_linescan_h5.py`, sin cambios. 5 mutaciones, todas detectadas.
+* **Paso 13: satélite huésped y orden de cierre (R2-arq §3, R3-gui §1.13, R4-B 6).** Diseño aprobado en las Rondas 2-4.
+  * **Huésped:** `app.HostContext`. El PyPrinting abierto desde PySpectrum:
+    * no conecta la platina ni cambia el perfil (V2, V11). Los constructores de platina, foco y confocal reciben `connect_stage=False`: los tres llamaban a `pi.connect()`;
+    * al cerrarse, `release_as_guest()` cierra los obturadores, guarda la posición y detiene la cámara en su hilo sólo si el hilo corre;
+    * no desconecta la platina (`disconnect()` la lleva a (0, 0, 0)), no cierra las tareas DAQ ni pulsa el espejo (V1);
+    * PyPrinting suelto no cambia.
+  * **Cierre:** `pyspectrum/services/shutdown.py::ShutdownCoordinator`, con una sola pregunta que nombra `PI_HOME_POS` y los satélites abiertos. El orden:
+    1. E-STOP;
+    2. rutinas, incluido el hilo de Step & Glue, que antes quedaba corriendo;
+    3. huéspedes: liberar con los hilos vivos, terminar los hilos y `close_from_host()` sin diálogo (V3);
+    4. obturadores confirmados;
+    5. obturador del espectrómetro, Shamrock y cámara (V9: antes el cierre no llamaba a `ShamrockClose` ni a `ShutDown`);
+    6. espejo de detección abajo, como el legado (R4-J), sólo si los obturadores confirmaron;
+    7. platina a `PI_HOME_POS`, sólo si los obturadores confirmaron.
+  * **Topes:** 3 s por hilo y 5 s para la platina. Una falla se anota y el cierre sigue; al final, un aviso lista lo no confirmado.
+  * **Reproducción de V3:** el test en subproceso se colgaba contra el código anterior (tope de 180 s) y ahora termina en segundos.
+  * **R4-J (investigador, 2026-09-29):** el espejo se baja al cerrar, como el legado; el contrapropagante abierto desde PySpectrum también es huésped (`core/host_context.py`, `connect_stage=False`). 4 mutaciones más, todas detectadas.
+  * **Tests:** `tests/test_shutdown_coordinator.py` (11), `tests/test_hosted_satellite.py` (12), `tests/test_pyspectrum_shutdown_order.py` (4) y `tests/test_pyspectrum_close_with_satellite.py` (1, en subproceso). 12 mutaciones, todas detectadas.
+* **Paso 14: calibración automática de λ en modo SÓLO MEDIR (D-01, D-02, D-05; R4-C-5; R4-D-4).** Diseño aprobado en las Rondas 2-4.
+  * **Estimador** (`core/spectral_line_fit.py`, puro): gaussiana + fondo lineal en ±3 FWHM recentrada, rechazo temporal de rayos, u = max(covarianza, Tipo A), banderas de diagnóstico y presupuesto GUM. Sin U mientras los términos #5-#7 no tengan valor.
+  * **Rutina** (`pyspectrum/calibration/offset_calibration.py`), por red (150 → 1200):
+    * llegadas desde abajo, con el 532 abierto sólo durante los cuadros;
+    * oscuro con el 532 cerrado;
+    * M secuencial de 9 a 25, llegada de deriva y recorrido a ±0.35 W;
+    * K1-K7 PROVISORIOS;
+    * exposición fija de 0.10 s (`config.CAL_EXPOSURE_S`) y tope de 600 s (`config.CAL_MAX_DURATION_S`); al llegar al tope, CANCELADA.
+  * **Nunca escribe:** no existe otro modo (`dry_run=False` se rechaza), y el puerto no tiene ningún método de escritura.
+  * **Veredictos:**
+    * CON RESERVA con K1-K7 bien, porque falta U;
+    * SÓLO MEDIDA sin el recorrido;
+    * RECHAZADA con el criterio;
+    * CANCELADA.
+  * **Registro y crudos:** una entrada `PROPOSED` por red empezada, y los crudos en un HDF5 con SHA-256.
+  * **Propuesta en pasos:** sólo con una S previa: O* = O₀ + round(−r/S). Sin S, "falta px/paso (BANCO-40)".
+  * **Corrección fina (D-04):**
+    * `apply_fine_correction` agrega una `SOFTWARE_CORRECTION` desde ACEPTADA o CON RESERVA;
+    * al arrancar vale sólo con el mismo offset, serie, puertos y geometría; si no, queda suspendida y se avisa.
+  * **Tres decisiones de implementación:**
+    * la confirmación óptica del asentamiento usa max(0.1 px, 3·√2·u de un cuadro): el 0.1 px solo dispararía con el ruido de un único cuadro (R2-inst §4.4 era una inferencia);
+    * el χ² agrupa la varianza entre cuadros y suma la del oscuro restado. Con la varianza de cada píxel sola (ν = 4), χ² sale ≈ 2 por construcción;
+    * el espejo no se pulsa: lo confirma el operador (D-01), porque un pulso con la creencia equivocada lo cambiaría de lado.
+  * **GUI** (`pyspectrum/ui/auto_calibration_panel.py`):
+    * sub-pestaña "Calibración de λ (automática)", con el worker en su propio hilo y la sesión "Calibración λ";
+    * confirmaciones obligatorias que se destildan al terminar;
+    * tabla con K1-K7 y el veredicto (§4.4);
+    * [Aplicar corrección fina], [Proponer offset…] deshabilitado con el motivo, y la semilla del operador (D-05);
+    * Ctrl+R no la inicia (H-02);
+    * el cierre de PySpectrum la cancela y lo dice en la pregunta.
+  * **Pendiente:**
+    * `c_sw` en el metadato de cada espectro guardado (R3-gui §4.6);
+    * la escritura, después de BANCO-40;
+    * BANCO-58, la primera corrida en el banco.
+  * **Tests:** `test_spectral_line_fit.py` (20), `test_offset_calibration.py` (20), `test_software_correction.py` (10) y `test_auto_calibration_panel.py` (9). 17 mutaciones, todas detectadas; cuatro no se detectaban al principio y cada una sumó un test (T4, el 532 cerrado entre llegadas y la saturación en la sonda y en las llegadas).
+* **AND-1: rutinas de grilla sobre los contratos del bloque A (R4-K; C-10, C-54, AND, ACT-N1).** Rondas 1 y 2 aprobadas por el investigador (R4-K).
+  * **Base:**
+    * `grid_runner.GridRunner`: platina con llegada confirmada (C-54), potencia, espejo, láser confirmado, exposición real y latido sin argumento;
+    * `routine_thread.RoutineThread`: hilo propio, sesión, obturador del espectrómetro, confirmación y devolución del espejo, Stop, pausa y siguiente;
+    * `optical_support.move_stage_to` levanta `StageNotOnTarget` en vez de fingir la llegada.
+  * **Mapa hiperespectral (C-10):** llegada confirmada y una exposición real por píxel, un píxel fallido en NaN, cubo en HDF5 y una sola señal de fin.
+  * **Luminiscencia y crecimiento:**
+    * en su hilo, con una exposición real por espectro y el espejo abajo para medir;
+    * el crecimiento centra con el láser abierto y potencia baja, y crece con potencia alta;
+    * la pausa cierra el láser (P7).
+  * **Dímeros:**
+    * centrado y post-escaneo con el láser abierto y potencia baja, e impresión con potencia alta, con 2 s de asentamiento;
+    * sin espectro final (P5);
+    * la polarización manual es una exposición real.
+  * **Fallas (P6):** un nodo fallido se registra y la grilla sigue. Las fallas de seguridad pausan.
+  * **GUI:**
+    * confirmación del espejo al iniciar las cuatro rutinas;
+    * el "Filtro Notch 532" de la luminiscencia se rotula como lo que es, el espejo de detección;
+    * datos en la carpeta de trabajo, nunca en el directorio actual.
+  * **Decisiones de implementación:**
+    * en Imagen, las rutinas pasan a FVB para obtener un espectro 1D (lo registran en el archivo);
+    * los dímeros no mueven el espejo (el legado tampoco) y avisan si se confirmó abajo.
+  * **Tests:**
+    * nuevos: `test_grid_runner.py` (12), `test_hyperspectral_c10.py` (7), `test_luminescence_and1.py` (8), `test_growth_and1.py` (6) y `test_dimers_and1.py` (4);
+    * reescritos, porque codificaban el contrato anterior (último cuadro, timer en el hilo de la GUI, sin confirmación del espejo, pausa que no cerraba el láser): los de crecimiento, dímeros, luminiscencia, mapa, estabilidad y `test_senior_qc_fixes::nc02`.
+  * **Mutaciones:** 17, todas detectadas. Una no se detectaba al principio (el láser que quedaba abierto hasta el nodo siguiente) y sumó un test.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

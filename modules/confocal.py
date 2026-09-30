@@ -474,9 +474,10 @@ class Backend(QObject):
     # center_mass = [] para scans sin CM (pree, post)
     scanfinishedSignal  = pyqtSignal(np.ndarray, list, np.ndarray, np.ndarray, str, str)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, connect_stage: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
-        pi.connect()
+        if connect_stage:      # False en el satélite huésped (paso 13, V11): la platina es del anfitrión
+            pi.connect()
         self.file_path         = str(DEFAULT_DATA_PATH)
         self.scan_mode_option  = SCAN_MODES[0]
         self.psf_mode_option   = PSF_MODES[0]

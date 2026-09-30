@@ -20,6 +20,7 @@ deriva del tiempo de exposición realmente configurado.
 """
 from __future__ import annotations
 import os
+from pathlib import Path
 import time
 from typing import Optional, List
 import numpy as np
@@ -28,10 +29,12 @@ from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThread
 import pyqtgraph as pg
 
 from config import SAFE_MODE, PI_AXES, PI_STAGE_RANGE_UM, SHUTTERS, pi
-from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
+# El escaneo lineal no abre ni cierra láseres (R4-I): sólo el obturador del espectrómetro.
+from pyspectrum.modules.acquisition import ExposureRequest, Frame, single_exposure
+from pyspectrum.modules.step_glue_engine import SETTLE_EXTRA_S, WAVELENGTH_READBACK_TOL_NM, heartbeat_tick
 from core.sif_processor import compute_transmittance_with_errors, compute_extinction
 from core.hdf5_container import write_linescan_spectroscopy_hdf5
-from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock, GRATING_150_LINES
+from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock, GRATING_150_LINES, SHAMROCK_SUCCESS
 from pyspectrum.drivers.andor_ccd_driver import (
     get_andor_ccd, READ_MODE_SINGLE_TRACK, READ_MODE_IMAGE, DETECTOR_WIDTH_PX,
 )
@@ -188,10 +191,15 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
         # ── Grupo Adquisición ────────────────────────────────────────────
         grp_acq = QtWidgets.QGroupBox("Adquisición")
         lay_acq = QtWidgets.QGridLayout(grp_acq)
-        lay_acq.addWidget(QtWidgets.QLabel("Fuente (Lámpara):"), 0, 0)
-        self.combo_lamp = QtWidgets.QComboBox()
-        self.combo_lamp.addItems(SHUTTERS)
-        lay_acq.addWidget(self.combo_lamp, 0, 1)
+        # La rutina no abre ni cierra láseres (R4-I): la luz la pone el operador. Para el fondo cierra sólo el
+        # obturador del espectrómetro.
+        lay_acq.addWidget(QtWidgets.QLabel("Luz:"), 0, 0)
+        self.lbl_light = QtWidgets.QLabel("la pone el operador")
+        self.lbl_light.setWordWrap(True)
+        self.lbl_light.setToolTip("Lámpara, o un láser abierto desde [Obturadores]: la rutina no abre ni cierra láseres.\n"
+                                  "Renueva el latido mientras haya uno abierto y registra cuáles estaban abiertos.\n"
+                                  "La señal se toma con el obturador del espectrómetro abierto y el fondo, cerrado.")
+        lay_acq.addWidget(self.lbl_light, 0, 1)
 
         lay_acq.addWidget(QtWidgets.QLabel("Exp. 1D (s):"), 1, 0)
         self.spin_exp1d = self._make_spin(0.001, 60.0, 0.05, decimals=3)
@@ -372,7 +380,7 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
             x_ref=self.spin_xref.value(), y_ref=self.spin_yref.value(), z_ref=self.spin_zref.value(),
             roi_center=self.spin_roi_center.value(), roi_height=self.spin_roi_height.value(),
             exp_1d=self.spin_exp1d.value(), exp_2d=self.spin_exp2d.value(),
-            mode=self._mode_key(), lamp=self.combo_lamp.currentText(),
+            mode=self._mode_key(),
             noise_mult=self.spin_noise_mult.value(),
         )
         cfg.update(self._glue_params())
@@ -439,7 +447,7 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
             y_fixed=self.spin_yfixed.value(), z_fixed=self.spin_zfixed.value(),
             step_um=self.spin_step.value(),
             exp_1d=self.spin_exp1d.value(), exp_2d=self.spin_exp2d.value(),
-            mode=self._mode_key(), lamp=self.combo_lamp.currentText(),
+            mode=self._mode_key(),
         )
         cfg.update(self._glue_params())
         self.btn_start_scan.setEnabled(False)
@@ -515,6 +523,22 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "Error de Exportación", str(e))
 
 
+def _open_lasers() -> List[str]:
+    try:
+        from core.nidaq import get_open_shutter_names
+        return list(get_open_shutter_names())
+    except Exception:
+        return []
+
+
+def _em_gain(camera) -> int:
+    try:
+        g = camera.get_emccd_gain()
+        return int(g[1]) if isinstance(g, (tuple, list)) else int(g)
+    except Exception:
+        return -1
+
+
 class LineScanSpectroscopyWorker(QtCore.QObject):
     """Motor de adquisición del escaneo lineal. Vive en un QThread real (moveToThread) —
     ver DEC-006 en docs/decisions/DECISION_LOG.md. Nunca confía en que emergencyStopSignal
@@ -555,6 +579,10 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         self.noise_threshold_1d = 10.0
         self.noise_threshold_2d = None
         self._t_step_history: List[float] = []
+        # Latido sólo con un láser abierto, sin argumento (R4-B-5, R4-C-3, C-29)
+        self._tick = heartbeat_tick()
+        base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or str(Path.home() / "Documents" / "Data_PySpectrum")
+        self.data_dir = Path(base) / "linescan"
         hardware_session.emergencyStopSignal.connect(self._on_emergency_stop)
 
     def _on_emergency_stop(self):
@@ -597,9 +625,9 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         while time.time() < t_end:
             if self._should_abort():
                 return False
-            heartbeat_shutter(30.0)
+            self._tick()
             time.sleep(min(tick_s, max(0.0, t_end - time.time())))
-        heartbeat_shutter(30.0)
+        self._tick()
         return not self._should_abort()
 
     def _move_and_settle(self, axes, targets, timeout_s: float = PIEZO_SETTLE_TIMEOUT_S) -> bool:
@@ -617,7 +645,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         while time.time() < t_end:
             if self._should_abort():
                 return False
-            heartbeat_shutter(30.0)
+            self._tick()
             if all(pi.qONT(axes_list).values()):
                 settled = True
                 break
@@ -636,36 +664,69 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                       f"{abs(float(actual) - tgt):.3f} µm del objetivo tras confirmación on-target.")
         return True
 
+    def _fail(self, message: str) -> None:
+        self._scan_failed = True
+        self.errorSignal.emit(message)
+
     def _settle_wavelength(self, wl_center: float, timeout_s: float = GRATING_SETTLE_TIMEOUT_S) -> bool:
-        """Settle del grating SIN constante propia: usa is_moving()/_settling_until del
-        propio driver Shamrock (ya implementado, nunca invocado en el resto del proyecto),
-        con heartbeat intercalado en el polling."""
-        self.spectrometer.ShamrockSetWavelength(DEVICE, wl_center)
-        t_end = time.time() + timeout_s
-        while self.spectrometer.is_moving():
+        """Mueve el espectrógrafo como Step & Glue (paso 12): por el servicio de orden cero (nunca a un
+        destino especular), relee λ y espera el margen provisorio con latido. Una falla se informa."""
+        from pyspectrum.modules.zero_order_service import get_zero_order_service
+        ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+        if ret_g != SHAMROCK_SUCCESS:
+            self._fail(f"No se pudo leer la red (código {ret_g}).")
+            return False
+        mv = get_zero_order_service(self.camera, self.spectrometer).move(int(grating), float(wl_center))
+        if not mv.ok:
+            self._fail(f"El espectrógrafo no fue a {wl_center:.2f} nm: {mv.detail} (código {mv.code}).")
+            return False
+        ret_w, wl_read = self.spectrometer.ShamrockGetWavelength(DEVICE)
+        if ret_w != SHAMROCK_SUCCESS or abs(float(wl_read) - float(wl_center)) > WAVELENGTH_READBACK_TOL_NM:
+            self._fail(f"Se pidió {wl_center:.2f} nm y se releyó {wl_read} (código {ret_w}).")
+            return False
+        t_end = time.time() + SETTLE_EXTRA_S
+        while time.time() < t_end:
             if self._should_abort():
                 return False
-            heartbeat_shutter(30.0)
-            if time.time() > t_end:
-                self._scan_failed = True
-                self.errorSignal.emit(f"Timeout de asentamiento del grating a {wl_center:.1f} nm (> {timeout_s}s).")
-                return False
-            time.sleep(0.01)
-        heartbeat_shutter(30.0)
+            self._tick()
+            time.sleep(min(0.05, max(0.0, t_end - time.time())))
         return True
 
     # ── Adquisición ──────────────────────────────────────────────────────────
-    def _get_wavelength_axis(self, n_pixels: int) -> np.ndarray:
+    def _get_wavelength_axis(self, n_pixels: int) -> Optional[np.ndarray]:
+        """Eje λ del Shamrock con su código verificado. None si no es confiable: nunca un eje inventado."""
         if hasattr(self.spectrometer, 'get_wavelength_axis_cubic'):
             ret, wl = self.spectrometer.get_wavelength_axis_cubic(DEVICE, n_pixels)
         else:
             ret, wl = self.spectrometer.ShamrockGetCalibration(DEVICE, n_pixels)
-        return np.asarray(wl, dtype=np.float64)
+        wl = np.asarray(wl, dtype=np.float64)
+        if ret != SHAMROCK_SUCCESS or wl.size != n_pixels or not np.all(np.isfinite(wl)):
+            self._fail(f"No se pudo leer el eje λ del Shamrock (código {ret}); no se usa un eje inventado.")
+            return None
+        return wl
 
-    def _acquire_1d(self) -> np.ndarray:
-        return np.asarray(self.camera.get_1d_spectrum(), dtype=np.float64)
+    def _expose(self, shape, exp_time_s: Optional[float]) -> Optional[np.ndarray]:
+        """Una exposición real (single_exposure, R4-5). None si se detuvo o falló (la falla se informa)."""
+        if exp_time_s is None:
+            exp_time_s = float(self.camera.get_exposure_time()) if hasattr(self.camera, "get_exposure_time") else 0.1
+        frame = single_exposure(self.camera, ExposureRequest(float(exp_time_s), tuple(shape)),
+                                should_abort=lambda: self._cancel_requested, on_tick=self._tick,
+                                is_estopped=lambda: hardware_session.is_emergency_stopped)
+        if isinstance(frame, Frame):
+            return np.asarray(frame.data, dtype=np.float64)
+        kind = getattr(frame.kind, "value", str(frame.kind))
+        if kind not in ("user_stop", "estop"):
+            self._fail(f"No se pudo adquirir: {frame.detail} ({kind}).")
+        return None
 
-    def _acquire_2d_roi(self, roi_ymin: int, roi_ymax: int, width: int = 1004) -> np.ndarray:
+    def _acquire_1d(self, exp_time_s: Optional[float] = None) -> Optional[np.ndarray]:
+        # Cada adquisición fija el modo que necesita: Single-Track sobre el ROI vertical elegido.
+        self.camera.set_read_mode(READ_MODE_SINGLE_TRACK)
+        self.camera.set_single_track(self.roi_ycenter, self.roi_height)
+        return self._expose((DETECTOR_WIDTH_PX,), exp_time_s)
+
+    def _acquire_2d_roi(self, roi_ymin: int, roi_ymax: int, width: int = 1004,
+                        exp_time_s: Optional[float] = None) -> Optional[np.ndarray]:
         """Resuelve la inconsistencia de firma mock/real de get_most_recent_image()
         (hallazgo de instrumentation): el mock no acepta width/height.
 
@@ -675,12 +736,10 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         AxisError). Por eso se compara la altura recibida contra la esperada en lugar de
         recortar a ciegas: así funciona tanto si el sub-área fue aplicado como si se pide el
         cuadro completo (p. ej. un test que llama a este método sin `set_image()` previo)."""
-        if getattr(self.camera, 'is_mock', False):
-            frame = np.asarray(self.camera.get_most_recent_image(), dtype=np.float64)
-            if frame.ndim >= 2 and frame.shape[0] == (roi_ymax - roi_ymin):
-                return frame
-            return np.asarray(frame[roi_ymin:roi_ymax, :], dtype=np.float64)
-        return np.asarray(self.camera.get_most_recent_image(width, roi_ymax - roi_ymin), dtype=np.float64)
+        # Paso 12: una exposición real del sub-área vertical, en modo Imagen (R4-5).
+        self.camera.set_read_mode(READ_MODE_IMAGE)
+        self.camera.set_image(1, 1, 1, width, roi_ymin + 1, roi_ymax)
+        return self._expose((roi_ymax - roi_ymin, width), exp_time_s)
 
     def _acquire_glued_spectrum(self, centers: List[float], exp_time_s: float):
         """Devuelve (grilla, espectro_interpolado, native_mismatch). La primera vez que se
@@ -688,20 +747,22 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         referencia; las siguientes llamadas se interpolan a esa grilla (glue_steps() produce
         una longitud emergente de los datos, no garantizada fija entre puntos — hallazgo de
         software-architect)."""
-        self.camera.set_exposure_time(exp_time_s)
         raw_waves, raw_specs = [], []
         for wl_c in centers:
             if self._should_abort():
                 return np.array([]), np.array([]), True
             if not self._settle_wavelength(wl_c):
                 return np.array([]), np.array([]), True
-            if not self._sleep_with_heartbeat(exp_time_s + ACQUISITION_READOUT_MARGIN_S):
+            wave = self._get_wavelength_axis(DETECTOR_WIDTH_PX)
+            if wave is None:
                 return np.array([]), np.array([]), True
-            spec = self._acquire_1d()
-            wave = self._get_wavelength_axis(len(spec))
+            spec = self._acquire_1d(exp_time_s)
+            if spec is None:
+                return np.array([]), np.array([]), True
             raw_waves.append(wave)
             raw_specs.append(spec)
-        self._settle_wavelength(centers[0])  # flyback antes del próximo punto espacial
+        if not self._settle_wavelength(centers[0]):  # flyback antes del próximo punto espacial
+            return np.array([]), np.array([]), True
         if not raw_waves:
             return np.array([]), np.array([]), True
 
@@ -715,25 +776,27 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
 
     def _acquire_glued_2d(self, centers: List[float], exp_time_s: float) -> Optional[np.ndarray]:
         """Análogo fila-a-fila de _acquire_glued_spectrum para el modo imagen 2D."""
-        self.camera.set_exposure_time(exp_time_s)
         frames, waves = [], []
         for wl_c in centers:
             if self._should_abort():
                 return None
             if not self._settle_wavelength(wl_c):
                 return None
-            if not self._sleep_with_heartbeat(exp_time_s + ACQUISITION_READOUT_MARGIN_S):
+            wave = self._get_wavelength_axis(DETECTOR_WIDTH_PX)
+            if wave is None:
                 return None
-            frame = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax)
-            wave = self._get_wavelength_axis(frame.shape[1])
+            frame = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax, exp_time_s=exp_time_s)
+            if frame is None:
+                return None
             frames.append(frame)
             waves.append(wave)
-        self._settle_wavelength(centers[0])
+        if not self._settle_wavelength(centers[0]):
+            return None
         if not frames:
             return None
         concat_w = np.concatenate(waves)
         n_rows = frames[0].shape[0]
-        ref_grid = self._glue_reference_grid if self._glue_reference_grid is not None else self._get_wavelength_axis(frames[0].shape[1])
+        ref_grid = self._glue_reference_grid if self._glue_reference_grid is not None else waves[0]
         glued_rows = []
         for row in range(n_rows):
             concat_s_row = np.concatenate([f[row, :] for f in frames])
@@ -765,7 +828,14 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             self.errorSignal.emit("No se pudo tomar el control del hardware (sesión ocupada o E-STOP activo).")
             return
         self._cancel_requested = False
-        lamp = cfg['lamp']
+        self._scan_failed = False
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
+
+        def shutter(open_: bool) -> bool:
+            res = (open_spectrometer_shutter if open_ else close_spectrometer_shutter)(self.camera, self.spectrometer)
+            if not res.ok:
+                self._fail(res.detail)
+            return res.ok
         try:
             self.mode = cfg['mode']
             self.roi_ycenter = int(cfg['roi_center'])
@@ -780,49 +850,53 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             if self.mode == 'step_and_glue':
                 self._glue_centers = self._plan_glue_centers(cfg)
 
-            # ── 1D: señal (lámpara abierta) y fondo (lámpara cerrada) ──────
-            open_shutter(lamp)
+            # ── 1D: señal (obturador del espectrómetro abierto) y fondo (cerrado). La luz la pone el
+            #    operador: lámpara, o un láser abierto desde [Obturadores] (R4-I). ──────────────
+            self._open_lasers_at_start = list(_open_lasers())
+            if not shutter(True):
+                return
             self.camera.set_read_mode(READ_MODE_SINGLE_TRACK)
             self.camera.set_single_track(self.roi_ycenter, self.roi_height)
             if self.mode == 'single_window':
-                if not self._sleep_with_heartbeat(cfg['exp_1d'] + ACQUISITION_READOUT_MARGIN_S):
-                    return
-                sig_1d = self._acquire_1d()
-                self._wavelengths = self._get_wavelength_axis(len(sig_1d))
+                self._wavelengths = self._get_wavelength_axis(DETECTOR_WIDTH_PX)
+                sig_1d = self._acquire_1d(cfg['exp_1d']) if self._wavelengths is not None else None
             else:
                 w, sig_1d, _ = self._acquire_glued_spectrum(self._glue_centers, cfg['exp_1d'])
                 self._wavelengths = w
+                sig_1d = sig_1d if sig_1d.size else None
+            if sig_1d is None:
+                return
 
-            close_shutter(lamp)
+            if not shutter(False):
+                return
+            self.camera.set_read_mode(READ_MODE_SINGLE_TRACK)
+            self.camera.set_single_track(self.roi_ycenter, self.roi_height)
             if self.mode == 'single_window':
-                if not self._sleep_with_heartbeat(cfg['exp_1d'] + ACQUISITION_READOUT_MARGIN_S):
-                    return
-                bg_1d = self._acquire_1d()
+                bg_1d = self._acquire_1d(cfg['exp_1d'])
             else:
                 _, bg_1d, _ = self._acquire_glued_spectrum(self._glue_centers, cfg['exp_1d'])
+                bg_1d = bg_1d if bg_1d.size else None
+            if bg_1d is None:
+                return
 
             # ── 2D: señal y fondo, pixel a pixel en el mismo ROI vertical ──
-            open_shutter(lamp)
-            self.camera.set_read_mode(READ_MODE_IMAGE)
-            self.camera.set_image(1, 1, 1, 1004, self.roi_ymin + 1, self.roi_ymax)
+            if not shutter(True):
+                return
             if self.mode == 'single_window':
-                if not self._sleep_with_heartbeat(cfg['exp_2d'] + ACQUISITION_READOUT_MARGIN_S):
-                    return
-                sig_2d = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax)
+                sig_2d = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax, exp_time_s=cfg['exp_2d'])
             else:
                 sig_2d = self._acquire_glued_2d(self._glue_centers, cfg['exp_2d'])
-                if sig_2d is None:
-                    return
+            if sig_2d is None:
+                return
 
-            close_shutter(lamp)
+            if not shutter(False):
+                return
             if self.mode == 'single_window':
-                if not self._sleep_with_heartbeat(cfg['exp_2d'] + ACQUISITION_READOUT_MARGIN_S):
-                    return
-                bg_2d = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax)
+                bg_2d = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax, exp_time_s=cfg['exp_2d'])
             else:
                 bg_2d = self._acquire_glued_2d(self._glue_centers, cfg['exp_2d'])
-                if bg_2d is None:
-                    return
+            if bg_2d is None:
+                return
 
             mult = float(cfg.get('noise_mult', 3.0))
             sigma_dark_1d = float(np.std(bg_1d))
@@ -850,6 +924,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 'sigma_dark_1d': sigma_dark_1d, 'weak_fraction': weak_frac, 'n_lambda': len(self._wavelengths),
             })
         finally:
+            shutter(False)
             hardware_session.release_session("Escaneo Lineal Espectroscópico — Referencia")
 
     @pyqtSlot()
@@ -867,10 +942,11 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
 
         self._cancel_requested = False
         self._scan_failed = False
-        lamp = cfg['lamp']
         self.mode = cfg['mode']
         self._t_step_history = []
-        lamp_open = False
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
+        shutter_open = False
+        open_lasers_at_start = list(_open_lasers())
         try:
             x_start = max(0.0, min(PI_STAGE_RANGE_UM, float(cfg['x_start'])))
             x_end = max(0.0, min(PI_STAGE_RANGE_UM, float(cfg['x_end'])))
@@ -892,8 +968,11 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             ext_1d_all = np.full((n_steps, n_lambda), np.nan, dtype=np.float64)
             native_mismatch = np.zeros(n_steps, dtype=bool)
 
-            open_shutter(lamp)
-            lamp_open = True
+            res = open_spectrometer_shutter(self.camera, self.spectrometer)
+            if not res.ok:
+                self._fail(res.detail)
+                return
+            shutter_open = True
 
             # ── Pasada 1: recorrer toda la recta en modo 1D ─────────────────
             if self.mode == 'single_window':
@@ -908,9 +987,9 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 if not self._move_and_settle(1, float(x)):
                     break
                 if self.mode == 'single_window':
-                    if not self._sleep_with_heartbeat(cfg['exp_1d'] + ACQUISITION_READOUT_MARGIN_S):
+                    spec = self._acquire_1d(cfg['exp_1d'])
+                    if spec is None:
                         break
-                    spec = self._acquire_1d()
                     mism = False
                 else:
                     _, spec, mism = self._acquire_glued_spectrum(self._glue_centers, cfg['exp_1d'])
@@ -943,19 +1022,15 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             ext_2d_all = np.full((n_steps, self.roi_height, n_lambda), np.nan, dtype=np.float64)
 
             if not self._should_abort():
-                if self.mode == 'single_window':
-                    self.camera.set_read_mode(READ_MODE_IMAGE)
-                    self.camera.set_image(1, 1, 1, 1004, self.roi_ymin + 1, self.roi_ymax)
-
                 for i, x in enumerate(xs):
                     if self._should_abort():
                         break
                     if not self._move_and_settle(1, float(x)):
                         break
                     if self.mode == 'single_window':
-                        if not self._sleep_with_heartbeat(cfg['exp_2d'] + ACQUISITION_READOUT_MARGIN_S):
+                        frame = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax, exp_time_s=cfg['exp_2d'])
+                        if frame is None:
                             break
-                        frame = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax)
                     else:
                         frame = self._acquire_glued_2d(self._glue_centers, cfg['exp_2d'])
                         if frame is None:
@@ -976,8 +1051,8 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                     self.frame2dUpdatedSignal.emit(i, ext_2d_all[i])
                     self.progressSignal.emit(int(50.0 + 50.0 * (i + 1) / n_steps))
 
-            close_shutter(lamp)
-            lamp_open = False
+            close_spectrometer_shutter(self.camera, self.spectrometer)
+            shutter_open = False
 
             if self._cancel_requested and not hardware_session.is_emergency_stopped:
                 self.cancelledSignal.emit()
@@ -999,14 +1074,22 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 noise_threshold_1d=float(self.noise_threshold_1d),
                 noise_multiplier=float(getattr(self, 'noise_multiplier', 3.0)),
                 scan_aborted=bool(self._scan_failed),
+                grating=int(self._glue_grating) if self._glue_grating is not None else -1,
+                em_gain_dac=_em_gain(self.camera),
+                open_lasers_at_start=",".join(open_lasers_at_start),
+                open_lasers_at_end=",".join(_open_lasers()),
+                stitching="glue_steps",
             )
             if self.mode == 'step_and_glue':
                 metadata.update(
                     glue_start_wl_nm=cfg['glue_start'], glue_end_wl_nm=cfg['glue_end'],
                     glue_overlap_pct=cfg['glue_overlap'] * 100.0,
+                    glue_window_nm=float(self._glue_window_nm) if self._glue_window_nm is not None else float("nan"),
+                    glue_window_source=self._glue_window_source,
+                    glue_centers_nm=np.asarray(self._glue_centers, dtype=np.float64),
                 )
 
-            out_dir = os.path.join(os.getcwd(), "data_linescan_spectroscopy")
+            out_dir = str(self.data_dir)
             filename = f"linescan_{time.strftime('%Y%m%d_%H%M%S')}.h5"
             filepath = os.path.join(out_dir, filename)
 
@@ -1032,8 +1115,8 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             else:
                 self.scanCompletedSignal.emit(h5_path)
         finally:
-            if lamp_open:
-                close_shutter(lamp)
+            if shutter_open:
+                close_spectrometer_shutter(self.camera, self.spectrometer)
             hardware_session.release_session("Escaneo Lineal Espectroscópico")
 
     def _emit_eta(self, i: int, n_steps: int):

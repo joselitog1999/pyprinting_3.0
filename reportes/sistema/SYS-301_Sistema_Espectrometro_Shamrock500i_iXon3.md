@@ -326,9 +326,16 @@ Uso diagnóstico: heterogeneidad espacial de la señal a lo largo de la rendija,
 
 ### 7.4 Modo Dual de Rango Espectral: Ventana Única vs. Step & Glue
 
-El combo `Modo Espectral` alterna entre **Ventana Única** (grating fijo, un único array $\lambda$) y **Espectro Completo (Step & Glue)**: en cada posición $X$, un sub-barrido de centros generado por `compute_glue_centers()` (réplica determinista de `step_and_glue.py:315-320`, $\text{step}=240\,\text{nm}\times(1-\text{solapamiento})$) gestionado con `spectrometer.ShamrockSetWavelength()`.
+El combo `Modo Espectral` alterna entre **Ventana Única** (grating fijo, un único array $\lambda$) y **Espectro Completo (Step & Glue)**: en cada posición $X$, un sub-barrido de centros generado por `compute_glue_centers()`, que delega en `halogen_lamp.compute_step_centers` con la ventana medida o nominal de la red (`DEC-033`; el solape es una fracción). La fórmula propia con una ventana fija de 240 nm se retiró en C-22.
 
-El asentamiento se confirma sondeando `is_moving()` (respaldado por `_settling_until`, el mismo mecanismo que expone `wait_until_ready()` — preexistente en el driver pero **nunca invocado fuera de él** hasta esta implementación). `_settle_wavelength()` sondea `is_moving()` en un bucle propio en vez de bloquear en `wait_until_ready()`, para intercalar `heartbeat_shutter(30.0)` en cada tick de $10$ ms — renovando el deadline de auto-cierre del obturador $30$ s hacia adelante, muy por encima del margen que el watchdog autónomo (`SYS-201`) sondea, evitando que la espera (hasta `GRATING_SETTLE_TIMEOUT_S = 6.0` s) la deje sin renovar.
+**Movimiento y latido (paso 12, `DEC-040`).** `_settle_wavelength()` mueve igual que Step & Glue:
+- por el servicio de orden cero (`ZeroOrderService.move`), que rechaza un destino especular;
+- relee λ con `ShamrockGetWavelength` y exige $\pm$`WAVELENGTH_READBACK_TOL_NM` (0.01 nm);
+- espera el margen provisorio `SETTLE_EXTRA_S` (0.3 s), que BANCO-39 debe medir.
+
+Una falla del movimiento o de la relectura detiene la rutina con el motivo. El eje λ se lee con su código verificado: nunca un eje NaN. En toda espera, la rutina llama a `heartbeat_tick()`, que renueva el latido **sin argumento** y sólo con un láser abierto (C-29); la rutina nunca abre ni cierra láseres (R4-I). Cada cuadro es una `single_exposure` que fija su modo de lectura (Single-Track o Imagen). Antes se dormía la exposición y se leía el último cuadro.
+
+> Texto anterior (retirado por desactualizado): el asentamiento se sondeaba con `is_moving()`, con `heartbeat_shutter(30.0)` cada 10 ms.
 
 > [!NOTE]
 > `ShamrockSetWavelength()` asienta con `WAVELENGTH_SETTLING_TIME_S = 0.3` s nominal (tornillo de longitud de onda) — no con `GRATING_SETTLING_TIME_S = 4.0` s (rotación del revólver de redes). El sub-barrido Step & Glue nunca cambia de red física, por lo que jamás incurre en el homing del revólver dentro de una misma recta.

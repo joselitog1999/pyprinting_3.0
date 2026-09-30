@@ -312,14 +312,16 @@ def run_tests():
     # 2. Resiliencia de Start/Stop en Rutinas
     l_be = LuminescenceBackend(cam_stress, get_shamrock(force_mock=True))
     g_be = GrowthKineticsBackend(cam_stress, get_shamrock(force_mock=True))
+    l_be.confirm_mirror("down")                    # AND-1: lo confirma el operador
     l_be.start_luminescence(config.SHUTTERS[0], 0.05, 10, 0.1)
-    l_running = l_be.timer.isActive()
+    l_running = l_be.point_thread.running
     l_be.stop_luminescence()
-    l_stopped = not l_be.timer.isActive()
+    l_stopped = l_be.point_thread.wait_finished(10)
+    g_be.confirm_mirror("down")
     g_be.start_growth(config.SHUTTERS[1], 0.05, 10, 0.1)
-    g_running = g_be.timer.isActive()
+    g_running = g_be.point_thread.running
     g_be.stop_growth()
-    g_stopped = not g_be.timer.isActive()
+    g_stopped = g_be.point_thread.wait_finished(10)
     assert_test("Ciclo Start/Stop Seguro en Rutinas Espectrales", l_running and l_stopped and g_running and g_stopped)
 
     # 3. Resiliencia al Aborto en Step & Glue
@@ -334,6 +336,7 @@ def run_tests():
 
     # 4. Seguridad: Clampeo Platina Confocal [0, 100] µm
     c_be = hyperspectral_confocal.Backend(cam_stress, get_shamrock(force_mock=True))
+    c_be.confirm_mirror("down")  # AND-1: lo confirma el operador
     c_be.start_scan(-50.0, 150.0, -20.0, 200.0, 10.0, 0.01)
     stage_safe = (c_be.xs[0] >= 0.0) and (c_be.xs[-1] <= 100.0) and (c_be.ys[0] >= 0.0) and (c_be.ys[-1] <= 100.0)
     c_be.stop_scan()

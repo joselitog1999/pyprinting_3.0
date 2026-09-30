@@ -4,14 +4,17 @@ hyperspectral_confocal.py — Mapeo Confocal Hiperespectral 2D/3D (PI Piezo + An
 PySpectrum 3.0 — UNSAM Nanofotónica
 """
 from __future__ import annotations
+import os
+import threading
 import time
+from pathlib import Path
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QTimer
 import pyqtgraph as pg
 
 from config import pi, SHUTTERS
-from core.nidaq import open_shutter, close_shutter, heartbeat_shutter
+from core.nidaq import open_shutter, close_shutter, heartbeat_shutter  # noqa: F401 (compatibilidad)
 from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.modules.hardware_session import hardware_session
@@ -23,6 +26,7 @@ class Frontend(QtWidgets.QFrame):
 
     # (xmin, xmax, ymin, ymax, step, exp, laser) — el láser se agregó en ANOM-HYPERSPEC-02:
     # antes este mapeo no tenía ningún selector de excitación ni ciclo de vida de obturador.
+    mirrorConfirmedSignal = pyqtSignal(str)
     startScanSignal = pyqtSignal(float, float, float, float, float, float, str)
     stopScanSignal = pyqtSignal()
     pointSelectedSignal = pyqtSignal(int, int)
@@ -133,6 +137,12 @@ class Frontend(QtWidgets.QFrame):
         grid.addWidget(self.edit_exp, 3, 1)
 
         grid.addWidget(QtWidgets.QLabel("Láser de Excitación:"), 4, 0)
+        self.combo_mirror = QtWidgets.QComboBox()
+        self.combo_mirror.addItems(["— confirmá dónde está —", "abajo (espectrómetro)", "arriba (confocal / cámara)"])
+        self.combo_mirror.setToolTip("El espejo de detección no tiene sensor: confirmá dónde está ahora. La rutina "
+                                     "lo baja sola para medir y al terminar lo devuelve a esta posición (R4-K).")
+        ctrl_vlo.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"))
+        ctrl_vlo.addWidget(self.combo_mirror)
         self.combo_laser = QtWidgets.QComboBox()
         self.combo_laser.addItems(SHUTTERS)
         self.combo_laser.setToolTip("Línea láser cuyo obturador se abre durante el mapeo hiperespectral.")
@@ -211,6 +221,13 @@ class Frontend(QtWidgets.QFrame):
                 step = float(self.edit_step.text())
                 exp = float(self.edit_exp.text())
                 laser = self.combo_laser.currentText()
+                mirror = {1: "down", 2: "up"}.get(self.combo_mirror.currentIndex())
+                if mirror is None:
+                    self.btn_scan.setChecked(False)
+                    self.lbl_info.setText("Confirmá dónde está el espejo de detección antes de iniciar.")
+                    return
+                self.mirrorConfirmedSignal.emit(mirror)
+                self.combo_mirror.setCurrentIndex(0)        # la confirmación no se recuerda
 
                 self.btn_scan.setText("⏹️ Detener Escaneo")
                 self.btn_scan.setStyleSheet("background-color: #F38BA8; color: #11111B;")
@@ -240,22 +257,37 @@ class Frontend(QtWidgets.QFrame):
 
 
 class Backend(QtCore.QObject):
-    """Lógica de escaneo confocal hiperespectral (PI Piezo + CCD)."""
+    """Mapa confocal hiperespectral sobre las primitivas de grilla (AND-1, parte 2; C-10; R4-K).
+
+    Por píxel: la platina confirma la llegada y se toma una exposición real (FVB). Una exposición fallida
+    deja el píxel en NaN, marcado en `failed`; una platina que no llega detiene el mapa con los obturadores
+    cerrados. El espejo lo confirma el operador; la rutina lo baja para medir y lo devuelve al terminar. El
+    cubo se guarda en HDF5 en `data_dir`, también si el mapa se detiene."""
 
     mapUpdatedSignal = pyqtSignal(np.ndarray)
     progressSignal = pyqtSignal(int)
     pointSpectrumSignal = pyqtSignal(np.ndarray, np.ndarray)
     scanFinishedSignal = pyqtSignal()
+    statusSignal = pyqtSignal(str)
+
+    SESSION = "Mapeo Confocal"
 
     def __init__(self, camera=None, spectrometer=None, parent=None):
         super().__init__(parent)
         self.camera = camera or get_andor_ccd()
         self.spectrometer = spectrometer or get_shamrock()
         self._scanning = False
-        self._datacube = None  # Shape: (Nx, Ny, N_lambda)
+        self._datacube = None  # (Nx, Ny, N_lambda)
         self.wave_axis = np.linspace(450, 750, 1004)
-
         self.laser_in_use = ""
+        self._stop_event = threading.Event()
+        self._mirror_confirmed = None
+        self._runner = None
+        self._failed = None
+        self._exp_time = 0.0
+        self._saved_path = None
+        base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or str(Path.home() / "Documents" / "Data_PySpectrum")
+        self.data_dir = Path(base) / "confocal_map"
 
         self.scan_timer = QTimer(self)
         self.scan_timer.setInterval(20)
@@ -263,105 +295,184 @@ class Backend(QtCore.QObject):
         hardware_session.emergencyStopSignal.connect(self.stop_scan)
 
     def make_connection(self, frontend: Frontend):
+        frontend.mirrorConfirmedSignal.connect(self.confirm_mirror)
         frontend.startScanSignal.connect(self.start_scan)
         frontend.stopScanSignal.connect(self.stop_scan)
         self.mapUpdatedSignal.connect(frontend.update_map)
         self.progressSignal.connect(frontend.update_progress)
         self.pointSpectrumSignal.connect(frontend.update_point_spectrum)
+        self.statusSignal.connect(frontend.lbl_info.setText)
+
+    @pyqtSlot(str)
+    def confirm_mirror(self, position: str):
+        """El operador dice dónde está el espejo ahora (R4-K, P2). Vale para la próxima corrida."""
+        from core.nidaq import confirm_detection_mirror_belief
+        if position not in ("up", "down"):
+            return
+        confirm_detection_mirror_belief(position)
+        self._mirror_confirmed = position
+
+    def request_stop(self):
+        """Se puede llamar desde cualquier hilo: corta la exposición en curso en el tramo siguiente."""
+        self._stop_event.set()
 
     @pyqtSlot(float, float, float, float, float, float, str)
     def start_scan(self, xmin: float, xmax: float, ymin: float, ymax: float, step: float,
-                    exp_time: float, laser: str = ""):
-        if not hardware_session.acquire_session("Mapeo Confocal"):
-            self.stop_scan()
+                   exp_time: float, laser: str = ""):
+        from pyspectrum.drivers.andor_ccd_driver import READ_MODE_FVB
+        from pyspectrum.drivers.shamrock_driver import SHAMROCK_SUCCESS
+        from pyspectrum.modules.routines.grid_runner import GridRunner, GridAbort, GridSafetyPause
+        from pyspectrum.services.spectrometer_shutter import open_spectrometer_shutter
+        if self._scanning:
+            return
+        if self._mirror_confirmed is None:
+            self.statusSignal.emit("⛔ Confirmá dónde está el espejo de detección antes de iniciar el mapa.")
+            return
+        if not hardware_session.acquire_session(self.SESSION):
+            self.statusSignal.emit("⛔ El hardware está ocupado o la E-STOP está activa.")
             return
 
-        # Clampear límites al rango físico de la platina piezoeléctrica (0 a 100 µm)
-        xmin = max(0.0, min(100.0, float(xmin)))
-        xmax = max(0.0, min(100.0, float(xmax)))
-        ymin = max(0.0, min(100.0, float(ymin)))
-        ymax = max(0.0, min(100.0, float(ymax)))
+        xmin, xmax = sorted((max(0.0, min(100.0, float(xmin))), max(0.0, min(100.0, float(xmax)))))
+        ymin, ymax = sorted((max(0.0, min(100.0, float(ymin))), max(0.0, min(100.0, float(ymax)))))
         step = max(0.01, float(step))
-        if xmin > xmax:
-            xmin, xmax = xmax, xmin
-        if ymin > ymax:
-            ymin, ymax = ymax, ymin
-
         self.xs = np.arange(xmin, xmax + step * 0.5, step)
         self.ys = np.arange(ymin, ymax + step * 0.5, step)
-        self.nx = len(self.xs)
-        self.ny = len(self.ys)
+        self.nx, self.ny = len(self.xs), len(self.ys)
 
-        ret, self.wave_axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-        self._datacube = np.zeros((self.nx, self.ny, len(self.wave_axis)), dtype=np.float32)
+        ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
+        axis = np.asarray(axis, dtype=np.float64)
+        if ret != SHAMROCK_SUCCESS or axis.size != 1004 or not np.all(np.isfinite(axis)):
+            hardware_session.release_session(self.SESSION)
+            print(f"[Mapeo Confocal] Eje λ no confiable: código {ret}, {axis.size} puntos, "
+                  f"finito={bool(np.all(np.isfinite(axis))) if axis.size else False}")
+            self.statusSignal.emit(f"⛔ No se pudo leer el eje λ del Shamrock (código {ret}): el mapa no arranca.")
+            return
+        self.wave_axis = axis
+        self._datacube = np.full((self.nx, self.ny, 1004), np.nan, dtype=np.float32)
+        self._failed = np.zeros((self.nx, self.ny), dtype=bool)
         self.map_2d = np.zeros((self.nx, self.ny), dtype=np.float32)
-
-        self.curr_ix = 0
-        self.curr_iy = 0
+        self.curr_ix = self.curr_iy = 0
         self.total_points = self.nx * self.ny
         self.points_done = 0
-
-        self.camera.set_exposure_time(exp_time)
-
-        # ANOM-HYPERSPEC-02: ciclo de vida de obturador — antes este mapeo nunca abría ni
-        # cerraba ningún shutter; si el operador lo abría manualmente desde el dock de
-        # Shutters, el watchdog central lo cerraba a mitad de mapa sin que nada acá lo supiera.
+        self._exp_time = float(exp_time)
+        self._complete = False
+        self._saved_path = None
+        self._stop_event.clear()
+        self._runner = GridRunner(self.camera, should_abort=self._stop_event.is_set)
         self.laser_in_use = laser or (SHUTTERS[0] if SHUTTERS else "")
-        if self.laser_in_use:
-            open_shutter(self.laser_in_use)
-
         self._scanning = True
+        try:
+            self.camera.set_read_mode(READ_MODE_FVB)
+            res = open_spectrometer_shutter(self.camera, self.spectrometer)
+            if not res.ok:
+                raise GridSafetyPause(f"El obturador del espectrómetro no abrió: {res.detail}")
+            self._runner.set_mirror("down")          # el espectro se mide con el espejo abajo (R4-K)
+            if self.laser_in_use:
+                self._runner.laser(self.laser_in_use, True)
+        except (GridSafetyPause, GridAbort) as e:
+            self._finish(str(e))
+            return
         self.scan_timer.start()
 
     @pyqtSlot()
     def stop_scan(self):
+        self._stop_event.set()
         if self._scanning:
-            self._scanning = False
-            self.scan_timer.stop()
-            if self.laser_in_use:
-                close_shutter(self.laser_in_use)
-                self.laser_in_use = ""
-            hardware_session.release_session("Mapeo Confocal")
-            self.progressSignal.emit(100)
-            self.scanFinishedSignal.emit()
+            self._finish("Mapa detenido.")
 
-    def _scan_step(self):
+    def _finish(self, reason: str = ""):
+        """Cierra láser y obturador del espectrómetro, devuelve el espejo, guarda el cubo y suelta la sesión.
+        Una sola vez por corrida."""
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter
         if not self._scanning:
             return
-        if hardware_session.is_emergency_stopped:
-            self.stop_scan()
+        self._scanning = False
+        self.scan_timer.stop()
+        runner = self._runner
+        try:
+            if runner is not None and not runner.close_lasers():
+                reason += " El cierre del láser no se confirmó."
+            elif runner is None and self.laser_in_use:
+                close_shutter(self.laser_in_use)
+        finally:
+            self.laser_in_use = ""
+        close_spectrometer_shutter(self.camera, self.spectrometer)
+        if (runner is not None and self._mirror_confirmed and not hardware_session.is_emergency_stopped):
+            try:
+                runner.hw.flipper_notch532(self._mirror_confirmed)
+            except Exception as e:
+                reason += f" No se pudo devolver el espejo: {e}."
+        self._mirror_confirmed = None                 # la confirmación vale para una corrida
+        self._save()
+        hardware_session.release_session(self.SESSION)
+        self.progressSignal.emit(100)
+        if reason:
+            print(f"[Mapeo Confocal] {reason.strip()}")
+            self.statusSignal.emit(reason.strip())
+        self.scanFinishedSignal.emit()
+
+    def _save(self):
+        if self._datacube is None:
+            return
+        try:
+            import h5py
+            d = Path(self.data_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            path = d / time.strftime("map_%Y%m%d_%H%M%S.h5")
+            k = 1
+            while path.exists():
+                path = d / time.strftime(f"map_%Y%m%d_%H%M%S_{k}.h5")
+                k += 1
+            with h5py.File(path, "w") as f:
+                f.create_dataset("cube", data=self._datacube, compression="gzip", shuffle=True)
+                f.create_dataset("failed", data=self._failed)
+                f.create_dataset("map_2d", data=self.map_2d)
+                f.create_dataset("x_um", data=self.xs)
+                f.create_dataset("y_um", data=self.ys)
+                f.create_dataset("wavelength_nm", data=self.wave_axis)
+                f.attrs["exposure_s"] = self._exp_time
+                f.attrs["read_mode"] = "FVB"
+                f.attrs["complete"] = bool(self._complete)
+                f.attrs["points_done"] = int(self.points_done)
+                ret_g, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+                f.attrs["grating"] = int(grating) if ret_g == 20202 else -1
+                f.attrs["cube_axes"] = "x, y, lambda"
+            self._saved_path = str(path)
+        except Exception as e:
+            self.statusSignal.emit(f"⚠️ No se pudo guardar el cubo: {e}")
+
+    def _scan_step(self):
+        from pyspectrum.modules.routines.grid_runner import GridAbort, GridSafetyPause, NodeFailed
+        if not self._scanning:
+            return
+        if hardware_session.is_emergency_stopped or self._stop_event.is_set():
+            self._finish("Mapa detenido.")
+            return
+        x = float(self.xs[self.curr_ix])
+        y = float(self.ys[self.curr_iy])
+        try:
+            self._runner.move_to(x, y)
+            spec = self._runner.expose((1004,), self._exp_time)
+            self._datacube[self.curr_ix, self.curr_iy, :] = spec
+            self.map_2d[self.curr_ix, self.curr_iy] = float(np.sum(spec))
+            self.pointSpectrumSignal.emit(self.wave_axis, spec)
+        except NodeFailed as e:
+            self._failed[self.curr_ix, self.curr_iy] = True
+            self.statusSignal.emit(f"Píxel ({x:.2f}, {y:.2f}) µm fallido: {e}")
+        except GridSafetyPause as e:
+            self._finish(f"⛔ {e}")
+            return
+        except GridAbort:
+            self._finish("Mapa detenido.")
             return
 
-        heartbeat_shutter()  # renueva el watchdog en cada punto; respeta la política global
-
-        x = self.xs[self.curr_ix]
-        y = self.ys[self.curr_iy]
-
-        # 1. Mover platina PI
-        pi.MOV([1, 2], [x, y])
-
-        # 2. Adquirir espectro CCD
-        frame = self.camera.get_most_recent_image()
-        spec = np.mean(frame, axis=0)
-
-        # 3. Almacenar en hipercubo
-        self._datacube[self.curr_ix, self.curr_iy, :] = spec
-        self.map_2d[self.curr_ix, self.curr_iy] = float(np.sum(spec))
-
         self.points_done += 1
-        pct = int(100.0 * self.points_done / self.total_points)
-        self.progressSignal.emit(pct)
-
-        # Actualizar visualización cada línea o punto
+        self.progressSignal.emit(int(100.0 * self.points_done / self.total_points))
         self.mapUpdatedSignal.emit(self.map_2d)
-        self.pointSpectrumSignal.emit(self.wave_axis, spec)
-
-        # Avanzar coordenadas
         self.curr_ix += 1
         if self.curr_ix >= self.nx:
             self.curr_ix = 0
             self.curr_iy += 1
             if self.curr_iy >= self.ny:
-                # Escaneo completado
-                self.stop_scan()
-                self.scanFinishedSignal.emit()
+                self._complete = True
+                self._finish("Mapa completo." + (f" Guardado en {self.data_dir}." if self.data_dir else ""))

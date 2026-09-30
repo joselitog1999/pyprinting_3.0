@@ -55,6 +55,7 @@ class TestDimersGridGeneration(unittest.TestCase):
         self.camera = get_andor_ccd(force_mock=True)
         self.spectrometer = get_shamrock(force_mock=True)
         self.backend = DimersBackend(self.camera, self.spectrometer)
+        self.backend.POWER_SETTLE_S = 0.05
 
     def test_generate_parametric_grid(self):
         previews = []
@@ -85,6 +86,7 @@ class TestDimersSequenceStateMachine(unittest.TestCase):
             hardware_session.release_session(hardware_session.current_owner)
 
         self.backend = DimersBackend(self.camera, self.spectrometer)
+        self.backend.POWER_SETTLE_S = 0.05
 
         self._orig_autofocus = dimers.run_z_autofocus
         self._orig_centering = dimers.run_confocal_centering
@@ -100,41 +102,44 @@ class TestDimersSequenceStateMachine(unittest.TestCase):
         dimers.run_confocal_centering = lambda **kw: (self.centering_calls.append(kw) or next(self._centering_coords))
         dimers.read_photodiode_level = _rising_photodiode_reader()
 
-        def _spy_move(x, y, z=None, **kw):
+        from pyspectrum.modules.routines import grid_runner
+        self._orig_runner_move = grid_runner.GridRunner.move_to
+
+        def _spy_move(runner, x, y, z=None):
             self.move_calls.append((x, y, z))
-            return self._orig_move(x, y, z, **kw)
-        dimers.move_stage_to = _spy_move
+            return self._orig_runner_move(runner, x, y, z)
+        grid_runner.GridRunner.move_to = _spy_move
 
     def tearDown(self):
         dimers.run_z_autofocus = self._orig_autofocus
         dimers.run_confocal_centering = self._orig_centering
         dimers.read_photodiode_level = self._orig_read_photodiode
         dimers.move_stage_to = self._orig_move
+        from pyspectrum.modules.routines import grid_runner
+        grid_runner.GridRunner.move_to = self._orig_runner_move
         hardware_session.clear_emergency()
         if hardware_session.is_busy:
             hardware_session.release_session(hardware_session.current_owner)
 
-    def test_two_particle_cycle_applies_offset_and_acquires_final_spectrum(self):
+    def test_two_particle_cycle_applies_offset(self):
         self.backend.generate_grid(1, 1, 3.0, 0.0, 5.0, 5.0, 5.0)
 
         pairs_finished = []
         self.backend.pairFinishedSignal.connect(
-            lambda wave, spec, x1, y1, x2, y2: pairs_finished.append((wave, spec, x1, y1, x2, y2))
+            lambda x1, y1, x2, y2: pairs_finished.append((x1, y1, x2, y2))   # sin espectro final (R4-K, P5)
         )
 
         config_dict = {
             "laser": "637 nm (red)", "exp_time": 0.02, "dx_nm": 120.0, "dy_nm": -40.0,
             "trace_threshold_ratio": 1.2, "trace_max_s": 5.0, "refocus_every": 1,
-            "save_dir": tempfile.mkdtemp(),
+            "save_dir": tempfile.mkdtemp(), "mirror": "up",  # AND-1
         }
         self.backend.start_sequence(config_dict)
-        _wait_for_signal(self.backend.sequenceFinishedSignal, timeout_s=10.0)
+        _wait_for_signal(self.backend.sequenceFinishedSignal, timeout_s=40.0)
 
         self.assertEqual(self.backend.idx, 1)
         self.assertEqual(len(pairs_finished), 1)
-        wave, spec, x1, y1, x2, y2 = pairs_finished[0]
-        self.assertEqual(len(wave), 1004)
-        self.assertEqual(len(spec), 1004)
+        x1, y1, x2, y2 = pairs_finished[0]
         self.assertAlmostEqual(x1, 11.0)
         self.assertAlmostEqual(y1, 21.0)
         self.assertAlmostEqual(x2, 12.0)
@@ -159,10 +164,10 @@ class TestDimersSequenceStateMachine(unittest.TestCase):
         config_dict = {
             "laser": "592 nm (yellow)", "exp_time": 0.02, "dx_nm": 100.0, "dy_nm": 0.0,
             "trace_threshold_ratio": 1.2, "trace_max_s": 5.0, "refocus_every": 2,
-            "save_dir": tempfile.mkdtemp(),
+            "save_dir": tempfile.mkdtemp(), "mirror": "up",  # AND-1
         }
         self.backend.start_sequence(config_dict)
-        _wait_for_signal(self.backend.sequenceFinishedSignal, timeout_s=10.0)
+        _wait_for_signal(self.backend.sequenceFinishedSignal, timeout_s=40.0)
 
         self.assertEqual(self.backend.idx, 2)
         self.assertEqual(len(self.autofocus_calls), 1, "Con K=2 y 2 pares, el re-enfoque sólo debe disparar una vez")
@@ -177,6 +182,7 @@ class TestDimersEmergencyStopResilience(unittest.TestCase):
             hardware_session.release_session(hardware_session.current_owner)
 
         self.backend = DimersBackend(self.camera, self.spectrometer)
+        self.backend.POWER_SETTLE_S = 0.05
         self._orig_autofocus = dimers.run_z_autofocus
         self._orig_centering = dimers.run_confocal_centering
         self._orig_read_photodiode = dimers.read_photodiode_level
@@ -205,13 +211,14 @@ class TestDimersEmergencyStopResilience(unittest.TestCase):
         config_dict = {
             "laser": "808 nm (IR)", "exp_time": 0.02, "dx_nm": 100.0, "dy_nm": 0.0,
             "trace_threshold_ratio": 1.2, "trace_max_s": 30.0, "refocus_every": 1,
-            "save_dir": tempfile.mkdtemp(),
+            "save_dir": tempfile.mkdtemp(), "mirror": "up",  # AND-1
         }
-        QTimer.singleShot(80, hardware_session.emergency_stop)
+        # la traza empieza después de la potencia y de abrir el láser (0.5 s, R4-K)
+        QTimer.singleShot(1500, hardware_session.emergency_stop)
 
         try:
             self.backend.start_sequence(config_dict)
-            _wait_for_signal(self.backend.sequenceFinishedSignal, timeout_s=10.0)
+            _wait_for_signal(self.backend.sequenceFinishedSignal, timeout_s=40.0)
         finally:
             dimers.open_shutter = orig_open
             dimers.close_shutter = orig_close

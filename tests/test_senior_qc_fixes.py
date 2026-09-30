@@ -61,47 +61,29 @@ class TestSeniorQCFixes(unittest.TestCase):
         self.assertFalse(trace_widget.umbral_absEdit.isHidden())
 
     def test_nc02_dimers_fresh_acquisition(self):
-        """Verifica que DimersBackend ejecuta start_acquisition y procesa frames 1D/2D."""
+        """AND-1: la polarización de DimersBackend es una exposición real (single_exposure), nunca "el último
+        cuadro" leído justo después de start_acquisition (lo que este test verificaba antes)."""
+        from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+        from pyspectrum.drivers.shamrock_driver import get_shamrock
+        from pyspectrum.modules import acquisition
         from pyspectrum.modules.routines.dimers import DimersBackend
-
-        class MockCamera:
-            def __init__(self):
-                self.started = False
-                self.exposure = 0.1
-                self.width = 1004
-                self.height = 1002
-
-            def set_exposure_time(self, exp):
-                self.exposure = exp
-
-            def start_acquisition(self):
-                self.started = True
-                return 0
-
-            def get_most_recent_image(self):
-                # Retorna frame 2D
-                return np.ones((50, 1004), dtype=np.float32) * 123.0
-
-        class MockSpectrometer:
-            def ShamrockGetCalibration(self, dev, num_pix):
-                return 0, np.linspace(500, 700, num_pix)
-
-        cam = MockCamera()
-        spec = MockSpectrometer()
-        backend = DimersBackend(camera=cam, spectrometer=spec)
-
-        emitted = []
-        backend.dimerDataSignal.connect(lambda mode, wave, s, diff: emitted.append((mode, s)))
-
-        # Simular sesión adquirida
         from pyspectrum.modules.hardware_session import hardware_session
-        hardware_session.current_user = None  # asegurar libre
-
-        backend.acquire_polarization("parallel", 0.05)
-        self.assertTrue(cam.started, "start_acquisition() debe haberse llamado para asegurar frame fresco")
+        hardware_session.clear_emergency()
+        shapes = []
+        real = acquisition.single_exposure
+        acquisition.single_exposure = lambda *a, **k: shapes.append(a[1].shape) or real(*a, **k)
+        try:
+            backend = DimersBackend(camera=get_andor_ccd(force_mock=True), spectrometer=get_shamrock(force_mock=True))
+            emitted = []
+            backend.dimerDataSignal.connect(lambda mode, wave, s, diff: emitted.append((mode, s)))
+            backend.acquire_polarization("parallel", 0.05)
+            self.assertTrue(backend.pol_thread.wait_finished(10))
+        finally:
+            acquisition.single_exposure = real
+        self.assertEqual(shapes, [(1004,)])
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0][0], "parallel")
-        self.assertAlmostEqual(float(emitted[0][1][0]), 123.0)
+        self.assertEqual(len(emitted[0][1]), 1004)
 
     def test_nc03_raman_dynamic_wavelength(self):
         """Verifica la generalización multi-láser en fit_signal_raman y three_lorentz."""
