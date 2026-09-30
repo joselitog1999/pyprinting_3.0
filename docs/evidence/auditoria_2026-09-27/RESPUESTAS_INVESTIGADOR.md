@@ -593,6 +593,21 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 6. **Nodo con la exposición fallida:** se marca, se guarda y la grilla sigue. Las fallas de seguridad pausan.
 7. **Pausa del crecimiento:** cierra el láser, y seguir lo reabre.
 
+**R4-L — La cámara, sólo con pylablib (2026-09-30).**
+- Por ahora no se usan las tres llamadas a la capa baja de pylablib: `SetCoolerMode`, `SetEMGainMode` y `GetEMGainRange`.
+- Quedan en el valor del SDK, como en el legado, que tampoco las usaba:
+  - el modo del enfriador al cerrar;
+  - el modo de ganancia EM (DAC 0-255 por defecto);
+  - el rango de ganancia del panel, 0-255 fijo.
+- *Consecuencia:* el texto del cierre ya no afirma que el enfriador deja de enfriar; lo mide BANCO-57.
+
+**R4-M — Exploración con ideas de pyLabLib-cam-control (2026-09-30).**
+1. **Regla en cruz:** el perfil horizontal va abajo y el vertical al costado. En el perfil vertical se ven las líneas del ROI, sólo como referencia, sin poder moverlas.
+2. **Unidades:** el perfil horizontal va en λ en primer orden y en píxeles en orden cero.
+3. **Entran** el ajuste gaussiano del perfil (FWHM y centro) y la traza en el tiempo de la media de un ROI.
+4. **Inversión de la imagen:** fija en el código, por consistencia con las coordenadas de la platina, con el régimen observado (invertida en X respecto de la cámara, igual en Y). Se corrige en las pruebas de banco si hace falta (BANCO-56).
+5. **Orden:** primero R4-L, después el lazo de la cámara, después el resto.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** resuelto en R4-G, que reemplaza a R4-3: valen los guardados en el equipo (150 → 87, 1200 → 195, espejo → 60, detector → 0). Falta definir el protocolo del detector.

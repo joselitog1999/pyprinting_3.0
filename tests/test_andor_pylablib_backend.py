@@ -103,18 +103,13 @@ class _FakeCam:
         return f
     def read_newest_image(self, peek=False):
         return self.unread
-
-
-class _FakeLib:
-    def __init__(self): self.calls = []
-    def SetCoolerMode(self, m): self.calls.append(("SetCoolerMode", m))
-    def SetEMGainMode(self, m): self.calls.append(("SetEMGainMode", m))
-    def GetEMGainRange(self): return (0, 255)
+    def acquisition_in_progress(self): return self.acquiring
+    def get_new_images_range(self): return None      # el Live todavía no recibió ningún cuadro
 
 
 def _adapter(**cam_kw):
     cam = _FakeCam(**cam_kw)
-    drv = pl_mod.PylablibAndorCCD(camera_factory=lambda: cam, lib_factory=_FakeLib)
+    drv = pl_mod.PylablibAndorCCD(camera_factory=lambda: cam)
     assert drv.initialize()
     return drv, cam
 
@@ -134,7 +129,7 @@ def test_lab_mode_uses_pylablib_by_default_and_never_the_simulator(monkeypatch):
     def _no_camera():
         raise RuntimeError("camera index 0 is not available (0 cameras exist)")
     monkeypatch.setattr(pl_mod, "_default_camera_factory", _no_camera)
-    monkeypatch.setattr(pl_mod.PylablibAndorCCD.__init__, "__defaults__", (_no_camera, pl_mod._default_lib))
+    monkeypatch.setattr(pl_mod.PylablibAndorCCD.__init__, "__defaults__", (_no_camera,))
     cam = andor_mod.get_andor_ccd()
     assert isinstance(cam, pl_mod.PylablibAndorCCD)
     assert cam.is_mock is False and cam.available is False
@@ -242,12 +237,15 @@ def test_live_skips_the_tick_while_no_frame_exists():
     drv, cam = _adapter()
     with pytest.raises(pl_mod.FrameNotReady):
         drv.get_most_recent_image()
-    worker = ExplorationWorker(drv, spectrometer=_MockShamrock())
+    session = type("S", (), {"busy_nowait": False, "estopped_nowait": False})()
+    worker = ExplorationWorker(drv, spectrometer=_MockShamrock(), session=session)
     frames, errors = [], []
-    worker.imageUpdatedSignal.connect(frames.append)
+    worker.frameReadySignal.connect(lambda: frames.append(1))
     worker.liveErrorSignal.connect(errors.append)
-    worker._acquire_frame()
-    assert frames == [] and errors == []
+    worker.start_live()
+    worker._poll()                                   # sin cuadro nuevo: ni aviso ni error (paquete 1 de R4-M)
+    assert frames == [] and errors == [] and worker.active
+    worker.stop_live()
 
 
 def test_installed_pylablib_is_the_bench_version():
@@ -303,3 +301,32 @@ def test_camera_frontend_never_calls_a_stale_reading_stabilized():
     fe = Frontend()
     fe.update_temperature(float(fe.spin_temp.value()), andor_mod.DRV_ACQUIRING)
     assert "Estabilizado" not in fe.lbl_temp.text() and "adquiriendo" in fe.lbl_temp.text()
+
+
+# ── R4-L (2026-09-30): la cámara, sólo con la API de cámara de pylablib ───────────────────────
+
+def test_r4l_the_wrapper_never_reaches_the_low_level_library():
+    """Ni `cam._lib`, ni `AndorSDK2.lib`, ni las tres llamadas de la capa baja que se usaban antes."""
+    import ast
+    from pathlib import Path
+    src = Path(pl_mod.__file__).read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Attribute):
+            assert node.attr not in ("_lib", "lib", "SetCoolerMode", "SetEMGainMode", "GetEMGainRange"), node.attr
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [a.name for a in node.names] + [getattr(node, "module", "") or ""]
+            assert not any("atmcd32d_lib" in n for n in names), names
+    for name in ("set_cooler_mode", "set_em_gain_mode", "get_em_gain_range"):
+        assert not hasattr(pl_mod.PylablibAndorCCD, name), name
+
+
+def test_r4l_the_baseline_leaves_cooler_mode_and_gain_mode_to_the_sdk_without_blocking():
+    from pyspectrum.modules import camera_baseline as cb
+    drv, cam = _adapter()
+    report = cb.apply_camera_baseline(drv)
+    for name in ("cooler_mode_on_shutdown", "em_gain_mode"):
+        item = report.item(name)
+        assert item is not None and item.outcome == cb.SDK_DEFAULT, (name, item)
+        assert "R4-L" in item.detail
+    assert not report.blocks_acquisition, report.summary()
+    assert report.item("em_gain").outcome == cb.OK

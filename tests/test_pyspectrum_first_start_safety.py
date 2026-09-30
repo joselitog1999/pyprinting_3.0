@@ -222,7 +222,7 @@ def test_live_refuses_to_start_on_an_unavailable_camera(lab_mode_andor):
     worker = ExplorationWorker(cam, spectrometer=shamrock_mod._MockShamrock())
     errors, frames = [], []
     worker.liveErrorSignal.connect(errors.append)
-    worker.imageUpdatedSignal.connect(frames.append)
+    worker.frameReadySignal.connect(lambda: frames.append(1))
     worker.start_live()
     assert worker._timer is None or not worker._timer.isActive()
     assert errors and "atmcd64d.dll" in errors[0]

@@ -12,6 +12,9 @@ R2-inst §6.2-6.3 y de la Ronda 3 §2.2 (con H-08 y H-27):
 - **Entre adquisiciones:** con la cámara adquiriendo, el SDK rechaza estos cambios con DRV_ACQUIRING.
   El pedido queda pendiente y `apply_pending()` lo aplica cuando la cámara está IDLE. Nunca se aborta el
   Live ni una rutina por esto.
+- **Durante el Live (paquete 1 de R4-M, pregunta 2):** la velocidad HS se aplica en el momento: el driver
+  pausa el Live (`pausing_acquisition`), la cambia y lo vuelve a arrancar. Con una rutina adquiriendo sigue
+  quedando pendiente.
 - **Ventilador:** "low" = FanMode 1 (arranque, R4-A-6) y "high" = FanMode 0 ("full"). "Off" no se ofrece:
   con el sensor frío el manual lo permite sólo por períodos cortos (SDK p. 273).
 - **Setpoint:** se valida contra GetTemperatureRange.
@@ -66,8 +69,13 @@ class CameraControlService:
         except Exception:
             return False
 
-    def _run_or_defer(self, name: str, action: Callable[[], ControlResult], what: str) -> ControlResult:
-        if self._acquiring():
+    def _live_only(self) -> bool:
+        """La cámara adquiere porque corre el Live (no una rutina)."""
+        return bool(getattr(self.camera, "live_active", False))
+
+    def _run_or_defer(self, name: str, action: Callable[[], ControlResult], what: str,
+                      live_pausable: bool = False) -> ControlResult:
+        if self._acquiring() and not (live_pausable and self._live_only()):
             with self._lock:
                 self._pending[name] = action
             return ControlResult(name, ControlState.PENDING,
@@ -164,4 +172,4 @@ class CameraControlService:
             if code != _DRV_SUCCESS:
                 return ControlResult("hs_speed_mhz", ControlState.FAILED, f"SetHSSpeed({idx}) devolvió {code}.", code)
             return ControlResult("hs_speed_mhz", ControlState.APPLIED, f"HS {value:g} MHz (enviada).", code)
-        return self._run_or_defer("hs_speed_mhz", action, f"HS {value:g} MHz")
+        return self._run_or_defer("hs_speed_mhz", action, f"HS {value:g} MHz", live_pausable=True)

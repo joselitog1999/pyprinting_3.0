@@ -142,6 +142,12 @@ else:
 # visor de 3.0.
 ANDOR_FLIP_Y_IMAGE: bool = True     # Inversión vertical
 ANDOR_FLIP_X_IMAGE: bool = False    # Inversión horizontal
+# Visor de Exploración de 3.0 (paquete 2 de R4-M, decisión del investigador del 2026-09-30): fija en el
+# código, por consistencia con las coordenadas de la platina. BANCO-56: el cuadro del Andor, como lo
+# entrega la cámara, está invertido en X respecto de la Canon e igual en Y. Sólo invierte la VISTA: la
+# regla, el ROI, los cortes y el archivo guardado siguen en px del sensor. Si BANCO-56 dice lo contrario,
+# se cambia esta línea.
+EXPLORATION_DISPLAY_FLIP_X: bool = True
 ANDOR_DEFAULT_READ_MODE: int = 4    # 0: FVB, 1: Single Track, 4: Image 2D
 SHAMROCK_USE_FACTORY_EEPROM: bool = True  # Calibración cúbica certificada de EEPROM
 SHAMROCK_SLIT_CENTER_PIXEL_X: float = 501.0  # Pixel X central de referencia donde enfoca el slit sobre el sensor CCD

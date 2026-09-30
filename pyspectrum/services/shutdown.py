@@ -64,7 +64,7 @@ def closing_question_text(home_pos: Sequence[float], guests: Sequence[str], extr
     """Texto de la única pregunta de cierre (R3-gui §1.13). La posición sale de config, no de un literal."""
     x, y, z = (f"{float(v):g}" for v in home_pos)
     text = (f"Se cierran todos los obturadores, la platina va a ({x}, {y}, {z}) µm y la cámara se cierra: "
-            f"el enfriador deja de enfriar.")
+            f"el enfriador queda como lo deje el SDK al cerrar (R4-L; se verifica en BANCO-57).")
     for name in guests:
         text += f"\n\n{name} (abierto desde aquí) también se cierra, sin mover la platina."
     for line in extra:

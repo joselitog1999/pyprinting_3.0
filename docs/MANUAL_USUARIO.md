@@ -731,7 +731,46 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 ### 4.2 Las 7 Pestañas de Flujo de Trabajo
 
 #### 1️⃣ Pestaña 1: Exploración y Live View 2D
-- **Visualizador 2D de Alta Velocidad**: Implementado en PyQtGraph con worker en `QThread` dedicado (`ExplorationWorker`). Mantiene entre 20 y 30 fps estables en modo continuo sin congelar eventos de la GUI.
+- **Visualizador 2D**: implementado en PyQtGraph, con el worker en un `QThread` propio (`ExplorationWorker`).
+  - **Arranque:** el Live arranca siempre en adquisición continua. Hasta el 2026-09-30, después de encender el programa, el Live se quedaba en el primer cuadro: el estado base deja la cámara en "single".
+  - **Qué se muestra:** sólo el cuadro más nuevo. Se pinta como máximo cada 50 ms, y sólo si la pestaña se ve.
+  - **Velocidad:** la marca la exposición. La cifra de "20 a 30 fps" que figuraba acá no estaba medida; BANCO-60 la mide.
+- **Línea de estado del Live** (debajo del visor). Ejemplo: `12.3 fps · mostrados 12.3/s · cuadro #1532 · sin mostrar 0 · perdidos 0 · búfer 3 %`. Cada campo tiene su explicación en la ayuda emergente.
+  - **fps:** los cuadros por segundo leídos del búfer de la cámara, mostrados o no, medidos con el reloj de la PC.
+  - **mostrados:** los cuadros que se pintaron.
+  - **sin mostrar:** llegaron entre dos pinturas. Es normal con exposiciones cortas.
+  - **perdidos:** el búfer de la cámara los pisó sin que se leyeran. Debería ser 0; se pone ámbar si no.
+  - **búfer:** la fracción del búfer sin leer. Se pone ámbar desde el 50 %.
+- **Cambios durante el Live.**
+  - Exposición y velocidad HS se aplican en el momento: el Live se pausa un instante y sigue.
+  - El modo de lectura (FVB, track, imagen) y el amplificador **no** se cambian con el Live corriendo, porque cambian la forma del cuadro. El programa pide detener el Live.
+  - Con una rutina en curso, la velocidad HS queda pendiente y la exposición se rechaza, con un aviso.
+- **Una rutina detiene el Live antes de empezar.** Cuando la rutina arranca, la cámara ya se detuvo y el obturador del espectrómetro ya se cerró. Hasta el 2026-09-30 la orden llegaba tarde: el Live podía abortar la primera exposición de la rutina y cerrarle el obturador.
+- **La imagen se ve invertida en X** respecto del cuadro de la cámara, para que coincida con la Canon y las coordenadas de la platina (BANCO-56). Sólo se invierte la vista: la regla, el ROI, los cortes y el archivo guardado siguen en px del sensor.
+- **Regla en cruz (📏 Regla).** Un clic en la imagen la lleva al punto; también se pueden arrastrar sus líneas.
+  - **Perfil horizontal (abajo):** columna a columna con la imagen. En primer orden el eje está en λ (nm), con el eje del Shamrock sin la corrección fina; en orden cero (o con el estado desconocido), en px.
+  - **Perfil vertical (al costado):** las líneas azules punteadas son el ROI vertical, sólo como referencia; no se mueven desde ahí.
+  - **Banda H y banda V:** cuántas filas o columnas se promedian (1 a 51, impar). La banda se ve sombreada en la imagen.
+- **Ajuste gaussiano (casilla):** los dos perfiles, alrededor de la regla, con el mismo estimador que la calibración de λ.
+  - Primer orden: centro ± u y FWHM en nm, con la dispersión local.
+  - Orden cero y perfil vertical: FWHM en µm (px × 8 µm, imagen 1:1 de la ranura).
+  - Si el crudo satura no se ajusta; sin ajuste se ven las banderas en ámbar.
+  - Se recalcula hasta 10 veces por segundo.
+- **Saturación:** siempre visible, sobre el cuadro **crudo**: pico / 16 383 y cuántos píxeles llegaron al tope. Amarilla desde el 50 %, roja desde el 80 %. Hasta el 2026-09-30 era pico − bias y sólo en orden cero.
+- **Niveles:** Manual (manda el histograma), Auto 1–99 % (en cada cuadro) o ADC completo (0 a 16 383).
+- **❄ Congelar:** deja de pintar para mirar con calma; el Live y la traza siguen. Al descongelar se muestra el último cuadro.
+- **📷 Cuadro único:** con el Live detenido, un cuadro con la exposición del panel. Abre y cierra el obturador del espectrómetro, como el Live.
+- **Fondo.**
+  1. Con el Live corriendo, cerrá el obturador del espectrómetro desde el panel izquierdo. Exploración no lo acciona: sólo lee su estado y lo anota con el fondo.
+  2. Elegí cuántos cuadros promediar (10 por defecto) y apretá **Tomar fondo**.
+  3. Abrí el obturador y marcá **Restar**.
+  - El fondo vale mientras no cambien la exposición, la ganancia EM, el amplificador, el preamplificador, las velocidades HS y VS, el modo de lectura, la red ni λc. Si algo cambia, queda marcado "no válido" con el motivo y se deja de restar. No se borra: si volvés a esas condiciones vuelve a valer.
+  - Si una condición cambia mientras se toma, el fondo se descarta y se avisa.
+- **Traza en el tiempo (▸ desplegable):** la media de una **fila propia** (la línea naranja punteada, que se arrastra) o la media del **ROI vertical**, cuadro a cuadro. Cambiar de fuente o de fila limpia la traza.
+- **💾 Guardar cuadro:** un `.h5` con nombre automático en `work_dir/exploration`; la ruta queda en la barra de estado. Guarda:
+  - el cuadro crudo y, si hay, el fondo aparte (nunca sólo la resta);
+  - el eje λ en primer orden y los dos cortes de la regla;
+  - la información completa de la cámara (`get_full_info` de pylablib), la regla, el ROI, la inversión de la vista y la condición del espectrómetro, con `provenance = EXPERIMENTAL`.
 - **ROI Vertical Interactivo con Propagación Automática**: Región lineal horizontal arrastrable (`LinearRegionItem`) para definir los límites de ranura ($y_{\min}, y_{\max}$). Al modificarla, el centroide y la altura se propagan en tiempo real a través del bus global `SpectroscopyContext.verticalRoiChanged`, siendo heredados automáticamente por el resto de los módulos sin requerir clics adicionales.
 - **Herramientas de Visión**: Auto-contraste robusto por percentiles (1%–99%) y retícula central para alineación micrométrica.
 - **Paleta 2D Centralizada**: El selector de falso color (Viridis, Inferno, Greys, Jet) vive en el **Panel Izquierdo Permanente**, no en la pestaña. Al cambiarlo se propaga por el bus global `SpectroscopyContext.colormapChanged` y se aplica simultáneamente al visor de Exploración y al Inspector 2D de Static Raman, de modo que ambos visualizadores nunca muestran la misma matriz con paletas distintas.
@@ -917,7 +956,7 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
 4. **Tiempos de Asentamiento Óptico**:
    - Retardo automático de $4.0\ \text{s}$ para rotación de torreta de redes, $0.8\ \text{s}$ para ranuras y $0.3\ \text{s}$ para desplazamiento de longitud de onda antes de iniciar cualquier captura.
 5. **Cierre de PySpectrum (paso 13, `DEC-040`)**:
-   - **Una sola pregunta:** "Se cierran todos los obturadores, la platina va a (50, 50, 10) µm y la cámara se cierra: el enfriador deja de enfriar". La posición es `config.PI_HOME_POS` (R4-B 6): así, al volver a conectarse, la platina no se mueve. Si hay un satélite abierto, la misma pregunta avisa que también se cierra, sin mover la platina. El satélite no pregunta por su cuenta.
+   - **Una sola pregunta:** "Se cierran todos los obturadores, la platina va a (50, 50, 10) µm y la cámara se cierra: el enfriador queda como lo deje el SDK al cerrar". Desde R4-L, 3.0 no fija qué hace el enfriador al cerrar, igual que el legado; BANCO-57 lo mide. La posición es `config.PI_HOME_POS` (R4-B 6): así, al volver a conectarse, la platina no se mueve. Si hay un satélite abierto, la misma pregunta avisa que también se cierra, sin mover la platina. El satélite no pregunta por su cuenta.
    - **Orden:**
      1. E-STOP;
      2. las rutinas y sus hilos, incluido un barrido de Step & Glue en curso;

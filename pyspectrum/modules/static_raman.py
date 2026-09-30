@@ -815,6 +815,9 @@ class StaticRamanBackend(QtCore.QObject):
 
         dlg = AcquisitionSetupDialog(message="Configurando modo de lectura Raman...")
         result = dlg.run(transition_read_mode, self.camera, int(mode), **kwargs)
+        if result.get("refused"):
+            self.statusMessageSignal.emit(result["refused"])
+            return
         self.current_read_mode = int(mode)
         self.statusMessageSignal.emit(
             f"Modo de lectura Raman: {self.READ_MODE_NAMES.get(mode, mode)} (buffer {result['buffer_shape']})"
@@ -940,9 +943,12 @@ class StaticRamanBackend(QtCore.QObject):
         cada transición se emite `liveStateChangedSignal` con el estado REAL alcanzado, para
         que ningún botón de Live quede mostrando 'Detener' con nada corriendo.
         """
+        from pyspectrum.drivers.live_stream import live_api
         if active:
             try:
-                ret = self.camera.start_acquisition()
+                # Siempre en adquisición continua (paquete 1 de R4-M): el estado base deja "single" y el
+                # Live se congelaba en el primer cuadro.
+                ret = live_api(self.camera).start_live()
             except Exception as e:
                 ret, detail = None, f"excepción del driver: {e}"
             else:
@@ -972,7 +978,7 @@ class StaticRamanBackend(QtCore.QObject):
             self.liveStateChangedSignal.emit(True)
         else:
             self.live_timer.stop()
-            self.camera.abort_acquisition()
+            live_api(self.camera).stop_live()
             shutter_closed = self._set_spectrograph_shutter(False, report=False)
             msg = "Adquisición Live Raman detenida."
             if not shutter_closed:

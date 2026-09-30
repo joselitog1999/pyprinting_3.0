@@ -175,20 +175,20 @@ def test_window_badge_and_ctrl0_toggle(monkeypatch):
         win.close()
 
 
-def test_live_viewer_shows_peak_fraction_only_in_specular():
+def test_live_viewer_shows_raw_peak_fraction_in_every_order():
+    """Paquete 2 de R4-M, pregunta 6: el indicador mira el pico CRUDO respecto de 16 383 y se muestra
+    siempre. Antes era pico − bias y sólo en especular; el ADC recorta las cuentas crudas, bias incluido."""
     import numpy as np
     from pyspectrum.ui.exploration_tab import ExplorationTabWidget
     w = ExplorationTabWidget()
     frame = np.full((20, 20), 500.0)
-    frame[10, 10] = 500.0 + 0.62 * 16383
+    frame[10, 10] = 0.62 * 16383
     si.get_interlock().publish(si.FIRST_ORDER, "prueba")
-    w.update_image(frame)
-    assert w.lbl_saturation.isHidden()
-    si.get_interlock().publish(si.SPECULAR, "prueba")
     w.update_image(frame)
     assert not w.lbl_saturation.isHidden()
     assert "62 %" in w.lbl_saturation.text() and "#F9E2AF" in w.lbl_saturation.styleSheet()   # amarillo
-    frame[10, 10] = 500.0 + 0.9 * 16383
+    si.get_interlock().publish(si.SPECULAR, "prueba")
+    frame[10, 10] = 0.9 * 16383
     w.update_image(frame)
-    assert "saturación en orden cero" in w.lbl_saturation.text() and "#F38BA8" in w.lbl_saturation.styleSheet()
+    assert "saturación" in w.lbl_saturation.text() and "#F38BA8" in w.lbl_saturation.styleSheet()
     w.deleteLater()

@@ -50,7 +50,14 @@ def transition_read_mode(camera, new_mode: int, *, width: int = 1004, height: in
        RandomTrack/Image).
     3) Calcula la forma exacta del nuevo buffer de captura.
     Devuelve {'applied_mode', 'buffer_shape', 'n_tracks'} para que la GUI reasigne sus arrays.
+
+    Con el Live activo no hace nada y devuelve `refused` (paquete 1 de R4-M, pregunta 2): el modo de
+    lectura cambia la forma del cuadro, y abortar acá dejaría al Live leyendo una cámara detenida.
     """
+    from pyspectrum.drivers.live_stream import live_api
+    if live_api(camera).live_active:
+        return {"applied_mode": None, "buffer_shape": None, "n_tracks": 0,
+                "refused": "Detené el Live para cambiar el modo de lectura: cambia la forma del cuadro."}
     camera.abort_acquisition()
 
     if hasattr(camera, "get_status"):

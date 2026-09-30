@@ -14,6 +14,12 @@ esperan, traduciendo las excepciones de pylablib (`AndorSDK2LibError.code`). La 
 cuadro (`acquire_single`) sigue el camino de pylablib que usa el legado: `start_acquisition` →
 `wait_for_frame` → `read_oldest_image` → `stop_acquisition`.
 
+El Live (paquete 1 de R4-M) cumple el contrato de `live_stream`: arranca siempre en "cont", lee sólo el
+cuadro más nuevo con el contador de pylablib y, con el Live activo, aplica la exposición, el
+preamplificador y las velocidades HS y VS con `pausing_acquisition`. Lo que cambia la forma del cuadro
+(modo de lectura, track, imagen) y el amplificador se rechazan con DRV_ACQUIRING mientras el Live corre:
+pylablib pausaría solo (`@acqstopped`) y el Live seguiría con otra forma de cuadro.
+
 Coordenadas: la interfaz de PySpectrum usa las del SDK (filas y columnas desde 1, inclusivas);
 pylablib, desde 0 con fin exclusivo. La conversión se hace sólo acá.
 """
@@ -32,6 +38,7 @@ from pyspectrum.drivers.andor_ccd_driver import (
     FAN_MODE_FULL, FAN_MODE_LOW, FAN_MODE_OFF, READ_MODE_FVB, READ_MODE_IMAGE, READ_MODE_MULTI_TRACK,
     READ_MODE_RANDOM_TRACK, READ_MODE_SINGLE_TRACK, _specular_gain_allowed,
 )
+from pyspectrum.drivers.live_stream import LiveFrame, LiveStopped
 from pyspectrum.drivers.specular_interlock import get_interlock
 
 DRV_TEMP_OFF = 20034
@@ -73,28 +80,24 @@ def _default_camera_factory():
     return AndorSDK2Camera(**CONNECT_KWARGS)
 
 
-def _default_lib():
-    from pylablib.devices.Andor import AndorSDK2
-    return AndorSDK2.lib
-
-
 class PylablibAndorCCD:
     """Cámara Andor iXon3 sobre pylablib, con la interfaz de `AndorCCDDriver`."""
     is_mock = False
 
-    def __init__(self, camera_factory: Callable[[], Any] = _default_camera_factory,
-                 lib_factory: Callable[[], Any] = _default_lib):
+    def __init__(self, camera_factory: Callable[[], Any] = _default_camera_factory):
+        # R4-L (2026-09-30): sólo la API de cámara de pylablib (`AndorSDK2Camera`), como el legado. Nada de
+        # su capa baja: SetCoolerMode, SetEMGainMode y GetEMGainRange quedan en el valor del SDK.
         self._lock = threading.RLock()
         self._factory = camera_factory
-        self._lib_factory = lib_factory
         self._cam = None
-        self._lib = None
         self.unavailable_reason = ""
         self._read_mode = READ_MODE_IMAGE
         self._track_center = 501
         self._track_height = 40
         self._current_exposure_time = 0.05
         self._last_temp_c = float("nan")
+        self._live_active = False
+        self._live_not_shown_total = 0
 
     # ── Conexión ──────────────────────────────────────────────────────────────
     @property
@@ -109,7 +112,6 @@ class PylablibAndorCCD:
         with self._lock:
             try:
                 self._cam = self._factory()
-                self._lib = self._lib_factory()
                 self.unavailable_reason = ""
                 return True
             except Exception as e:
@@ -197,9 +199,6 @@ class PylablibAndorCCD:
         ret, on = self._get(self._cam.is_cooler_on if self.available else None, False)
         return (ret, bool(on))
 
-    def set_cooler_mode(self, mode: int) -> int:
-        return self._call(lambda: self._lib.SetCoolerMode(int(mode)))
-
     def get_temperature_range(self) -> Tuple[int, int, int]:
         ret, rng = self._get(self._cam.get_temperature_range if self.available else None, (0, 0))
         return (ret, int(rng[0]), int(rng[1]))
@@ -234,7 +233,14 @@ class PylablibAndorCCD:
             table[int(m.preamp)] = float(m.preamp_gain)
         return [table[i] for i in sorted(table)]
 
+    def get_output_amplifier(self) -> Optional[int]:
+        """Amplificador vigente (0 = EM, 1 = convencional), o None si no se pudo leer."""
+        ret, oamp = self._get(self._cam.get_oamp if self.available else None, None)
+        return int(oamp) if ret == DRV_SUCCESS and oamp is not None else None
+
     def set_output_amplifier(self, typ: int) -> int:
+        if self._live_active:
+            return DRV_ACQUIRING
         return self._call(lambda: self._cam.set_amp_mode(oamp=int(typ)))
 
     def get_number_hs_speeds(self, channel: int = 0, typ: int = 0) -> int:
@@ -247,7 +253,7 @@ class PylablibAndorCCD:
         return (DRV_SUCCESS, table[int(index)])
 
     def set_hs_speed(self, index: int, typ: int = 0) -> int:
-        return self._call(lambda: self._cam.set_amp_mode(hsspeed=int(index)))
+        return self._live_pausing(lambda: self._cam.set_amp_mode(hsspeed=int(index)))
 
     def get_hs_speed_index(self) -> int:
         ret, idx = self._get(self._cam.get_hsspeed if self.available else None, 0)
@@ -263,7 +269,7 @@ class PylablibAndorCCD:
         return (DRV_SUCCESS, table[int(index)])
 
     def set_preamp_gain(self, index: int) -> int:
-        return self._call(lambda: self._cam.set_amp_mode(preamp=int(index)))
+        return self._live_pausing(lambda: self._cam.set_amp_mode(preamp=int(index)))
 
     def get_preamp_gain_index(self) -> int:
         ret, idx = self._get(self._cam.get_preamp if self.available else None, 0)
@@ -285,15 +291,12 @@ class PylablibAndorCCD:
             return (DRV_P1INVALID, float("nan"))
         return (DRV_SUCCESS, float(speeds[int(index)]))
 
+    def get_vs_speed_index(self) -> Optional[int]:
+        ret, idx = self._get(self._cam.get_vsspeed if self.available else None, None)
+        return int(idx) if ret == DRV_SUCCESS and idx is not None else None
+
     def set_vs_speed(self, index: int) -> int:
-        return self._call(lambda: self._cam.set_vsspeed(int(index)))
-
-    def set_em_gain_mode(self, mode: int) -> int:
-        return self._call(lambda: self._lib.SetEMGainMode(int(mode)))
-
-    def get_em_gain_range(self) -> Tuple[int, int, int]:
-        ret, rng = self._get(lambda: self._lib.GetEMGainRange() if self.available else None, (0, 0))
-        return (ret, int(rng[0]), int(rng[1]))
+        return self._live_pausing(lambda: self._cam.set_vsspeed(int(index)))
 
     def set_emccd_gain(self, gain: int) -> int:
         if not _specular_gain_allowed(int(gain)):
@@ -310,8 +313,10 @@ class PylablibAndorCCD:
 
     # ── Exposición y obturador ────────────────────────────────────────────────
     def set_exposure_time(self, t_sec: float) -> int:
-        self._current_exposure_time = float(t_sec)
-        return self._call(lambda: self._cam.set_exposure(float(t_sec)))
+        code = self._live_pausing(lambda: self._cam.set_exposure(float(t_sec)))
+        if code == DRV_SUCCESS:
+            self._current_exposure_time = float(t_sec)
+        return code
 
     def get_exposure_time_checked(self) -> Tuple[int, Optional[float]]:
         """Exposición real (GetAcquisitionTimings vía pylablib) con su código. Sin el eco del pedido."""
@@ -335,6 +340,8 @@ class PylablibAndorCCD:
         name = _READ_MODE_NAMES.get(int(mode))
         if name is None:
             return DRV_P1INVALID
+        if self._live_active:
+            return DRV_ACQUIRING
         if int(mode) == READ_MODE_SINGLE_TRACK:
             ret = self._call(lambda: self._cam.setup_single_track_mode(center=self._track_center - 1,
                                                                       width=self._track_height))
@@ -348,6 +355,8 @@ class PylablibAndorCCD:
         return self._read_mode
 
     def set_single_track(self, center: int, height: int) -> int:
+        if self._live_active:
+            return DRV_ACQUIRING
         self._track_center = max(1, min(DETECTOR_HEIGHT_PX, int(center)))
         self._track_height = max(1, min(DETECTOR_HEIGHT_PX, int(height)))
         ret = self._call(lambda: self._cam.setup_single_track_mode(center=self._track_center - 1,
@@ -361,6 +370,8 @@ class PylablibAndorCCD:
 
     def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = DETECTOR_WIDTH_PX,
                   vstart: int = 1, vend: int = DETECTOR_HEIGHT_PX) -> int:
+        if self._live_active:
+            return DRV_ACQUIRING
         ret = self._call(lambda: self._cam.setup_image_mode(int(hstart) - 1, int(hend), int(vstart) - 1,
                                                            int(vend), int(hbin), int(vbin)))
         if ret == DRV_SUCCESS:
@@ -368,6 +379,8 @@ class PylablibAndorCCD:
         return ret
 
     def set_multi_track(self, number: int, height: int, offset: int) -> Tuple[int, int, int]:
+        if self._live_active:
+            return (DRV_ACQUIRING, 0, 0)
         ret, res = self._get(self._cam.setup_multi_track_mode if self.available else None, None,
                              int(number), int(height), int(offset))
         if ret != DRV_SUCCESS or res is None:
@@ -376,11 +389,26 @@ class PylablibAndorCCD:
         return (ret, int(res[3]), int(res[4]))
 
     def set_random_track(self, areas: list) -> int:
+        if self._live_active:
+            return DRV_ACQUIRING
         tracks = [(int(y0) - 1, int(y1)) for (y0, y1) in areas]
         ret = self._call(lambda: self._cam.setup_random_track_mode(tracks))
         if ret == DRV_SUCCESS:
             self._read_mode = READ_MODE_RANDOM_TRACK
         return ret
+
+    def frame_shape(self) -> Optional[Tuple[int, int]]:
+        """(filas, columnas) del cuadro con el modo de lectura vigente (`get_data_dimensions` de pylablib)."""
+        ret, dims = self._get(self._cam.get_data_dimensions if self.available else None, None)
+        return (int(dims[0]), int(dims[1])) if ret == DRV_SUCCESS and dims is not None else None
+
+    def get_full_info(self) -> dict:
+        """`get_full_info()` de pylablib para guardar con el cuadro (C1 de R4-M). Sus lecturas ignoran el
+        DRV_ACQUIRING del SDK; si igual falla, se devuelve el motivo en vez del diccionario."""
+        ret, info = self._get(self._cam.get_full_info if self.available else None, None)
+        if ret != DRV_SUCCESS or info is None:
+            return {"error": f"get_full_info no disponible (código {ret})"}
+        return dict(info)
 
     def get_detector(self) -> Tuple[int, int, int]:
         ret, size = self._get(self._cam.get_detector_size if self.available else None, (-1, -1))
@@ -406,6 +434,86 @@ class PylablibAndorCCD:
 
     def abort_acquisition(self) -> int:
         return self._call(self._cam.stop_acquisition if self.available else None)
+
+    # ── Live (contrato de live_stream; paquete 1 de R4-M) ─────────────────────
+    @property
+    def live_active(self) -> bool:
+        return self._live_active
+
+    def _live_pausing(self, fn: Callable) -> int:
+        """Con el Live activo, aplica `fn` dentro de `pausing_acquisition` (detiene, cambia y vuelve a
+        arrancar). Sin Live, como antes: si adquiere una rutina, el SDK rechaza con DRV_ACQUIRING."""
+        if not self.available:
+            return DRV_NOT_INITIALIZED
+        with self._lock:
+            if not (self._live_active and self._cam.acquisition_in_progress()):
+                return self._call(fn)
+
+            def paused():
+                with self._cam.pausing_acquisition():
+                    fn()
+            code = self._call(paused)
+            self._live_not_shown_total = 0          # el reinicio pone en cero el contador de pylablib
+            return code
+
+    def start_live(self) -> int:
+        """Adquisición continua para el Live: siempre "cont", aunque el estado base haya dejado
+        "single" (A1). Con otro Live activo devuelve DRV_ACQUIRING: pylablib reiniciaría la adquisición
+        en silencio."""
+        if not self.available:
+            return DRV_NOT_INITIALIZED
+        with self._lock:
+            if self._live_active:
+                return DRV_ACQUIRING
+            cam = self._cam
+            for fn in (cam.stop_acquisition, lambda: cam.setup_acquisition(mode="cont"), cam.start_acquisition):
+                code = self._call(fn)
+                if code != DRV_SUCCESS:
+                    self._call(cam.stop_acquisition)
+                    return code
+            self._live_active = True
+            self._live_not_shown_total = 0
+            return DRV_SUCCESS
+
+    def stop_live(self) -> int:
+        """Detiene sólo el Live: si el Live no está activo no toca la cámara (puede exponer una rutina)."""
+        with self._lock:
+            if not self._live_active:
+                return DRV_SUCCESS
+            self._live_active = False
+            if not self.available:
+                return DRV_NOT_INITIALIZED
+            return self._call(self._cam.stop_acquisition)
+
+    def read_live_frame(self) -> Optional[LiveFrame]:
+        """El cuadro más nuevo, marcando leídos los anteriores (A2). `None` si no llegó uno nuevo;
+        `LiveStopped` si el Live no está activo o la cámara dejó de adquirir. Nunca lee cuadros de una
+        rutina: sin Live activo no toca el contador."""
+        self._require_connected()
+        with self._lock:
+            cam = self._cam
+            if not self._live_active:
+                raise LiveStopped("el Live no está activo")
+            if not cam.acquisition_in_progress():
+                self._live_active = False
+                raise LiveStopped("la cámara dejó de adquirir")
+            rng = cam.get_new_images_range()
+            if rng is None:
+                return None
+            first, last = int(rng[0]), int(rng[1])
+            frames, infos = cam.read_multiple_images(rng=(last - 1, last), return_info=True)
+            if not frames:
+                return None
+            not_shown = max(0, last - 1 - first)
+            self._live_not_shown_total += not_shown
+            status = cam.get_frames_status()
+            lost = max(0, int(status.skipped) - self._live_not_shown_total)
+            fill = float(status.unread) / float(status.buffer_size) if status.buffer_size else 0.0
+            info = infos[0] if infos else None
+            index = getattr(info, "frame_index", None)
+            index = int(index) if index is not None else last - 1
+            data = np.asarray(frames[0], dtype=np.float32)
+        return LiveFrame(data, index, time.monotonic(), not_shown, lost, fill)
 
     def get_most_recent_image(self, width: int = DETECTOR_WIDTH_PX, height: int = DETECTOR_HEIGHT_PX) -> np.ndarray:
         """Último cuadro disponible (para el Live). Nunca ceros: sin cuadro, `FrameNotReady`."""
@@ -436,11 +544,16 @@ class PylablibAndorCCD:
             return AcquisitionFailure(kind, code, call, detail)
 
         cam = self._cam
+        if self._live_active:
+            return fail(K.NOT_IDLE, DRV_ACQUIRING, "live", "el Live está activo: hay que detenerlo antes")
         ret, status = self.get_status_checked()
         if ret != DRV_SUCCESS:
             return fail(K.READ_FAILED, ret, "get_status", "no se pudo consultar el estado de la cámara")
         if status == DRV_ACQUIRING:
             return fail(K.NOT_IDLE, status, "get_status", "la cámara ya está adquiriendo (¿Live activo?)")
+        # Pregunta 1 de la Ronda 2 del Live: la rutina no cambia la exposición del operador.
+        ret_e, exposure_before = self._get(cam.get_exposure, None)
+        exposure_before = float(exposure_before) if ret_e == DRV_SUCCESS and exposure_before is not None else None
         for call, fn in (("setup_acquisition", lambda: cam.setup_acquisition(mode="single")),
                          ("set_exposure", lambda: cam.set_exposure(float(req.exposure_s)))):
             code = self._call(fn)
@@ -487,3 +600,5 @@ class PylablibAndorCCD:
             self._call(cam.stop_acquisition)
             # El Live del legado y de 3.0 trabaja en adquisición continua: se deja como estaba.
             self._call(lambda: cam.setup_acquisition(mode="cont"))
+            if exposure_before is not None:
+                self._call(lambda: cam.set_exposure(exposure_before))

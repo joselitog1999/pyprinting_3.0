@@ -154,7 +154,7 @@ class _PlCam:
 
 def test_pylablib_camera_refuses_gain_in_specular_without_calling_pylablib():
     fake = _PlCam()
-    drv = pl_mod.PylablibAndorCCD(camera_factory=lambda: fake, lib_factory=lambda: None)
+    drv = pl_mod.PylablibAndorCCD(camera_factory=lambda: fake)
     assert drv.initialize()
     si.get_interlock().publish(si.UNKNOWN, "prueba")
     assert drv.set_emccd_gain(50) == DRV_P1INVALID

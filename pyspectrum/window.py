@@ -763,7 +763,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.exploration_worker.moveToThread(self.exploration_thread)
         self.exploration_thread.start()
         self.exploration_widget.liveToggledSignal.connect(self.exploration_worker.set_live)
-        self.exploration_worker.imageUpdatedSignal.connect(self.exploration_widget.update_image)
+        # Buzón con el último cuadro y estadísticas (paquete 1 de R4-M); herramientas (paquete 2)
+        self.exploration_widget.attach_live_source(self.exploration_worker)
+        self.exploration_widget.data_dir = self.work_dir / "exploration"
+        self.exploration_widget.statusMessageSignal.connect(lambda msg: self.statusBar().showMessage(msg, 8000))
         self.exploration_worker.liveErrorSignal.connect(self.exploration_widget.on_live_error)
 
         self.sandg_backend = StepGlueBackend(self.camera, self.spectrometer)
@@ -833,11 +836,13 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         # Registrar controladores Live en el HardwareSessionManager
         def pause_camera_live():
-            if self.exploration_widget.btn_live.isChecked():
-                self.exploration_widget.btn_live.setChecked(False)
-                self.exploration_widget.btn_live.setText("▶️ Iniciar Live View")
-                self.exploration_widget.btn_live.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold;")
-            self.exploration_widget.liveToggledSignal.emit(False)
+            # Sincrónica (paquete 1 de R4-M): al volver, la cámara ya se detuvo y el obturador del
+            # espectrómetro ya se cerró. Antes se emitía liveToggledSignal(False), que llegaba en cola al
+            # hilo del Live: la rutina podía empezar a exponer y el Live la abortaba y le cerraba el
+            # obturador.
+            stopped = self.exploration_worker.halt_now()
+            if stopped or self.exploration_widget.btn_live.isChecked():
+                self.exploration_widget.show_live_stopped("Live detenido: una rutina o el E-STOP tomó la cámara")
 
         def pause_raman_live():
             if self.raman_widget.btn_live.isChecked():
@@ -885,6 +890,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
     def _propagate_work_dir(self):
         """Las rutinas que guardan por su cuenta (Step & Glue, paso 11) escriben en la carpeta de trabajo."""
+        if hasattr(self, "exploration_widget"):
+            self.exploration_widget.data_dir = self.work_dir / "exploration"
         if hasattr(self, "sandg_backend"):
             self.sandg_backend.data_dir = self.work_dir / "step_and_glue"
         if hasattr(self, "linescan_worker"):
@@ -1005,7 +1012,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             try:
                 self.camera.abort_acquisition()
             finally:
-                self.camera.close()          # como el legado (pylablib close): el enfriador deja de enfriar
+                self.camera.close()          # como el legado (close de pylablib); el enfriador, según el SDK (R4-L)
 
         routines = [
             ("Live de exploración", lambda: sd.stop_in_thread(self.exploration_worker, "stop_live",

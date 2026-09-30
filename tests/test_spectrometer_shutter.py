@@ -36,7 +36,7 @@ class _ShutterCam:
 
 def test_pylablib_shutter_uses_the_legacy_ttl_modes():
     cam = _ShutterCam()
-    drv = pl_mod.PylablibAndorCCD(camera_factory=lambda: cam, lib_factory=lambda: None)
+    drv = pl_mod.PylablibAndorCCD(camera_factory=lambda: cam)
     assert drv.initialize()
     assert drv.set_shutter_mode(1) == DRV_SUCCESS
     assert drv.set_shutter_mode(2) == DRV_SUCCESS
@@ -85,7 +85,10 @@ def test_live_opens_and_closes_the_spectrometer_shutter():
     log = []
     cam = _Spy(get_andor_ccd(force_mock=True), log)
     spec = _Spy(get_shamrock(force_mock=True), log)
-    w = ExplorationWorker(cam, spec)
+    # Sesión libre explícita: el cierre de una ventana en otro test deja la sesión global con el E-STOP, y
+    # el Live no arranca con el E-STOP activo (paquete 1 de R4-M).
+    session = type("S", (), {"busy_nowait": False, "estopped_nowait": False})()
+    w = ExplorationWorker(cam, spec, session=session)
     w.start_live()
     assert ("ShamrockSetShutter", 1) in log and ("set_shutter_mode", 1) in log
     log.clear()

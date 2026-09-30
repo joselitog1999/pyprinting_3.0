@@ -28,6 +28,10 @@ from pyspectrum.drivers.andor_ccd_driver import (
 
 OK, SENT, SET_FAILED, READBACK_MISMATCH, NOT_READABLE, SKIPPED = (
     "OK", "SENT", "SET_FAILED", "READBACK_MISMATCH", "NOT_READABLE", "SKIPPED")
+# R4-L: el parámetro no se fija; queda el valor del SDK, como en el legado. No bloquea.
+SDK_DEFAULT = "SDK_DEFAULT"
+R4L_NOTE = "R4-L: sólo pylablib; queda el valor del SDK, como el legado"
+EM_GAIN_DAC_RANGE = (0, 255)          # modo de ganancia por defecto del SDK (DAC 0-255), como el legado
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,7 @@ class BaselineReport:
 
     @property
     def blocks_acquisition(self) -> bool:
-        return any(i.name in self.BLOCKING and i.outcome not in (OK, SENT) for i in self.items)
+        return any(i.name in self.BLOCKING and i.outcome not in (OK, SENT, SDK_DEFAULT) for i in self.items)
 
     def item(self, name: str) -> Optional[BaselineItem]:
         return next((i for i in self.items if i.name == name), None)
@@ -110,7 +114,10 @@ def apply_camera_baseline(cam: Any, profile: CameraBaseline = CameraBaseline()) 
         cam.abort_acquisition()
 
     # C4: al cerrar, el enfriador vuelve a ambiente (seguro).
-    add(BaselineItem("cooler_mode_on_shutdown", 0, cam.set_cooler_mode(0), None, SENT))
+    if hasattr(cam, "set_cooler_mode"):
+        add(BaselineItem("cooler_mode_on_shutdown", 0, cam.set_cooler_mode(0), None, SENT))
+    else:
+        add(BaselineItem("cooler_mode_on_shutdown", None, None, None, SDK_DEFAULT, R4L_NOTE))
 
     # C5-C8: modos, imagen y amplificador. El SDK no tiene getters: "enviado" si el Set respondió éxito.
     for name, fn, arg in (("acquisition_mode", cam.set_acquisition_mode, profile.acquisition_mode),
@@ -154,10 +161,14 @@ def apply_camera_baseline(cam: Any, profile: CameraBaseline = CameraBaseline()) 
                          f"índice {idx}" + ("" if idx == 2 else " (el legado usaba el 2: la tabla difiere)")))
 
     # C13-C14: modo de ganancia y ganancia 0, confirmada por relectura. Sin esto no se adquiere.
-    code = cam.set_em_gain_mode(profile.em_gain_mode)
-    ret, lo, hi = cam.get_em_gain_range()
-    add(BaselineItem("em_gain_mode", profile.em_gain_mode, code, (lo, hi) if ret == DRV_SUCCESS else None,
-                     SENT if code == DRV_SUCCESS else SET_FAILED, "rango de ganancia del modo vigente"))
+    if hasattr(cam, "set_em_gain_mode") and hasattr(cam, "get_em_gain_range"):
+        code = cam.set_em_gain_mode(profile.em_gain_mode)
+        ret, lo, hi = cam.get_em_gain_range()
+        add(BaselineItem("em_gain_mode", profile.em_gain_mode, code, (lo, hi) if ret == DRV_SUCCESS else None,
+                         SENT if code == DRV_SUCCESS else SET_FAILED, "rango de ganancia del modo vigente"))
+    else:
+        add(BaselineItem("em_gain_mode", None, None, EM_GAIN_DAC_RANGE, SDK_DEFAULT,
+                         R4L_NOTE + "; el panel usa DAC 0-255"))
     code = cam.set_emccd_gain(profile.em_gain)
     got = cam.get_emccd_gain()   # el driver real devuelve (código, ganancia); el simulador, la ganancia
     ret, g = got if isinstance(got, tuple) else (DRV_SUCCESS, got)

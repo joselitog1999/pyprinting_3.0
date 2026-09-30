@@ -981,6 +981,76 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
     * nuevos: `test_grid_runner.py` (12), `test_hyperspectral_c10.py` (7), `test_luminescence_and1.py` (8), `test_growth_and1.py` (6) y `test_dimers_and1.py` (4);
     * reescritos, porque codificaban el contrato anterior (último cuadro, timer en el hilo de la GUI, sin confirmación del espejo, pausa que no cerraba el láser): los de crecimiento, dímeros, luminiscencia, mapa, estabilidad y `test_senior_qc_fixes::nc02`.
   * **Mutaciones:** 17, todas detectadas. Una no se detectaba al principio (el láser que quedaba abierto hasta el nodo siguiente) y sumó un test.
+* **Revisión de las pruebas de banco con la regla de la cámara por pylablib (R4-F, 2026-09-30).** En `PRUEBAS_BANCO_PENDIENTES.md`, sección "Regla: la cámara, sólo por pylablib":
+  * se verificó en el código que la cámara de 3.0 va sólo por pylablib (`ANDOR_BACKEND = "pylablib"`); el driver propio sólo con `PYSPECTRUM_ANDOR_BACKEND=ctypes`;
+  * tres llamadas van por la capa baja de pylablib, sin método de alto nivel en 1.4.3: `SetCoolerMode`, `SetEMGainMode` y `GetEMGainRange`. Queda para que el investigador decida si cuentan como "pylablib";
+  * BANCO-03 se archiva (sonda ctypes); BANCO-55 se redefine como 3.0 sobre pylablib frente al legado;
+  * se ajustan BANCO-09, 10, 11, 12, 23, 38, 41, 44, 45, 54 y 57, y se actualizan el aviso del Grupo C (defectos corregidos en el bloque A) y la introducción del Grupo H (bloque A completo);
+  * **pendiente de aprobación:** quitar las llamadas ctypes a la cámara de `legacy_console_probe.py`, y una sonda de 3.0 sobre pylablib para BANCO-38 y BANCO-55 (herramienta nueva: Rondas 1 y 2).
+* **R4-L: la cámara, sólo con la API de cámara de pylablib (2026-09-30).**
+  * `PylablibAndorCCD` ya no tiene `_lib` ni `set_cooler_mode`, `set_em_gain_mode` y `get_em_gain_range`. Un test de AST impide volver a usar la capa baja.
+  * El estado base registra `cooler_mode_on_shutdown` y `em_gain_mode` como `SDK_DEFAULT` (no bloquea): valor del SDK, como el legado.
+  * El panel usa DAC 0-255. El texto del cierre ya no afirma que el enfriador deja de enfriar; BANCO-57 lo mide.
+  * El driver ctypes propio conserva los tres métodos, fuera de uso.
+* **Paquete 1 de R4-M: el lazo del Live (2026-09-30).** Ronda 2 aprobada por el investigador. Respuestas: 1) `acquire_single` restaura la exposición; 2) exposición, preamplificador y HS/VS con pausa, lo que cambia la forma del cuadro y el amplificador piden detener el Live; 3) incluye el Live Raman; 4) línea de estado aprobada.
+  * **Qué se encontró:**
+    * el Live se congelaba en frío, porque el estado base deja "single";
+    * la exposición cambiada durante el Live se rechazaba en silencio;
+    * la pausa por una rutina llegaba en cola al hilo del Live: podía abortar la exposición de la rutina y cerrarle el obturador;
+    * `acquire_single` no restauraba la exposición;
+    * pylablib pausa solo los cambios de modo de lectura (`@acqstopped`), y el Live seguía con otra forma de cuadro.
+  * **Contrato nuevo:** `pyspectrum/drivers/live_stream.py` (`LiveFrame`, `LiveStopped`, `live_api`).
+    * `PylablibAndorCCD` implementa `start_live`, `stop_live` y `read_live_frame`: sólo el más nuevo, con el índice de pylablib, y separa "sin mostrar" de "perdidos".
+    * El simulador y el driver ctypes pasan por un adaptador.
+  * **Worker de Exploración:**
+    * buzón con el último cuadro y un solo aviso pendiente;
+    * pintura cada 50 ms como máximo, y sólo con la pestaña visible;
+    * estadísticas cada 1 s;
+    * `halt_now()` sincrónica desde cualquier hilo, sin `BlockingQueuedConnection`: el E-STOP llama a las pausas con el lock de la sesión tomado.
+  * **Sesión:** `acquire_session` marca la sesión ocupada antes de pausar los Live, y el Live no arranca con una rutina ni con el E-STOP (`busy_nowait`, `estopped_nowait`).
+  * **Correcciones a la Ronda 1**, verificadas en la fuente de pylablib 1.4.3:
+    * con el SDK2 la información del cuadro es sólo el índice, sin marca de tiempo del equipo;
+    * el SDK2 no lanza `FrameTransferError` (sólo el SDK3): A6 se reemplazó por el conteo de perdidos.
+  * **Fuera del paquete:** `calibration_dock` (líneas 886, 954 y 998) lee `get_most_recent_image` sin iniciar una adquisición, es decir, lee un cuadro viejo. Queda pendiente.
+  * **Tests (paquete 1):** `tests/test_live_loop.py` (37), escrito antes del código. 23 mutaciones, todas detectadas; tres no se detectaban al principio y cada una sumó un test. La revisión del diff encontró que los fps salían negativos después de un cambio en vivo (el índice de pylablib vuelve a 0 al reiniciar): ahora se cuentan los cuadros leídos, con su test. Banco: BANCO-60.
+* **Paquete 2 de R4-M: herramientas de Exploración (2026-09-30).** Rondas 2 y 3 aprobadas por el investigador.
+  * **Respuestas:**
+    1. eje λ de `ShamrockGetCalibration`, sin aplicar `c_sw`;
+    2. el fondo, en las mismas condiciones de adquisición; el operador cierra el obturador desde el panel;
+    3. traza de una fila propia, conmutable con la media del ROI vertical;
+    4. ajuste en los dos perfiles;
+    5. guardado automático, con la ruta en la barra de estado;
+    6. saturación sobre el crudo, siempre.
+  * **Módulo nuevo sin Qt:** `pyspectrum/modules/exploration_analysis.py` (perfiles, eje, ajuste, saturación, condiciones y fondo, traza, niveles, guardado).
+    * El ajuste es `estimate_line_center` (el de la calibración).
+    * El eje λ inferior del perfil horizontal pone las marcas en valores redondos de nm en su píxel, así el perfil queda alineado columna a columna con la imagen.
+  * **Worker:** traza con cada cuadro leído, fondo de n cuadros distintos (descartado si cambia una condición durante la captura), cuadro único con el Live detenido.
+  * **Driver:** `get_output_amplifier`, `get_vs_speed_index`, `frame_shape` (`get_data_dimensions`) y `get_full_info`.
+  * **Vista invertida en X:** `config.EXPLORATION_DISPLAY_FLIP_X = True` (BANCO-56), sólo la vista.
+  * **Reconciliación de contratos (Ronda 4):**
+
+    | Parámetro | Motor | Interfaz | Unidad |
+    |---|---|---|---|
+    | Regla | `row_profile(frame, y_px, band_px)`, `column_profile(frame, x_px, band_px)` | `ruler_x`, `ruler_y` (clic o arrastre) | px del sensor |
+    | Bandas | `odd_band(1..51)` | `spin_band_h`, `spin_band_v` (1 a 51, paso 2; un par pasa a impar) | px |
+    | Eje | `profile_axis(mode, λ, width)` | `WavelengthAxisItem` y título del eje | nm o px |
+    | Ajuste | `fit_profile(profile, seed_px, axis, search_half_px=50, saturated)` | `chk_fit`, `lbl_readout`, curvas | nm o µm (y px) |
+    | Saturación | `raw_saturation(raw)`, 0.5 / 0.8 | `lbl_saturation` | % de 16 383 |
+    | Niveles | `display_levels(frame, "manual" / "auto" / "adc")` | `cmb_levels` | cuentas |
+    | Fondo | `BackgroundAccumulator(n)`, `background_status` (10 condiciones) | `spin_bg_n` (1 a 100), `btn_bg_take`, `chk_bg_subtract`, `lbl_bg_status` | cuadros |
+    | Traza | `TraceSource("row", y)` o `("roi", y0, y1)`; `RoiTrace(600 s)` | `cmb_trace_source`, `trace_row_line`, `spin_trace_window` (10 a 600 s) | cuentas/px, s |
+    | Guardado | `save_exploration_h5`, `default_save_path(data_dir)` | `btn_save`, barra de estado | — |
+
+    Cero discrepancias de nombre, tipo o unidad.
+  * **Costo medido** en la PC de desarrollo, con un cuadro de 1002 × 1004: 9.6 ms por cuadro pintado; 26.4 ms con los dos ajustes. Por eso el ajuste se limita a 10 veces por segundo. BANCO-61 lo mide en el equipo.
+  * **Tests:** `tests/test_exploration_analysis.py` (27) y `tests/test_exploration_tools.py` (30), escritos antes del código.
+    * 31 mutaciones, todas detectadas; cuatro no se detectaban al principio y cada una endureció o sumó un test.
+    * Se reescribió el test de saturación del panel de orden cero, que codificaba el contrato anterior.
+    * **Pérdida de widgets encontrada con la suite:** dos corridas completas fallaron en `test_step_glue_worker::test_stop_responds_within_a_tranche` (el Stop tardó 2.9 s contra 1.5 s), aunque ese test pasa solo (5 de 5).
+      * La causa probable es un defecto propio: la pestaña se conectaba a `spectroscopy_context.spectrographMoved` (global) con un lambda que la capturaba. Así cada ventana creada dejaba su pestaña viva y conectada.
+      * Ahora es un método ligado, con un test que verifica que el widget destruido se libera.
+      * Después del arreglo la suite completa pasó. La relación con el test de Step & Glue es probable, no está demostrada: es una sola corrida, y la bisección no aisló un archivo.
+  * **Banco:** BANCO-61; BANCO-56 decide la inversión.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

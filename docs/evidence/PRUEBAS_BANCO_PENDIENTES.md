@@ -3,7 +3,7 @@
 **Laboratorio**: Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)
 **Ubicación**: `docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`
 **Vinculado a**: `docs/evidence/EVIDENCE_LEDGER.md`, `docs/decisions/DECISION_LOG.md`, [[SYS-301]], [[SYS-303]], [[MOD-06]]
-**Última actualización**: 2026-09-27
+**Última actualización**: 2026-09-30 (revisión con la regla de la cámara por pylablib, R4-F)
 
 ---
 
@@ -25,13 +25,77 @@ Cómo usarla:
    contradice al código es evidencia, no un bug a parchear en caliente.
 
 **Seguridad (`CLAUDE.md` §4)**: todas las pruebas las ejecuta el operador. Ninguna requiere
-láser, salvo BANCO-32 y BANCO-33, que están marcadas y necesitan aprobación explícita. Si se elige la línea del láser o una banda Raman como referencia de longitud de onda,
-aplica el protocolo completo de obturadores y watchdog. Las sondas de `tools/bench/` sólo tocan
-la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectrógrafo.
+láser, salvo las marcadas con ⚠️ (BANCO-32, 33, 40, 44 y 48 a 53 con el 532 atenuado, 58 y 59), que
+necesitan aprobación explícita. Si se elige la línea del láser o una banda Raman como referencia de
+longitud de onda, aplica el protocolo completo de obturadores y watchdog.
 
-> Las dos sondas (`tools/bench/legacy_console_probe.py` y
-> `tools/bench/andor_acquisition_mode_probe.py`) están versionadas junto con
-> `tools/bench/INSTRUCCIONES.txt`, que explica paso a paso cómo ejecutarlas.
+**Sondas de `tools/bench/`** (con `tools/bench/INSTRUCCIONES.txt`). Ninguna acciona obturadores, láseres,
+la platina ni el espectrógrafo:
+- `legacy_console_probe.py`: dentro del proceso legado. Lee la cámara por pylablib, y el Shamrock y dos
+  getters de la cámara por ctypes (ver la regla de abajo).
+- `andor_acquisition_mode_probe.py`: la cámara por ctypes, sola. **Archivada por la regla de abajo**
+  (BANCO-03).
+- `pi_stage_probe.py`: sólo lectura de la platina, sin servo (BANCO-17).
+- `daq_buffer_probe.py`: sólo entradas analógicas (BANCO-26).
+
+## Regla: la cámara, sólo por pylablib (R4-F; revisión del 2026-09-30)
+
+**Qué dice (investigador, R4-F, 2026-09-28):** "por ahora, resolver todo con pylablib, como el legado".
+- La cámara iXon3 se maneja **sólo por pylablib 1.4.3**, igual que el PySpectrum legado.
+- El Shamrock, con el driver ctypes propio, igual que el legado (`Shamrock_ps.py`).
+- El driver ctypes propio de la cámara (`andor_ccd_driver.AndorCCDDriver`) no se borra, pero queda fuera de
+  uso hasta que se retome.
+
+**Qué hace 3.0 hoy** (verificado en el código el 2026-09-30):
+- `config.ANDOR_BACKEND = "pylablib"` por defecto. El driver propio sólo se elige con
+  `PYSPECTRUM_ANDOR_BACKEND=ctypes`, que en el banco **no debe estar definida** (BANCO-23).
+- Todo lo de la cámara pasa por `PylablibAndorCCD` (`pyspectrum/drivers/andor_pylablib.py`):
+  - la exposición única es el camino del legado: `setup_acquisition("single")`, `set_exposure`,
+    `start_acquisition`, `wait_for_frame` en tramos, `read_oldest_image`, `stop_acquisition` y la vuelta a
+    `"cont"`;
+  - el obturador del Shamrock por la cámara es `setup_shutter("open", 1)` / `("closed", 0)`, como el legado.
+- ~~Tres llamadas van por la capa baja de pylablib: `SetCoolerMode`, `SetEMGainMode` y `GetEMGainRange`.~~
+  **Resuelto (R4-L, 2026-09-30):** se quitaron. Quedan en el valor del SDK, como en el legado. El rango de
+  ganancia del panel es DAC 0-255 fijo. Un test de AST impide volver a usar la capa baja.
+- La DLL de la cámara es la que busca pylablib: `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`, la
+  misma que el legado. La `atmcd64d.dll` 2.104 del repo no se usa en producción: con ella el SDK ve
+  0 cámaras (BANCO-03).
+
+**Cómo se aplica a esta lista:**
+- Toda prueba de la cámara se hace con pylablib, sea desde la consola del legado o con 3.0.
+- Una prueba o sonda que habla con la DLL de la cámara por ctypes queda archivada o se reescribe. Lo ya
+  medido así se conserva como evidencia.
+- Los nombres del SDK (`GetStatus`, `SetImage`…) se mantienen donde ayudan a leer el manual, junto al
+  método de pylablib que los llama.
+
+| Prueba | Veredicto de la revisión | Qué cambió |
+| :--- | :--- | :--- |
+| BANCO-01 | vale | ya se leyó por pylablib |
+| BANCO-02 | vale sólo para el legado | la parte que falta no bloquea a 3.0; `observar_live()` usa ctypes: se reemplaza por pylablib (propuesta) |
+| BANCO-03 | **archivada** | la sonda habla con la DLL por ctypes; sus preguntas T1-T4 pasan a BANCO-55 con pylablib |
+| BANCO-09 | vale, ajustada | el camino TTL es `setup_shutter` de pylablib |
+| BANCO-10 | vale, ajustada | la regla de "cero = falla" era del driver propio; queda como control del bias |
+| BANCO-11 | vale, ajustada | el rechazo lo da `get_status` de pylablib |
+| BANCO-12 | vale, ajustada | el ROI pasa por `setup_image_mode` (índices desde 0, fin exclusivo) |
+| BANCO-23 | vale, ampliada | DLL que carga 3.0, variable `PYSPECTRUM_ANDOR_BACKEND` y la extensión de pylablib |
+| BANCO-38 | vale, **reescrita** | getters de pylablib en vez de llamadas directas al SDK |
+| BANCO-41 | vale, ajustada | con pylablib, el error vuelve como excepción y el wrapper lo informa |
+| BANCO-44 | vale, ajustada | sin `GetTotalNumberImagesAcquired`: con `get_frames_status` de pylablib |
+| BANCO-45 | vale, ampliada | qué hace pylablib al conectar (`temperature=-60`, `fan_mode="low"`) |
+| BANCO-54 | vale, ajustada | "Reconectar" es `close()` + reapertura de pylablib |
+| BANCO-55 | **redefinida** | ahora: 3.0 sobre pylablib frente al legado sobre pylablib, mismos parámetros y cuadros. La versión "driver propio contra pylablib" queda archivada |
+| BANCO-57 | vale, ajustada | el cierre de la cámara es `close()` de pylablib |
+| Grupo C (aviso ⛔) | **actualizado** | los cuatro defectos se corrigieron en el bloque A (DEC-040) |
+| Grupo H (intro) | **actualizado** | el bloque A está completo: 3.0 ya puede abrirse contra el equipo, **después** del Grupo E |
+| El resto (Shamrock, DAQ, platina, relevamiento, traza, láser) | vale | la regla no los toca |
+
+**Cambios de sondas propuestos, pendientes de aprobación** (tocan la cámara del banco, aunque sea en sólo
+lectura):
+- `legacy_console_probe.py`: reemplazar `C.sdk` y `observar_live()`, que usan ctypes, por los métodos de
+  pylablib del objeto cámara del legado (`get_device_info`, `get_status`, `get_frames_status`). La sección D
+  (Shamrock por ctypes) queda como está.
+- Una sonda nueva de 3.0 sobre pylablib para BANCO-38 y BANCO-55, que registre cada llamada y cada código.
+  Es una herramienta nueva: pasa por las Rondas 1 y 2.
 
 ## Resumen
 
@@ -39,7 +103,7 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | :--- | :--- | :--- | :--- | :--- |
 | BANCO-01 | Pitch, tamaño y modelo del detector leídos del hardware | `DEC-033`, `SW-003` | Legado abierto (sólo lectura) | ✅ 2026-09-28 |
 | BANCO-02 | Por qué el Live del legado se congelaba | Protocolo de adquisición | Legado abierto (sólo lectura) | ◐ 2026-09-28 (parcial) |
-| BANCO-03 | Protocolo de adquisición del iXon3 (T0–T4) | `DEC-032`, protocolo de adquisición | Legado y Solis **cerrados**, cámara a temperatura ambiente | ☐ |
+| BANCO-03 | Protocolo de adquisición del iXon3 (T0–T4) por ctypes | `DEC-032`, protocolo de adquisición | — | 🗄 archivada (R4-F; pasa a BANCO-55) |
 | BANCO-04 | El Shamrock acepta y relee la geometría del detector | `DEC-033` | PySpectrum 3.0 en hardware | ☐ |
 | BANCO-05 | Ancho real de la ventana espectral por red | `DEC-033` | PySpectrum 3.0 en hardware | ☐ |
 | BANCO-06 | Exactitud del eje λ con líneas conocidas | `DEC-033`, `SYS-303` | 3.0 en hardware + lámpara de calibración | ☐ |
@@ -90,11 +154,13 @@ la cámara Andor: no accionan obturadores, láseres, DAQmx, platina ni espectró
 | BANCO-52 | Línea contra ancho de ranura | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
 | BANCO-53 | Uniones de Step & Glue con la lámpara | PySpectrum bloque A (Ronda 2) | **Acciona hardware, con aprobación** | ☐ |
 | BANCO-54 | Tiempo de reenfriado del iXon3 a −60 °C después de "Reconectar cámara" | PySpectrum bloque A (Ronda 3, qa-ux) | Sin láser; tapa puesta | ☐ |
-| BANCO-55 | Driver propio de la cámara contra pylablib, la referencia probada en el banco (R4-E) | PySpectrum bloque A (DEC-040) | Solis cerrado, sin láser, tapa puesta | ☐ |
+| BANCO-55 | PySpectrum 3.0 sobre pylablib frente al legado: mismos parámetros y mismos cuadros (R4-F) | PySpectrum bloque A (DEC-040) | Solis cerrado, sin láser, tapa puesta | ☐ |
 | BANCO-56 | Orientación de la imagen del Andor en orden cero frente a la cámara | PySpectrum bloque A, paso 7 (espejo rápido) | Orden cero, lámpara, sin láser | ◐ 2026-09-28 (observación) |
 | BANCO-57 | Cierre de PySpectrum 3.0 con el satélite PyPrinting abierto | PySpectrum bloque A, paso 13 | Sin láser; platina conectada | ☐ |
 | BANCO-58 | Primera calibración automática de λ en SÓLO MEDIR | PySpectrum bloque A, paso 14 | **532 atenuado por el filtro de densidad y el notch; con aprobación** | ☐ |
 | BANCO-59 | Rutinas de grilla de 3.0: espejo, potencia y láser por fase | PySpectrum AND-1 (R4-K) | **Láser; con aprobación** | ☐ |
+| BANCO-60 | Live de 3.0 sobre pylablib: velocidad, cambios en vivo y pausa por una rutina | PySpectrum, paquete 1 de R4-M | Sin láser | ☐ |
+| BANCO-61 | Herramientas de Exploración: regla, eje λ, ajuste, fondo, traza y guardado | PySpectrum, paquete 2 de R4-M | Lámpara, sin láser | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -108,7 +174,9 @@ La sonda se ejecuta dentro del proceso legado, desde su consola (menú Console W
 exec(open(r"C:\Users\josel\Documents\Obsidian_Vault\printing3\tools\bench\legacy_console_probe.py", encoding="utf-8").read())
 ```
 
-No llama a nada que modifique la cámara: sólo getters de pylablib y funciones `Get*` del SDK.
+No llama a nada que modifique la cámara: sólo getters de pylablib y funciones `Get*`. Las de la cámara
+por ctypes (`C.sdk` y `observar_live()`) quedan fuera de la regla de pylablib: sus resultados se conservan,
+pero no hace falta volver a correrlas (ver la regla al principio).
 
 ### ✅ BANCO-01 — Geometría del detector leída del hardware
 - **Verifica**: que el detector es el que `DEC-033` estableció con hojas de datos.
@@ -138,6 +206,9 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
   REC Liveview Kinetics; `observar_live()` dice `NO AVANZA` en ese estado.
 - **Si no se confirma**: la causa del Live congelado es otra. Anotarlo antes de diseñar la
   Ronda 2 del protocolo de adquisición.
+- **Revisión R4-F (2026-09-30):** vale sólo para el legado. 3.0 fija el modo en cada exposición
+  (`setup_acquisition`) y no hereda el defecto. Lo que falta no bloquea a 3.0. `observar_live()` usa ctypes:
+  si se repite, con `cam.get_frames_status()` de pylablib (propuesta de la regla).
 - **Resultado (2026-09-28, parcial; `reserva/PRUEBAS_BANCO_28-09-2026.md`):**
   - con el Live apagado y sin haberlo usado: A intacto, modo `cont`, estado `idle`, exposición 1.0 s,
     temperatura 23.9 °C (enfriador apagado);
@@ -156,7 +227,14 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
 
 ## Grupo B — Con el legado y Solis CERRADOS, cámara a temperatura ambiente
 
-### ☐ BANCO-03 — Protocolo de adquisición del iXon3 (sonda T0–T4)
+### 🗄 BANCO-03 — Protocolo de adquisición del iXon3 (sonda T0–T4) — ARCHIVADA (R4-F, 2026-09-30)
+- **Por qué se archiva:** la sonda habla con la DLL de la cámara por ctypes, fuera de la regla de pylablib. Con
+  pylablib, las preguntas se responden en el camino que usan el legado y 3.0:
+  - T0 ya lo respondió BANCO-01;
+  - T1 no importa, porque 3.0 fija el modo en cada adquisición (`setup_acquisition`);
+  - T2, T3 y T4 pasan a BANCO-55: exposición real, un cuadro que no se repite, `single` y `cont`.
+- Se conserva el texto original y el intento del 2026-09-28, que encontró la causa del "0 cámaras".
+- **Texto original:**
 - **Verifica**: cuatro supuestos de los que depende el rediseño pendiente del protocolo de
   adquisición y la premisa de `DEC-032` sobre el orden de arranque.
 - **Requisitos**: cerrar el PySpectrum legado, Solis y PySpectrum 3.0 (la cámara admite un solo
@@ -190,8 +268,15 @@ No llama a nada que modifique la cámara: sólo getters de pylablib y funciones 
 
 ## Grupo C — PySpectrum 3.0 contra el hardware real (sin láser)
 
-> ⛔ **BLOQUEADO — no ejecutar PySpectrum 3.0 contra el hardware real hasta corregir estos
-> defectos** (auditoría documental del 2026-09-27, verificados contra el código, el SDK y la DLL):
+> ✅ **Resuelto en el bloque A (DEC-040, 2026-09-28 a 2026-09-30).** Los cuatro defectos se corrigieron:
+> 3.0 no escribe offsets al arrancar (C-04, pasos 9-10); la ranura usa `SetAutoSlitWidth` /
+> `GetAutoSlitWidth` con `argtypes` (C-06); el flipper es `ShamrockSetFlipperMirror` (C-07); los modos de
+> lectura siguen el SDK (C-05); y la cámara va por pylablib (R4-F). Lo que queda antes del primer arranque
+> es el orden de R4-A-11: primero el Grupo E, con los láseres apagados, sobre `main`. El respaldo de offsets
+> ya está (BANCO-25). Se conserva el aviso original:
+>
+> ⛔ ~~**BLOQUEADO — no ejecutar PySpectrum 3.0 contra el hardware real hasta corregir estos
+> defectos**~~ (auditoría documental del 2026-09-27, verificados contra el código, el SDK y la DLL):
 >
 > 1. **Escritura de offsets al arrancar.** El dock de calibración carga
 >    `pyspectrum/calibration/pyspectrum_calibration_last.txt` al iniciar y escribe sus valores en el
@@ -299,6 +384,9 @@ estable si la prueba adquiere datos.
     - (b) lo mismo al revés;
     - (c) si al encender el Shamrock el obturador arranca cerrado.
   - Con eso se sabe si uno de los dos caminos sobra, y si el TTL de "cerrado" con tipo 0 cierra de verdad.
+  - **Con pylablib (R4-F):** el camino TTL es `setup_shutter("open", 1)` / `setup_shutter("closed", 0)` de
+    pylablib, el mismo del legado (`PylablibAndorCCD`, `_SHUTTER_NAMES`). El USB es
+    `ShamrockSetShutter` del driver propio del Shamrock.
 - **Resultado**: —
 
 ### ☐ BANCO-10 — Un cuadro real nunca es todo-ceros
@@ -307,11 +395,16 @@ estable si la prueba adquiere datos.
 - **Procedimiento**: adquirir un cuadro oscuro (obturador cerrado, exposición mínima) en 1D y
   en 2D; anotar el mínimo y la media de las cuentas.
 - **Aceptación**: mínimo claramente mayor que 0 (bias típico: cientos de cuentas).
+- **Revisión R4-F:** la regla "un cuadro de ceros es una lectura fallida" nació con el driver propio,
+  cuyo `GetMostRecentImage` podía devolver ceros. Con pylablib, una lectura fallida levanta una excepción y
+  el wrapper la informa (`READ_FAILED` o `STALE_FRAME`). La prueba queda como control del bias,
+  en 1D (FVB) y en 2D (Image).
 - **Resultado**: —
 
 ### ☐ BANCO-11 — Live Raman rechazado si Exploración ya adquiere
 - **Verifica**: que con el Live de Exploración activo, iniciar Live Raman devuelve
   `DRV_ACQUIRING` y el mensaje lo explica, en vez de correr dos lazos sobre un mismo sensor.
+  Con pylablib, el estado lo da `cam.get_status()` ("acquiring"), que el wrapper traduce a `DRV_ACQUIRING`.
 - **Aceptación**: Live Raman no arranca, el botón vuelve a "Iniciar" y el mensaje menciona
   Exploración.
 - **Resultado**: —
@@ -321,6 +414,10 @@ estable si la prueba adquiere datos.
   de N_ROI × 1004 filas en Raman estático (modo Imagen) y en la referencia de LineScan, y que el
   desplazamiento `roi_ymin + 1` en `vstart` (el SDK indexa filas desde 1) toma las filas
   correctas.
+- **Con pylablib (R4-F):** `set_image(1, 1, 1, 1004, vstart, vend)` del wrapper llama a
+  `setup_image_mode(hstart − 1, hend, vstart − 1, vend, …)`, con índices desde 0 y fin exclusivo. Con
+  `vstart = roi_ymin + 1`, pylablib recibe `roi_ymin`. Lo que se verifica es que esa doble conversión no
+  corre una fila.
 - **Procedimiento**: definir un ROI de ~40 filas alrededor de la traza de la ranura; adquirir;
   comparar la forma del cuadro y la posición de la traza con una imagen completa.
 - **Aceptación**: forma exacta, sin cuadros de ceros, sin corrimiento de una fila.
@@ -504,6 +601,11 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
     `pylablib.devices.Andor` no se puede importar: los tests usan una cámara falsa. El entorno de 3.0 en
     el banco tiene que ser Python 3.11 con pylablib 1.4.3, como el del legado. Verificar con
     `python -c "from pylablib.devices.Andor import AndorSDK2Camera"` antes del primer arranque.
+  - **Revisión R4-F (2026-09-30), antes del primer arranque de 3.0:**
+    - `PYSPECTRUM_ANDOR_BACKEND` no tiene que estar definida (si vale `ctypes`, 3.0 usaría el driver propio);
+    - `config.ANDOR_SDK2_DLL_DIR` queda en `None`, así pylablib busca la DLL como en el legado;
+    - con 3.0 abierto, confirmar en la lista de módulos del proceso que la cámara usa
+      `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`, la misma del legado, y anotar su versión.
 
 ### ◐ BANCO-24 — Cadencia real de la traza (legado y 3.0), desde archivos guardados
 - **Procedimiento**: abrir 5 a 10 `NP_xxx.txt` de impresiones recientes hechas con el
@@ -684,21 +786,22 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
   - BANCO-25 hecho (respaldo de offsets leído);
   - ganancia EM en 0 confirmada;
   - láseres cerrados, salvo el 532 atenuado cuando la prueba lo pida.
-- **PySpectrum 3.0 no se abre contra el equipo** hasta completar los pasos del bloque A que corrigen la lectura de la rendija (C-06) y la exposición (DEC-040).
+- ~~**PySpectrum 3.0 no se abre contra el equipo** hasta completar los pasos del bloque A que corrigen la lectura de la rendija (C-06) y la exposición (DEC-040).~~ **Bloque A completo (2026-09-30).** 3.0 se abre contra el equipo **después** del Grupo E y con BANCO-23 revisado (entorno Python 3.11 + pylablib 1.4.3).
+- **Cámara, sólo por pylablib (R4-F):** los getters y setters de la tabla se leen con el método de pylablib indicado. El nombre del SDK queda sólo como referencia al manual.
 
 | ID | Qué resuelve | Procedimiento resumido | ¿Acciona algo? | ¿Aprobación? |
 | :--- | :--- | :--- | :--- | :--- |
 | BANCO-36 | Accesorios, límites y ejes del Shamrock | sonda, sólo getters: `GetDetectorOffsetEx` ×4, `Port2`, `GetWavelengthLimits(1..3)`, `AtZeroOrder`, `FlipperMirrorIsPresent`/`GetFlipperMirror(1,2)`, `AutoSlitIsPresent`/`GetAutoSlitWidth(1..4)`, `GetSlitZeroPosition`, `ShutterIsPresent`/`GetShutter`, `EepromGetOpticalParams`, `GetNumberGratings`/`GetGratingInfo`; `GetCalibration(1002)` y `(1004)` frente al cúbico en el mismo estado | No | No |
 | BANCO-37 | Persistencia de los offsets vigentes | leer; apagar y encender el Shamrock; releer; fecha y contenido de `SPECTROG.INI` | No (ciclo de energía, sin escrituras) | No |
 | BANCO-37b | Persistencia de un offset **escrito** | la primera escritura real (1200 l/mm) con §3.3; leer en Solis; ciclo de energía; releer | **Sí** (escritura y posible giro, §3.1) | **Sí**, y BANCO-25 hecho |
-| BANCO-38 | Tablas y capacidades de la cámara | legado abierto, cámara IDLE, sólo getters: `GetNumberAmp`, `GetAmpDesc`, `GetNumberHSSpeeds`/`GetHSSpeed` por amplificador, `GetEMGainRange` en modo 0, `GetCapabilities` (modos de ganancia, `AC_FEATURES_SHUTTEREX`), `GetNumberVSSpeeds`/`GetVSSpeed(i)` (qué índice es 1.9 µs), `GetFastestRecommendedVSSpeed`, `GetTemperatureRange` (DV o DU), `IsInternalMechanicalShutter`, `GetShutterMinTimes`, `IsCoolerOn` | No | No |
+| BANCO-38 | Tablas y capacidades de la cámara | legado abierto, cámara IDLE, **sólo getters de pylablib** (R4-F), desde la consola del legado: `cam.get_all_amp_modes()` (amplificadores, velocidades HS y preamps), `cam.get_all_vsspeeds()` (qué índice es 1.9 µs), `cam.get_EMCCD_gain()`, `cam.get_temperature_range()` (DV o DU), `cam.is_cooler_on()`, `cam.get_capabilities()` (modos de ganancia, `AC_FEATURES_SHUTTEREX`), `cam.get_max_vsspeed()` (`GetFastestRecommendedVSSpeed`), `cam.get_min_shutter_times()` (`GetShutterMinTimes`). Sin método de alto nivel en pylablib 1.4.3, por su capa baja `cam._lib`: `GetEMGainRange` e `IsInternalMechanicalShutter` | No | No |
 | BANCO-39 | ¿Bloquean `SetWavelength`, `SetGrating` y `SetAutoSlitWidth`? | duración de cada llamada para saltos de 20, 200 y 500 nm, cambio de red, y ranura 50 → 100 → 50 µm; relectura al volver | **Sí** (torreta y ranura) | **Sí** (sin láser, EM 0, cámara IDLE) |
 | BANCO-40 | Pasos por píxel y signo del offset de red | con la fuga de 532 (filtro de densidad en baja, EM 0) y cada red: leer O₀, escribir O₀ ± 10 y ± 20, medir el corrimiento, **restaurar O₀ y releer**; anotar si la torreta gira y si hace falta repetir `SetWavelength` | **Sí** (escritura reversible, láser de 532 atenuado) | **Sí**, y BANCO-25 hecho |
-| BANCO-41 | `SetEMCCDGain` durante una adquisición | tapa puesta, ganancia 0: con Live activo pedir `SetEMCCDGain(0)`; se espera `DRV_ACQUIRING` [SDK p.270] | No (sin luz, pide 0) | No |
+| BANCO-41 | `SetEMCCDGain` durante una adquisición | tapa puesta, ganancia 0: con Live activo, pedir la ganancia 0 desde el panel (`set_EMCCD_gain` de pylablib). Se espera `DRV_ACQUIRING` [SDK p.270]: pylablib lo levanta como excepción, el wrapper lo devuelve como código y el panel deja el pedido pendiente hasta que la cámara quede IDLE (`CameraControlService`) | No (sin luz, pide 0) | No |
 | BANCO-42 | Umbral especular por red | lámpara al mínimo, EM 0, 1 ms: con 150 l/mm λc = 70, 60, 55, 50, 45 nm; con 1200 l/mm λc = 8, 7, 6, 5 nm; anotar dónde aparece la imagen especular. Se espera ≈ W/2 (51.5 y 5.8 nm) [I] | **Sí** (torreta) | **Sí** |
 | BANCO-43 | Exposición y ranura seguras en orden cero; píxel de referencia | láseres cerrados, EM 0, lámpara al mínimo: 1 ms en orden cero y en espejo con cada red; cuentas por ms y centro de la imagen de la ranura | **Sí** (torreta) | **Sí** |
-| BANCO-44 | Un cuadro nuevo por ventana, sin ceros | Step & Glue corregido con la fuga de 532 en un rango que la ponga en ventanas conocidas; contador `GetTotalNumberImagesAcquired` y marca de tiempo por ventana; dos cuadros oscuros seguidos no son idénticos bit a bit | **Sí** (torreta; 532 atenuado) | **Sí** |
-| BANCO-45 | Arranque sin escrituras ni mock | (a) 3.0 corregido en hardware con el log de llamadas: ninguna función de §1.4; los valores mostrados coinciden con BANCO-25 y dicen "leído". (b) Con Solis abierto: "Andor no conectada", adquisiciones bloqueadas, ningún espectro | No (el arranque sólo configura la cámara y enfría) | No, pero **después** de BANCO-25 |
+| BANCO-44 | Un cuadro nuevo por ventana, sin ceros | Step & Glue corregido con la fuga de 532 en un rango que la ponga en ventanas conocidas; con pylablib, `cam.get_frames_status()` antes y después de cada ventana (un cuadro nuevo por ventana) y marca de tiempo por ventana; dos cuadros oscuros seguidos no son idénticos bit a bit | **Sí** (torreta; 532 atenuado) | **Sí** |
+| BANCO-45 | Arranque sin escrituras ni mock | (a) 3.0 en hardware con el log de llamadas: ninguna función de §1.4 en el Shamrock; los valores mostrados coinciden con BANCO-25 y dicen "leído". **Cámara (R4-F):** 3.0 conecta con `AndorSDK2Camera(idx=0, ini_path="", temperature=-60, fan_mode="low")`, como el legado. Anotar el estado del enfriador y del ventilador justo después de conectar y después del estado base. Con una temperatura numérica pylablib no toca el enfriador al conectar; lo enciende el estado base. (b) Con Solis abierto: "Andor no conectada" (pylablib no pudo abrir la cámara), adquisiciones bloqueadas, ningún espectro | No (el arranque sólo configura la cámara y enfría) | No, pero **después** de BANCO-25 |
 | BANCO-46 | Stop y E-STOP bajo espera larga | Step & Glue con 10 s por ventana; Stop a los 2 s; en otra corrida E-STOP. Aborto en ≤ 0.25 s + lectura; E-STOP deja `GetEMCCDGain` = 0 | **Sí** (torreta, lámpara) | **Sí** |
 | BANCO-47 | Un solo camino al orden cero | λc = 30 nm con 150 l/mm, combo "Espejo", Step & Glue con un centro bajo el umbral, `Ctrl+0`, y `set_emccd_gain(50)` en condición especular: todo pasa por el servicio (log) y la ganancia queda en 0 | **Sí** (torreta) | **Sí** (EM 0, láseres cerrados) |
 | BANCO-48 | Repetibilidad e histéresis de la torreta | 10 ciclos 532 → 600 → 532 y 150 → 1200 → 150 desde abajo; 5 desde abajo contra 5 desde arriba | **Sí** | **Sí** (532 atenuado) |
@@ -707,7 +810,7 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 | BANCO-51 | Deriva del eje λ en la sesión | la línea de 532 cada 5 min durante 2 h desde el encendido, con la temperatura de la sala y del CCD | **Sí** (532 atenuado) | **Sí** |
 | BANCO-52 | Línea contra ancho de ranura | centroide del 532 con 10, 25, 50, 100 y 200 µm; se espera ≤ 0.5 px porque la ranura es bilateral (R4-A 8) | **Sí** (ranura) | **Sí** |
 | BANCO-53 | Uniones de Step & Glue con la lámpara | 500-900 nm al 20 % y al 10 % con 150 l/mm, ventana repetida al final y barrido invertido; 800-900 nm con 1200 l/mm | **Sí** | **Sí** |
-| BANCO-54 | Tiempo de reenfriado a −60 °C después de "Reconectar cámara", que ejecuta `ShutDown` y apaga el enfriador (R4-B-7) | Con la cámara estable a −60 °C, pulsar Reconectar y registrar `GetTemperature` cada 10 s hasta `DRV_TEMP_STABILIZED`, con la temperatura de la sala | Sí (reinicia la cámara; sin luz) | No |
+| BANCO-54 | Tiempo de reenfriado a −60 °C después de "Reconectar cámara", que ejecuta `ShutDown` y apaga el enfriador (R4-B-7) | Con la cámara estable a −60 °C, pulsar Reconectar (con pylablib: `close()` y una apertura nueva, R4-F) y registrar la temperatura cada 10 s (`get_temperature` y `get_temperature_status` de pylablib) hasta "stabilized", con la temperatura de la sala | Sí (reinicia la cámara; sin luz) | No |
 
 **Ampliaciones de ítems existentes:**
 - **BANCO-09:** agregar `ShamrockShutterIsPresent`, y averiguar si el `SetShutter` de la cámara también mueve el obturador del espectrógrafo. El legado dice "abre shutter camera y shamrock".
@@ -716,6 +819,7 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
   - las versiones de `atmcd64d.dll`, `ShamrockCIF.dll` y `atshamrock.dll`, y la de pylablib si está instalado;
   - que exista `C:\Program Files\Andor SOLIS\SPECTROG.INI`, que usan el legado y 3.0 para inicializar el Shamrock.
   - Las DLL del repo son 2.104.33065.0 (cámara) y 2.103.30023.0 (Shamrock), idénticas a las de la carpeta del legado (DEC-040). Si las del banco difieren, avisar.
+  - **Revisión R4-F:** la `atmcd64d.dll` 2.104 del repo sólo la usaría el driver propio, que está fuera de uso. La DLL de cámara que importa es la que carga pylablib: `atmcd64d_legacy.dll` de Solis.
   - **Leído el 2026-09-28:**
     - pylablib **1.4.3** en `C:\Users\PRINTING\Envs\envspectrum` (Python 3.11);
     - cámara: `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll` (falta anotar su versión);
@@ -724,7 +828,43 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 
 ---
 
-### ☐ BANCO-55 — Driver propio de la cámara contra pylablib
+### ☐ BANCO-55 — PySpectrum 3.0 sobre pylablib frente al legado (R4-F; redefinida el 2026-09-30)
+- **Verifica:** que 3.0, que ahora maneja la cámara con pylablib como el legado, la configura igual y
+  entrega los mismos cuadros. Reúne lo que quedaba de BANCO-03, con pylablib.
+- **Requisitos:** Solis cerrado, láseres cerrados, tapa puesta; BANCO-23 revisado; Grupo E hecho.
+- **Procedimiento:**
+  1. **Con el legado abierto**, desde su consola:
+     - anotar `pylablib.__version__`, `cam.get_fan_mode()`, `cam.get_vsspeed()`, `cam.get_amp_mode()`,
+       `cam.get_EMCCD_gain()`, `cam.get_temperature()` y `cam.get_read_mode()`;
+     - tomar 10 cuadros de 0.1 s en Image con ganancia 0: `start_acquisition` / `wait_for_frame` /
+       `read_oldest_image`;
+     - guardarlos y anotar el tiempo por cuadro.
+  2. **Cerrar el legado** y abrir PySpectrum 3.0. Anotar lo que muestra el panel izquierdo para esos
+     mismos parámetros:
+     - [L] es leído;
+     - [E] es enviado, porque pylablib sólo devuelve el valor guardado (preamp, velocidad HS).
+
+     Tomar los mismos 10 cuadros con 3.0 (Image 1002 × 1004, 0.1 s, ganancia 0) y repetir en FVB (1004).
+  3. **Preguntas que venían de BANCO-03, ahora con pylablib:**
+     - la exposición real (`cam.get_exposure()`) coincide con la pedida;
+     - dos cuadros consecutivos nunca son idénticos, y `read_oldest_image` no devuelve dos veces el mismo;
+     - después de una exposición única, el Live vuelve a arrancar ("cont");
+     - durante una adquisición, la temperatura se muestra como "última lectura; adquiriendo" (20072, BANCO-02).
+  4. **Comparar:** tamaño y orientación del cuadro, bias (mediana), ruido de lectura (desviación entre
+     cuadros consecutivos), exposición real y tiempo por cuadro.
+- **Aceptación:**
+  - mismos parámetros leídos;
+  - mismo tamaño y orientación;
+  - bias y ruido dentro de la dispersión entre cuadros;
+  - ningún cuadro repetido ni de ceros;
+  - el Live vuelve después de una exposición única.
+- **Si falla:** anotar la diferencia. Como las dos corridas usan la misma biblioteca, una diferencia está
+  en cómo 3.0 la configura (el estado base o el wrapper), no en el SDK.
+- **Resultado:** fecha — / versión de pylablib — / valores —
+
+**Versión anterior, archivada (R4-E, "driver propio contra pylablib"):** quedó sin objeto con R4-F mientras
+el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto original:
+
 - **Verifica:** que el driver propio de 3.0 (`andor_ccd_driver.py` + `single_exposure`) se comporta como pylablib, que es la referencia probada en el banco porque el legado la usa (R4-E, `pyspectrum_A_ronda4/ANALISIS_pylablib_vs_DLL.md`).
 - **Requisitos:**
   - Solis cerrado, láseres cerrados, tapa puesta;
@@ -787,7 +927,7 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
      - la posición final de la platina (se espera 50, 50, 10);
      - el espejo de detección: tiene que quedar abajo (R4-J);
      - si apareció el aviso final.
-  5. Abrir Solis o el PySpectrum legado: la cámara y el Shamrock tienen que estar libres (`ShamrockClose` y `ShutDown`, BANCO-23). Anotar la temperatura del CCD al abrir: el enfriador vuelve a ambiente.
+  5. Abrir Solis o el PySpectrum legado: la cámara y el Shamrock tienen que estar libres (`ShamrockClose` y, para la cámara, `close()` de pylablib, que hace `ShutDown`; BANCO-23). Anotar la temperatura del CCD al abrir, a los 0, 2 y 5 min. Desde R4-L 3.0 no fija el modo del enfriador al cerrar: esto dice qué hace el SDK por defecto (si sigue enfriando o vuelve a ambiente).
   6. Abrir PySpectrum 3.0 otra vez: al conectar, la platina **no** debe moverse, porque ya está en home.
 - **Aceptación:** ningún movimiento de la platina fuera de los pasos 4 y 6; el cierre termina sin aviso; los equipos quedan libres.
 - **Resultado:** fecha — / tiempo de cierre — / posición final — / observaciones —
@@ -817,6 +957,34 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 - **Centrado:** el centrado confocal ahora abre el láser, en potencia baja. Confirmar que la imagen del fotodiodo muestra la partícula.
 - **Tiempos:** anotar cuánto tarda un nodo, contando los asentamientos del legado (0.5 s, 2 s en dímeros, 0.15 s del espejo y 0.5 s del láser).
 - **Mapa hiperespectral:** un mapa de 3 × 3 con la exposición mínima útil. Comprobar que cada píxel es distinto y que el HDF5 queda en la carpeta de trabajo.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-60 — Live de 3.0 sobre pylablib: velocidad, cambios en vivo y pausa por una rutina (sin láser)
+- **Qué se prueba:** el lazo del Live del paquete 1 de R4-M, con la cámara real.
+- **Arranque en frío:** abrir 3.0 y, sin correr ninguna rutina antes, iniciar el Live. El índice de "cuadro #" tiene que crecer. Antes, en este caso, la imagen quedaba fija en el primer cuadro.
+- **Velocidad:** con exposiciones de 0.01, 0.1 y 1 s, anotar "fps", "mostrados", "perdidos" y "búfer" de la línea de estado después de 30 s.
+  - "perdidos" tiene que quedar en 0.
+  - Con 1 s de exposición, "fps" debería rondar 1 (el ciclo lo fija el SDK: exposición más lectura).
+- **Cambios en vivo:**
+  - con el Live corriendo, cambiar la exposición: tiene que aplicarse (el brillo cambia) y el Live tiene que seguir;
+  - cambiar la velocidad HS: el panel dice "aplicada" y el Live sigue;
+  - intentar cambiar el modo de lectura o el amplificador: el programa pide detener el Live y la imagen no cambia de forma.
+- **Pausa por una rutina:** con el Live corriendo, iniciar una rutina corta (por ejemplo un Step & Glue de una ventana). La primera exposición no puede fallar por "cámara adquiriendo", y el obturador tiene que abrirse para la rutina.
+- **Exposición después de una rutina:** al terminar, la exposición de la cámara tiene que ser la del panel, no la de la rutina.
+- **Comparación con el legado (inferido del código, a verificar):** el Live del legado lee con `read_oldest_image(self.shape)` (`Camera_ps.py:718-739`). La forma cae en el parámetro `peek` de pylablib, así que el puntero de lectura nunca avanza: el legado mostraría un cuadro atrasado del orden del tamaño del búfer. Tapar y destapar la luz con los dos programas y anotar el retraso visible de cada uno.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-61 — Herramientas de Exploración: regla, eje λ, ajuste, fondo, traza y guardado (lámpara, sin láser)
+- **Orientación (con BANCO-56):** en orden cero, con la Canon y el visor de Exploración de 3.0 lado a lado, mover la muestra con la platina. Tiene que ir hacia el mismo lado en las dos. Si no, cambiar `config.EXPLORATION_DISPLAY_FLIP_X` y anotarlo.
+- **Eje λ:** con una lámpara de líneas en primer orden, poner la regla sobre una línea conocida. La λ del eje y el centro del ajuste tienen que caer cerca del valor de referencia, dentro de lo que dice la calibración de la red. Anotar la diferencia.
+- **Ajuste en orden cero:** con la ranura en un ancho conocido, anotar la FWHM del perfil horizontal en µm y compararla con el ancho mecánico.
+- **Fondo:**
+  - cerrar el obturador desde el panel, tomar 10 cuadros y restar: la imagen tiene que quedar cerca de 0;
+  - cambiar la exposición: el fondo tiene que pasar a "no válido" y dejar de restarse;
+  - volver a la exposición anterior: tiene que volver a valer.
+- **Traza:** fila propia sobre la imagen de la ranura; tapar y destapar la lámpara. La traza tiene que acompañar.
+- **Carga:** con el ajuste encendido y 0.01 s de exposición, anotar "mostrados" en la línea de estado. En la PC de desarrollo un cuadro pintado cuesta unos 10 ms, y unos 26 ms con los dos ajustes.
+- **Guardar:** abrir el `.h5` y verificar el crudo, el fondo aparte y `camera_full_info_json` con la cámara real.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación

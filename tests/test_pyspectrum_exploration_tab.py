@@ -175,16 +175,20 @@ class TestExplorationWorker(unittest.TestCase):
 
     def setUp(self):
         self.camera = get_andor_ccd(force_mock=True)
-        self.worker = ExplorationWorker(self.camera)
+        # Sesión libre explícita: otro test puede dejar la sesión global ocupada o con el E-STOP.
+        session = type("S", (), {"busy_nowait": False, "estopped_nowait": False})()
+        self.worker = ExplorationWorker(self.camera, session=session)
 
-    def test_start_live_starts_acquisition_and_emits_frames(self):
-        received = []
-        self.worker.imageUpdatedSignal.connect(lambda img: received.append(img))
+    def test_start_live_starts_acquisition_and_delivers_frames_through_the_mailbox(self):
+        # Paquete 1 de R4-M: el worker avisa (frameReadySignal) y la interfaz toma el último cuadro.
+        notices = []
+        self.worker.frameReadySignal.connect(lambda: notices.append(1))
         self.worker.start_live()
-        self.worker._acquire_frame()
+        self.worker._poll()
+        frame = self.worker.take_frame()
         self.worker.stop_live()
-        self.assertEqual(len(received), 1)
-        self.assertEqual(received[0].shape, (self.camera.height, self.camera.width))
+        self.assertEqual(len(notices), 1)
+        self.assertEqual(frame.data.shape, (self.camera.height, self.camera.width))
 
     def test_set_live_dispatches_to_start_and_stop(self):
         self.worker.set_live(True)

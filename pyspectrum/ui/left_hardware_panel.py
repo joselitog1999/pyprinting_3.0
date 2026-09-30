@@ -453,6 +453,9 @@ class LeftHardwarePanel(QtWidgets.QWidget):
             grng = self.camera.get_em_gain_range() if hasattr(self.camera, "get_em_gain_range") else None
             if grng and grng[0] == _DRV_SUCCESS:
                 self.spin_gain.setRange(int(grng[1]), int(grng[2]))
+            else:
+                # R4-L: con pylablib no se lee el rango; DAC 0-255, el modo por defecto del SDK (como el legado)
+                self.spin_gain.setRange(0, 255)
         self.cmb_hsspeed.blockSignals(False)
 
     # ── Adaptabilidad dinámica por pestaña ────────────────────────────────────
@@ -486,6 +489,10 @@ class LeftHardwarePanel(QtWidgets.QWidget):
                 self.cmb_hsspeed.setCurrentIndex(idx)
         self._refresh_status()
 
+    def _show_message(self, text: str, color: str) -> None:
+        self.lbl_zo_steps.setText(text)
+        self.lbl_zo_steps.setStyleSheet(f"font-size: 8.5pt; color: {color};")
+
     def _show_control_result(self, res):
         color = {ControlState.APPLIED: GREEN, ControlState.PENDING: "#f9e2af"}.get(res.state, RED)
         self.lbl_zo_steps.setText(res.detail)
@@ -516,6 +523,11 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         self._refresh_status()
 
     def _on_apply_amp(self):
+        from pyspectrum.drivers.live_stream import live_api
+        if live_api(self.camera).live_active:
+            # Paquete 1 de R4-M, pregunta 2: el amplificador no se cambia con el Live corriendo.
+            self._show_message("Detené el Live para cambiar el amplificador.", "#f9e2af")
+            return
         code = self.camera.set_output_amplifier(self.cmb_amp.currentData())
         self.control.sent.record("output_amplifier", self.cmb_amp.currentData(), code)
         self._populate_hardware_dependent_combos()
@@ -560,7 +572,12 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         self._restore_timer.stop()
 
     def _on_exposure_changed(self):
-        self.camera.set_exposure_time(float(self.spin_exposure.value()))
+        # Con el Live activo el driver la aplica pausándolo (paquete 1 de R4-M); con una rutina
+        # adquiriendo el SDK la rechaza: se avisa en vez de rechazarla en silencio.
+        code = self.camera.set_exposure_time(float(self.spin_exposure.value()))
+        if code != _DRV_SUCCESS:
+            self._show_message(f"Exposición rechazada (código {code}): una rutina está usando la cámara. "
+                               f"Pedila de nuevo cuando termine.", RED)
         self._refresh_camera_readings()
 
     def _on_apply_shutter_mode(self):

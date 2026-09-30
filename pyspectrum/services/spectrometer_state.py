@@ -114,7 +114,7 @@ class SentRegistry:
         for name in ("fan_mode", "read_mode", "acquisition_mode", "em_gain_mode", "vs_speed_us",
                      "hs_speed_mhz", "preamp"):
             item = report.item(name) if report is not None else None
-            if item is None or item.outcome == "SKIPPED":
+            if item is None or item.outcome in ("SKIPPED", "SDK_DEFAULT"):   # R4-L: no se envió nada
                 continue
             value = item.requested
             if name in ("vs_speed_us", "hs_speed_mhz") and isinstance(item.readback, (int, float)):

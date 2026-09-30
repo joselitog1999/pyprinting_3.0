@@ -56,6 +56,18 @@ class HardwareSessionManager(QObject):
         with self._lock:
             return self._is_busy
 
+    # Lecturas sin el lock, para el hilo del Live: el E-STOP y `acquire_session` llaman a las pausas con el
+    # lock tomado, y el Live espera su propio lock mientras lee la sesión. Tomar este lock ahí sería un
+    # bloqueo mutuo. Leer un bool es atómico; el orden de `acquire_session` (ocupada antes de pausar)
+    # asegura que un Live que vio "libre" queda detenido por la pausa.
+    @property
+    def busy_nowait(self) -> bool:
+        return self._is_busy
+
+    @property
+    def estopped_nowait(self) -> bool:
+        return self._emergency_active
+
     @property
     def is_emergency_stopped(self) -> bool:
         with self._lock:
@@ -94,6 +106,11 @@ class HardwareSessionManager(QObject):
                 self.statusWarningSignal.emit(msg)
                 return False
 
+            # Ocupada ANTES de pausar los Live (paquete 1 de R4-M): un Live que arranca en otro hilo lee
+            # `busy_nowait`; si todavía vio "libre", la pausa de abajo lo detiene de forma sincrónica.
+            self._current_owner = requester_name
+            self._is_busy = True
+
             # Si se inicia una rutina de medición, pausar automáticamente cualquier vista previa Live
             if auto_pause_live:
                 self._auto_paused_sources = []
@@ -106,8 +123,6 @@ class HardwareSessionManager(QObject):
                         except Exception as e:
                             print(f"[HardwareSessionManager] Error al pausar Live '{name}': {e}")
 
-            self._current_owner = requester_name
-            self._is_busy = True
             print(f"[HardwareSessionManager] Sesión concedida exclusivamente a: '{requester_name}'")
             self.sessionChangedSignal.emit(self._current_owner, True)
             return True
