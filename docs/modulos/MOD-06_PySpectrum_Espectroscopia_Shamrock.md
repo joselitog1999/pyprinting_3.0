@@ -269,7 +269,14 @@ Diseño: metrología (`pyspectrum_A_ronda2/metrology.md` §1-§4), instrumentaci
   - el `Backend`, en el hilo de la GUI, hace el preflight, toma la sesión (pausa el Live), abre el obturador del espectrómetro y, al terminar, lo cierra y libera;
   - `measure_step_and_glue` es la misma secuencia, síncrona, para scripts y tests.
 - **Latido:** se renueva mientras haya un láser abierto, siempre sin argumento (R4-B-5, R4-C-3, C-29). La pausa "sin señal" sigue latiendo (D-17).
-- **Espejo de detección:** `core.nidaq.get_detection_mirror_belief()` (posición y fuente: sin información, comandado, o confirmado por el operador) y `confirm_detection_mirror_belief()` (D-10). La persistencia entre sesiones (C-08) sigue pendiente.
+- **Espejo de detección:** `core.nidaq.get_detection_mirror_belief()` (posición y fuente: sin información, comandado, o confirmado por el operador) y `confirm_detection_mirror_belief()` (D-10). ~~La persistencia entre sesiones (C-08) sigue pendiente.~~ Implementada el 2026-10-01 (R4-N 3, `DEC-040`):
+  - `core/detection_mirror_state.py` guarda `detection_mirror.json` junto al archivo de calibraciones, después de cada pulso que salió bien y de cada confirmación, en forma atómica;
+  - al importar `core.nidaq` se lee el último estado: va en `MirrorBelief.last_known` y guía el próximo pulso, pero la posición queda `"unknown"` hasta que el operador confirme (D-01);
+  - un archivo dañado es "sin información";
+  - `set_detection_mirror` es el nombre nuevo, y `flipper_notch532` queda como alias (P6);
+  - el panel izquierdo muestra el estado y ofrece [Está arriba] / [Está abajo], que no pulsan;
+  - los archivos de estado de los legados se leen, sólo lectura, desde `config.LEGACY_DETECTION_MIRROR_STATUS_FILE` (P7).
+  - **Tests:** `tests/test_detection_mirror_persistence.py`. **Banco:** BANCO-64.
 - **Cosido:** el de siempre, `sigmoidal_step_and_glue`, sin cambios de fórmula.
 - **Botón `💾 Guardar Espectro...`**: exportación del espectro cosido a `.txt`, `.csv` o `.npz`.
 

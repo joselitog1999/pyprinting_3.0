@@ -91,6 +91,13 @@ SPECULAR_DEFAULT_EXPOSURE_S = 0.1
 # Calibraciones del Shamrock (pasos 9 y 10 del bloque A, DEC-040).
 # Archivo local a la PC y fuera de git (R4-A-5). None = %LOCALAPPDATA%\PyPrinting\pyspectrum\shamrock_calibration.jsonl
 SHAMROCK_CALIBRATION_PATH = os.getenv("PYSPECTRUM_CALIBRATION_PATH") or None
+# Último estado del espejo de detección entre sesiones (R4-N 3, core/detection_mirror_state.py). None = junto al
+# archivo de calibraciones (detection_mirror.json). Lo comparten PySpectrum 3.0 y PyPrinting 3.0.
+DETECTION_MIRROR_STATE_PATH = os.getenv("PYPRINTING_DETECTION_MIRROR_STATE") or None
+# Archivos de estado del espejo de los legados ("0" arriba, "1" abajo), sólo lectura y sólo como información (P7).
+# El PyPrinting y el PySpectrum legados tenían cada uno el suyo: una ruta o varias separadas por ";". None = no se
+# leen. Las rutas reales se anotan en BANCO-64.
+LEGACY_DETECTION_MIRROR_STATUS_FILE = os.getenv("PYPRINTING_LEGACY_MIRROR_STATUS") or None
 # Un cambio de offset de más de estos pasos pide una tercera confirmación, con el cambio estimado en nm
 # (R4-B-10, D-07b). Se ajusta cuando BANCO-40 mida cuántos píxeles mueve un paso.
 THIRD_CONFIRMATION_STEPS = 50

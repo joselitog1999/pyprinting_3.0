@@ -29,6 +29,10 @@ from pyspectrum.drivers.shamrock_driver import (
     get_shamrock
 )
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+
+# Los paneles con gráficos de pyqtgraph quedan vivos hasta el final de la sesión: si el recolector destruye
+# uno en medio de otro test, sip borra sus ejes y un repintado pendiente aborta (visto el 2026-10-01).
+_KEEP_ALIVE = []
 from pyspectrum.modules import step_and_glue
 from pyspectrum.modules import camera_andor
 from pyspectrum.modules.calibration_dock import CalibrationFrontend, CalibrationBackend
@@ -153,6 +157,7 @@ class TestCalibrationDock(unittest.TestCase):
         self.fe = CalibrationFrontend()
         self.be = CalibrationBackend(spectrometer=self.mock_spec)
         self.be.make_connection(self.fe)
+        _KEEP_ALIVE.extend([self.fe, self.be])
 
     def test_connection_and_initial_values(self):
         self.assertIsNotNone(self.fe.spin_slit_width)
@@ -210,6 +215,7 @@ class TestSlitSynchronization(unittest.TestCase):
         self.be = CalibrationBackend(self.mock_cam, self.mock_spec)
         self.fe = CalibrationFrontend()
         self.be.make_connection(self.fe)
+        _KEEP_ALIVE.extend([self.fe, self.be])
 
     def tearDown(self):
         from pyspectrum.modules.calibration_dock import CALIBRATION_TXT_FILE

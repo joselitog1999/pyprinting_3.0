@@ -1165,6 +1165,30 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
     * Afectaba a luminiscencia, crecimiento y dímeros al cerrar con una rutina corriendo.
     * Ahora el hilo sale apenas termina el cuerpo (conexión directa a `quit`).
   * **Una toma de fondo en curso no se detenía al cerrar.** `shutdown_all_darks` (`routine_dark.py`) detiene todas, y la ventana la llama, como a la calibración de la ranura.
+* **R4-N 2b, la sonda de la cámara de 3.0: implementada (2026-10-01).** Ronda 2 del 2026-09-30; P5: con `--estado-base` opcional.
+  * `tools/bench/pyspectrum_camera_probe.py`:
+    * conecta como 3.0 (`PylablibAndorCCD`, `CONNECT_KWARGS`) y después sólo lee, con los mismos getters que la sección E de la sonda del legado (un test verifica que las dos listas sean iguales), más `get_full_info`, identidad y geometría;
+    * con `--estado-base` aplica `apply_camera_baseline`, el del arranque de 3.0, una sola vez, y vuelve a leer;
+    * el JSON va sólo a `--salida`, con las claves de `guardar_info` del legado más cada lectura con su resultado;
+    * `--comparar` lista las diferencias en `settings` y `camera_full_info`;
+    * la cámara se cierra siempre.
+  * No adquiere, no abre obturadores ni toca láseres, DAQmx, platina ni espectrógrafo.
+  * Conectar no es sólo leer: pylablib fija su configuración por defecto, igual que al abrir 3.0. Lo dicen el docstring y las instrucciones.
+  * **Tests:** `tests/test_pyspectrum_camera_probe.py` (10), con una cámara falsa que registra cada llamada. 9 mutaciones, todas detectadas.
+  * **Documentos:** `tools/bench/INSTRUCCIONES.txt` §5 y BANCO-55, pasos 1 y 2.
+* **R4-N 3, el espejo de detección entre sesiones (C-08): implementado (2026-10-01).** Ronda 2 del 2026-09-30, con las respuestas P6 y P7.
+  * **Archivo:** `core/detection_mirror_state.py`. Escribe `detection_mirror.json` junto al archivo de calibraciones, o donde diga `config.DETECTION_MIRROR_STATE_PATH`, en forma atómica, después de cada pulso que salió bien y de cada confirmación. Una falla al escribir no rompe el pulso. Un archivo ausente o dañado es "sin información".
+  * **Al arrancar** (`load_last_known_mirror_state`, al importar `core.nidaq`): el último estado va en `MirrorBelief.last_known` y guía el próximo pulso, porque el espejo cambia de lado con cada uno. La posición queda `"unknown"` y la fuente `"none"`: las rutinas siguen pidiendo la confirmación (D-01).
+  * **Por qué no se mostró el último conocido como posición:**
+    * el Step & Glue se salta el diálogo del espejo si la creencia es "abajo";
+    * la calibración de λ tilda "espejo abajo" con esa creencia.
+
+    Con el último conocido como posición, una sesión anterior habría reemplazado la confirmación del operador. Un test cubre el caso del Step & Glue.
+  * **Panel izquierdo:** el renglón del espejo muestra "confirmado", "ordenado", "último conocido, sin confirmar" o "desconocido". [Está arriba] / [Está abajo] sólo registran lo que ve el operador y no pulsan.
+  * **Nombres (P6):** `set_detection_mirror` es el nombre nuevo; `flipper_notch532` queda como alias que delega, para PyPrinting (`app.py`).
+  * **Legados (P7):** `config.LEGACY_DETECTION_MIRROR_STATUS_FILE` acepta una ruta o varias, separadas por `;`. Los dos legados tenían cada uno su archivo para el mismo espejo (TRIAGE_SISTEMA_VS_LEGADO). Se leen sólo como información.
+  * **Tests:** `tests/test_detection_mirror_persistence.py` (24). 12 mutaciones, todas detectadas.
+  * **Pendiente de banco:** BANCO-64.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

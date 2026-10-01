@@ -109,6 +109,10 @@ _flipper_notch532_up: bool        = True
 # (BANCO-21): el software sólo sabe lo que ordenó. "none" = sin información (posición "unknown").
 _mirror_belief_source: str       = "none"
 _mirror_belief_since = None
+# Último estado conocido de una sesión anterior (R4-N 3; core/detection_mirror_state.py): se muestra como
+# "último conocido, sin confirmar" y guía el próximo pulso, pero la posición que leen las rutinas sigue
+# siendo "unknown" hasta que el operador confirme o el software lo mueva (D-01).
+_mirror_last_known = None             # SavedMirrorState o None
 _flipper_high_power: bool         = False
 _shutter_task                     = None
 _flipper_task0                    = None
@@ -704,19 +708,59 @@ class MirrorBelief(NamedTuple):
     position: str          # "up" / "down" / "unknown"
     source: str            # "none" / "commanded" / "operator_confirmed"
     since: Optional[float]
+    last_known: Optional[str] = None           # el último estado guardado (de esta sesión o de una anterior)
+    last_known_since: Optional[float] = None
+
+
+def _mirror_state_module():
+    """`core.detection_mirror_state`; PyPrinting importa este módulo como `nidaq`, con `core/` en el path."""
+    try:
+        from core import detection_mirror_state as dms
+    except ImportError:
+        import detection_mirror_state as dms
+    return dms
+
+
+def _remember_mirror_state() -> None:
+    """Guarda la creencia actual en disco (R4-N 3). Una falla al escribir no rompe el movimiento."""
+    global _mirror_last_known
+    dms = _mirror_state_module()
+    pos = "up" if _flipper_notch532_up else "down"
+    _mirror_last_known = dms.SavedMirrorState(pos, _mirror_belief_source, _mirror_belief_since or time.time())
+    dms.save_state(pos, _mirror_belief_source, _mirror_belief_since)
 
 
 def _note_mirror_commanded() -> None:
     global _mirror_belief_source, _mirror_belief_since
     _mirror_belief_source, _mirror_belief_since = "commanded", time.time()
+    _remember_mirror_state()
+
+
+def load_last_known_mirror_state():
+    """Lee el último estado guardado (al importar y en los tests). Sin archivo o dañado: sin información.
+
+    El último conocido guía el próximo pulso (el espejo cambia de lado con cada pulso), pero no reemplaza la
+    confirmación del operador: la creencia queda con fuente "none" y posición "unknown"."""
+    global _flipper_notch532_up, _mirror_last_known, _mirror_belief_source, _mirror_belief_since
+    dms = _mirror_state_module()
+    saved = dms.load_state()
+    with _nidaq_lock:
+        _mirror_last_known = saved
+        _mirror_belief_source, _mirror_belief_since = "none", None
+        _flipper_notch532_up = True if saved is None else saved.position == "up"
+    return saved
 
 
 def get_detection_mirror_belief() -> MirrorBelief:
-    """Qué cree el software sobre el espejo de detección (D-10). Sin información, "unknown"."""
+    """Qué cree el software sobre el espejo de detección (D-10). Sin información, "unknown"; el último estado
+    guardado va aparte, en `last_known`, y no cuenta como confirmación (R4-N 3, D-01)."""
     with _nidaq_lock:
+        last = _mirror_last_known
+        lk, lk_since = (last.position, last.since) if last is not None else (None, None)
         if _mirror_belief_source == "none":
-            return MirrorBelief("unknown", "none", None)
-        return MirrorBelief("up" if _flipper_notch532_up else "down", _mirror_belief_source, _mirror_belief_since)
+            return MirrorBelief("unknown", "none", None, lk, lk_since)
+        return MirrorBelief("up" if _flipper_notch532_up else "down", _mirror_belief_source, _mirror_belief_since,
+                            lk, lk_since)
 
 
 def confirm_detection_mirror_belief(position: str) -> MirrorBelief:
@@ -727,11 +771,19 @@ def confirm_detection_mirror_belief(position: str) -> MirrorBelief:
     with _nidaq_lock:
         _flipper_notch532_up = position == "up"
         _mirror_belief_source, _mirror_belief_since = "operator_confirmed", time.time()
+        _remember_mirror_state()
     return get_detection_mirror_belief()
 
 
 def flipper_notch532(desired: str) -> bool:
-    """Mueve el flipper notch 532. Devuelve True sólo si se confirmó (o no hacía falta moverlo)."""
+    """Nombre viejo de `set_detection_mirror` (P6): lo sigue usando PyPrinting (`app.py`); se renombra después.
+    "Notch" era un error de notación heredado del legado: la línea mueve el espejo de detección."""
+    return set_detection_mirror(desired)
+
+
+def set_detection_mirror(desired: str) -> bool:
+    """Mueve el espejo de detección ("up" = confocal / cámara, "down" = espectrómetro). Un pulso lo cambia de
+    lado, así que sólo pulsa si la creencia es la otra. Devuelve True sólo si se confirmó (o no hacía falta)."""
     global _flipper_notch532_up
     if desired not in ("up", "down"):
         raise ValueError(f"Estado desconocido: '{desired}'")
@@ -761,6 +813,12 @@ def flipper_notch532(desired: str) -> bool:
         except Exception as e:
             print(f"[NI-DAQ Error] flipper_notch532: {e}")
             return False
+
+
+try:
+    load_last_known_mirror_state()
+except Exception as _e:                    # nunca impide importar el módulo de seguridad
+    print(f"[Espejo de detección] No se pudo leer el último estado: {_e}")
 
 
 def channels_photodiodos(rate: float, samps_per_chan: int, continuous: bool = False):

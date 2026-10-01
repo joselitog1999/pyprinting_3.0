@@ -22,6 +22,10 @@ from pyspectrum.drivers.shamrock_driver import DEVICE, get_shamrock
 from pyspectrum.modules import calibration_dock as dock_mod
 from pyspectrum.modules.calibration_dock import CalibrationBackend, CalibrationFrontend
 
+# Los paneles con gráficos de pyqtgraph quedan vivos hasta el final de la sesión: si el recolector destruye
+# uno en medio de otro test, sip borra sus ejes y un repintado pendiente aborta (visto el 2026-10-01).
+_KEEP_ALIVE = []
+
 _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(["pytest"])
 
 
@@ -36,6 +40,7 @@ def dock(tmp_path, monkeypatch):
     fe = CalibrationFrontend()
     be = CalibrationBackend(spectrometer=spec, repository=repo)
     be.make_connection(fe)
+    _KEEP_ALIVE.extend([fe, be])
     yield fe, be, spec, repo
     fe.deleteLater()
 

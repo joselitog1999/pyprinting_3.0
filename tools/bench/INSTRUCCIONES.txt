@@ -1,7 +1,7 @@
 SONDAS DE BANCO — PySpectrum 3.0 / Laboratorio de Nanofotónica (INS-UNSAM / CONICET)
 =====================================================================================
 
-Esta carpeta tiene dos programas de diagnóstico para verificar en el equipo real lo que
+Esta carpeta tiene programas de diagnóstico para verificar en el equipo real lo que
 ningún test automático puede comprobar. Cada prueba, su criterio de aceptación y dónde
 anotar el resultado están en:
 
@@ -13,8 +13,8 @@ prueba correspondiente de ese archivo (campo "Resultado"), con la fecha y tu nom
 
 REGLAS DE SEGURIDAD
 -------------------
-- Ninguna de las dos sondas acciona obturadores, láseres, la placa NI-DAQ, la platina PI
-  ni el espectrógrafo Shamrock. Sólo hablan con la cámara Andor.
+- Las sondas de la cámara (1, 2 y 5) no accionan obturadores, láseres, la placa NI-DAQ, la
+  platina PI ni el espectrógrafo Shamrock. Sólo hablan con la cámara Andor.
 - Las ejecuta siempre una persona en el laboratorio. No se automatizan.
 - Si algo no se comporta como se describe acá, detenete y anotá lo que viste: no se
   corrige nada en el momento.
@@ -160,3 +160,35 @@ Cómo se ejecuta:
 
 Copiá el bloque "RESUMEN BANCO-26" en BANCO-26 de docs/evidence/PRUEBAS_BANCO_PENDIENTES.md.
 
+
+-------------------------------------------------------------------------------------
+5) pyspectrum_camera_probe.py — la cámara como la abre PySpectrum 3.0 (BANCO-55)
+-------------------------------------------------------------------------------------
+Prueba: BANCO-55 (3.0 sobre pylablib frente al legado). Es la pareja de guardar_info de la sonda 1.
+
+Qué hace: abre la cámara EXACTAMENTE como 3.0 (pylablib, temperature=-60, fan_mode="low"), lee con
+getters lo mismo que la sección E de la sonda del legado más get_full_info, y la cierra. No adquiere,
+no abre obturadores y no toca láseres.
+
+ATENCIÓN: conectar NO es sólo leer. Al conectar, pylablib fija su configuración por defecto
+(ventilador en bajo, setpoint de -60 °C, obturador cerrado, ROI completo, ganancia EM 0), igual que al
+abrir 3.0. Con --estado-base además escribe el estado base de 3.0 (lo mismo que 3.0 al arrancar).
+
+Requisitos: el PySpectrum legado, Solis y PySpectrum 3.0 CERRADOS (la cámara admite un solo programa;
+si otro la tiene, la sonda dice por qué no pudo abrirla y termina con código 2).
+
+Cómo se ejecuta (desde la raíz del repositorio, con el entorno del proyecto):
+
+     .venv\Scripts\python.exe tools\bench\pyspectrum_camera_probe.py --salida C:\ruta\3.0.json --comparar C:\ruta\legado.json
+
+  y, después, con el estado base de 3.0:
+
+     .venv\Scripts\python.exe tools\bench\pyspectrum_camera_probe.py --estado-base --salida C:\ruta\3.0_base.json --comparar C:\ruta\legado.json
+
+  Sin --salida no escribe ningún archivo. Con --comparar muestra cada diferencia con el JSON del
+  legado (con --estado-base compara lo leído después del estado base).
+
+Qué mirar en el resultado:
+  - "Diferencias con el legado": cada línea es un parámetro que 3.0 deja distinto del legado.
+  - "lecturas no disponibles": getters que esta versión de pylablib no tiene o que fallaron.
+  - "cámara cerrada" al final. Si no aparece, anotalo antes de abrir otro programa.

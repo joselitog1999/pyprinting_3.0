@@ -163,6 +163,7 @@ la platina ni el espectrógrafo:
 | BANCO-61 | Herramientas de Exploración: regla, eje λ, ajuste, fondo, traza y guardado | PySpectrum, paquete 2 de R4-M | Lámpara, sin láser | ☐ |
 | BANCO-62 | El fondo en los procedimientos: obturador, reutilización, todo apagado y sustrato | PySpectrum, R4-N | Lámpara; láser sólo en un punto, con aprobación | ☐ |
 | BANCO-63 | Centro de la ranura en orden cero: una gaussiana por fila | PySpectrum, R4-N 1a | Lámpara, sin láser | ☐ |
+| BANCO-64 | Espejo de detección entre sesiones y resincronización | PySpectrum y PyPrinting, R4-N 3 | **Láseres apagados** | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -836,13 +837,18 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 - **Requisitos:** Solis cerrado, láseres cerrados, tapa puesta; BANCO-23 revisado; Grupo E hecho.
 - **Procedimiento:**
   1. **Con el legado abierto**, desde su consola:
-     - anotar `pylablib.__version__`, `cam.get_fan_mode()`, `cam.get_vsspeed()`, `cam.get_amp_mode()`,
-       `cam.get_EMCCD_gain()`, `cam.get_temperature()` y `cam.get_read_mode()`;
+     - correr la sonda del legado y guardar lo leído con `guardar_info(r"C:\ruta\legado.json")` (lee
+       `pylablib.__version__`, ventilador, VS, amplificador, ganancia EM, temperatura, modo de lectura y
+       `get_full_info`);
      - tomar 10 cuadros de 0.1 s en Image con ganancia 0: `start_acquisition` / `wait_for_frame` /
        `read_oldest_image`;
      - guardarlos y anotar el tiempo por cuadro.
-  2. **Cerrar el legado** y abrir PySpectrum 3.0. Anotar lo que muestra el panel izquierdo para esos
-     mismos parámetros:
+  2. **Cerrar el legado.** Con la sonda de 3.0 (`tools/bench/pyspectrum_camera_probe.py`, R4-N 2b; ver
+     `tools/bench/INSTRUCCIONES.txt` §5), sin y con `--estado-base`, guardar los JSON y anotar las
+     "Diferencias con el legado" de cada corrida. La de `--estado-base` es la que corresponde a 3.0 ya
+     arrancado.
+
+     Después abrir PySpectrum 3.0 y anotar lo que muestra el panel izquierdo para esos mismos parámetros:
      - [L] es leído;
      - [E] es enviado, porque pylablib sólo devuelve el valor guardado (preamp, velocidad HS).
 
@@ -1012,6 +1018,22 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **FWHM:** a 20, 50 y 100 µm de ranura, anotar la FWHM en µm y compararla con el ancho mecánico. Es el mismo dato que el punto "Ajuste en orden cero" de BANCO-61.
 - **Rechazos:** con la exposición alta, tiene que rechazar por saturación. Con la lámpara tapada, tiene que decir que no ve la línea. En primer orden, no tiene que arrancar. En los tres casos, sin guardar nada.
 - **Modo de la cámara:** con el Live de Exploración en Single-Track antes de medir, al terminar tiene que volver a Single-Track con el mismo track.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-64 — Espejo de detección entre sesiones y resincronización (R4-N 3; láseres apagados)
+- **Qué se prueba:** que el último estado guardado del espejo sirve al reabrir, y que la resincronización corrige una creencia equivocada (`DEC-040`; sigue a BANCO-21).
+- **Persistencia:**
+  1. con PySpectrum 3.0, bajar el espejo y cerrar el programa;
+  2. reabrirlo: el panel tiene que decir "abajo · último conocido (…), sin confirmar";
+  3. una rutina tiene que pedir confirmación igual;
+  4. mirar el espejo y anotar si coincide.
+- **Compartido:** abrir PyPrinting 3.0 después y verificar que usa el mismo `detection_mirror.json`: al mover el espejo desde PyPrinting, PySpectrum lo muestra al reabrir.
+- **Resincronización:**
+  1. con el espejo arriba a la vista, apretar [Está abajo]; el espejo no se tiene que mover;
+  2. ordenar "arriba" desde una rutina: como el software cree que está abajo, pulsa y el espejo baja. Así se ve qué pasa con una creencia equivocada;
+  3. apretar [Está abajo] (es lo que se ve ahora), ordenar "arriba" y verificar que queda arriba.
+- **Legados:** anotar las rutas de los `flipper_notch532_status.txt` del PyPrinting y del PySpectrum legados y ponerlas en `config.LEGACY_DETECTION_MIRROR_STATUS_FILE`, separadas por `;`. Verificar que "el legado dice" coincide con cada archivo ("0" arriba, "1" abajo; TRIAGE_SISTEMA_VS_LEGADO, C-08).
+- **Cierre forzado:** terminar 3.0 desde el Administrador de tareas justo después de mover el espejo. Al reabrir, el último conocido tiene que ser el de ese movimiento.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación

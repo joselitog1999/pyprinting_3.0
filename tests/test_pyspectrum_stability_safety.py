@@ -50,6 +50,10 @@ from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration, glue_ste
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
 from pyspectrum.window import PySpectrumWindow
 
+# Los paneles con gráficos de pyqtgraph quedan vivos hasta el final de la sesión: si el recolector destruye
+# uno en medio de otro test, sip borra sus ejes y un repintado pendiente aborta (visto el 2026-10-01).
+_KEEP_ALIVE = []
+
 
 class TestPySpectrumStability(unittest.TestCase):
     """Pruebas de estabilidad, resiliencia bajo carga y ciclo de vida de componentes."""
@@ -613,6 +617,7 @@ class TestPySpectrumSafety(unittest.TestCase):
         # carga ya no escribe los offsets al Shamrock (DEC-040), así que la relectura trae los del
         # equipo. Antes este test pasaba porque el arranque escribía el 12 y después lo releía.
         fe = calibration_dock.CalibrationFrontend()
+        _KEEP_ALIVE.extend([fe, be])
         be.make_connection(fe)
         _, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
         _, device_grating_offset = self.spectrometer.ShamrockGetGratingOffset(DEVICE, grating)
@@ -655,6 +660,7 @@ class TestPySpectrumSafety(unittest.TestCase):
 
         # 1. CalibrationFrontend
         fe_calib = calibration_dock.CalibrationFrontend()
+        _KEEP_ALIVE.append(fe_calib)
         self.assertTrue(len(fe_calib.btn_zero_order.toolTip()) > 10)
         self.assertTrue(len(fe_calib.spin_slit_width.toolTip()) > 10)
         self.assertTrue(len(fe_calib.btn_auto_slit.toolTip()) > 10)

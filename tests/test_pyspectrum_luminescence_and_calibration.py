@@ -25,6 +25,10 @@ from pyspectrum.modules.routines.luminescence import LuminescenceBackend, Lumine
 from pyspectrum.modules.calibration_dock import CalibrationBackend, CalibrationFrontend
 from pyspectrum.window import PySpectrumWindow, TAB_EXPLORATION, TAB_STATIC_RAMAN, TAB_LUMINESCENCE
 
+# Los paneles con gráficos de pyqtgraph quedan vivos hasta el final de la sesión: si el recolector destruye
+# uno en medio de otro test, sip borra sus ejes y un repintado pendiente aborta (visto el 2026-10-01).
+_KEEP_ALIVE = []
+
 _app = QApplication.instance() or QApplication([])
 
 
@@ -147,6 +151,7 @@ class TestCalibrationWaterAndDarkNoiseRetired(unittest.TestCase):
         self.frontend = CalibrationFrontend()
         self.backend = CalibrationBackend(get_andor_ccd(force_mock=True), get_shamrock(force_mock=True))
         self.backend.make_connection(self.frontend)
+        _KEEP_ALIVE.extend([self.frontend, self.backend])
 
     def test_the_actions_no_longer_exist(self):
         for name in ("btn_verify_water", "btn_measure_dark", "btn_save_dark_profile",

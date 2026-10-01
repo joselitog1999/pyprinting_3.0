@@ -715,6 +715,16 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 - **Enfriador:** refleja `IsCoolerOn`. Apagarlo pide confirmación con la temperatura actual.
 - **Ventilador:** low o high; "off" no se ofrece.
 - **Entre adquisiciones:** con la cámara adquiriendo (por ejemplo, con el Live), un cambio de setpoint, ventilador o HS queda **pendiente** y se aplica al terminar.
+- **🪞 Espejo de detección (R4-N 3, `DEC-040`).** El espejo no tiene sensor: cada pulso lo cambia de lado y el software sólo sabe lo que ordenó o lo que confirmaste. El renglón dice:
+  - "abajo · confirmado 14:02": lo confirmaste;
+  - "abajo · ordenado 14:02 (sin sensor)": lo movió el software;
+  - "abajo · último conocido (30/09 18:40), sin confirmar": lo que quedó de la sesión anterior;
+  - "desconocido · confirmá dónde está".
+
+  **[Está arriba]** y **[Está abajo]** sólo registran lo que ves: **no mueven el espejo.** Usalos cuando el renglón no coincida con lo que ves, porque el próximo movimiento lo dejaría del lado equivocado.
+  - El estado se guarda en `detection_mirror.json`, junto al archivo de calibraciones, después de cada movimiento y de cada confirmación. Lo comparten PySpectrum 3.0 y PyPrinting 3.0.
+  - Al abrir el programa, el último conocido se muestra **sin confirmar**: las rutinas te siguen pidiendo que confirmes dónde está el espejo antes de medir.
+  - Si en `config.LEGACY_DETECTION_MIRROR_STATUS_FILE` ponés las rutas de los archivos `flipper_notch532_status.txt` de los legados, aparece también "el legado dice: …", sólo como información.
 
 #### Atajos de Teclado Globales (Shortcuts)
 | Atajo | Acción Primaria | Alcance / Pestañas Activas |

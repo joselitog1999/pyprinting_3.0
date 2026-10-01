@@ -26,6 +26,7 @@ Por dónde pasa cada pedido:
 from __future__ import annotations
 
 import math
+import os
 from typing import Any, Optional
 
 from PyQt6 import QtCore, QtWidgets
@@ -132,9 +133,69 @@ class LeftHardwarePanel(QtWidgets.QWidget):
 
         vlo.addWidget(self._build_andor_group())
         vlo.addWidget(self._build_shamrock_group())
+        vlo.addWidget(self._build_detection_mirror_group())
         vlo.addStretch()
         scroll.setWidget(container)
         outer.addWidget(scroll)
+
+    def _build_detection_mirror_group(self) -> QtWidgets.QGroupBox:
+        """Espejo de detección (R4-N 3, C-08): lo que cree el software y la resincronización. Sin sensor."""
+        box = QtWidgets.QGroupBox("🪞 Espejo de detección")
+        box.setToolTip("Thorlabs MFF101 sin sensor: el software sólo sabe lo que ordenó o lo que confirmaste.\n"
+                       "Abajo: la luz va al espectrómetro. Arriba: al confocal / la cámara.")
+        lo = QtWidgets.QVBoxLayout(box)
+        self.lbl_mirror_state = self._read_label("desconocido")
+        lo.addWidget(self.lbl_mirror_state)
+        self.lbl_mirror_legacy = self._read_label("")
+        self.lbl_mirror_legacy.setToolTip("Lo que dicen los archivos de estado de los legados (sólo lectura, "
+                                          "config.LEGACY_DETECTION_MIRROR_STATUS_FILE). Es información: no "
+                                          "reemplaza tu confirmación.")
+        self.lbl_mirror_legacy.hide()
+        lo.addWidget(self.lbl_mirror_legacy)
+        row = QtWidgets.QHBoxLayout()
+        tip = ("Registra dónde VES el espejo ahora. No lo mueve.\n"
+               "El espejo cambia de lado con cada pulso: si el software cree otra cosa, el próximo movimiento\n"
+               "lo deja del lado equivocado. Resincronizá cuando no coincida.")
+        self.btn_mirror_is_up = QtWidgets.QPushButton("Está arriba")
+        self.btn_mirror_is_down = QtWidgets.QPushButton("Está abajo")
+        for b, pos in ((self.btn_mirror_is_up, "up"), (self.btn_mirror_is_down, "down")):
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, p=pos: self._resync_mirror(p))
+            row.addWidget(b)
+        lo.addLayout(row)
+        return box
+
+    def _resync_mirror(self, position: str) -> None:
+        from core.nidaq import confirm_detection_mirror_belief
+        confirm_detection_mirror_belief(position)
+        self._refresh_mirror()
+
+    def _refresh_mirror(self) -> None:
+        import time as _time
+        from core import detection_mirror_state as dms
+        from core.nidaq import get_detection_mirror_belief
+        words = {"up": "arriba", "down": "abajo"}
+        b = get_detection_mirror_belief()
+        hhmm = (lambda t: _time.strftime("%H:%M", _time.localtime(t)) if t else "")
+        if b.source == "operator_confirmed":
+            text, color = f"{words[b.position]} · confirmado {hhmm(b.since)}", GREEN
+        elif b.source == "commanded":
+            text, color = f"{words[b.position]} · ordenado {hhmm(b.since)} (sin sensor)", TEXT_SECONDARY
+        elif b.last_known in words:
+            when = _time.strftime("%d/%m %H:%M", _time.localtime(b.last_known_since)) if b.last_known_since else "?"
+            text, color = f"{words[b.last_known]} · último conocido ({when}), sin confirmar", PEACH
+        else:
+            text, color = "desconocido · confirmá dónde está", PEACH
+        self.lbl_mirror_state.setText(text)
+        self.lbl_mirror_state.setStyleSheet(f"color: {color};")
+        legacy = dms.read_legacy_states()
+        if legacy:
+            parts = [f"{words.get(state, 'sin dato')} ({os.path.basename(os.path.dirname(path)) or path})"
+                     for path, state in legacy]
+            self.lbl_mirror_legacy.setText("el legado dice: " + " · ".join(parts))
+            self.lbl_mirror_legacy.show()
+        else:
+            self.lbl_mirror_legacy.hide()
 
     @staticmethod
     def _read_label(text: str = "[?]") -> QtWidgets.QLabel:
@@ -787,6 +848,10 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         self._refresh_status()
 
     def _refresh_status(self):
+        try:
+            self._refresh_mirror()
+        except Exception as e:                       # el estado del espejo nunca corta el refresco del panel
+            print(f"[Panel] estado del espejo: {e}")
         snap = self.state_service.poll()
         self.snapshot = snap
         cam, spec = snap.camera, snap.spectrograph
