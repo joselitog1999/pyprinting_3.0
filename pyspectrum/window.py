@@ -995,6 +995,7 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         from config import pi, PI_HOME_POS
         from core.nidaq import close_all_shutters, flipper_notch532
         from pyspectrum.services import shutdown as sd
+        from pyspectrum.modules.routines import routine_dark as rd
         from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter
 
         def both(*fns):
@@ -1030,6 +1031,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             ("dímeros", self.dimers_backend.shutdown),
             ("Step & Glue", self.sandg_backend.shutdown),
             ("calibración λ", self.auto_cal_controller.shutdown),
+            ("calibración de ranura", self.calib_backend.shutdown),
+            ("fondos", lambda: rd.shutdown_all_darks()),
             ("escaneo lineal", self.linescan_worker.cancel_scan),
             ("hilo del escaneo lineal", lambda: sd.quit_thread(self.linescan_thread, "del escaneo lineal")),
         ]

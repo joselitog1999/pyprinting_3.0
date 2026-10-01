@@ -9,10 +9,12 @@ routine_dark.py — El fondo de una rutina de grilla (R4-N; DEC-040)
 - toma el fondo ahora con su propio hilo y su sesión de hardware ([Tomar fondo ahora]);
 - dentro de la corrida, `ensure` reutiliza el fondo o lo toma (obturador cerrado) con el modo de la medición;
 - guarda el fondo aparte, una vez por carpeta, y da las líneas de encabezado para los txt.
-`wire_row` conecta una `BackgroundRow` con su `RoutineDark`.
+`wire_row` conecta una `BackgroundRow` con su `RoutineDark`. `shutdown_all_darks` detiene, al cerrar
+PySpectrum, cualquier [Tomar fondo ahora] en curso.
 """
 from __future__ import annotations
 
+import weakref
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -21,6 +23,8 @@ from PyQt6 import QtCore
 from PyQt6.QtCore import pyqtSignal, pyqtSlot
 
 from pyspectrum.services import procedure_background as pb
+
+_INSTANCES: "weakref.WeakSet[RoutineDark]" = weakref.WeakSet()
 
 
 class RoutineDark(QtCore.QObject):
@@ -41,6 +45,7 @@ class RoutineDark(QtCore.QObject):
         self._taken: Optional[pb.Dark] = None
         self.thread = RoutineThread(f"{session_name} — Fondo", self)
         self.thread.finished.connect(self._on_take_finished)
+        _INSTANCES.add(self)
 
     @property
     def store(self) -> pb.DarkStore:
@@ -167,3 +172,16 @@ def wire_row(row, dark_ctl: RoutineDark, exposure: Callable[[], Optional[float]]
     row._refresh = refresh
     refresh()
     return timer
+
+
+def shutdown_all_darks(timeout_ms: int = 3000) -> list:
+    """Cierre de PySpectrum (paso 13): detiene cada toma de fondo en curso, con tope. Un paso por toma."""
+    steps = []
+    for ctl in list(_INSTANCES):
+        try:
+            running = ctl.thread.running
+        except RuntimeError:                          # el QObject ya se destruyó
+            continue
+        if running:
+            steps.append(ctl.thread.shutdown(timeout_ms))
+    return steps

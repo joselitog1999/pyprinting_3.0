@@ -69,6 +69,7 @@ En esta condición, la rejilla actúa como un espejo plano especular donde el á
 La posición centroidal de esta rendija proyectada en el plano del detector determina el **pixel de referencia del eje óptico**. Cualquier desalineación mecánica del tambor de la torreta o del soporte de la cámara respecto al diseño nominal desplaza este centroide del píxel central teórico ($p_{\text{center}} = N_{\text{pixels}} / 2 = 512$ para un sensor de 1024 píxeles). La compensación de esta desviación se realiza mediante el `Detector Offset` y el `Grating Offset` del Shamrock.
 
 ### 2.2 Estimación Robusta de Centroide Sub-Píxel vía Ajuste Gaussiano
+> **Implementación desde el 2026-10-01 (R4-N 1a, `DEC-040`):** el modelo de abajo se ajusta **en cada fila** del ROI vertical, con fondo lineal (`core/spectral_line_fit.py::estimate_line_center`), y el centro es el promedio de las filas (`pyspectrum/calibration/slit_center.py`). La inicialización por momentos y la cota de $u(x_0)$ de esta sección describen el ajuste viejo, de un solo perfil. El píxel del iXon3 es de 8 µm, no de 13 µm. La u del centro sale de la dispersión de las filas.
 Para una rendija estrecha ($w \le 50\ \mu\text{m}$), el perfil de irradiancia sobre el sensor en orden 0 sigue una distribución cuasi-gaussiana truncada por la convolución con la respuesta de píxel:
 
 $$I(x) = y_0 + A \exp\left( -\frac{(x - x_0)^2}{2 \sigma^2} \right)$$

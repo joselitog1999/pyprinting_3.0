@@ -125,15 +125,22 @@ El Orden Cero corresponde a la reflexión especular pura de la red de difracció
   * Apretar firmemente los tornillos de sujeción.
 
 #### Paso 1.4: Ajuste Gaussiano del Centroide X
-* Presionar el botón `🔍 Auto-Calibrar Centroide X (Ajuste Gaussiano)`.
-* El algoritmo colapsa la franja central sumando $40$ filas en torno al ecuador del sensor ($y \in [y_{\text{mid}}-20, y_{\text{mid}}+20]$) para obtener un perfil unidimensional de intensidad $I(p_x)$.
+> **Reemplazado el 2026-10-01 (R4-N 1a, `DEC-040`).** El procedimiento tachado abajo describe código que ya no existe. Ahora:
+> 1. definir el ROI vertical sobre la imagen de la ranura (Exploración);
+> 2. presionar `🔍 Auto-Calibrar Centro de la Ranura (una gaussiana por fila)`. Toma cuadros nuevos del ROI, ajusta una gaussiana con fondo lineal en cada fila y promedia la posición del máximo; la inclinación y la dispersión salen de las filas;
+> 3. revisar el resultado y presionar `✔ Aplicar como centro de ranura`.
+>
+> El píxel del iXon3 es de **8 µm**, no de 13 µm. Los criterios de aceptación de abajo están sin verificar en el banco (BANCO-63).
+
+* ~~Presionar el botón `🔍 Auto-Calibrar Centroide X (Ajuste Gaussiano)`.~~
+* ~~El algoritmo colapsa la franja central sumando $40$ filas en torno al ecuador del sensor ($y \in [y_{\text{mid}}-20, y_{\text{mid}}+20]$) para obtener un perfil unidimensional de intensidad $I(p_x)$.~~
 * Ajusta una distribución Gaussiana mediante Levenberg-Marquardt:
   $$I(p) = A \exp\left(-\frac{(p - p_0)^2}{2\sigma^2}\right) + B$$
   $$\text{FWHM} = 2\sqrt{2\ln 2}\,\sigma \approx 2.35482\,\sigma$$
 * Criterio de Aceptación:
   * El centroide óptico nominal debe situarse en **$p_0 = 502.00 \pm 2.0\text{ px}$** (para sensor de 1004 px de dispersión horizontal).
   * El ancho $\text{FWHM}$ para una ranura de $50\,\mu\text{m}$ debe ser de **$4.12 \pm 0.3\text{ px}$** ($50\,\mu\text{m} / 13\,\mu\text{m/px} \times \text{magnificación} \approx 3.85 - 4.2\text{ px}$).
-* Presionar `💾 Guardar Pixel X` para fijar $p_0$ como origen del sistema.
+* ~~Presionar `💾 Guardar Pixel X` para fijar $p_0$ como origen del sistema.~~ Ahora: `✔ Aplicar como centro de ranura`, que además lo registra como `SLIT_CENTER` (EXPERIMENTAL).
 
 ---
 

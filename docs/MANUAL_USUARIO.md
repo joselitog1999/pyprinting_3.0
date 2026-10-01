@@ -879,7 +879,17 @@ Dos sub-pestañas: **Calibración de λ (automática)** (paso 14, `DEC-040`) y *
 - **Si no se ve la línea:** la rutina se detiene. Un clic sobre la línea en el perfil fija dónde buscar, y [Reintentar con la semilla] corre esa red otra vez. El registro queda marcado "semilla del operador".
 
 La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y del sensor Andor:
-1. **Ranura de Entrada & Pixel X Central**: Apertura motorizada (10 a 2500 µm), movimiento a Orden Cero (0.0 nm) y auto-calibración con ajuste gaussiano sub-píxel del centroide del slit.
+1. **Ranura de Entrada & Pixel X Central**: Apertura motorizada (10 a 2500 µm) y movimiento a Orden Cero (0.0 nm).
+   - **Centro de la ranura (R4-N 1a, `DEC-040`):**
+     1. pasá a orden cero, poné luz sobre la ranura y definí en Exploración el ROI vertical sobre su imagen;
+     2. elegí la exposición y los cuadros (1 por defecto) y apretá **`🔍 Auto-Calibrar Centro de la Ranura`**.
+   - **Qué hace:** toma cuadros nuevos de las filas del ROI, ajusta una gaussiana en cada fila y promedia la posición del máximo. Esa columna, cruzada con el ROI, es la zona de trabajo.
+     - Abre el obturador del espectrómetro sólo mientras mide y no toca láseres.
+     - Una fila que se aparta (un rayo cósmico) se descarta.
+   - **Resultado:** centro ± u (de las filas), FWHM en px y µm, la dispersión y la inclinación de la ranura sobre el sensor. **TILT** avisa que el centro corre más de 1 px de punta a punta del ROI.
+   - **No se mide** si no está en orden cero o sin ROI. **No sirve** si la imagen satura (80 % del ADC), si no se ve la línea o si menos de la mitad de las filas la muestran. En esos casos no se guarda nada y la línea dice por qué.
+   - **Nada cambia hasta `✔ Aplicar como centro de ranura`.** Al aplicar, el centro queda en el archivo de calibración del programa y se registra en el archivo de calibraciones como `SLIT_CENTER` (EXPERIMENTAL). `💾 Guardar Pixel X`, a mano, también queda registrado.
+   - Los cuadros crudos de una medición buena quedan en `carpeta de trabajo/calibration/slit_center_<fecha>.h5`.
 2. **Offsets de red y detector (leídos del Shamrock)**: se muestran con la hora de lectura; una lectura fallida dice "desconocido". No se escriben desde botones. [Registrar lo leído en el archivo] guarda los valores actuales en el archivo de calibraciones local (sólo se agregan entradas; historial visible). Al arrancar, PySpectrum compara el equipo con ese archivo y avisa si difieren, sin escribir nada. La escritura de un offset es una transacción con respaldo, tecleo del número de líneas de la red (y 3.ª confirmación si el cambio supera 50 pasos) y relectura; sin restauración desde el historial (R4-C-4). Ver MOD-06 §8.2.
 3. **Calibración Cúbica EEPROM**: Lectura de los coeficientes de dispersión $\lambda(p) = a + bp + cp^2 + dp^3$.
 4. **Respuesta Radiométrica (Lámpara Halógena)**: Carga y normalización con curvas de calibración NIST.

@@ -1131,6 +1131,40 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * **Mutaciones:** 25, todas detectadas. Seis sobrevivían al principio y cada una pedía un test nuevo: la forma del fondo en el `.txt` de Raman; el rechazo antes del hilo en Luminiscencia y Crecimiento puntuales y en la grilla de Crecimiento (el cuerpo también rechaza, pero ya con la sesión tomada); el del mapa, que sin el rechazo previo pasaba la cámara a FVB y guardaba un mapa vacío; y la ganancia EM en la clave del fondo del escaneo lineal.
   * **Suite completa:** 1613 passed, 3 xfailed, 0 failed. En la corrida anterior, dos tests del escaneo lineal fallaban sólo en la suite completa: un objeto dejado por otro test cerraba el obturador del mismo espectrómetro simulado. El espía registra ahora sólo las llamadas del escaneo lineal; una mutación del obturador confirma que sigue detectando.
   * **Pendiente de banco:** BANCO-62.
+* **R4-N 1a, el centro de la ranura: implementado (2026-10-01).** Ronda 2 del 2026-09-30 con las respuestas P1 a P4 del investigador (`RESPUESTAS_INVESTIGADOR`, R4-N segunda parte).
+  * **Por qué se reescribió:** el auto-calibrado viejo corría en el hilo de la GUI. Leía `get_most_recent_image()` sin adquirir (o, sin imagen, un perfil inventado de 100 cuentas), ajustaba el promedio de 40 filas del centro del sensor y guardaba cualquier resultado, también el de un ajuste fallido.
+  * **Método (P1):** en orden cero, una gaussiana con fondo lineal en cada fila del ROI vertical, con `estimate_line_center`, el estimador de la calibración de λ. El centro es el promedio de las posiciones del máximo; esa columna, cruzada con el ROI, es la zona de trabajo.
+  * **Estadística (P2):** sale de las filas.
+    * Una recta robusta de los centros contra la fila da la inclinación (TILT si el centro corre más de 1 px de punta a punta del ROI) y la dispersión respecto de la recta.
+    * Las filas que se apartan (rayos cósmicos) se descartan.
+    * u = máx(s/√n, u del ajuste/√n).
+  * **Cuadros:** 1 por defecto. Con 3 o más, cada píxel es la mediana en el tiempo.
+  * **Saturación:** se evalúa por fila. Un rayo cósmico satura una o dos filas, y esas filas se descartan. Si satura más del 10 % de las filas, satura la imagen de la ranura y la medición se rechaza.
+  * **Se rechaza** fuera de orden cero (lectura del Shamrock), sin un ROI de al menos 5 filas, sin línea o con menos de la mitad de las filas útiles. **Nada se guarda si falla.**
+  * **Se aplica sólo con [Aplicar] (P3).** Cada aplicación, también la de `💾 Guardar Pixel X` a mano, queda en el archivo de calibraciones como `SLIT_CENTER`, EXPERIMENTAL (P4). Los cuadros crudos de una medición buena quedan en `calibration/slit_center_<fecha>.h5`.
+  * **Hardware:**
+    * sesión "Calibración de ranura", en un `RoutineThread`;
+    * el obturador del espectrómetro se abre sólo mientras mide, y no se tocan láseres;
+    * la cámara vuelve al modo de lectura que tenía, también si la exposición falla.
+  * **Conciliación de contratos:**
+
+    | Control (GUI) | Señal | Motor | Tipo y unidad | Por defecto |
+    | :--- | :--- | :--- | :--- | :--- |
+    | `spin_slit_exp` | `autoCalibrateSlitSignal(float, int)` | `measure_slit_center(exposure_s=)` | s, 0.001–10 | 0.05 |
+    | `spin_slit_frames` | `autoCalibrateSlitSignal(float, int)` | `n_frames=` | entero, 1–20 | 1 |
+    | ROI vertical de Exploración | `spectroscopy_context.vertical_roi` | `rows=(y_min, y_max)` | filas del sensor, [r0, r1) | — |
+    | `btn_apply_slit_center` | `applySlitCenterSignal()` | `CalibrationBackend.apply_slit_center` | — | deshabilitado sin una medición buena |
+    | `lbl_slit_result` | ← `slitFitResultSignal(object)` | `SlitCenterResult.summary()` | px, µm | — |
+
+    Ninguna discrepancia.
+  * **Tests:** `tests/test_slit_center.py` (26). `test_slit_gaussian_fit` pasa al motor nuevo. 17 mutaciones, todas detectadas.
+  * **Pendiente de banco:** BANCO-63.
+  * **Documentos:** MANUAL, MOD-06 §8.1 y SYS-303 Paso 1.4 (lo viejo, tachado). SYS-302 §2.2 lleva una nota: el píxel es de 8 µm, no de 13 µm.
+* **Dos defectos del cierre encontrados de paso (2026-10-01), con un test que fallaba antes del arreglo.**
+  * **`RoutineThread.shutdown` nunca terminaba a tiempo.** El bucle del hilo salía sólo desde `_on_finished`, un slot encolado al hilo de la GUI. Pero `shutdown` espera el hilo bloqueando justamente la GUI, así que la espera agotaba siempre su tope de 3 s y el paso se informaba como fallido.
+    * Afectaba a luminiscencia, crecimiento y dímeros al cerrar con una rutina corriendo.
+    * Ahora el hilo sale apenas termina el cuerpo (conexión directa a `quit`).
+  * **Una toma de fondo en curso no se detenía al cerrar.** `shutdown_all_darks` (`routine_dark.py`) detiene todas, y la ventana la llama, como a la calibración de la ranura.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

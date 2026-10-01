@@ -162,6 +162,7 @@ la platina ni el espectrógrafo:
 | BANCO-60 | Live de 3.0 sobre pylablib: velocidad, cambios en vivo y pausa por una rutina | PySpectrum, paquete 1 de R4-M | Sin láser | ☐ |
 | BANCO-61 | Herramientas de Exploración: regla, eje λ, ajuste, fondo, traza y guardado | PySpectrum, paquete 2 de R4-M | Lámpara, sin láser | ☐ |
 | BANCO-62 | El fondo en los procedimientos: obturador, reutilización, todo apagado y sustrato | PySpectrum, R4-N | Lámpara; láser sólo en un punto, con aprobación | ☐ |
+| BANCO-63 | Centro de la ranura en orden cero: una gaussiana por fila | PySpectrum, R4-N 1a | Lámpara, sin láser | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -1000,6 +1001,17 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **Láser abierto:** con un láser abierto desde [Obturadores] ⚠️ (con aprobación), "Tomar fondo ahora" en "Todo apagado" tiene que rechazar la toma.
 - **Sustrato:** con un sustrato limpio, "🔒 Fijar sustrato (barrido completo)"; después, la muestra con "Restar Fondo de Sustrato". Las uniones del cosido no tienen que mostrar escalones nuevos. Cambiar λ final: el sustrato no se tiene que restar, y el programa lo tiene que avisar.
 - **Raman:** tomar un fondo, adquirir y guardar. El `.txt` tiene que tener la columna `Background_Counts`, y el espectro mostrado tiene que bajar en el nivel del fondo.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-63 — Centro de la ranura en orden cero (R4-N 1a; lámpara, sin láser)
+- **Qué se prueba:** la autocalibración del centro de la ranura del dock de Calibraciones, con la cámara y el Shamrock reales (`DEC-040`).
+- **Preparación:** orden cero, ranura en 50 µm, lámpara sobre la ranura y el ROI vertical de Exploración sobre su imagen.
+- **Repetibilidad:** 5 mediciones seguidas con 1 cuadro. La dispersión de los centros entre mediciones tiene que ser del orden de la u que informa cada una. Si es mucho mayor, la u de las filas subestima. Anotar las dos.
+- **Contra el legado:** comparar el centro con el que usa el legado (`SLIT_CENTER_PIXEL_X`, ≈ 500 según el investigador) y con el que se ve en Exploración con la regla.
+- **Inclinación:** anotar mpx/fila. Si aparece TILT, la ranura no está paralela a las columnas del sensor. Con TILT, el centro depende de las filas del ROI: correr el ROI hacia arriba y hacia abajo y anotar cuánto cambia.
+- **FWHM:** a 20, 50 y 100 µm de ranura, anotar la FWHM en µm y compararla con el ancho mecánico. Es el mismo dato que el punto "Ajuste en orden cero" de BANCO-61.
+- **Rechazos:** con la exposición alta, tiene que rechazar por saturación. Con la lámpara tapada, tiene que decir que no ve la línea. En primer orden, no tiene que arrancar. En los tres casos, sin guardar nada.
+- **Modo de la cámara:** con el Live de Exploración en Single-Track antes de medir, al terminar tiene que volver a Single-Track con el mismo track.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación

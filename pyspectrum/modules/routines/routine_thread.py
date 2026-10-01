@@ -129,6 +129,9 @@ class RoutineThread(QtCore.QObject):
         self._worker = _Worker(body, runner, self.ctl, self._cleanup)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        # El hilo termina apenas termina el cuerpo, sin esperar al hilo de la GUI: `shutdown` espera el hilo
+        # bloqueando la GUI, y con sólo `_on_finished` (encolado) el bucle del hilo no salía nunca a tiempo.
+        self._worker.finished.connect(self._thread.quit, QtCore.Qt.ConnectionType.DirectConnection)
         self._worker.finished.connect(self._on_finished)
         self._thread.start()
         return None

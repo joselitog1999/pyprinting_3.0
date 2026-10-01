@@ -190,9 +190,21 @@ Integrada en el `DockArea` principal (junto a Step & Glue y Raman) y accesible d
 - **Botón `🎯 Mover a Orden Cero (0.0 nm)`**: Desplaza el goniómetro a dispersión nula para visualización especular de la ranura.
 - **Ancho Micrométrico de Ranura**: Ajuste dinámico de 10 a 2500 µm con botones rápidos de 10, 50, 100 y 500 µm.
 - **Pixel Central X (`SLIT_CENTER_PIXEL_X`)**: Ajuste del pixel central donde focaliza la rendija (predeterminado: 501.0 px).
-- **Auto-Calibración de Centroide X**: Ajuste gaussiano no lineal de la proyección horizontal en orden cero:
+- ~~**Auto-Calibración de Centroide X**: Ajuste gaussiano no lineal de la proyección horizontal en orden cero:
   $$I(x) = A \exp\left(-\frac{(x - x_0)^2}{2\sigma^2}\right) + y_0$$
-  calcula con precisión subpíxel el centroide $x_0$ y el ancho a media altura (FWHM).
+  calcula con precisión subpíxel el centroide $x_0$ y el ancho a media altura (FWHM).~~ **Reemplazada el 2026-10-01 (R4-N 1a, `DEC-040`).** El código viejo leía un cuadro sin adquirir (o uno inventado de 100 cuentas), ajustaba el promedio de 40 filas y guardaba cualquier resultado.
+- **Centro de la ranura (R4-N 1a):**
+  - **Motor:** `pyspectrum/calibration/slit_center.py`, sin Qt.
+    - `analyze_slit_frames(frames, rows)`: una gaussiana con fondo lineal por fila, con `estimate_line_center`, el estimador de la calibración de λ;
+    - recta robusta de los centros contra la fila: la pendiente es la inclinación y las filas que se apartan se descartan (5 MAD, mínimo 0.2 px);
+    - centro = promedio de las filas usadas; u = máx(s/√n, u del ajuste/√n); FWHM = mediana de las filas;
+    - con 3 cuadros o más, mediana en el tiempo;
+    - la saturación se evalúa por fila: una fila al 80 % del ADC no se usa, y con más del 10 % de las filas saturadas la medición se rechaza.
+  - **Contra la cámara:** `measure_slit_center` exige orden cero (`refresh_state` del servicio de orden cero, sólo lectura) y un ROI de al menos 5 filas. Pone la cámara en imagen sobre el ROI y la devuelve al modo que tenía, también si la exposición falla.
+  - **En el dock:** corre en un `RoutineThread` con la sesión "Calibración de ranura", que abre y cierra el obturador del espectrómetro. Muestra el resultado y la línea "medido", sin aplicarlo.
+    - `apply_slit_center` es la única vía que escribe: el `.txt` y el `.json` del programa, el contexto y una entrada `SLIT_CENTER` (EXPERIMENTAL) en el archivo de calibraciones.
+    - Los cuadros crudos de una medición buena van a `calibration/slit_center_<fecha>.h5`.
+  - **Tests:** `tests/test_slit_center.py`. **Banco:** BANCO-63.
 
 ### 8.2 Offsets de red y detector: lectura, archivo de calibraciones y escritura (pasos 9 y 10, `DEC-040`)
 Los offsets son pasos de motor que el Shamrock guarda y que ven también Solis y el PySpectrum legado. Vigentes en el equipo (BANCO-25, R4-G): red de 150 l/mm = 87, red de 1200 l/mm = 195, espejo = 60, detector = 0.
