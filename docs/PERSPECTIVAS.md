@@ -81,6 +81,28 @@ En concordancia con los principios de evolución continua y la **Directiva Máxi
 - **Objetivo**: Fabricar hélices plasmónicas tridimensionales, meta-átomos quirales y metasuperficies bi-capa con propiedades de dicroísmo circular óptico gigante.
 - **Módulos Vinculados**: [[MOD-07_Disenador_Redes_2D_Grid_Generator|MOD-07]], [[CAT-102_Sintesis_Cristalografica_Redes_2D_y_Particula_Ancla|CAT-102]].
 
+### 1.8 Alineación Automática de Objetos Canon → Andor (idea del investigador, 2026-09-30)
+- **Estado:** idea, sin implementar. Surgió al definir la autocalibración de la ranura (R4-N 1a).
+- **Objetivo:** llevar un objeto (una partícula, un dímero) a la zona de trabajo del espectrómetro sin alinearlo a mano. La secuencia sería:
+  1. subir el espejo de detección;
+  2. detectar el objeto en la imagen de la Canon;
+  3. mover la platina para llevarlo a la zona de trabajo;
+  4. bajar el espejo;
+  5. medir.
+- **La zona de trabajo:** en el Andor, en orden cero, la columna del centro de la ranura cruzada con la banda de filas del ROI.
+  - El centro de la ranura sale de la autocalibración de 1a: una gaussiana por fila y el promedio de las posiciones del máximo, alrededor del píxel 500.
+- **Calibraciones que necesita:**
+  1. **Canon px ↔ platina µm:** una transformación afín. Se mide moviendo la platina y siguiendo un objeto en la Canon.
+  2. **Canon px ↔ Andor px:** se mide con el mismo objeto visto en las dos cámaras, en orden cero. Incluye la inversión en X de BANCO-56.
+  3. **Centro de la ranura y ROI** en el Andor (1a).
+- **Depende de:**
+  - la autocalibración de la ranura (1a);
+  - la persistencia del espejo de detección (C-08);
+  - BANCO-56 (orientación);
+  - un detector de objetos en la imagen de la Canon.
+- **Restricción:** mueve la platina y el espejo, así que pasa por las Rondas 1 y 2 y respeta DEC-036 (límites de recorrido, llegada confirmada, nunca un movimiento sin aprobación en la primera prueba de banco).
+- **Módulos vinculados:** [[MOD-04_Camara_Live_View_Canon_EDSDK|MOD-04]], [[MOD-06_PySpectrum_Espectroscopia_Shamrock|MOD-06]], [[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica|SYS-103]].
+
 ---
 
 ## 💡 2. Hoja de Ruta de Arquitectura de Software e Ingeniería (Insights de Graphify)

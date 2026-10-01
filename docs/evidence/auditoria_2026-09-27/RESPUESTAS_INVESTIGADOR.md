@@ -608,6 +608,45 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 4. **Inversión de la imagen:** fija en el código, por consistencia con las coordenadas de la platina, con el régimen observado (invertida en X respecto de la cámara, igual en Y). Se corrige en las pruebas de banco si hace falta (BANCO-56).
 5. **Orden:** primero R4-L, después el lazo de la cámara, después el resto.
 
+**R4-N — Pendientes después de los paquetes de Exploración (2026-09-30).**
+1. **`calibration_dock`:**
+   - **1a.** Reescribir la autocalibración de la ranura (cuadro nuevo, el estimador de la calibración de λ, orden cero exigido, nada se guarda si falla). Falta la Ronda 2.
+   - **1b.** Retirar la verificación con agua.
+   - **1c.** Retirar el perfil de ruido oscuro.
+   - **Además:** verificar que en los procedimientos de medición normales y en Step & Glue el fondo se tome **con la misma configuración**, con **todo apagado o el obturador cerrado, a elección** del operador.
+2. **Sondas:**
+   - **2a.** Aceptada: la sonda del legado lee la cámara sólo por pylablib.
+   - **2b.** Aceptada: una sonda nueva de 3.0 sobre pylablib, sólo lectura. Falta la Ronda 2.
+3. **Espejo de detección (C-08):** aceptado.
+   - El último estado se guarda junto al archivo de calibraciones.
+   - Al arrancar se muestra como "último conocido, sin confirmar", y las rutinas siguen pidiendo la confirmación del operador (D-01).
+   - Botón de resincronización y cambio de nombre de `flipper_notch532`.
+   - Falta la Ronda 2.
+
+**R4-N, segunda parte (2026-09-30): el fondo de los procedimientos y las Rondas 2 de 1a, 2b y 3.**
+- **Fondo (Rondas 1 a 3):**
+  - **B1.** Obturador cerrado por defecto, con "todo apagado" siempre disponible.
+  - **B2.** Un fondo por corrida. **No se vuelve a tomar si no cambian las condiciones de medición.**
+  - **B3.** Crudo y fondo se guardan por separado.
+  - **B4.** El sustrato de Step & Glue se toma ventana por ventana.
+  - **Condiciones:** sin la red ni λc; con el setpoint de temperatura. El almacén es sólo en memoria.
+  - **"Todo apagado":** se toma con [Tomar fondo ahora], y la rutina no arranca sin un fondo válido.
+  - **Raman:** a pedido, como en Exploración, con una columna de fondo aparte en el txt.
+  - **Sustrato:** el barrido completo sobre el sustrato se resta sólo si el plan coincide.
+  - **El fondo se toma como una referencia de la medición:** la misma exposición y configuración, y por defecto la misma cantidad de cuadros.
+  - En las gráficas se resta por defecto, con una casilla para ver el crudo.
+- **P1 (método de la ranura):**
+  - como la ranura es vertical, se ve una línea brillante;
+  - se ajusta una gaussiana en cada fila y se promedia la posición del máximo (ronda el píxel 500);
+  - esa columna, cruzada con el ROI de filas, es la zona de trabajo;
+  - **P2 queda resuelta** con eso: la estadística sale de las filas.
+  - **Idea anotada en `docs/PERSPECTIVAS.md` §1.8:** detectar objetos y alinearlos automáticamente con las calibraciones Canon ↔ Andor y Canon ↔ platina (subir el espejo, alinear con la Canon, bajar el espejo y medir).
+- **P3.** Se guarda con [Aplicar].
+- **P4.** Cada aplicación se registra en el archivo de calibraciones.
+- **P5.** La sonda de 3.0 lleva `--estado-base`, como opción.
+- **P6.** `flipper_notch532` queda como alias de `set_detection_mirror`; PyPrinting se renombra más adelante.
+- **P7.** Se lee, sólo lectura, el archivo de estado del espejo del legado, si se da su ruta en `config`.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** resuelto en R4-G, que reemplaza a R4-3: valen los guardados en el equipo (150 → 87, 1200 → 195, espejo → 60, detector → 0). Falta definir el protocolo del detector.

@@ -143,6 +143,9 @@ class Frontend(QtWidgets.QFrame):
                                      "lo baja sola para medir y al terminar lo devuelve a esta posición (R4-K).")
         ctrl_vlo.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"))
         ctrl_vlo.addWidget(self.combo_mirror)
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row = BackgroundRow(default_frames=1)                # un fondo por mapa (R4-N)
+        ctrl_vlo.addWidget(self.bg_row)
         self.combo_laser = QtWidgets.QComboBox()
         self.combo_laser.addItems(SHUTTERS)
         self.combo_laser.setToolTip("Línea láser cuyo obturador se abre durante el mapeo hiperespectral.")
@@ -252,8 +255,14 @@ class Frontend(QtWidgets.QFrame):
             self.btn_scan.setStyleSheet("background-color: #89B4FA; color: #11111B;")
 
     @pyqtSlot(np.ndarray, np.ndarray)
+    def exposure(self):
+        try:
+            return float(self.edit_exp.text())
+        except ValueError:
+            return None
+
     def update_point_spectrum(self, wave_axis: np.ndarray, spec: np.ndarray):
-        self.plot_point.set_data(wave_axis, spec, pen_color="#F9E2AF")
+        self.plot_point.set_data(wave_axis, self.bg_row.for_display(spec), pen_color="#F9E2AF")
 
 
 class Backend(QtCore.QObject):
@@ -285,6 +294,12 @@ class Backend(QtCore.QObject):
         self._runner = None
         self._failed = None
         self._exp_time = 0.0
+        # Fondo del mapa (R4-N). Sin padre: el backend se mueve a su hilo y la fila lo usa desde la GUI.
+        from pyspectrum.drivers.andor_ccd_driver import READ_MODE_FVB
+        from pyspectrum.modules.routines.routine_dark import RoutineDark
+        self.dark = RoutineDark(self.camera, self.spectrometer, self.SESSION, "HyperspectralMap", None,
+                                read_mode=READ_MODE_FVB)
+        self.run_dark = None
         self._saved_path = None
         base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or str(Path.home() / "Documents" / "Data_PySpectrum")
         self.data_dir = Path(base) / "confocal_map"
@@ -302,6 +317,9 @@ class Backend(QtCore.QObject):
         self.progressSignal.connect(frontend.update_progress)
         self.pointSpectrumSignal.connect(frontend.update_point_spectrum)
         self.statusSignal.connect(frontend.lbl_info.setText)
+        if hasattr(frontend, "bg_row"):
+            from pyspectrum.modules.routines.routine_dark import wire_row
+            wire_row(frontend.bg_row, self.dark, frontend.exposure, frontend.lbl_info)
 
     @pyqtSlot(str)
     def confirm_mirror(self, position: str):
@@ -327,6 +345,10 @@ class Backend(QtCore.QObject):
             return
         if self._mirror_confirmed is None:
             self.statusSignal.emit("⛔ Confirmá dónde está el espejo de detección antes de iniciar el mapa.")
+            return
+        refusal = self.dark.check_start(float(exp_time))
+        if refusal:
+            self.statusSignal.emit(f"⛔ {refusal}")
             return
         if not hardware_session.acquire_session(self.SESSION):
             self.statusSignal.emit("⛔ El hardware está ocupado o la E-STOP está activa.")
@@ -363,6 +385,7 @@ class Backend(QtCore.QObject):
         self._scanning = True
         try:
             self.camera.set_read_mode(READ_MODE_FVB)
+            self.run_dark = self.dark.ensure(self._runner, self._exp_time)   # un fondo por mapa (R4-N)
             res = open_spectrometer_shutter(self.camera, self.spectrometer)
             if not res.ok:
                 raise GridSafetyPause(f"El obturador del espectrómetro no abrió: {res.detail}")
@@ -439,6 +462,9 @@ class Backend(QtCore.QObject):
                 f.attrs["cube_axes"] = "x, y, lambda"
                 from pyspectrum.calibration.repository import spectrum_software_correction, write_correction_attrs
                 write_correction_attrs(f.attrs, spectrum_software_correction(self.spectrometer))   # R3-gui §4.6
+                if self.run_dark is not None:                       # el cubo es crudo; el fondo, aparte (R4-N)
+                    from pyspectrum.services.procedure_background import write_dark_h5
+                    write_dark_h5(f, self.run_dark)
             self._saved_path = str(path)
         except Exception as e:
             self.statusSignal.emit(f"⚠️ No se pudo guardar el cubo: {e}")
@@ -456,7 +482,8 @@ class Backend(QtCore.QObject):
             self._runner.move_to(x, y)
             spec = self._runner.expose((1004,), self._exp_time)
             self._datacube[self.curr_ix, self.curr_iy, :] = spec
-            self.map_2d[self.curr_ix, self.curr_iy] = float(np.sum(spec))
+            from pyspectrum.modules.routines.routine_dark import corrected
+            self.map_2d[self.curr_ix, self.curr_iy] = float(np.sum(corrected(spec, self.run_dark)))   # sin el fondo (B3)
             self.pointSpectrumSignal.emit(self.wave_axis, spec)
         except NodeFailed as e:
             self._failed[self.curr_ix, self.curr_iy] = True

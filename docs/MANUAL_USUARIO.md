@@ -761,9 +761,9 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 - **❄ Congelar:** deja de pintar para mirar con calma; el Live y la traza siguen. Al descongelar se muestra el último cuadro.
 - **📷 Cuadro único:** con el Live detenido, un cuadro con la exposición del panel. Abre y cierra el obturador del espectrómetro, como el Live.
 - **Fondo.**
-  1. Con el Live corriendo, cerrá el obturador del espectrómetro desde el panel izquierdo. Exploración no lo acciona: sólo lee su estado y lo anota con el fondo.
+  1. Con el Live corriendo y la **misma configuración** de la medición, dejá la condición de fondo **a tu elección**: todo apagado (lámpara y láseres) o el obturador del espectrómetro cerrado desde el panel izquierdo. Exploración no acciona nada: sólo lee el estado del obturador y lo anota con el fondo.
   2. Elegí cuántos cuadros promediar (10 por defecto) y apretá **Tomar fondo**.
-  3. Abrí el obturador y marcá **Restar**.
+  3. Volvé a la condición de medición (encendé la luz o abrí el obturador) y marcá **Restar**.
   - El fondo vale mientras no cambien la exposición, la ganancia EM, el amplificador, el preamplificador, las velocidades HS y VS, el modo de lectura, la red ni λc. Si algo cambia, queda marcado "no válido" con el motivo y se deja de restar. No se borra: si volvés a esas condiciones vuelve a valer.
   - Si una condición cambia mientras se toma, el fondo se descarta y se avisa.
 - **Traza en el tiempo (▸ desplegable):** la media de una **fila propia** (la línea naranja punteada, que se arrastra) o la media del **ROI vertical**, cuadro a cuadro. Cambiar de fuente o de fila limpia la traza.
@@ -792,6 +792,7 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
   - **Slider Fila por Fila**: Desplazamiento ergonómico pixel a pixel por la ranura con guardas `blockSignals`.
   - **Conmutador a Promedio Espacial**: Alterna a la media espacial del ROI $\mu(\lambda)$, graficando una banda sombreada semitransparente con la desviación estándar $\pm \sigma(\lambda)$ entre filas (`FillBetweenItem`).
   - **Controles de Adquisición Propios**: `📸 Adquirir`, `▶️ Live Raman` y `🎚️ Auto-Contraste` están disponibles directamente en el Inspector, sin volver a la sub-pestaña de espectro. Los botones de Live quedan sincronizados en ambos sentidos entre las dos sub-pestañas: iniciar o detener desde cualquiera deja la otra reflejando el estado real, y `Adquirir` se deshabilita mientras Live está corriendo para evitar disparos concurrentes sobre el detector.
+- **Fondo (R4-N):** fila **`Fondo:`** debajo del procesamiento, con la exposición y el modo de la cámara. Se resta antes del procesamiento; el `.txt` guarda el crudo y, si hay un fondo válido, la columna `Background_Counts` aparte (ver "El fondo en los procedimientos", al final del §4.2).
 - **Herramientas Espectroscópicas**: Sustracción de fluorescencia AsLS (Whittaker), cursores duales Stokes y anti-Stokes para cálculo directo de temperatura fototérmica local $T$, y exportación FAIR estructurada en HDF5 / CSV.
 
 #### 3️⃣ Pestaña 3: Step & Glue Espectral (Cosido de Banda Ancha)
@@ -823,7 +824,7 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
   - *Qué cambia para el operador*: antes el barrido suponía ventanas de 176 nm cuando las reales son de 103 nm; en el equipo real habría dejado ~30 % del rango sin medir. Ahora un barrido de 400–900 nm con 20 % de solapamiento usa **7 ventanas en vez de 4** y tarda proporcionalmente más.
   - Al terminar se verifica la cobertura con los ejes reales de cada ventana. Si quedara algún tramo sin medir, se informa en la consola y queda registrado en el HDF5 exportado (`coverage_gaps_nm`, junto con `window_nm` y `window_source`).
 - **Soporte Multimodal**: Cosido tanto en perfiles 1D como en matrices 2D espaciales preservadas fila a fila.
-- **Correcciones Ópticas**: Bloqueo de sustrato (*Substrate Lock*), normalización por lámpara halógena trazable NIST y verificación de calibración con pico Raman del agua pura a $649\text{ nm}$ ($3400\text{ cm}^{-1}$).
+- **Correcciones Ópticas**: sustrato ventana por ventana (ver "El fondo en los procedimientos", al final del §4.2; el bloqueo de sustrato anterior, tomado en una sola λc y restado de todas las ventanas, se reemplazó el 2026-09-30), normalización por lámpara halógena trazable NIST y verificación de calibración con pico Raman del agua pura a $649\text{ nm}$ ($3400\text{ cm}^{-1}$).
 
 #### 4️⃣ Pestaña 4: Cinética de Crecimiento Plasmónico (*Growth Kinetics*)
 - **Grillas Paramétricas y Carga de Archivos**: Generación de mallas $N \times M$ o importación de archivos `.txt` (compatibilidad con matrices legadas $3 \times N$). Botón `📍 Usar Posición Actual como Origen` para fijar el marco de referencia en coordenadas absolutas de la platina PI.
@@ -883,8 +884,8 @@ La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y d
 3. **Calibración Cúbica EEPROM**: Lectura de los coeficientes de dispersión $\lambda(p) = a + bp + cp^2 + dp^3$.
 4. **Respuesta Radiométrica (Lámpara Halógena)**: Carga y normalización con curvas de calibración NIST.
 5. **Persistencia Centralizada (.txt)**: Almacenamiento y restauración completa de parámetros en archivo `.txt`.
-6. **Verificación Raman de Agua (Fase 7)**: Medición in-situ con láser 532 nm del pico OH a $649\text{ nm}$ ($3400\text{ cm}^{-1}$), reportando el corrimiento $\Delta \lambda$ y la bondad de ajuste $R^2$.
-7. **Perfil de Ruido Oscuro (Fase 7)**: Cierre forzado de obturadores (`close_all_shutters()`), adquisición de cuadro de fondo en el modo activo y guardado explícito en `dark_noise_profile.npz`.
+6. ~~**Verificación Raman de Agua (Fase 7)**: Medición in-situ con láser 532 nm del pico OH a $649\text{ nm}$ ($3400\text{ cm}^{-1}$), reportando el corrimiento $\Delta \lambda$ y la bondad de ajuste $R^2$.~~ **RETIRADA el 2026-09-30 por el investigador (DEC-040): el código ya no existe; el texto queda tachado como registro. La λ se verifica con la Calibración de λ (automática).**
+7. ~~**Perfil de Ruido Oscuro (Fase 7)**: Cierre forzado de obturadores (`close_all_shutters()`), adquisición de cuadro de fondo en el modo activo y guardado explícito en `dark_noise_profile.npz`.~~ **RETIRADA el 2026-09-30 por el investigador (DEC-040): el código ya no existe; el texto queda tachado como registro. El fondo se toma en cada procedimiento, con la misma configuración y todo apagado o el obturador cerrado.**
 
 #### 6️⃣ Pestaña 6: Mapeo Confocal Hiperespectral
 - **Cada píxel (AND-1, C-10):** la platina **confirma la llegada** y se toma una exposición real en FVB. Antes se leía el último cuadro sin esperar, así que un píxel podía llevar el espectro de otro.
@@ -903,6 +904,26 @@ La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y d
   - **Cada espectro es una exposición real.** Si la cámara está en Imagen, pasa a FVB, y el archivo lo dice.
   - **Si un nodo falla,** queda en rojo, deja un `_FAILED.txt` y la grilla sigue. Si la platina no llega o un obturador no confirma, la grilla se pausa con los obturadores cerrados. Reanudá cuando esté resuelto.
   - **Los datos van a** `carpeta de trabajo/<rutina>/` si no elegiste otra carpeta.
+
+#### El fondo en los procedimientos (R4-N)
+
+Raman, Step & Glue, Crecimiento, el mapa hiperespectral, Luminiscencia, Dímeros (sólo la polarización) y el escaneo lineal tienen una fila **`Fondo:`**. El fondo es una **referencia de la medición**: se toma con la misma exposición, la misma configuración de la cámara y, por defecto, la misma cantidad de cuadros (1).
+
+- **Método, a tu elección:**
+  - **Obturador cerrado** (por defecto): la rutina cierra el obturador del espectrómetro, verifica que cerró, toma el fondo y lo vuelve a abrir antes de medir. Si no confirma el cierre, o no vuelve a abrir, la corrida no sigue.
+  - **Todo apagado:** apagás vos la lámpara y los láseres y apretás **`Tomar fondo ahora`**. La rutina no lo toma sola: sin un fondo válido, **no arranca** y te dice por qué. Si cree que hay un láser abierto, rechaza la toma.
+- **Se reutiliza** mientras no cambien la exposición, la ganancia EM, el amplificador, el preamplificador, las velocidades HS y VS, el modo de lectura y sus parámetros, la forma del cuadro ni el setpoint de temperatura. **La red y λc no cuentan:** sin luz, el fondo no depende de ellas, y por eso un solo fondo sirve a todas las ventanas de un Step & Glue. Con "obturador cerrado", si algo cambió, se toma uno nuevo al iniciar.
+- **El estado** se ve en la fila: "válido", "no válido" con el motivo, o "sin fondo". **`Descartar`** lo tira y obliga a tomarlo de nuevo.
+- **Sólo vive en la memoria:** al reiniciar el programa se toma de nuevo, porque el sensor se vuelve a enfriar.
+- **Lo guardado es siempre el crudo, con el fondo aparte**, nunca sólo la resta. El archivo dice qué fondo le corresponde (`background_id`, método y cuadros):
+  - Luminiscencia y Crecimiento: el `.txt` lo dice en el encabezado, y el fondo va en `<prefijo>_background_<id>.npz`, en la misma carpeta;
+  - Step & Glue: cada ventana referencia `StepGlue_background_<id>.npz`, uno por corrida;
+  - el mapa hiperespectral: el grupo `background` del `.h5`;
+  - Raman: una columna aparte, `Background_Counts`, en el `.txt`.
+- **`Restar`** resta el fondo para mostrar y procesar (el ajuste de λmax, la intensidad integrada, el procesamiento Raman y el cosido). No cambia lo guardado.
+- **Raman:** el fondo se resta antes del despiking, la línea base y el suavizado. El Inspector 2D no lo resta.
+- **Step & Glue, sustrato (B4):** **`🔒 Fijar sustrato (barrido completo)`** corre un barrido entero con el plan actual, con una ventana por λc. Con **`Restar Fondo de Sustrato`**, cada ventana de la muestra resta la ventana del sustrato de **su misma λc**; el oscuro se cancela solo. Si el plan cambió (λc, exposición, red o modo de lectura), el sustrato **no se resta** y se avisa.
+- **Escaneo lineal:** la fila no tiene cuadros ni `Restar`, porque el fondo entra en la transmitancia. Con "obturador cerrado", la referencia toma señal y fondo, y el fondo se reutiliza en la referencia siguiente si no cambiaron el modo, las exposiciones, el ROI, los centros ni la cámara. Con "todo apagado", **`Tomar fondo ahora`** mide sólo el fondo, con el obturador abierto y la luz apagada; después la referencia toma sólo las señales. El `.h5` dice el método y si el fondo se reutilizó.
 
 ---
 
@@ -996,7 +1017,7 @@ Protocolo de 8 pasos para un barrido lineal de transmisión/extinción (`[[MOD-0
    El renglón **`Luz:`** sólo recuerda que la luz la pone el operador: ya no hay un selector de lámpara. El antiguo en realidad elegía un obturador láser.
 4. **Tomar la referencia:**
    - posicionar la muestra y presionar **`📍 Tomar Posición Actual`**, o cargar X_ref, Y_ref y Z_ref a mano;
-   - presionar **`📥 Tomar Referencia (Fase A)`**. La señal se toma con el obturador del espectrómetro abierto y el fondo con ese obturador cerrado, en 1D y en 2D;
+   - presionar **`📥 Tomar Referencia (Fase A)`**. La señal se toma con el obturador del espectrómetro abierto, en 1D y en 2D. El fondo, con el método de la fila **`Fondo:`**: con "obturador cerrado" (por defecto) lo toma la referencia y lo reutiliza si las condiciones no cambiaron; con "todo apagado", tomalo antes con **`Tomar fondo ahora`** (ver "El fondo en los procedimientos", al final del §4.2);
    - si aparece el aviso ámbar de señal débil, no continuar: corregir la luz o el ROI y repetir este paso hasta que desaparezca.
 5. **Fijar la recta de barrido:** completar X inicial, X final, Y fijo, Z fijo y Paso ΔX, y revisar **`⏱ Tiempo estimado`**.
 6. **Ejecutar:** presionar **`🚀 Iniciar Escaneo`**, que se habilita recién con una referencia válida. Si el tiempo estimado supera 10 minutos, confirmar el diálogo.

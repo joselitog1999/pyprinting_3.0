@@ -150,9 +150,13 @@ def test_luminescence_growth_and_glued_spectra_headers(tmp_path, corrected):
     from pyspectrum.modules.routines import growth_kinetics, luminescence
     lum = luminescence.LuminescenceBackend.__new__(luminescence.LuminescenceBackend)
     lum.spectrometer = corrected
+    lum.run_dark = None
+    lum.grid_dark = type("D", (), {"header_text": lambda self, d, folder: "background_id: ninguno"})()
     lum._save_node_result(0, np.arange(3.0), np.ones(3), str(tmp_path / "lum"), "FVB")
     gro = growth_kinetics.GrowthKineticsBackend.__new__(growth_kinetics.GrowthKineticsBackend)
     gro.spectrometer = corrected
+    gro.run_dark = None
+    gro.grid_dark = type("D", (), {"header_text": lambda self, d, folder: "background_id: ninguno"})()
     gro._save_node_result(0, np.arange(3.0), np.ones(3), [0.0], [600.0], str(tmp_path / "gro"))
     for p in (tmp_path / "lum" / "LuminescenceNode_000_spectrum.txt",
               tmp_path / "gro" / "GrowthNode_000_final_spectrum.txt"):
@@ -182,6 +186,7 @@ def test_glued_spectrum_txt_and_npz(tmp_path, corrected):
     be = Backend.__new__(Backend)
     be.spectrometer = corrected
     be._last_wave, be._last_spec, be._last_norm = np.arange(3.0), np.ones(3), np.array([])
+    be.last_result, be.subtract_dark = None, True
     be.save_spectrum(str(tmp_path / "g.txt"))
     assert "c_sw_status: APLICADA" in (tmp_path / "g.txt").read_text(encoding="utf-8")
     np.testing.assert_allclose(np.loadtxt(tmp_path / "g.txt"), np.column_stack([np.arange(3.0), np.ones(3)]))
@@ -212,6 +217,7 @@ def test_hyperspectral_cube(tmp_path, corrected):
     be.map_2d = np.zeros((2, 2), np.float32)
     be.xs, be.ys, be.wave_axis = np.arange(2.0), np.arange(2.0), np.arange(3.0)
     be._exp_time, be._complete, be.points_done = 0.1, True, 4
+    be.run_dark = None
     be.statusSignal = type("S", (), {"emit": lambda self, m: None})()
     be._save()
     with h5py.File(be._saved_path, "r") as f:

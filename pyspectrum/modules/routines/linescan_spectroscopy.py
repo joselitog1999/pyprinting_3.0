@@ -79,6 +79,9 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
     takeRefPositionSignal = pyqtSignal()
     previewFrameSignal = pyqtSignal()
     acquireReferenceSignal = pyqtSignal(dict)
+    acquireBackgroundSignal = pyqtSignal(dict)       # [Tomar fondo ahora] (R4-N)
+    darkMethodSignal = pyqtSignal(str)
+    discardBackgroundSignal = pyqtSignal()
     runScanSignal = pyqtSignal(dict)
     cancelScanSignal = pyqtSignal()
 
@@ -243,6 +246,15 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
         lay_acq.addWidget(self.box_advanced, 5, 0, 1, 2)
         ctrl.addWidget(grp_acq)
 
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row = BackgroundRow(default_frames=1)                # fondo de la referencia (R4-N)
+        self.bg_row.spin_frames.hide()                               # el fondo es una exposición, como la señal
+        self.bg_row.chk_subtract.hide()                              # el fondo entra en T, no sólo en la vista
+        self.bg_row.takeNowRequested.connect(lambda m, n: self.acquireBackgroundSignal.emit(self._reference_cfg()))
+        self.bg_row.settingsChanged.connect(lambda m, n: self.darkMethodSignal.emit(m))
+        self.bg_row.discardRequested.connect(self.discardBackgroundSignal.emit)
+        ctrl.addWidget(self.bg_row)
+
         self.btn_take_ref = QtWidgets.QPushButton("📥 Tomar Referencia (Fase A)")
         self.btn_take_ref.setStyleSheet("background-color: #89B4FA; color: #11111B;")
         self.btn_take_ref.clicked.connect(self._on_take_reference)
@@ -375,7 +387,7 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
     def _mode_key(self) -> str:
         return 'single_window' if self.combo_mode.currentIndex() == 0 else 'step_and_glue'
 
-    def _on_take_reference(self):
+    def _reference_cfg(self) -> dict:
         cfg = dict(
             x_ref=self.spin_xref.value(), y_ref=self.spin_yref.value(), z_ref=self.spin_zref.value(),
             roi_center=self.spin_roi_center.value(), roi_height=self.spin_roi_height.value(),
@@ -384,8 +396,15 @@ class LineScanSpectroscopyWidget(QtWidgets.QDialog):
             noise_mult=self.spin_noise_mult.value(),
         )
         cfg.update(self._glue_params())
+        return cfg
+
+    def _on_take_reference(self):
         self.btn_take_ref.setEnabled(False)
-        self.acquireReferenceSignal.emit(cfg)
+        self.acquireReferenceSignal.emit(self._reference_cfg())
+
+    @pyqtSlot(str, str)
+    def on_background_status(self, state: str, text: str):
+        self.bg_row.show_status(state, None, text)
 
     @pyqtSlot(dict)
     def on_reference_done(self, summary: dict):
@@ -549,6 +568,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
     previewFrameReadySignal = pyqtSignal(np.ndarray)
     referenceDoneSignal = pyqtSignal(dict)
     referenceWarningSignal = pyqtSignal(str)
+    backgroundStatusSignal = pyqtSignal(str, str)     # estado de la fila "Fondo" (R4-N)
     stepFinished1dSignal = pyqtSignal(np.ndarray, int, np.ndarray, np.ndarray)  # wavelengths, step, T, Ext
     frame2dUpdatedSignal = pyqtSignal(int, np.ndarray)
     progressSignal = pyqtSignal(int)
@@ -572,6 +592,12 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         self._glue_window_source: str = ""
         self._glue_grating: Optional[int] = None
         self.mode = 'single_window'
+        # Fondo de la referencia (R4-N): método elegido y el último fondo, reutilizable si las condiciones
+        # no cambian
+        from pyspectrum.services import procedure_background as _pb
+        self.dark_method = _pb.METHOD_SHUTTER
+        self._bg_cache = None
+        self.background_info = {"method": _pb.METHOD_SHUTTER, "reused": False}
         self.roi_ycenter = 501
         self.roi_height = 40
         self.roi_ymin = 481
@@ -667,6 +693,80 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
     def _fail(self, message: str) -> None:
         self._scan_failed = True
         self.errorSignal.emit(message)
+
+    # ── fondo de la referencia (R4-N) ──
+    def _bg_key(self, cfg: dict) -> tuple:
+        """Las condiciones del fondo: modo, exposiciones, ROI, centros (Step & Glue) y la cámara."""
+        from pyspectrum.services import procedure_background as pb
+        c = pb.read_conditions(self.camera, (1004,), exposure_s=float(cfg['exp_1d']))
+        centers = tuple(round(float(v), 4) for v in self._glue_centers) if self.mode == 'step_and_glue' else None
+        return (self.mode, round(float(cfg['exp_1d']), 9), round(float(cfg['exp_2d']), 9), int(cfg['roi_center']),
+                int(cfg['roi_height']), centers, c.em_gain, c.output_amplifier, c.preamp_index, c.hs_index,
+                c.vs_index, c.temperature_setpoint_c)
+
+    def _set_roi(self, cfg: dict) -> None:
+        self.mode = cfg['mode']
+        self.roi_ycenter = int(cfg['roi_center'])
+        self.roi_height = int(cfg['roi_height'])
+        self.roi_ymin = max(0, self.roi_ycenter - self.roi_height // 2)
+        self.roi_ymax = min(1002, self.roi_ymin + self.roi_height)
+
+    def _acquire_bg_1d(self, cfg: dict):
+        self.camera.set_read_mode(READ_MODE_SINGLE_TRACK)
+        self.camera.set_single_track(self.roi_ycenter, self.roi_height)
+        if self.mode == 'single_window':
+            return self._acquire_1d(cfg['exp_1d'])
+        _, bg_1d, _ = self._acquire_glued_spectrum(self._glue_centers, cfg['exp_1d'])
+        return bg_1d if bg_1d.size else None
+
+    def _acquire_bg_2d(self, cfg: dict):
+        if self.mode == 'single_window':
+            return self._acquire_2d_roi(self.roi_ymin, self.roi_ymax, exp_time_s=cfg['exp_2d'])
+        return self._acquire_glued_2d(self._glue_centers, cfg['exp_2d'])
+
+    @pyqtSlot(str)
+    def set_dark_method(self, method: str):
+        self.dark_method = method
+
+    @pyqtSlot()
+    def discard_background(self):
+        self._bg_cache = None
+        self.backgroundStatusSignal.emit("none", "")
+
+    @pyqtSlot(dict)
+    def acquire_background_only(self, cfg: dict):
+        """[Tomar fondo ahora]: sólo el fondo (1D y 2D), con el método elegido. Con "todo apagado" el obturador
+        del espectrómetro queda ABIERTO (el camino óptico de la medición) y la luz la apaga el operador."""
+        from pyspectrum.services import procedure_background as pb
+        from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
+        if not hardware_session.acquire_session("Escaneo Lineal Espectroscópico — Fondo"):
+            self.errorSignal.emit("No se pudo tomar el control del hardware (sesión ocupada o E-STOP activo).")
+            return
+        self._scan_failed = False
+        try:
+            self._set_roi(cfg)
+            if self.mode == 'step_and_glue':
+                self._glue_centers = self._plan_glue_centers(cfg)
+            if self.dark_method == pb.METHOD_ALL_OFF:
+                lasers = list(_open_lasers())
+                if lasers:
+                    self._fail(f"Con \"todo apagado\" los láseres tienen que estar cerrados ({', '.join(lasers)}).")
+                    return
+                res = open_spectrometer_shutter(self.camera, self.spectrometer)
+            else:
+                res = close_spectrometer_shutter(self.camera, self.spectrometer)
+            if not res.ok:
+                self._fail(res.detail)
+                return
+            bg_1d = self._acquire_bg_1d(cfg)
+            bg_2d = self._acquire_bg_2d(cfg) if bg_1d is not None else None
+            if bg_1d is None or bg_2d is None:
+                return
+            self._bg_cache = {"key": self._bg_key(cfg), "bg_1d": bg_1d, "bg_2d": bg_2d, "method": self.dark_method}
+            self.backgroundStatusSignal.emit("valid", f"{pb.METHOD_LABELS[self.dark_method]} · 1D y 2D")
+        finally:
+            close_spectrometer_shutter(self.camera, self.spectrometer)
+            hardware_session.release_session("Escaneo Lineal Espectroscópico — Fondo")
 
     def _settle_wavelength(self, wl_center: float, timeout_s: float = GRATING_SETTLE_TIMEOUT_S) -> bool:
         """Mueve el espectrógrafo como Step & Glue (paso 12): por el servicio de orden cero (nunca a un
@@ -837,18 +937,20 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 self._fail(res.detail)
             return res.ok
         try:
-            self.mode = cfg['mode']
-            self.roi_ycenter = int(cfg['roi_center'])
-            self.roi_height = int(cfg['roi_height'])
-            self.roi_ymin = max(0, self.roi_ycenter - self.roi_height // 2)
-            self.roi_ymax = min(1002, self.roi_ymin + self.roi_height)
+            from pyspectrum.services import procedure_background as pb
+            self._set_roi(cfg)
             self._glue_reference_grid = None
+            if self.mode == 'step_and_glue':
+                self._glue_centers = self._plan_glue_centers(cfg)
+            key = self._bg_key(cfg)
+            cached = self._bg_cache if self._bg_cache is not None and self._bg_cache["key"] == key else None
+            if cached is None and self.dark_method == pb.METHOD_ALL_OFF:
+                self._fail("Falta el fondo con \"todo apagado\" para estas condiciones: apagá la lámpara y los "
+                           "láseres y apretá [Tomar fondo ahora] antes de la referencia.")
+                return
 
             if not self._move_and_settle(PI_AXES, [cfg['x_ref'], cfg['y_ref'], cfg['z_ref']]):
                 return
-
-            if self.mode == 'step_and_glue':
-                self._glue_centers = self._plan_glue_centers(cfg)
 
             # ── 1D: señal (obturador del espectrómetro abierto) y fondo (cerrado). La luz la pone el
             #    operador: lámpara, o un láser abierto desde [Obturadores] (R4-I). ──────────────
@@ -867,15 +969,12 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             if sig_1d is None:
                 return
 
-            if not shutter(False):
-                return
-            self.camera.set_read_mode(READ_MODE_SINGLE_TRACK)
-            self.camera.set_single_track(self.roi_ycenter, self.roi_height)
-            if self.mode == 'single_window':
-                bg_1d = self._acquire_1d(cfg['exp_1d'])
+            if cached is not None:
+                bg_1d = cached["bg_1d"]                      # mismas condiciones: no se vuelve a tomar
             else:
-                _, bg_1d, _ = self._acquire_glued_spectrum(self._glue_centers, cfg['exp_1d'])
-                bg_1d = bg_1d if bg_1d.size else None
+                if not shutter(False):
+                    return
+                bg_1d = self._acquire_bg_1d(cfg)
             if bg_1d is None:
                 return
 
@@ -889,14 +988,19 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
             if sig_2d is None:
                 return
 
-            if not shutter(False):
-                return
-            if self.mode == 'single_window':
-                bg_2d = self._acquire_2d_roi(self.roi_ymin, self.roi_ymax, exp_time_s=cfg['exp_2d'])
+            if cached is not None:
+                bg_2d = cached["bg_2d"]
             else:
-                bg_2d = self._acquire_glued_2d(self._glue_centers, cfg['exp_2d'])
+                if not shutter(False):
+                    return
+                bg_2d = self._acquire_bg_2d(cfg)
             if bg_2d is None:
                 return
+            if cached is None:
+                self._bg_cache = {"key": key, "bg_1d": bg_1d, "bg_2d": bg_2d, "method": pb.METHOD_SHUTTER}
+            self.background_info = {"method": (cached or self._bg_cache)["method"], "reused": cached is not None}
+            self.backgroundStatusSignal.emit("valid", f"{pb.METHOD_LABELS[self.background_info['method']]} · "
+                                                      f"{'reutilizado' if cached else 'tomado con la referencia'}")
 
             mult = float(cfg.get('noise_mult', 3.0))
             sigma_dark_1d = float(np.std(bg_1d))
@@ -1079,6 +1183,8 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
                 open_lasers_at_start=",".join(open_lasers_at_start),
                 open_lasers_at_end=",".join(_open_lasers()),
                 stitching="glue_steps",
+                background_method=self.background_info["method"],          # R4-N
+                background_reused=bool(self.background_info["reused"]),
             )
             from pyspectrum.calibration.repository import correction_attr_values, spectrum_software_correction
             metadata.update(correction_attr_values(spectrum_software_correction(self.spectrometer)))   # R3-gui §4.6
@@ -1141,6 +1247,10 @@ def create_linescan_routine(camera=None, spectrometer=None, parent=None):
     widget.takeRefPositionSignal.connect(worker.read_current_position)
     widget.previewFrameSignal.connect(worker.capture_preview_frame)
     widget.acquireReferenceSignal.connect(worker.acquire_reference)
+    widget.acquireBackgroundSignal.connect(worker.acquire_background_only)
+    widget.darkMethodSignal.connect(worker.set_dark_method)
+    widget.discardBackgroundSignal.connect(worker.discard_background)
+    worker.backgroundStatusSignal.connect(widget.on_background_status)
     widget.runScanSignal.connect(worker.run_scan)
     widget.cancelScanSignal.connect(worker.cancel_scan)
 

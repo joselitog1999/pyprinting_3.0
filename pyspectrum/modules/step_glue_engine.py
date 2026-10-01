@@ -131,6 +131,7 @@ class StepGlueResult:
     plan: StepGluePlan
     glued: Optional[Tuple[np.ndarray, np.ndarray]]
     warnings: Tuple[str, ...] = ()
+    dark: Optional[object] = None             # el oscuro de la corrida (procedure_background.Dark), aparte (R4-N)
 
 
 # ── Medición de la ventana (DEC-033) ─────────────────────────────────────────
@@ -278,7 +279,7 @@ def _has_signal(spec1d: np.ndarray) -> bool:
 
 def _save_window(run_dir: Path, w_index: int, center_req: float, center_read: float, axis, data, frame: Frame,
                  open_lasers, light_changed, request: StepGlueRequest, the_plan: StepGluePlan,
-                 correction: Optional[dict] = None) -> Path:
+                 correction: Optional[dict] = None, background: Optional[dict] = None) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     path = run_dir / f"ventana_{w_index + 1:02d}_{center_req:.1f}nm.npz"
     meta = {"index": w_index, "center_nm_requested": center_req, "center_nm_read": center_read,
@@ -288,6 +289,7 @@ def _save_window(run_dir: Path, w_index: int, center_req: float, center_read: fl
             "open_lasers": list(open_lasers), "light_changed": bool(light_changed),
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     meta.update(correction or {})            # c_sw en el metadato de cada espectro (R3-gui §4.6)
+    meta.update(background or {"background_id": None})   # la ventana es cruda; el oscuro, aparte (R4-N)
     np.savez(path, wavelength=np.asarray(axis, dtype=np.float64), data=np.asarray(data),
              metadata=np.array(json.dumps(meta)))
     return path
@@ -300,7 +302,7 @@ def run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectr
                 on_no_signal: Callable[[WindowResult], bool] = lambda w: True,
                 on_progress: Callable[[int, int, float], None] = lambda i, n, frac: None,
                 clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
-                zero_order=None) -> StepGlueResult:
+                zero_order=None, dark: Optional[Callable] = None) -> StepGlueResult:
     """Recorre las ventanas del plan. Lo llama el worker de la rutina con la sesión ya tomada."""
     if zero_order is None:
         from pyspectrum.modules.zero_order_service import get_zero_order_service
@@ -311,13 +313,15 @@ def run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectr
     # La red y su offset no cambian durante el barrido (sólo λc): una lectura al empezar alcanza.
     from pyspectrum.calibration.repository import spectrum_software_correction
     correction = spectrum_software_correction(spectrometer)
+    dark_box = [None]
+    background = None
 
     def result(reason: StopReason, detail: str = "") -> StepGlueResult:
         complete = reason == StopReason.COMPLETED
         glued = None
         if complete and windows:
             glued = sigmoidal_step_and_glue([w.wavelength_axis for w in windows], [w.spectrum_1d for w in windows])
-        return StepGlueResult(tuple(windows), complete, reason, detail, the_plan, glued)
+        return StepGlueResult(tuple(windows), complete, reason, detail, the_plan, glued, dark=dark_box[0])
 
     def stop_reason() -> Optional[StopReason]:
         if is_estopped():
@@ -325,6 +329,36 @@ def run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectr
         if should_abort():
             return StopReason.USER_STOP
         return None
+
+    if dark is not None:
+        # Un oscuro por corrida, antes de la primera ventana (R4-N): sin luz no depende de λc.
+        from pyspectrum.services.procedure_background import DarkError, save_dark_npz
+
+        class _Interrupted(Exception):
+            def __init__(self, reason):
+                super().__init__(reason.value)
+                self.reason = reason
+
+        def _expose_dark(shape, exposure_s):
+            fr = single_exposure(camera, ExposureRequest(float(exposure_s), tuple(shape)), should_abort=should_abort,
+                                 on_tick=on_tick, is_estopped=is_estopped, clock=clock)
+            if not isinstance(fr, Frame):
+                kind = getattr(fr.kind, "value", str(fr.kind))
+                if kind == "user_stop":
+                    raise _Interrupted(StopReason.USER_STOP)       # Stop durante el fondo: no es una falla
+                if kind == "estop":
+                    raise _Interrupted(StopReason.ESTOP)
+                raise DarkError(f"la exposición del fondo falló: {fr.detail}")
+            return np.asarray(fr.data)
+        try:
+            dark_box[0] = dark(_expose_dark)
+        except _Interrupted as e:
+            return result(e.reason, "barrido detenido durante el fondo (sin datos)")
+        except DarkError as e:
+            return result(StopReason.ACQUISITION_FAILED, f"sin fondo: {e}")
+        dark_path = save_dark_npz(dark_box[0], Path(run_dir), "StepGlue")
+        background = {"background_id": dark_box[0].id, "background_file": dark_path.name,
+                      "background_method": dark_box[0].method}
 
     for i, center in enumerate(the_plan.centers):
         r = stop_reason()
@@ -374,7 +408,7 @@ def run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectr
             first_lasers = lasers
         changed = lasers != first_lasers
         path = _save_window(Path(run_dir), i, center, float(wl_read), axis, data, frame, lasers, changed,
-                            request, the_plan, correction=correction)
+                            request, the_plan, correction=correction, background=background)
         w = WindowResult(i, center, float(wl_read), axis, data, spec1d, frame.exposure_s_actual, frame.frame_index,
                          frame.t_start, frame.t_end, lasers, changed, path)
         windows.append(w)

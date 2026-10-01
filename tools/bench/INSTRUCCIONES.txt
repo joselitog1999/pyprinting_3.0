@@ -36,16 +36,25 @@ Cómo se ejecuta:
 
      exec(open(r"C:\Users\josel\Documents\Obsidian_Vault\printing3\tools\bench\legacy_console_probe.py", encoding="utf-8").read())
 
-  3. La sonda imprime las secciones A, B y C y al final un bloque "RESUMEN".
+  3. La sonda imprime las secciones A, B, C, E y D y al final un bloque "RESUMEN".
+     Desde el 2026-09-30 lee la cámara SÓLO con getters de pylablib sobre el objeto del legado
+     (regla R4-F/R4-L); ya no usa ctypes contra la DLL de Andor.
 
-Para BANCO-02 (opcional): con el Live del legado ENCENDIDO, escribí en la misma consola
+Para BANCO-55 (opcional): guardá lo leído en un JSON, para compararlo con la sonda de 3.0:
+
+     guardar_info(r"C:\ruta\legado.json")
+
+  Escribe sólo en la ruta que le des; no toca el hardware.
+
+Para BANCO-02 y BANCO-60 (opcional): con el Live del legado ENCENDIDO, escribí en la misma consola
 
      observar_live()
 
-  Congela la ventana alrededor de un segundo (lee dos veces el contador de cuadros) y
-  dice si el Live realmente está adquiriendo o si muestra un cuadro fijo. Para probar la
-  hipótesis completa, correlo antes y después de usar "REC Liveview Kinetics" en Step &
-  Glue.
+  Congela la ventana alrededor de un segundo (lee dos veces el contador de cuadros de pylablib) y
+  dice si el Live realmente está adquiriendo o si muestra un cuadro fijo. También dice cuántos
+  cuadros quedan SIN LEER: si ese número crece y queda cerca del tamaño del búfer, el Live del legado
+  muestra un cuadro atrasado (hipótesis de BANCO-60). Para probar la hipótesis completa, correlo
+  antes y después de usar "REC Liveview Kinetics" en Step & Glue.
 
 IMPORTANTE — respaldo del espectrógrafo (sección D): antes de ejecutar PySpectrum 3.0 contra el
 equipo real por primera vez, corré esta sonda y guardá las líneas "D." del RESUMEN (offsets de
@@ -54,8 +63,10 @@ Pegalas en el bloqueo del Grupo C de docs/evidence/PRUEBAS_BANCO_PENDIENTES.md. 
 con el legado en reposo: sin Step & Glue ni barridos en curso.
 
 Qué mirar en el resultado:
-  - C.sdk -> GetPixelSize debe ser 8.00 x 8.00 um, GetDetector 1004x1002 y
-    GetHeadModel 'DU8285_VP'.
+  - C.pixel_size -> 8.00 x 8.00 um; C.detector_size -> (1004, 1002); C.device_info -> el modelo
+    'DU8285_VP'. (Hasta el 2026-09-28 esto salía de la línea C.sdk, por ctypes; ya no existe.)
+  - E.* -> la configuración de la cámara para BANCO-55 (ventilador, VS, amplificador, ganancia,
+    modo de lectura, capacidades, tiempos) y cuántos campos devolvió get_full_info.
   - D.redN.offset, D.detector_offset, D.ranuraN.cero -> es el respaldo. Un código distinto de
     20202 en una ranura inexistente es normal.
   - D.num_pixels -> el legado configura 1002; el eje espectral real tiene 1004 (prueba BANCO-14).

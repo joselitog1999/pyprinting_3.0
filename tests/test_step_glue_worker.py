@@ -73,9 +73,10 @@ def test_sweep_runs_off_the_gui_thread_and_manages_session_and_shutter(be, monke
     res = got[0]
     assert res.complete and res.stop_reason == StopReason.COMPLETED
     assert threads and all(t != threading.get_ident() for t in threads)
-    # La rutina abre una vez y cierra al final. Antes puede haber un "close": el de un Live registrado
-    # que la sesión pausa (comportamiento correcto del Live).
-    assert be._shutter_log.count("open") == 1 and be._shutter_log[-2:] == ["open", "close"]
+    # La rutina abre al empezar; el oscuro de la corrida (R4-N, obturador cerrado) cierra y vuelve a abrir
+    # antes de la primera ventana, y al final se cierra. Antes puede haber un "close": el de un Live
+    # registrado que la sesión pausa (comportamiento correcto del Live).
+    assert be._shutter_log[-4:] == ["open", "close", "open", "close"]
     assert not hardware_session.is_busy
 
 

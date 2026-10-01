@@ -120,6 +120,7 @@ Al presionar **`🪞 Orden cero (red actual)`** (o `Ctrl+0`) entra el **espejo r
 | `.txt` (ASCII 2 col) | Longitud de onda ($\text{nm}$) e Intensidad (cuentas/norm) | `Spectrum_532nm_1s_2026-08-28.txt` |
 | `.txt` (Multi col) | Espectros concatenados Step & Glue | `StepAndGlue_450-950nm_norm.txt` |
 | `.npy` (NumPy 3D) | Cubo hiperespectral de datos $(N_x, N_y, N_{\lambda})$ | `Hyperspectral_10x10um_cube.npy` |
+| `.npz` (fondo, R4-N) | Fondo de la corrida: `mean`, `std` y metadatos (condiciones, método, cuadros). El crudo se guarda aparte | `StepGlue_background_<id>.npz`, `<prefijo>_background_<id>.npz` |
 | `.png` / `.tiff` | Gráficos espectrales exportados y mapas 2D en falso color | `Growth_Kinetics_Lmax_trace.png` |
 
 ---
@@ -260,6 +261,27 @@ Diseño: metrología (`pyspectrum_A_ronda2/metrology.md` §1-§4), instrumentaci
 - **Cosido:** el de siempre, `sigmoidal_step_and_glue`, sin cambios de fórmula.
 - **Botón `💾 Guardar Espectro...`**: exportación del espectro cosido a `.txt`, `.csv` o `.npz`.
 
+### 8.5 El fondo en los procedimientos (R4-N, `DEC-040`)
+- **Servicio** (`pyspectrum/services/procedure_background.py`, sin Qt):
+  - `DarkConditions`, con 10 campos: exposición, ganancia EM, amplificador, preamplificador, HS, VS, modo de lectura, sus parámetros, forma y setpoint de temperatura. No incluye la red ni λc;
+  - `read_conditions` y `differences`;
+  - `acquire_dark`, `take_dark` y `ensure_dark`;
+  - `DarkStore`, sólo en memoria;
+  - para guardar: `save_dark_npz`, `dark_header_lines` y `write_dark_h5`.
+- **Métodos:**
+  - "obturador cerrado": cierra el obturador del espectrómetro, lo verifica y lo reabre en `finally`, también verificado;
+  - "todo apagado": sólo con [Tomar fondo ahora]. Se rechaza si hay un láser abierto, y la rutina no arranca sin un fondo válido (`DarkMissing`).
+- **Rutinas:**
+  - `pyspectrum/modules/routines/routine_dark.py`: `RoutineDark` (uno por rutina, con `ensure` y `ensure_with`; `take_now` en su propio `RoutineThread`), `corrected` y `wire_row`;
+  - `GridRunner.ensure_dark_1d` y `take_dark_1d` pasan `DarkMissing` y `DarkError` a `GridAbort`;
+  - la fila de la GUI es `pyspectrum/ui/background_row.py`: `BackgroundRow`, con `for_display`.
+- **Step & Glue:**
+  - `run_windows(..., dark=)` toma un oscuro antes de la primera ventana, guarda `StepGlue_background_<id>.npz` y escribe `background_id` en cada ventana;
+  - el sustrato es `Substrate`: un barrido completo, con una ventana por λc y la clave del plan. Se resta por λc, y sólo si la clave coincide.
+- **Escaneo lineal:** el worker reutiliza el fondo de la referencia mientras no cambie `_bg_key`. Con "todo apagado", `acquire_background_only` mide sólo el fondo. El HDF5 lleva `background_method` y `background_reused`.
+- **Raman:** se resta antes del procesamiento. El `.txt` lleva la columna `Background_Counts` si hay un fondo válido de la misma forma.
+- **Uso:** [[MANUAL_USUARIO#El fondo en los procedimientos (R4-N)|MANUAL §4.2]] (`DEC-040`). **Banco:** BANCO-62.
+
 ---
 
 ## 9. ⚠️ Límites de Validez y Modos de Falla
@@ -279,7 +301,7 @@ Rutina de escaneo horizontal 1D con la platina PI E-517 ($X_{\text{start}} \to X
 
 **Doble modalidad de lectura CCD** por posición: bineo de hardware acotado al ROI vertical de la mancha confocal (`READ_MODE_SINGLE_TRACK`, evita el FVB puro de 1002 filas que degradaría el SNR al sumar filas oscuras sin luz — detalle cuantitativo en `[[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3#7.2]]`) y modo pixel-a-pixel 2D (`READ_MODE_IMAGE`) sobre el mismo ROI, para diagnóstico de heterogeneidad espacial, aberración cromática y alineación en la rendija.
 
-**Protocolo**: referencia fija ($I_{ref}$ con el obturador del espectrómetro abierto, $I_{ref\_bg}$ con ese obturador cerrado, ambos modos; la rutina no abre ni cierra láseres, R4-I) seguida de un barrido de señal $I_{sig}(x)$ sin ciclar obturadores en cada punto; $T(\lambda,x)$ y $E(\lambda,x)=-\log_{10}T(\lambda,x)$ se calculan con las mismas funciones que el analizador SIF (`core/sif_processor.py`). Persistencia nativa en HDF5 comprimido (`shuffle`+`gzip`-4), esquema detallado en `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO#5. Contenedor HDF5 del Escaneo Lineal Espectral]]`.
+**Protocolo**: referencia fija ($I_{ref}$ con el obturador del espectrómetro abierto, $I_{ref\_bg}$ con el método de la fila "Fondo:" —obturador cerrado por defecto, o todo apagado—, reutilizado si las condiciones no cambiaron (§8.5), ambos modos; la rutina no abre ni cierra láseres, R4-I) seguida de un barrido de señal $I_{sig}(x)$ sin ciclar obturadores en cada punto; $T(\lambda,x)$ y $E(\lambda,x)=-\log_{10}T(\lambda,x)$ se calculan con las mismas funciones que el analizador SIF (`core/sif_processor.py`). Persistencia nativa en HDF5 comprimido (`shuffle`+`gzip`-4), esquema detallado en `[[SYS-104_Matriz_Intercambio_Archivos_y_Formatos_IO#5. Contenedor HDF5 del Escaneo Lineal Espectral]]`.
 
 **Contratos del bloque A (paso 12, `DEC-040`):**
 - cada cuadro es una exposición real (`single_exposure`);
@@ -469,8 +491,8 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
 - **Grilla de coordenadas + máquina de estados**: mismo patrón de generación/carga que Pestañas 4/5 (`generate_grid`/`load_grid_file`, coordenadas absolutas, botón "Usar Posición Actual como Origen"). Por nodo: mover platina (`optical_support.move_stage_to()`) → autofoco cada N nodos (`optical_support.run_z_autofocus()`) → abrir obturador → **adquisición consciente del modo de lectura** (`camera.get_read_mode() == READ_MODE_IMAGE` → promedio de filas 2D; si no, `get_1d_spectrum()` directo de hardware — mismo criterio que `step_and_glue.py::lock_substrate()`) → cerrar obturador → guardar `.txt` → siguiente nodo. Mismos controles Play/Pausa/Reanudar/Siguiente/Abortar e interlock de E-STOP que las Pestañas 4/5.
 
 **Pestaña 5 (Calibraciones) → Ventanitas nuevas 6 y 7** (`pyspectrum/modules/calibration_dock.py`):
-- **💧 Verificación Raman de Agua**: adquiere con láser 532 nm, ajusta con `fit_signal_raman()` (`pyspectrum/calibration/fit_raman_water.py`, sin modificar — ese ajuste fija las posiciones 649/702 nm como parámetros del modelo, sólo ajusta amplitudes). El corrimiento de calibración se calcula por separado, no invasivamente: máximo observado del espectro crudo en una ventana ±15 nm alrededor de 649 nm, reportado como `observado − 649.0`, junto al R² del ajuste (`calc_r2()`, reutilizado de la misma función).
-- **🌑 Perfil de Ruido Oscuro**: cierra todos los obturadores (`close_all_shutters()`), adquiere un cuadro consciente del modo de lectura, y lo caracteriza con `core/sif_processor.py::characterize_background_noise()` (sin código nuevo de estadística de ruido). El resultado queda en memoria hasta que el operador confirma explícitamente `💾 Guardar como Perfil de Sustracción` (persistencia `.npz` en `pyspectrum/calibration/dark_noise_profile.npz`) — medir nunca sobrescribe automáticamente un perfil guardado previamente.
+- ~~**💧 Verificación Raman de Agua**: adquiere con láser 532 nm, ajusta con `fit_signal_raman()` (`pyspectrum/calibration/fit_raman_water.py`, sin modificar — ese ajuste fija las posiciones 649/702 nm como parámetros del modelo, sólo ajusta amplitudes). El corrimiento de calibración se calcula por separado, no invasivamente: máximo observado del espectro crudo en una ventana ±15 nm alrededor de 649 nm, reportado como `observado − 649.0`, junto al R² del ajuste (`calc_r2()`, reutilizado de la misma función).~~ **RETIRADA el 2026-09-30 por el investigador (DEC-040): el código ya no existe; el texto queda tachado como registro.**
+- ~~**🌑 Perfil de Ruido Oscuro**: cierra todos los obturadores (`close_all_shutters()`), adquiere un cuadro consciente del modo de lectura, y lo caracteriza con `core/sif_processor.py::characterize_background_noise()` (sin código nuevo de estadística de ruido). El resultado queda en memoria hasta que el operador confirma explícitamente `💾 Guardar como Perfil de Sustracción` (persistencia `.npz` en `pyspectrum/calibration/dark_noise_profile.npz`) — medir nunca sobrescribe automáticamente un perfil guardado previamente.~~ **RETIRADA el 2026-09-30 por el investigador (DEC-040): el código ya no existe; el texto queda tachado como registro.**
 
 **Atajos de teclado globales** (`pyspectrum/window.py::_setup_shortcuts()`): tabla de despacho por pestaña activa, reutilizando los botones primarios ya existentes de cada pestaña (no lógica duplicada):
 | Atajo | Acción | Pestañas donde actúa |
@@ -483,7 +505,7 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
 | `Ctrl+1`…`Ctrl+7` | Salta a la pestaña N | Global |
 
 ### 12.20 Tests nuevos (Fase 7)
-`tests/test_pyspectrum_luminescence_and_calibration.py` (13): default seguro y toggle del Flipper Notch 532, corrida completa de grilla con verificación de apertura/cierre de obturador, rama de adquisición consciente del modo de lectura, E-STOP durante el tracking (cierra obturador, sin colgarse); verificación de agua contra un espectro sintético con corrimiento conocido (confirma que el corrimiento calculado coincide con el inyectado); ruido oscuro confirmando la llamada real a `close_all_shutters()` y la habilitación del botón de guardado; persistencia `.npz` y su no-op seguro sin medición previa; los 7 atajos de pestaña; Ctrl+Space en Exploración y no-op en el resto; despacho de Ctrl+R verificado con espías de `.click()` por pestaña (sin disparar adquisiciones reales, para no dejar timers/sesiones de hardware corriendo entre tests); atajo de E-STOP. Dos tests preexistentes actualizados por el conteo de pestañas (5→6 pasa a 6→7, no es una regresión sino una actualización de aserción correcta tras la 7ª pestaña aditiva). Full suite: 0 regresiones nuevas.
+`tests/test_pyspectrum_luminescence_and_calibration.py` (13): default seguro y toggle del Flipper Notch 532, corrida completa de grilla con verificación de apertura/cierre de obturador, rama de adquisición consciente del modo de lectura, E-STOP durante el tracking (cierra obturador, sin colgarse); ~~verificación de agua contra un espectro sintético con corrimiento conocido (confirma que el corrimiento calculado coincide con el inyectado); ruido oscuro confirmando la llamada real a `close_all_shutters()` y la habilitación del botón de guardado; persistencia `.npz` y su no-op seguro sin medición previa;~~ (tests reemplazados el 2026-09-30 por `TestCalibrationWaterAndDarkNoiseRetired`, que verifica el retiro); los 7 atajos de pestaña; Ctrl+Space en Exploración y no-op en el resto; despacho de Ctrl+R verificado con espías de `.click()` por pestaña (sin disparar adquisiciones reales, para no dejar timers/sesiones de hardware corriendo entre tests); atajo de E-STOP. Dos tests preexistentes actualizados por el conteo de pestañas (5→6 pasa a 6→7, no es una regresión sino una actualización de aserción correcta tras la 7ª pestaña aditiva). Full suite: 0 regresiones nuevas.
 
 ---
 

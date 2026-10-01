@@ -70,7 +70,7 @@ def test_every_pixel_waits_for_the_stage_and_takes_a_real_exposure(be, tmp_path,
     be.start_scan(45.0, 46.0, 45.0, 47.0, 1.0, 0.01, SHUTTERS[0])
     assert be._scanning
     _run(be)
-    assert len(waits) == 6 and exposures == [(1004,)] * 6
+    assert len(waits) == 6 and exposures == [(1004,)] * 7         # el fondo del mapa (R4-N) y 6 píxeles
     assert finished == [1]
     files = list(Path(tmp_path).glob("*.h5"))
     assert len(files) == 1
@@ -101,7 +101,7 @@ def test_a_failed_exposure_marks_the_pixel_and_the_map_goes_on(be, tmp_path, mon
 
     def flaky(*a, **k):
         count["n"] += 1
-        if count["n"] == 2:
+        if count["n"] == 3:                                   # la 1.ª es el fondo del mapa (R4-N)
             return acquisition.AcquisitionFailure(acquisition.AcquisitionFailureKind.TIMEOUT, None, None, "simulada")
         return real_exp(*a, **k)
     monkeypatch.setattr(acquisition, "single_exposure", flaky)

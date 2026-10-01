@@ -173,6 +173,17 @@ def _purge_deleted_pyqtgraph_views():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_dark_store():
+    """El almacén de fondos de los procedimientos (R4-N) es global y se reutiliza mientras las condiciones no
+    cambien: sin vaciarlo, que una rutina tome o no su fondo dependería de los tests anteriores. Sólo actúa
+    si el módulo ya está importado."""
+    module = sys.modules.get("pyspectrum.services.procedure_background")
+    if module is not None:
+        module.get_dark_store().clear()
+    yield
+
+
 # ------------------------------------------------------------------------------
 # Excepciones no manejadas en slots de Qt: una falla del test, nunca un aborto de la suite
 # ------------------------------------------------------------------------------

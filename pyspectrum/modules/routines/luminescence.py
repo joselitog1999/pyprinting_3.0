@@ -125,6 +125,10 @@ class LuminescencePanel(QtWidgets.QWidget):
 
         ctrl_vlo.addLayout(grid)
 
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row_point = BackgroundRow(default_frames=1)          # fondo de la serie (R4-N)
+        ctrl_vlo.addWidget(self.bg_row_point)
+
         self.cmb_mirror = _mirror_combo()
         ctrl_vlo.addWidget(QtWidgets.QLabel("Espejo de detección ahora:"))
         ctrl_vlo.addWidget(self.cmb_mirror)
@@ -188,8 +192,14 @@ class LuminescencePanel(QtWidgets.QWidget):
             self.stopLuminescenceSignal.emit()
 
     @pyqtSlot(np.ndarray, np.ndarray, np.ndarray, np.ndarray, int)
+    def point_exposure(self):
+        try:
+            return float(self.edit_exp.text())
+        except ValueError:
+            return None
+
     def update_data(self, wave: np.ndarray, spec: np.ndarray, t_axis: np.ndarray, i_axis: np.ndarray, progress: int):
-        self.curve_spec.setData(wave, spec)
+        self.curve_spec.setData(wave, self.bg_row_point.for_display(spec))
         self.curve_time.setData(t_axis, i_axis)
         self.progress_bar.setValue(progress)
         if progress >= 100:
@@ -279,6 +289,10 @@ class LuminescencePanel(QtWidgets.QWidget):
         self.spin_autofocus_every = QtWidgets.QSpinBox(); self.spin_autofocus_every.setRange(1, 1000); self.spin_autofocus_every.setValue(2)
         params.addWidget(self.spin_autofocus_every, 2, 1)
         ctrl_vlo.addLayout(params)
+
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row_grid = BackgroundRow(default_frames=1)           # un fondo por grilla (R4-N)
+        ctrl_vlo.addWidget(self.bg_row_grid)
 
         save_row = QtWidgets.QHBoxLayout()
         self.edit_save_dir = QtWidgets.QLineEdit("")
@@ -390,7 +404,7 @@ class LuminescencePanel(QtWidgets.QWidget):
 
     @pyqtSlot(np.ndarray, np.ndarray)
     def update_grid_spectrum(self, wave: np.ndarray, spec: np.ndarray):
-        self.curve_grid_spec.setData(wave, spec)
+        self.curve_grid_spec.setData(wave, self.bg_row_grid.for_display(spec))
 
     @pyqtSlot()
     def on_grid_finished(self):
@@ -486,6 +500,11 @@ class LuminescenceBackend(QtCore.QObject):
 
         self.point_thread = RoutineThread(self.SESSION_NAME_POINT, self)
         self.grid_thread = RoutineThread(self.SESSION_NAME_GRID, self)
+        # Fondo de los procedimientos (R4-N): uno para la serie puntual y otro para la grilla
+        from pyspectrum.modules.routines.routine_dark import RoutineDark
+        self.point_dark = RoutineDark(self.camera, self.spectrometer, self.SESSION_NAME_POINT, "LuminescencePoint", self)
+        self.grid_dark = RoutineDark(self.camera, self.spectrometer, self.SESSION_NAME_GRID, "LuminescenceGrid", self)
+        self.run_dark = None
         self.point_thread.finished.connect(self._on_point_finished)
         self.grid_thread.finished.connect(self._on_grid_finished)
         hardware_session.emergencyStopSignal.connect(self.stop_luminescence)
@@ -515,6 +534,11 @@ class LuminescenceBackend(QtCore.QObject):
         if hasattr(widget, "lbl_status"):
             self.statusSignal.connect(widget.lbl_status.setText)
         widget.update_notch_status(self._notch_down)
+        if hasattr(widget, "bg_row_point"):
+            from pyspectrum.modules.routines.routine_dark import wire_row
+            wire_row(widget.bg_row_point, self.point_dark, widget.point_exposure, getattr(widget, "lbl_status", None))
+            wire_row(widget.bg_row_grid, self.grid_dark, widget.spin_grid_exp.value,
+                     getattr(widget, "lbl_grid_progress", None))
 
     # ── espejo de detección ──
     @pyqtSlot(bool)
@@ -554,6 +578,11 @@ class LuminescenceBackend(QtCore.QObject):
             self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la medición no arranca.")
             self._emit_point_end()
             return
+        refusal = self.point_dark.check_start(float(exp_time))
+        if refusal:
+            self.statusSignal.emit(f"⛔ {refusal}")
+            self._emit_point_end()
+            return
         self.wave_axis = wave
         self.laser_in_use = laser
         self.total_frames = int(n_frames)
@@ -561,6 +590,9 @@ class LuminescenceBackend(QtCore.QObject):
         self.t_points, self.i_points = [], []
 
         def body(runner, ctl):
+            from pyspectrum.modules.routines.routine_dark import corrected
+            dark = self.point_dark.ensure(runner, float(exp_time))   # fondo de la serie (R4-N)
+            self.run_dark = dark
             runner.set_mirror("down")                         # el espectro se mide con el espejo abajo
             runner.laser(laser, True)
             t0 = time.monotonic()
@@ -573,7 +605,7 @@ class LuminescenceBackend(QtCore.QObject):
                     self.statusSignal.emit(f"Cuadro {k + 1} fallido: {e}")
                     continue
                 self.t_points.append(time.monotonic() - t0)
-                self.i_points.append(float(np.sum(spec)))
+                self.i_points.append(float(np.sum(corrected(spec, dark))))   # integral sin el fondo (B3)
                 self.curr_frame = k + 1
                 pct = int(100.0 * self.curr_frame / max(1, self.total_frames))
                 self.dataUpdatedSignal.emit(wave, spec, np.array(self.t_points), np.array(self.i_points), min(pct, 99))
@@ -640,6 +672,11 @@ class LuminescenceBackend(QtCore.QObject):
         if wave is None:
             self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la grilla no arranca.")
             return
+        refusal = self.grid_dark.check_start(float(config["exp_time"]))
+        if refusal:
+            self.statusSignal.emit(f"⛔ {refusal}")
+            hardware_session.statusWarningSignal.emit(refusal)
+            return
         self.grid_config = dict(config)
         self.nodes = list(self._pending_nodes)
         self.states = [NODE_PENDING] * len(self.nodes)
@@ -651,6 +688,7 @@ class LuminescenceBackend(QtCore.QObject):
             exp_time = float(self.grid_config["exp_time"])
             every = max(1, int(self.grid_config.get("autofocus_every", 1)))
             total = len(self.nodes)
+            self.run_dark = self.grid_dark.ensure(runner, exp_time)     # un fondo por grilla (R4-N)
             while self.idx < total:
                 ctl.wait_while_paused(runner, lambda: self.gridNodeProgressSignal.emit(self.idx, total, "En pausa."))
                 if ctl.take_skip():
@@ -744,8 +782,10 @@ class LuminescenceBackend(QtCore.QObject):
             base = os.path.join(save_dir, f"LuminescenceNode_{idx:03d}")
             from pyspectrum.calibration.repository import correction_header_text
             np.savetxt(base + "_spectrum.txt", np.column_stack([wave_axis, spec]),
-                       header=f"wavelength_nm\tintensity  (una exposición real; lectura {mode})\n"
-                       + correction_header_text(self.spectrometer), fmt="%.4f", encoding="utf-8")   # R3-gui §4.6
+                       header=f"wavelength_nm\tintensity  (una exposición real; lectura {mode}; crudo)\n"
+                       + correction_header_text(self.spectrometer) + "\n"          # R3-gui §4.6
+                       + self.grid_dark.header_text(self.run_dark, save_dir),      # fondo aparte (R4-N)
+                       fmt="%.4f", encoding="utf-8")
         except OSError as e:
             print(f"[LuminescenceGrid] No se pudo guardar el nodo {idx}: {e}")
 

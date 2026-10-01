@@ -22,7 +22,7 @@ from pyspectrum.drivers.shamrock_driver import get_shamrock
 from pyspectrum.modules.hardware_session import hardware_session
 from pyspectrum.modules.routines import luminescence
 from pyspectrum.modules.routines.luminescence import LuminescenceBackend, LuminescenceWidget
-from pyspectrum.modules.calibration_dock import CalibrationBackend, CalibrationFrontend, DARK_NOISE_PROFILE_FILE
+from pyspectrum.modules.calibration_dock import CalibrationBackend, CalibrationFrontend
 from pyspectrum.window import PySpectrumWindow, TAB_EXPLORATION, TAB_STATIC_RAMAN, TAB_LUMINESCENCE
 
 _app = QApplication.instance() or QApplication([])
@@ -137,92 +137,31 @@ class TestLuminescenceNotchFlipperAndGrid(unittest.TestCase):
         self.assertTrue(hardware_session.is_emergency_stopped)
 
 
-class TestCalibrationWaterAndDarkNoise(unittest.TestCase):
-    def setUp(self):
-        self.camera = get_andor_ccd(force_mock=True, reset=True)
-        self.spectrometer = get_shamrock(force_mock=True, reset=True)
-        hardware_session.clear_emergency()
-        if hardware_session.is_busy:
-            hardware_session.release_session(hardware_session.current_owner)
+class TestCalibrationWaterAndDarkNoiseRetired(unittest.TestCase):
+    """Retiradas por el investigador (2026-09-30, DEC-040). La verificación con agua abría el 532, leía un
+    cuadro sin adquirir y, sin banda, informaba corrimiento 0; el ruido oscuro no verificaba el cierre de
+    los obturadores y caracterizaba con un cuadro viejo. El fondo se toma en cada procedimiento, con la
+    misma configuración y todo apagado o el obturador cerrado."""
 
+    def setUp(self):
         self.frontend = CalibrationFrontend()
-        self.backend = CalibrationBackend(self.camera, self.spectrometer)
+        self.backend = CalibrationBackend(get_andor_ccd(force_mock=True), get_shamrock(force_mock=True))
         self.backend.make_connection(self.frontend)
 
-    def tearDown(self):
-        hardware_session.clear_emergency()
-        if hardware_session.is_busy:
-            hardware_session.release_session(hardware_session.current_owner)
-        if DARK_NOISE_PROFILE_FILE.exists():
-            try:
-                DARK_NOISE_PROFILE_FILE.unlink()
-            except OSError:
-                pass
-
-    def test_water_verification_reports_shift_from_known_synthetic_peak(self):
-        wave_axis = np.linspace(500.0, 800.0, 1004)
-        # Pico Raman de agua sintético a 650.5 nm (1.5 nm de corrimiento respecto al teórico 649.0 nm)
-        spec = 300.0 + 4000.0 * np.exp(-0.5 * ((wave_axis - 650.5) / 3.0) ** 2)
-        # Dobles sobre los simuladores compartidos: se restauran al terminar, para no contaminar a los tests
-        # que siguen (AND-1 verifica el código de GetCalibration, que acá es 20202 = SHAMROCK_SUCCESS).
-        patched = [(self.backend.camera, "get_1d_spectrum", lambda: spec),
-                   (self.backend.camera, "get_read_mode", lambda: 0),  # READ_MODE_FVB
-                   (self.backend.spectrometer, "ShamrockGetCalibration", lambda dev, n: (20202, wave_axis))]
-        for obj, name, fn in patched:
-            setattr(obj, name, fn)
-
-        results = []
-        self.backend.waterVerificationResultSignal.connect(
-            lambda shift, obs, r2, wr, sr, wf, sf: results.append((shift, obs, r2))
-        )
-
-        try:
-            self.backend.verify_water_calibration()
-        finally:
-            for obj, name, _fn in patched:
-                obj.__dict__.pop(name, None)
-
-        self.assertEqual(len(results), 1)
-        shift_nm, observed_peak_nm, r2 = results[0]
-        self.assertAlmostEqual(observed_peak_nm, 650.5, delta=1.0)
-        self.assertAlmostEqual(shift_nm, 1.5, delta=1.0)
-        self.assertIn("Corrimiento", self.frontend.lbl_water_status.text())
-        self.assertFalse(hardware_session.is_busy)
-
-    def test_dark_noise_measurement_closes_all_shutters_and_enables_save(self):
-        closed_calls = []
-        orig_close_all = luminescence.close_shutter  # sólo para asegurar import limpio, no usado directamente
+    def test_the_actions_no_longer_exist(self):
+        for name in ("btn_verify_water", "btn_measure_dark", "btn_save_dark_profile",
+                     "verifyWaterCalibrationSignal", "measureDarkNoiseSignal", "saveDarkNoiseProfileSignal"):
+            self.assertFalse(hasattr(self.frontend, name), name)
+        for name in ("verify_water_calibration", "measure_dark_noise", "save_dark_noise_profile",
+                     "waterVerificationResultSignal", "darkNoiseResultSignal"):
+            self.assertFalse(hasattr(self.backend, name), name)
         import pyspectrum.modules.calibration_dock as calib_mod
-        orig_close_all_shutters = calib_mod.close_all_shutters
-        calib_mod.close_all_shutters = lambda: closed_calls.append(True)
+        self.assertFalse(hasattr(calib_mod, "DARK_NOISE_PROFILE_FILE"))
 
-        try:
-            self.assertFalse(self.frontend.btn_save_dark_profile.isEnabled())
-            self.backend.measure_dark_noise()
-        finally:
-            calib_mod.close_all_shutters = orig_close_all_shutters
-
-        self.assertEqual(len(closed_calls), 1, "measure_dark_noise debe cerrar todos los obturadores antes de adquirir")
-        self.assertGreaterEqual(self.backend._last_dark_mean, 0.0)
-        self.assertGreaterEqual(self.backend._last_dark_std, 0.0)
-        self.assertTrue(self.frontend.btn_save_dark_profile.isEnabled())
-        self.assertFalse(hardware_session.is_busy)
-
-    def test_save_dark_noise_profile_persists_npz_with_expected_keys(self):
-        self.backend.measure_dark_noise()
-        self.backend.save_dark_noise_profile()
-
-        self.assertTrue(DARK_NOISE_PROFILE_FILE.exists())
-        with np.load(str(DARK_NOISE_PROFILE_FILE), allow_pickle=True) as data:
-            self.assertIn("dark_frame", data)
-            self.assertIn("mean_counts", data)
-            self.assertIn("std_counts", data)
-            self.assertAlmostEqual(float(data["mean_counts"]), self.backend._last_dark_mean, places=4)
-
-    def test_save_dark_noise_profile_without_measurement_is_safe_no_op(self):
-        # No debe lanzar excepción ni crear el archivo si no se midió nada todavía.
-        self.backend.save_dark_noise_profile()
-        self.assertFalse(DARK_NOISE_PROFILE_FILE.exists())
+    def test_the_dock_says_what_replaces_them(self):
+        text = self.frontend.lbl_retired.text()
+        self.assertIn("Calibración de λ (automática)", text)
+        self.assertIn("fondo", text.lower())
 
 
 class TestGlobalKeyboardShortcuts(unittest.TestCase):

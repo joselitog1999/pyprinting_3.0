@@ -100,6 +100,10 @@ class DimersWidget(QtWidgets.QDialog):
         grid.addWidget(self.edit_exp, 0, 1)
         ctrl_vlo.addLayout(grid)
 
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row_pol = BackgroundRow(default_frames=1)            # fondo de las polarizaciones (R4-N)
+        ctrl_vlo.addWidget(self.bg_row_pol)
+
         self.btn_par = QtWidgets.QPushButton("⚡ Medir Polarización Paralela (∥)")
         self.btn_par.setStyleSheet("background-color: #89B4FA; color: #11111B;")
         self.btn_par.clicked.connect(lambda: self._on_measure("parallel"))
@@ -136,11 +140,18 @@ class DimersWidget(QtWidgets.QDialog):
             pass
 
     @pyqtSlot(str, np.ndarray, np.ndarray, np.ndarray)
+    def pol_exposure(self):
+        try:
+            return float(self.edit_exp.text())
+        except ValueError:
+            return None
+
     def update_dimer_data(self, mode: str, wave: np.ndarray, spec: np.ndarray, diff: np.ndarray):
+        # ∥ − ⟂ no cambia con el fondo (se cancela); los dos espectros se muestran sin él (R4-N)
         if mode == "parallel":
-            self.curve_par.setData(wave, spec)
+            self.curve_par.setData(wave, self.bg_row_pol.for_display(spec))
         else:
-            self.curve_perp.setData(wave, spec)
+            self.curve_perp.setData(wave, self.bg_row_pol.for_display(spec))
 
         if len(diff) > 0:
             self.curve_diff.setData(wave, diff)
@@ -385,6 +396,11 @@ class DimersBackend(QtCore.QObject):
         self.data_dir = os.path.join(base, "dimers")
         self.pol_thread = RoutineThread(self.SESSION_NAME_POLARIZATION, self)
         self.seq_thread = RoutineThread(self.SESSION_NAME_SEQUENCE, self)
+        # Fondo de las polarizaciones (R4-N). La secuencia NP1 → NP2 no toma espectros (AND-1).
+        from pyspectrum.modules.routines.routine_dark import RoutineDark
+        self.pol_dark = RoutineDark(self.camera, self.spectrometer, self.SESSION_NAME_POLARIZATION, "DimersPolarization",
+                                    self)
+        self.run_dark = None
         self.seq_thread.finished.connect(self._on_sequence_finished)
         hardware_session.emergencyStopSignal.connect(self.abort_sequence)
 
@@ -407,6 +423,9 @@ class DimersBackend(QtCore.QObject):
         self.originUpdatedSignal.connect(widget.set_origin_fields)
         if hasattr(widget, "lbl_seq_progress"):
             self.statusSignal.connect(widget.lbl_seq_progress.setText)
+        if hasattr(widget, "bg_row_pol"):
+            from pyspectrum.modules.routines.routine_dark import wire_row
+            wire_row(widget.bg_row_pol, self.pol_dark, widget.pol_exposure, getattr(widget, "lbl_info", None))
 
     def _hw(self):
         """Las acciones del hardware por los nombres de este módulo (los tests los interceptan acá)."""
@@ -426,8 +445,13 @@ class DimersBackend(QtCore.QObject):
             self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock.")
             return
         self.wave_axis = axis
+        refusal = self.pol_dark.check_start(float(exp_time))
+        if refusal:
+            self.statusSignal.emit(f"⛔ {refusal}")
+            return
 
         def body(runner, ctl):
+            self.run_dark = self.pol_dark.ensure(runner, float(exp_time))   # fondo (R4-N)
             try:
                 spec, _mode = runner.spectrum_1d(float(exp_time))
             except NodeFailed as e:

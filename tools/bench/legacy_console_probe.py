@@ -10,12 +10,14 @@ con una sola línea:
 (ajustá la ruta si el repositorio está en otra carpeta; ver tools/bench/INSTRUCCIONES.txt)
 
 GARANTÍAS — esta sonda NO llama a nada que modifique el estado de la cámara:
-  * Sin Initialize, ShutDown, start/stop/abort_acquisition, set_*, setup_*, close ni snap.
-  * Sólo getters de pylablib y funciones Get* del SDK de Andor sobre la sesión YA abierta.
+  * La cámara, SÓLO con getters de pylablib sobre el objeto que el legado ya abrió (regla de
+    R4-F/R4-L, 2026-09-30): nada de ctypes contra la DLL de Andor. Sin set_*, setup_*,
+    start/stop/abort_acquisition, clear, close ni snap.
   * Cada consulta va en try/except: un nombre que no exista en tu versión de pylablib
     imprime "no disponible" y sigue, sin romper nada.
   * No toca obturadores, láseres, DAQmx ni platina. Del espectrógrafo sólo LEE (sección D):
     ningún Set*, ni movimiento de red, ranura, flipper u obturador.
+  * No escribe archivos, salvo `guardar_info(ruta)`, que escribe un JSON sólo en la ruta que le des.
 
 Qué responde:
   A. ¿Está tapado el método set_acquisition_mode por la asignación `= 'cont'/'single'`?
@@ -27,14 +29,16 @@ Qué responde:
      de ejecutar PySpectrum 3.0 contra el equipo (ver docs/evidence/PRUEBAS_BANCO_PENDIENTES.md).
      Corré la sonda con el legado en reposo (sin Step & Glue ni barridos en curso), para no
      consultar el espectrógrafo mientras otro hilo lo está moviendo.
+  E. Lo que BANCO-55 compara con PySpectrum 3.0: versión de pylablib, ventilador, VS, amplificador,
+     ganancia EM, modo de lectura, capacidades, tiempos y `get_full_info()`.
 
-Opcional, con el Live View del legado ENCENDIDO:
-    observar_live()      # mira 1 s el contador de cuadros (sólo lectura)
+Opcional:
+    guardar_info(r"C:\\ruta\\legado.json")   # el mismo contenido en JSON, para comparar con 3.0
+    observar_live()                           # con el Live ENCENDIDO: contador de cuadros, 1 s
 """
-import ctypes
-from ctypes import byref, c_float, c_int, c_long, create_string_buffer
 
 _RESUMEN = []
+_INFO = {}
 
 
 def _r(tag, txt):
@@ -47,6 +51,21 @@ def _try(fn, default="no disponible"):
         return fn()
     except Exception as e:  # noqa: BLE001 — sonda de diagnóstico, nunca debe romper la app
         return f"{default} ({type(e).__name__}: {e})"
+
+
+def _jsonable(obj):
+    if hasattr(obj, "_asdict"):
+        return {k: _jsonable(v) for k, v in obj._asdict().items()}
+    if isinstance(obj, dict):
+        return {str(k): _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+    try:
+        return obj.item()          # escalares de numpy
+    except Exception:
+        return str(obj)
 
 
 def _buscar_camara():
@@ -112,34 +131,30 @@ def _seccion_d_respaldo_shamrock():
     _r("D.coef_calibracion(ret,A,B,C,D)", _try(lambda: sh.ShamrockGetPixelCalibrationCoefficients(dev)))
 
 
-# El legado del banco carga atmcd64d_legacy.dll (Solis), el primer candidato de pylablib 1.4.3
-# (hallazgo del 2026-09-28). Se prueban los dos nombres.
-_SDK_NAMES = ("atmcd64d_legacy.dll", "atmcd64d.dll")
-
-
-def _sdk():
-    """La DLL que el proceso legado YA tiene cargada, para consultar la MISMA sesión inicializada.
-    Sólo se usa un módulo ya cargado (GetModuleHandleW): nunca se carga una copia nueva, que no
-    estaría inicializada y devolvería DRV_NOT_INITIALIZED."""
-    try:
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        k32.GetModuleHandleW.restype = ctypes.c_void_p
-        k32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
-        for name in _SDK_NAMES:
-            handle = k32.GetModuleHandleW(name)
-            if handle:
-                return ctypes.WinDLL(name, handle=handle)
-    except Exception:
-        pass
-    return None
+# Lo que BANCO-55 compara con PySpectrum 3.0 (getters de pylablib 1.4.3, verificados en su fuente)
+_BANCO55_GETTERS = (
+    "get_fan_mode", "get_vsspeed", "get_all_vsspeeds", "get_amp_mode", "get_all_amp_modes", "get_EMCCD_gain",
+    "get_read_mode", "get_acquisition_mode", "get_capabilities", "get_frame_timings", "get_cycle_timings",
+    "get_readout_time", "get_shutter_parameters", "get_temperature_setpoint", "is_cooler_on",
+    "get_temperature_status", "get_trigger_mode", "get_data_dimensions", "get_image_mode_parameters",
+    "get_single_track_mode_parameters", "get_frames_status",
+)
 
 
 def _sonda():
-    global _RESUMEN
+    global _RESUMEN, _INFO
     _RESUMEN = []
+    _INFO = {"origen": "legado"}
     print("=" * 72)
-    print("SONDA DE SOLO LECTURA — PySpectrum legado")
+    print("SONDA DE SOLO LECTURA — PySpectrum legado (cámara por pylablib)")
     print("=" * 72)
+
+    try:
+        import pylablib
+        _INFO["pylablib_version"] = getattr(pylablib, "__version__", "desconocida")
+    except Exception as e:  # noqa: BLE001
+        _INFO["pylablib_version"] = f"no disponible ({e})"
+    _r("pylablib", _INFO["pylablib_version"])
 
     cam, origen = _buscar_camara()
     if cam is None:
@@ -163,6 +178,7 @@ def _sonda():
     print("\nB — Modo de adquisición y estado")
     _r("B.modo_pylablib", _try(lambda: cam.get_acquisition_mode()))
     _r("B.estado", _try(lambda: cam.get_status()))
+    _r("B.adquiriendo", _try(lambda: cam.acquisition_in_progress()))
     _r("B.exposicion_s", _try(lambda: cam.get_exposure()))
     _r("B.temperatura_C", _try(lambda: cam.get_temperature()))
 
@@ -177,23 +193,18 @@ def _sonda():
     else:
         _r("C.pixel_size", ps)
 
-    print("\nC — Contraste directo con el SDK (misma sesión, sólo funciones Get*)")
-    dll = _sdk()
-    if dll is None:
-        _r("C.sdk", f"el proceso no tiene cargada ninguna de {_SDK_NAMES}")
-    else:
-        px, py = c_float(), c_float()
-        rp = _try(lambda: dll.GetPixelSize(byref(px), byref(py)))
-        xp, yp = c_int(), c_int()
-        rd = _try(lambda: dll.GetDetector(byref(xp), byref(yp)))
-        model = create_string_buffer(256)
-        rm = _try(lambda: dll.GetHeadModel(model))
-        st = c_int()
-        rs = _try(lambda: dll.GetStatus(byref(st)))
-        _r("C.sdk", f"GetHeadModel={model.value.decode(errors='replace')!r} (ret {rm})  "
-                    f"GetDetector={xp.value}x{yp.value} (ret {rd})  "
-                    f"GetPixelSize={px.value:.2f}x{py.value:.2f} um (ret {rp})  "
-                    f"GetStatus={st.value} (ret {rs}; 20072=adquiriendo, 20073=idle)")
+    # ── E. Lo que compara BANCO-55 ───────────────────────────────────────────
+    print("\nE — Configuración para BANCO-55 (getters de pylablib)")
+    settings = {}
+    for name in _BANCO55_GETTERS:
+        fn = getattr(cam, name, None)
+        value = _try(fn) if callable(fn) else "no disponible en esta versión de pylablib"
+        settings[name] = value
+        _r(f"E.{name}", value)
+    _INFO["settings"] = settings
+    full = _try(lambda: cam.get_full_info())
+    _INFO["camera_full_info"] = full
+    _r("E.get_full_info", f"{len(full)} campos" if isinstance(full, dict) else full)
 
     _seccion_d_respaldo_shamrock()
 
@@ -203,31 +214,51 @@ def _sonda():
     for line in _RESUMEN:
         print(line)
     print("=" * 72)
-    print("Opcional: con el Live View del legado ENCENDIDO, corré  observar_live()")
+    _INFO["resumen"] = list(_RESUMEN)
+    print("Opcional: guardar_info(r\"C:\\ruta\\legado.json\")  y, con el Live ENCENDIDO, observar_live()")
+
+
+def guardar_info(ruta):
+    """Escribe lo leído por la sonda en un JSON, sólo en `ruta`. Para compararlo con la sonda de 3.0
+    (BANCO-55). No toca el hardware: usa lo que ya se leyó."""
+    import json
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump(_jsonable(_INFO), f, ensure_ascii=False, indent=2)
+    print(f"  guardado en {ruta}")
 
 
 def observar_live(segundos=1.0):
-    """Con el Live del legado ENCENDIDO: lee dos veces el contador de cuadros del SDK.
-    Sólo lectura. Congela la GUI `segundos` (corre en su hilo); la cámara sigue adquiriendo
-    en hardware, así que la medición es válida."""
+    """Con el Live del legado ENCENDIDO: lee dos veces el contador de cuadros de pylablib
+    (`get_frames_status`). Sólo lectura. Congela la GUI `segundos` (corre en su hilo); la cámara sigue
+    adquiriendo en hardware, así que la medición es válida.
+
+    También informa los cuadros SIN LEER: si el Live del legado nunca avanza el puntero de lectura
+    (`read_oldest_image(self.shape)` pasa la forma como `peek`), ese número crece hasta llenar el búfer
+    y el Live muestra un cuadro atrasado (hipótesis de BANCO-60, a verificar)."""
     import time
-    dll = _sdk()
-    if dll is None:
-        print(f"  el proceso no tiene cargada ninguna de {_SDK_NAMES}")
+    cam, _origen = _buscar_camara()
+    if cam is None:
+        print("  No encontré la cámara.")
         return
-    n1, n2, st = c_long(), c_long(), c_int()
-    dll.GetTotalNumberImagesAcquired(byref(n1))
+    s1 = _try(lambda: cam.get_frames_status())
     time.sleep(segundos)
-    dll.GetTotalNumberImagesAcquired(byref(n2))
-    dll.GetStatus(byref(st))
-    d = n2.value - n1.value
-    if st.value == 20072 and d > 1:
+    s2 = _try(lambda: cam.get_frames_status())
+    running = _try(lambda: cam.acquisition_in_progress())
+    try:
+        d = int(s2[0]) - int(s1[0])
+        unread, skipped, size = int(s2[1]), int(s2[2]), int(s2[3])
+    except Exception:
+        print(f"  [live] no se pudo leer el contador: {s1} / {s2}")
+        return
+    if running is True and d > 1:
         v = "CONTINUO: el Live del legado realmente adquiere en flujo"
     elif d <= 1:
         v = "NO AVANZA: el Live del legado estaría mostrando un cuadro fijo"
     else:
         v = "ambiguo"
-    print(f"  [live] cuadros en {segundos:.1f} s = {d}  estado={st.value}  -> {v}")
+    print(f"  [live] cuadros en {segundos:.1f} s = {d}  adquiriendo={running}  -> {v}")
+    print(f"  [live] sin leer = {unread} de un búfer de {size}, salteados = {skipped}"
+          f"  (si 'sin leer' crece y queda cerca del búfer, el legado muestra un cuadro atrasado)")
 
 
 _sonda()

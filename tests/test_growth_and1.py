@@ -116,7 +116,7 @@ def test_a_failed_exposure_fails_the_node_and_the_grid_goes_on(be, tmp_path, mon
 
     def flaky(*a, **k):
         count["n"] += 1
-        if count["n"] == 1:
+        if count["n"] == 2:                                   # la 1.ª es el fondo de la grilla (R4-N)
             return acquisition.AcquisitionFailure(acquisition.AcquisitionFailureKind.TIMEOUT, None, None, "simulada")
         return real(*a, **k)
     monkeypatch.setattr(acquisition, "single_exposure", flaky)
@@ -141,5 +141,5 @@ def test_the_point_mode_takes_real_exposures(be, monkeypatch):
     be.confirm_mirror("down")
     be.start_growth(LASER, 0.01, 3, 0.02)
     assert be.point_thread.wait_finished(20)
-    assert shapes == [(1004,)] * 3 and len(be.lmax_points) == 3
+    assert shapes == [(1004,)] * 4 and len(be.lmax_points) == 3   # el fondo de la serie (R4-N) y 3 cuadros
     assert LASER not in nidaq.get_open_shutter_names()

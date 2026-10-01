@@ -70,7 +70,7 @@ def test_it_runs_in_its_own_thread_and_each_node_is_a_real_exposure(be, tmp_path
     be.start_grid(_cfg(exp_time=0.3))
     assert time.monotonic() - t0 < 0.3 and be.grid_thread.running       # no bloquea la GUI
     assert be.grid_thread.wait_finished(20)
-    assert shapes == [(1004,), (1004,)]
+    assert shapes == [(1004,), (1004,), (1004,)]                  # el fondo de la grilla (R4-N) y los 2 nodos
     assert be.states == [lm.NODE_DONE, lm.NODE_DONE]
     first_open = log.index(("open", LASER))
     assert ("mirror", "down") in log[:first_open]
@@ -79,7 +79,11 @@ def test_it_runs_in_its_own_thread_and_each_node_is_a_real_exposure(be, tmp_path
             assert log[i + 1] == ("close", LASER)                # abierto sólo para la exposición
     assert log[-1] == ("mirror", "up")                           # vuelve a donde lo confirmó el operador
     files = sorted(p.name for p in (tmp_path / "lum").iterdir())
-    assert files == ["LuminescenceNode_000_spectrum.txt", "LuminescenceNode_001_spectrum.txt"]
+    # el fondo de la grilla, aparte y una sola vez (R4-N, B3), y cada nodo crudo, con su referencia
+    assert files[0].startswith("LuminescenceGrid_background_") and files[0].endswith(".npz")
+    assert files[1:] == ["LuminescenceNode_000_spectrum.txt", "LuminescenceNode_001_spectrum.txt"]
+    dark_id = files[0][len("LuminescenceGrid_background_"):-len(".npz")]
+    assert f"background_id: {dark_id}" in (tmp_path / "lum" / files[1]).read_text(encoding="utf-8")
     assert not hardware_session.is_busy
 
 
@@ -89,7 +93,7 @@ def test_a_failed_exposure_fails_the_node_and_the_grid_goes_on(be, tmp_path, mon
 
     def flaky(*a, **k):
         count["n"] += 1
-        if count["n"] == 1:
+        if count["n"] == 2:                                   # la 1.ª es el fondo de la grilla (R4-N)
             return acquisition.AcquisitionFailure(acquisition.AcquisitionFailureKind.TIMEOUT, None, None, "simulada")
         return real_exp(*a, **k)
     monkeypatch.setattr(acquisition, "single_exposure", flaky)
@@ -124,7 +128,7 @@ def test_the_point_mode_takes_one_real_exposure_per_frame(be, monkeypatch):
     be.confirm_mirror("down")
     be.start_luminescence(LASER, 0.02, 3, 0.05)
     assert be.point_thread.wait_finished(20)
-    assert shapes == [(1004,)] * 3 and len(be.i_points) == 3
+    assert shapes == [(1004,)] * 4 and len(be.i_points) == 3      # el fondo de la serie (R4-N) y 3 cuadros
     assert LASER not in nidaq.get_open_shutter_names()
 
 

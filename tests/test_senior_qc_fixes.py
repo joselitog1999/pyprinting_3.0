@@ -80,7 +80,7 @@ class TestSeniorQCFixes(unittest.TestCase):
             self.assertTrue(backend.pol_thread.wait_finished(10))
         finally:
             acquisition.single_exposure = real
-        self.assertEqual(shapes, [(1004,)])
+        self.assertEqual(shapes, [(1004,), (1004,)])                # el fondo (R4-N) y la exposición nueva
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0][0], "parallel")
         self.assertEqual(len(emitted[0][1]), 1004)

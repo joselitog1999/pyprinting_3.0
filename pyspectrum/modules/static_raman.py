@@ -342,6 +342,13 @@ class StaticRamanWidget(QtWidgets.QWidget):
         proc_hlo.addStretch()
         main_vlo.addWidget(grp_proc)
 
+        # Fondo a pedido, como en Exploración (R4-N): con la exposición y el modo de la cámara. Se resta antes
+        # del procesamiento; lo guardado es el crudo, con el fondo en una columna aparte.
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row = BackgroundRow(default_frames=1)
+        self.bg_row.chk_subtract.toggled.connect(lambda _on: self._reprocess_current_spectrum())
+        main_vlo.addWidget(self.bg_row)
+
         # ── 3. Visualizador Gráfico PyQtGraph ─────────────────────────────────
         self.plot_widget = pg.PlotWidget(title="Espectro Raman Estático")
         self.plot_widget.setBackground("#11111B")
@@ -598,6 +605,9 @@ class StaticRamanWidget(QtWidgets.QWidget):
 
         y_proc = self.raw_counts.copy().astype(np.float64)
 
+        # 0. Fondo (crudo − fondo), si hay uno válido de la misma forma y "Restar" está marcado (R4-N)
+        y_proc = self.bg_row.for_display(y_proc)
+
         # 1. Despiking de Rayos Cósmicos
         if self.chk_despike.isChecked() and len(y_proc) > 7:
             y_proc, _ = remove_cosmic_rays(y_proc, threshold=6.0, window_size=5)
@@ -748,6 +758,7 @@ class StaticRamanWidget(QtWidgets.QWidget):
             "_processed_x": self.processed_x.copy(),
             "_processed_y": self.processed_y.copy(),
             "_baseline_y": self.baseline_y.copy() if len(self.baseline_y) else np.zeros_like(self.raw_counts),
+            "_background": self.bg_row.dark,
         }
         self.saveSpectrumSignal.emit(path, metadata)
 
@@ -779,6 +790,17 @@ class StaticRamanBackend(QtCore.QObject):
         self.live_timer.setInterval(40)  # ~25 FPS
         self.live_timer.timeout.connect(self._acquire_live_frame)
 
+        from pyspectrum.modules.routines.routine_dark import RoutineDark
+        self.dark_ctl = RoutineDark(self.camera, self.spectrometer, "Raman Estático", "RamanStatic", self,
+                                    conditions_fn=self._dark_conditions)
+
+    def _dark_conditions(self, exposure_s: float):
+        """El fondo con la configuración vigente de la cámara: su modo de lectura y su exposición (R4-N)."""
+        from pyspectrum.modules.step_glue_engine import frame_shape_for
+        from pyspectrum.services import procedure_background as pb
+        mode = self.camera.get_read_mode()
+        return pb.read_conditions(self.camera, frame_shape_for(mode), exposure_s=float(exposure_s), read_mode=mode)
+
     def make_connection(self, widget: StaticRamanWidget, inspector: Optional[Any] = None):
         widget.requestAcquireSingleSignal.connect(self.acquire_single)
         widget.toggleLiveRamanSignal.connect(self.toggle_live)
@@ -788,6 +810,11 @@ class StaticRamanBackend(QtCore.QObject):
 
         self.spectrumAcquiredSignal.connect(widget.update_spectrum_data)
         self.liveStateChangedSignal.connect(widget.set_live_state)
+
+        from pyspectrum.modules.routines.routine_dark import wire_row
+        wire_row(widget.bg_row, self.dark_ctl, lambda: float(self.camera.get_exposure_time()), None)
+        self.dark_ctl.message.connect(self.statusMessageSignal)
+        self.dark_ctl.changed.connect(lambda _d: widget._reprocess_current_spectrum())
 
         if inspector is not None:
             self.frame2DAcquiredSignal.connect(inspector.set_frame_2d)
@@ -1016,6 +1043,13 @@ class StaticRamanBackend(QtCore.QObject):
                     counts = np.mean(frame, axis=0) if frame.ndim > 1 else np.asarray(frame, dtype=np.float64)
 
             raman_shift = wavelength_to_raman_shift(wl_arr, laser_nm)
+            # El fondo va en una columna aparte, sólo si corresponde a este espectro (R4-N; B3: el crudo no se toca)
+            dark = metadata.get("_background")
+            bg = None
+            if dark is not None and np.asarray(dark.mean).shape == counts.shape:
+                bg = np.asarray(dark.mean, dtype=np.float64)
+            else:
+                dark = None
 
             p = Path(filepath)
             with open(p, "w", encoding="utf-8") as f:
@@ -1027,10 +1061,18 @@ class StaticRamanBackend(QtCore.QObject):
                 from pyspectrum.calibration.repository import correction_header_text
                 for line in correction_header_text(self.spectrometer).splitlines():   # R3-gui §4.6
                     f.write(f"# {line}\n")
+                from pyspectrum.services.procedure_background import dark_header_lines
+                for line in dark_header_lines(dark, None):
+                    f.write(f"# {line}\n")
                 f.write("# ------------------------------------------------------------\n")
-                f.write("Wavelength_nm\tRaman_Shift_cm-1\tCounts_ADC\n")
-                for w, rs, c in zip(wl_arr, raman_shift, counts):
-                    f.write(f"{w:.4f}\t{rs:.3f}\t{c:.2f}\n")
+                if bg is None:
+                    f.write("Wavelength_nm\tRaman_Shift_cm-1\tCounts_ADC\n")
+                    for w, rs, c in zip(wl_arr, raman_shift, counts):
+                        f.write(f"{w:.4f}\t{rs:.3f}\t{c:.2f}\n")
+                else:
+                    f.write("Wavelength_nm\tRaman_Shift_cm-1\tCounts_ADC\tBackground_Counts\n")
+                    for w, rs, c, b in zip(wl_arr, raman_shift, counts, bg):
+                        f.write(f"{w:.4f}\t{rs:.3f}\t{c:.2f}\t{b:.2f}\n")
 
             self.statusMessageSignal.emit(f"Espectro guardado en: {p.name}")
         except Exception as e:

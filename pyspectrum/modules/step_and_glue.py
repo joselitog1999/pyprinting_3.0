@@ -16,6 +16,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Optional, List, Dict
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
@@ -54,7 +55,7 @@ class Frontend(QtWidgets.QFrame):
     stopMeasurementSignal = pyqtSignal()
     saveSpectrumSignal = pyqtSignal(str)
     exportHDF5Signal = pyqtSignal(str)
-    lockSubstrateSignal = pyqtSignal()
+    lockSubstrateSignal = pyqtSignal(float, float, float, float, bool)   # sustrato ventana por ventana (R4-N, B4)
     resumeSignal = pyqtSignal(bool)              # [Seguir] / [Stop] tras "ventana 1 sin señal" (G8)
     glueAcquiredSignal = pyqtSignal()            # [Coser lo adquirido] (Ronda 3 §4.3)
     planRequestSignal = pyqtSignal(float, float, float, float, bool)   # (desde, hasta, solape, exp, zona central)
@@ -204,15 +205,22 @@ class Frontend(QtWidgets.QFrame):
 
         # Fijar fondo de sustrato (código legado: "Lock Signal on Sustrate")
         substrate_box = QtWidgets.QHBoxLayout()
-        self.btn_lock_substrate = QtWidgets.QPushButton("🔒 Fijar Fondo Sustrato")
-        self.btn_lock_substrate.setToolTip("Adquiere y memoriza el espectro/cuadro actual del detector como fondo de sustrato, para restarlo de cada paso antes del cosido y la normalización.")
+        self.btn_lock_substrate = QtWidgets.QPushButton("🔒 Fijar sustrato (barrido completo)")
+        self.btn_lock_substrate.setToolTip(
+            "Barre el sustrato con el mismo plan (desde, hasta, solape, exposición) y guarda una ventana por λc.\n"
+            "Al restar, cada ventana de la muestra resta el sustrato de SU λc; el oscuro se cancela.\n"
+            "Si el plan, la exposición, la red o el modo de lectura no coinciden, el sustrato no se resta (R4-N, B4).")
         self.btn_lock_substrate.clicked.connect(self._on_lock_substrate)
         substrate_box.addWidget(self.btn_lock_substrate)
 
         self.chk_sub_substrate = QtWidgets.QCheckBox("Restar Fondo de Sustrato")
-        self.chk_sub_substrate.setToolTip("Si está activo, resta el fondo de sustrato fijado (píxel a píxel) de cada paso adquirido, antes de la normalización y el cosido.")
+        self.chk_sub_substrate.setToolTip("Resta a cada ventana el sustrato de su misma λc, antes de la normalización y el cosido.")
         substrate_box.addWidget(self.chk_sub_substrate)
         controls_vlo.addLayout(substrate_box)
+
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row = BackgroundRow(default_frames=1)                # un oscuro por corrida (R4-N)
+        controls_vlo.addWidget(self.bg_row)
 
         # Plan y preflight (Ronda 3 §1.9-1.9.1): se recalculan con cada cambio, sin tocar el hardware
         self.lbl_plan = QtWidgets.QLabel("Plan: —")
@@ -434,8 +442,16 @@ class Frontend(QtWidgets.QFrame):
         self.stopMeasurementSignal.emit()
 
     def _on_lock_substrate(self):
-        self.lbl_status.setText("🔒 Fondo de sustrato fijado (paso actual del detector).")
-        self.lockSubstrateSignal.emit()
+        if not self._confirm_mirror():
+            self.lbl_status.setText("Sustrato cancelado (espejo de detección).")
+            return
+        self.lbl_status.setText("🔒 Barriendo el sustrato con el plan actual...")
+        self.lockSubstrateSignal.emit(float(self.edit_start_wl.value()), float(self.edit_end_wl.value()),
+                                      float(self.spin_overlap_pct.value()) / 100.0, float(self.edit_exp.value()),
+                                      self.chk_optical_core.isChecked())
+
+    def exposure(self):
+        return float(self.edit_exp.value())
 
     def _on_save_spectrum(self):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar Espectro", "", "Datos ASCII (*.txt *.csv);;NumPy (*.npz);;Todos (*.*)")
@@ -479,6 +495,15 @@ class Frontend(QtWidgets.QFrame):
         self.curve_fit.setData(wave_fit, spec_fit)
 
 
+@dataclass(frozen=True)
+class Substrate:
+    """El sustrato ventana por ventana (R4-N, B4): una ventana cruda por λc pedida, con la llave del plan."""
+    key: tuple
+    windows: Dict[float, np.ndarray]
+    dark_id: Optional[str]
+    run_dir: str
+
+
 class StepGlueWorker(QtCore.QObject):
     """Corre `run_windows` en su propio `QThread` (G1, paso 11). La GUI sigue respondiendo y Stop / E-STOP
     se ven en el tramo siguiente. La pausa por "sin señal" sigue latiendo (D-17)."""
@@ -488,8 +513,10 @@ class StepGlueWorker(QtCore.QObject):
     noSignal = pyqtSignal(int)
     finished = pyqtSignal(object)
 
-    def __init__(self, request, the_plan, camera, spectrometer, run_dir: Path, abort_event: threading.Event):
+    def __init__(self, request, the_plan, camera, spectrometer, run_dir: Path, abort_event: threading.Event,
+                 dark=None):
         super().__init__()
+        self.dark = dark                     # el oscuro de la corrida (R4-N)
         self.request, self.plan = request, the_plan
         self.camera, self.spectrometer = camera, spectrometer
         self.run_dir = run_dir
@@ -516,7 +543,7 @@ class StepGlueWorker(QtCore.QObject):
         res = run_windows(self.plan, self.request, self.camera, self.spectrometer, run_dir=self.run_dir,
                           should_abort=self._abort.is_set, on_tick=heartbeat_tick(), is_estopped=_estopped,
                           on_window=self.windowAcquired.emit, on_no_signal=self._wait_answer,
-                          on_progress=lambda i, n, f: self.progress.emit(i, n, f))
+                          on_progress=lambda i, n, f: self.progress.emit(i, n, f), dark=self.dark)
         self.finished.emit(res)
 
 
@@ -568,7 +595,15 @@ class Backend(QtCore.QObject):
         self._raw_wave_steps: List[np.ndarray] = []
         self._raw_spec_steps: List[np.ndarray] = []
         self._last_frame_2d: Optional[np.ndarray] = None  # matriz cosida (H, W_total) en modo Imagen 2D
-        self._substrate_signal: Optional[np.ndarray] = None  # fondo de sustrato fijado ("Lock Sustrato")
+        self.substrate = None                   # sustrato ventana por ventana (R4-N, B4)
+        # Un oscuro por corrida (R4-N), con el modo y la forma de las ventanas
+        from pyspectrum.modules.routines.routine_dark import RoutineDark
+        self.dark_ctl = RoutineDark(self.camera, self.spectrometer, "Step & Glue", "StepGlue", self,
+                                    conditions_fn=self._dark_conditions)
+        self.subtract_dark = True
+        self._conclude_opts: Dict = {}
+        self._last_req = None
+        self._single_dark = None
         self._last_window_nm: Optional[float] = None
         self._last_window_source: str = ""
         self._last_coverage_gaps: List[tuple] = []
@@ -609,6 +644,10 @@ class Backend(QtCore.QObject):
         self.windowAcquiredSignal.connect(frontend.on_window_acquired)
         self.noSignalSignal.connect(frontend.on_no_signal)
         self.sweepFinishedSignal.connect(frontend.on_sweep_finished)
+        if hasattr(frontend, "bg_row"):
+            from pyspectrum.modules.routines.routine_dark import wire_row
+            wire_row(frontend.bg_row, self.dark_ctl, frontend.exposure, getattr(frontend, "lbl_status", None))
+            frontend.bg_row.chk_subtract.toggled.connect(self.set_subtract_dark)
 
     @pyqtSlot()
     def stop_measurement(self):
@@ -634,6 +673,87 @@ class Backend(QtCore.QObject):
         if self._thread.wait(timeout_ms):
             return ShutdownStep("Step & Glue", True, "barrido detenido")
         return ShutdownStep("Step & Glue", False, f"el hilo del barrido no terminó en {timeout_ms / 1000:g} s")
+
+    # ── oscuro de la corrida y sustrato (R4-N) ──
+    def _dark_conditions(self, exposure_s: float):
+        from pyspectrum.services import procedure_background as pb
+        mode = self.camera.get_read_mode() if hasattr(self.camera, "get_read_mode") else READ_MODE_FVB
+        return pb.read_conditions(self.camera, frame_shape_for(mode), exposure_s=float(exposure_s), read_mode=mode)
+
+    def _dark_fn(self, req):
+        return lambda expose: self.dark_ctl.ensure_with(expose, req.exposure_s)
+
+    def _refuse_without_dark(self, exp_time: float) -> bool:
+        refusal = self.dark_ctl.check_start(float(exp_time))
+        if refusal:
+            self.statusSignal.emit(f"⛔ {refusal}")
+        return bool(refusal)
+
+    @staticmethod
+    def _plan_key(req, the_plan):
+        return (tuple(round(float(c), 4) for c in the_plan.centers), round(float(req.exposure_s), 9),
+                int(req.read_mode), int(req.grating), tuple(the_plan.frame_shape))
+
+    @pyqtSlot(bool)
+    def set_subtract_dark(self, on: bool):
+        """"Restar" de la fila: vuelve a procesar y coser el último barrido con o sin el oscuro."""
+        self.subtract_dark = bool(on)
+        res = self.last_result
+        if res is not None and res.windows and self._conclude_opts:
+            o = self._conclude_opts
+            self._raw_spec_steps = self._processed_windows(res, o["subtract_substrate"], quiet=True)
+            if res.complete:
+                self._glue_and_emit(o["start_wl"], o["end_wl"], o["normalize"], False, incomplete=False)
+
+    def _processed_windows(self, result, subtract_substrate: bool, quiet: bool = False):
+        """Cada ventana para procesar (B3): menos su sustrato (misma λc; el oscuro se cancela) o menos el
+        oscuro de la corrida. Lo guardado sigue crudo."""
+        from pyspectrum.modules.routines.routine_dark import corrected
+        dark = result.dark if self.subtract_dark else None
+        sub_windows = None
+        if subtract_substrate:
+            if self.substrate is None:
+                if not quiet:
+                    self.statusSignal.emit("⚠️ No hay sustrato fijado: no se restó (sólo el oscuro).")
+            elif self._last_req is None or self.substrate.key != self._plan_key(self._last_req, result.plan):
+                if not quiet:
+                    self.statusSignal.emit("⚠️ El sustrato es de otro plan (λc, exposición, red o modo de lectura): "
+                                           "no se restó; se restó sólo el oscuro.")
+            else:
+                sub_windows = self.substrate.windows
+        out = []
+        for w in result.windows:
+            s_data = sub_windows.get(round(float(w.center_nm_requested), 4)) if sub_windows is not None else None
+            if s_data is not None and np.shape(s_data) == np.shape(w.data):
+                out.append(np.asarray(w.data, dtype=np.float64) - s_data)
+            else:
+                out.append(corrected(w.data, dark))
+        return out
+
+    def _store_substrate(self, req, result):
+        if not result.complete:
+            self.statusSignal.emit(f"⛔ El sustrato no se fijó: el barrido no terminó ({result.detail}).")
+            return
+        self.substrate = Substrate(
+            key=self._plan_key(req, result.plan),
+            windows={round(float(w.center_nm_requested), 4): np.asarray(w.data, dtype=np.float64)
+                     for w in result.windows},
+            dark_id=result.dark.id if result.dark is not None else None,
+            run_dir=str(result.windows[0].path.parent) if result.windows and result.windows[0].path else "")
+        self.statusSignal.emit(f"🔒 Sustrato fijado: {len(result.windows)} ventanas, una por λc.")
+
+    @pyqtSlot(float, float, float, float, bool)
+    def lock_substrate(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
+                       use_optical_core: bool = False):
+        """[Fijar sustrato]: un barrido completo sobre el sustrato, en su hilo, con el mismo plan (B4)."""
+        self.start_sweep(start_wl, end_wl, overlap_pct, exp_time, False, False, use_optical_core, False,
+                         substrate=True)
+
+    def measure_substrate(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
+                          use_optical_core: bool = False):
+        """El mismo barrido del sustrato, síncrono (scripts, tests)."""
+        return self.measure_step_and_glue(start_wl, end_wl, overlap_pct, exp_time, False, False, use_optical_core,
+                                          False, substrate=True)
 
     # ── pedido, plan y preflight ──
     def _request(self, start_wl, end_wl, overlap, exp_time, normalize, use_optical_core) -> StepGlueRequest:
@@ -694,7 +814,7 @@ class Backend(QtCore.QObject):
     @pyqtSlot(float, float, float, float, bool, bool, bool, bool)
     def start_sweep(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
                     normalize: bool, check_water: bool = False, use_optical_core: bool = False,
-                    subtract_substrate: bool = False):
+                    subtract_substrate: bool = False, substrate: bool = False):
         if self._thread is not None:
             self.statusSignal.emit("Ya hay un barrido en curso.")
             return
@@ -702,13 +822,16 @@ class Backend(QtCore.QObject):
         if rep.blockers:
             self.statusSignal.emit("⛔ No se inicia: " + "; ".join(rep.blockers))
             return
+        if self._refuse_without_dark(exp_time):
+            return
         if not self._begin():
             return
         self._abort_event.clear()
         self._sweep_opts = dict(start_wl=start_wl, end_wl=end_wl, normalize=normalize, check_water=check_water,
-                                subtract_substrate=subtract_substrate)
+                                subtract_substrate=subtract_substrate, substrate=substrate, req=req)
         self._thread = QtCore.QThread()
-        self._worker = StepGlueWorker(req, the_plan, self.camera, self.spectrometer, self._run_dir(), self._abort_event)
+        self._worker = StepGlueWorker(req, the_plan, self.camera, self.spectrometer, self._run_dir(), self._abort_event,
+                                      dark=self._dark_fn(req))
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.windowAcquired.connect(self.windowAcquiredSignal.emit)
@@ -730,16 +853,24 @@ class Backend(QtCore.QObject):
             self._thread.quit()
             self._thread.wait(2000)
         self._thread, self._worker = None, None
-        self._conclude(result, **self._sweep_opts)
+        opts = dict(self._sweep_opts)
+        req = opts.pop("req")
+        if opts.pop("substrate", False):
+            self._store_substrate(req, result)
+            return
+        self._last_req = req
+        self._conclude(result, **opts)
 
     # ── barrido síncrono (scripts, tests) ──
     @pyqtSlot(float, float, float, float, bool, bool, bool, bool)
     def measure_step_and_glue(self, start_wl: float, end_wl: float, overlap_pct: float, exp_time: float,
                                normalize: bool, check_water: bool = False, use_optical_core: bool = False,
-                               subtract_substrate: bool = False):
+                               subtract_substrate: bool = False, substrate: bool = False):
         req, the_plan, rep = self._prepare(start_wl, end_wl, overlap_pct, exp_time, normalize, use_optical_core)
         if rep.blockers:
             self.statusSignal.emit("⛔ No se inicia: " + "; ".join(rep.blockers))
+            return None
+        if self._refuse_without_dark(exp_time):
             return None
         if not self._begin():
             return None
@@ -754,9 +885,13 @@ class Backend(QtCore.QObject):
                 return True
             result = run_windows(the_plan, req, self.camera, self.spectrometer, run_dir=self._run_dir(),
                                  should_abort=self._abort_event.is_set, on_tick=heartbeat_tick(), is_estopped=_estopped,
-                                 on_window=on_window, on_no_signal=on_no_signal)
+                                 on_window=on_window, on_no_signal=on_no_signal, dark=self._dark_fn(req))
         finally:
             self._end()
+        if substrate:
+            self._store_substrate(req, result)
+            return result
+        self._last_req = req
         self._conclude(result, start_wl=start_wl, end_wl=end_wl, normalize=normalize, check_water=check_water,
                        subtract_substrate=subtract_substrate)
         return result
@@ -764,8 +899,10 @@ class Backend(QtCore.QObject):
     # ── resultado ──
     def _conclude(self, result, *, start_wl, end_wl, normalize, check_water, subtract_substrate):
         self.last_result = result
+        self._conclude_opts = dict(start_wl=start_wl, end_wl=end_wl, normalize=normalize,
+                                   subtract_substrate=subtract_substrate)
         self._raw_wave_steps = [w.wavelength_axis for w in result.windows]
-        self._raw_spec_steps = [self._minus_substrate(w.data, subtract_substrate) for w in result.windows]
+        self._raw_spec_steps = self._processed_windows(result, subtract_substrate)
         self.sweepFinishedSignal.emit(result)
         if not result.windows:
             self.statusSignal.emit(f"Step & Glue sin datos: {result.detail}")
@@ -790,14 +927,6 @@ class Backend(QtCore.QObject):
         w1 = res.windows[-1].center_nm_requested
         self._glue_and_emit(w0 - res.plan.window_nm / 2, w1 + res.plan.window_nm / 2, False, False,
                             incomplete=not res.complete)
-
-    def _minus_substrate(self, data, subtract):
-        if subtract and self._substrate_signal is not None:
-            if self._substrate_signal.shape == np.shape(data):
-                return np.asarray(data) - self._substrate_signal
-            print(f"[Step & Glue] Fondo de sustrato ignorado: forma incompatible "
-                  f"({self._substrate_signal.shape} vs {np.shape(data)}).")
-        return np.asarray(data)
 
     def _glue_and_emit(self, start_wl, end_wl, normalize, check_water, incomplete: bool):
         raw_waves, raw_data = self._raw_wave_steps, self._raw_spec_steps
@@ -843,27 +972,6 @@ class Backend(QtCore.QObject):
         data = np.asarray(frame.data)
         return data
 
-    @pyqtSlot()
-    def lock_substrate(self):
-        """Fondo de sustrato ("Lock Signal on Sustrate" del legado): una exposición real con la exposición y el
-        modo de lectura vigentes, restada después píxel a píxel de cada ventana."""
-        from pyspectrum.modules.hardware_session import hardware_session
-        if not hardware_session.acquire_session("Step & Glue — Sustrato", auto_pause_live=True):
-            return
-        try:
-            from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
-            open_spectrometer_shutter(self.camera, self.spectrometer)
-            try:
-                exp = float(self.camera.get_exposure_time()) if hasattr(self.camera, "get_exposure_time") else 0.1
-                data = self._one_exposure(exp)
-            finally:
-                close_spectrometer_shutter(self.camera, self.spectrometer)
-            if data is not None:
-                self._substrate_signal = data.copy()
-                print(f"[Step & Glue] Fondo de sustrato fijado (forma {self._substrate_signal.shape}).")
-        finally:
-            hardware_session.release_session("Step & Glue — Sustrato")
-
     def _measured_window_nm(self) -> Optional[float]:
         return measured_window_nm(self.spectrometer)
 
@@ -872,6 +980,8 @@ class Backend(QtCore.QObject):
         from pyspectrum.modules.hardware_session import hardware_session
         from pyspectrum.modules.zero_order_service import get_zero_order_service
         from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter, open_spectrometer_shutter
+        if self._refuse_without_dark(exp_time):
+            return
         if not hardware_session.acquire_session("Step & Glue — Espectro Único", auto_pause_live=True):
             return
         try:
@@ -887,12 +997,27 @@ class Backend(QtCore.QObject):
                 return
             open_spectrometer_shutter(self.camera, self.spectrometer)
             try:
+                from pyspectrum.services import procedure_background as pb
+
+                def expose(shape, exposure_s):
+                    d = self._one_exposure(exposure_s)
+                    if d is None:
+                        raise pb.DarkError("la exposición del fondo falló")
+                    return d
+                try:
+                    self._single_dark = self.dark_ctl.ensure_with(expose, float(exp_time))   # R4-N
+                except pb.DarkError as e:
+                    self.statusSignal.emit(f"⛔ Sin fondo: {e}")
+                    return
                 data = self._one_exposure(exp_time)
             finally:
                 close_spectrometer_shutter(self.camera, self.spectrometer)
             if data is None:
                 return
-            spec_1d = data if data.ndim == 1 else np.mean(data, axis=0)
+            from pyspectrum.modules.routines.routine_dark import corrected
+            self._single_raw = np.asarray(data)
+            proc = corrected(data, self._single_dark if self.subtract_dark else None)
+            spec_1d = proc if proc.ndim == 1 else np.mean(proc, axis=0)
             wave_fit, spec_fit, lambda_max = fit_signal_polynomial(wave_1d, spec_1d, ends_notch=lambda_center - 10,
                                                                    final_wave=wave_1d[-1])
             if len(wave_fit) > 0:
@@ -910,11 +1035,23 @@ class Backend(QtCore.QObject):
         try:
             p = Path(filepath)
             from pyspectrum.calibration.repository import correction_header_lines, spectrum_software_correction
+            from pyspectrum.services.procedure_background import dark_header_lines
             correction = spectrum_software_correction(self.spectrometer)      # R3-gui §4.6
+            run_dark = getattr(self.last_result, "dark", None)
+            dark_lines = dark_header_lines(run_dark, None)
+            if run_dark is not None:
+                dark_lines = [l for l in dark_lines if not l.startswith("background_subtracted")]
+                dark_lines.append("background_subtracted: " + ("sí (el espectro cosido es crudo − oscuro)"
+                                                               if self.subtract_dark else "no (crudo)"))
+                if self.last_result.windows and self.last_result.windows[0].path is not None:
+                    dark_lines.append(f"background_folder: {self.last_result.windows[0].path.parent}")
             if p.suffix == ".npz":
                 import json
+                meta = dict(correction)
+                meta["background"] = run_dark.metadata() if run_dark is not None else None
+                meta["background_subtracted"] = bool(run_dark is not None and self.subtract_dark)
                 np.savez_compressed(p, wavelength=self._last_wave, intensity=self._last_spec, normalized=self._last_norm,
-                                    metadata=np.array(json.dumps(correction)))
+                                    metadata=np.array(json.dumps(meta, ensure_ascii=False)))
             else:
                 data = np.column_stack([self._last_wave, self._last_spec])
                 header = "Wavelength_nm\tIntensity_Counts"
@@ -922,7 +1059,7 @@ class Backend(QtCore.QObject):
                     data = np.column_stack([self._last_wave, self._last_spec, self._last_norm])
                     header += "\tNormalized_Intensity"
                 # Primero la línea de columnas (formato de Solis: los importadores leen la primera línea)
-                header = header + "\n" + "\n".join(correction_header_lines(correction))
+                header = header + "\n" + "\n".join(correction_header_lines(correction) + dark_lines)
                 np.savetxt(p, data, delimiter="\t", header=header, comments="# ", encoding="utf-8")
             print(f"[Step & Glue] Espectro guardado con éxito en: {p}")
         except Exception as e:

@@ -199,6 +199,11 @@ class PylablibAndorCCD:
         ret, on = self._get(self._cam.is_cooler_on if self.available else None, False)
         return (ret, bool(on))
 
+    def get_temperature_setpoint(self) -> Optional[float]:
+        """Setpoint vigente (condición del fondo de los procedimientos, R4-N), o None si no se pudo leer."""
+        ret, t = self._get(self._cam.get_temperature_setpoint if self.available else None, None)
+        return float(t) if ret == DRV_SUCCESS and t is not None else None
+
     def get_temperature_range(self) -> Tuple[int, int, int]:
         ret, rng = self._get(self._cam.get_temperature_range if self.available else None, (0, 0))
         return (ret, int(rng[0]), int(rng[1]))
@@ -364,6 +369,12 @@ class PylablibAndorCCD:
         if ret == DRV_SUCCESS:
             self._read_mode = READ_MODE_SINGLE_TRACK
         return ret
+
+    def get_image_params(self) -> Optional[Tuple[int, ...]]:
+        """(hstart, hend, vstart, vend, hbin, vbin) del modo imagen, como los guarda pylablib (desde 0, fin
+        exclusivo). Condición del fondo de los procedimientos (R4-N)."""
+        ret, p = self._get(self._cam.get_image_mode_parameters if self.available else None, None)
+        return tuple(int(v) for v in p) if ret == DRV_SUCCESS and p is not None else None
 
     def get_single_track(self) -> Tuple[int, int]:
         return (self._track_center, self._track_height)

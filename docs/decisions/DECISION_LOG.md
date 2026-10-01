@@ -1075,6 +1075,62 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * **Causa:** los seis archivos `test_sif_analyzer_*` creaban una ventana por test y sólo la cerraban. Al soltar pytest la instancia del test, la ventana quedaba para el recolector, y sip destruía sus escenas de pyqtgraph cuando el recolector corría, aunque fuera en medio de otro test.
     * El defecto estaba en los tests desde antes. Los cambios de hoy sólo movieron el momento del recolector.
   * **Arreglo:** esas ventanas quedan vivas en `_KEEP_ALIVE`, como en el resto de la suite. Después, la suite completa pasó con captura: 1543 passed, 3 xfailed, 0 failed, con `test_stop_responds_within_a_tranche` incluido.
+* **R4-N 1b y 1c: verificación con agua y perfil de ruido oscuro retirados (2026-09-30).** Decisión del investigador.
+  * **Por qué:**
+    * la verificación con agua abría el 532, leía un cuadro sin adquirir y, sin banda, informaba corrimiento 0 (una validación falsa);
+    * el ruido oscuro no verificaba el cierre de los obturadores y caracterizaba con un cuadro viejo;
+    * nada leía `dark_noise_profile.npz`, y su test escribía en el repo.
+  * **Qué se quitó:** botones, señales, métodos, constante e imports de `calibration_dock`. El dock ya no importa nada de obturadores ni láseres. Una nota en el dock dice qué los reemplaza.
+  * **Tests:** los cuatro que los codificaban pasan a `TestCalibrationWaterAndDarkNoiseRetired`, que verifica el retiro.
+  * **Documentos:** MANUAL_USUARIO y MOD-06 quedan tachados, como registro; SYS-303 §4.2 lleva una nota. `fit_raman_water.py` sigue (lo usa el ajuste de Step & Glue).
+* **R4-N 2a: la sonda del legado, sólo por pylablib (2026-09-30).**
+  * `C.sdk` y `observar_live()` ya no usan ctypes.
+  * Sección E: lo que compara BANCO-55, con `get_full_info`.
+  * `guardar_info(ruta)` escribe un JSON sólo donde se le pide.
+  * `observar_live()` usa el contador de pylablib e informa los cuadros sin leer (BANCO-60).
+  * Test nuevo: `tests/test_legacy_console_probe.py` (3). Verifica que sólo se llamen getters, sin ctypes. 3 mutaciones, todas detectadas.
+* **R4-N 1, pedido del investigador: el fondo en los procedimientos (verificado el 2026-09-30).** La regla es la misma configuración, con todo apagado o el obturador cerrado, a elección.
+  * **Cumple:**
+    * **Exploración:** el operador elige la condición; se registran el estado del obturador y las 10 condiciones de adquisición. Se corrigió el manual, que sólo nombraba el obturador.
+    * **Calibración de λ (automática):** el oscuro va con el 532 cerrado.
+  * **Cumple en parte:** el **escaneo lineal** toma el fondo con la misma configuración, pero siempre con el obturador del espectrómetro cerrado: no ofrece "todo apagado".
+  * **No cumple (no toman fondo):** Step & Glue (sólo el "fondo de sustrato", que es otra cosa: señal del sustrato con luz), luminiscencia, crecimiento, dímeros, el mapa hiperespectral y Raman (que sólo resta una línea de base).
+  * **Hallazgo de paso:** el "fondo de sustrato" de Step & Glue se toma en la λc vigente y se resta píxel a píxel de **todas** las ventanas, que están en otras λc. Cada píxel es otra λ en cada ventana.
+  * Queda propuesto para una Ronda 1 (toca la adquisición y el obturador de cada rutina).
+* **R4-N, el fondo en los procedimientos: implementado (2026-09-30).** Rondas 1 a 3 con el investigador: B1 a B4 y Q1 a Q7 (`RESPUESTAS_INVESTIGADOR`, R4-N segunda parte).
+  * **Contrato** (`pyspectrum/services/procedure_background.py`):
+    * el fondo es una referencia de la medición: la misma exposición, la misma configuración y, por defecto, los mismos cuadros (1) (Q6);
+    * `DarkConditions` tiene 10 campos: exposición, ganancia EM, amplificador, preamplificador, HS, VS, modo de lectura, sus parámetros, forma y setpoint de temperatura. **Sin red ni λc** (Q1): sin luz no influyen, y un oscuro sirve a todas las ventanas de Step & Glue;
+    * `DarkStore` vive sólo en memoria (Q2) y reutiliza el fondo mientras las condiciones no cambien;
+    * método **obturador cerrado** (B1, por defecto): se cierra el del espectrómetro, se verifica el cierre y se reabre en `finally`, verificado; si no reabre, la corrida no sigue;
+    * método **todo apagado** (Q3): nunca se toma solo. La rutina no arranca sin uno válido, y la toma se rechaza si hay un láser abierto;
+    * se guarda el crudo y el fondo aparte (B3), con `background_id` en cada archivo; un fondo por corrida (B2).
+  * **Rutinas:**
+    * Luminiscencia (puntual y grilla), Crecimiento (puntual y grilla), Dímeros (sólo polarización: la secuencia no toma espectros) y el mapa hiperespectral (FVB): `RoutineDark` y `GridRunner.ensure_dark_1d`;
+    * Step & Glue: el motor toma el oscuro antes de la primera ventana; un Stop o E-STOP durante el oscuro es Stop o E-STOP, no una falla de adquisición;
+    * escaneo lineal: los dos métodos, con reutilización en la referencia;
+    * Raman: a pedido (Q4), restado antes del procesamiento, con la columna `Background_Counts` aparte. El Inspector 2D no lo resta.
+  * **Sustrato de Step & Glue (B4, Q5):** un barrido completo con el plan actual, una ventana por λc. Se resta en la ventana de su misma λc ((w − d) − (s − d) = w − s) y sólo si el plan coincide (λc, exposición, red, modo de lectura y forma). Si no coincide, no se resta y se avisa. Reemplaza al sustrato tomado en una sola λc y restado de todas las ventanas.
+  * **"Restar"** (Q7) actúa sólo en lo mostrado y procesado; en Step & Glue vuelve a coser el último barrido.
+  * **Conciliación de contratos (Ronda 4):**
+
+    | Control (GUI) | Señal | Motor | Tipo y unidad | Por defecto |
+    | :--- | :--- | :--- | :--- | :--- |
+    | `BackgroundRow.cmb_method` | `settingsChanged(str, int)` | `RoutineDark.set_settings` → `method=` de `ensure_dark` / `take_dark` | `"shutter"` / `"all_off"` | `"shutter"` |
+    | `BackgroundRow.spin_frames` | `settingsChanged(str, int)` | `n_frames=` | entero ≥ 1 | 1 |
+    | `BackgroundRow.btn_take` | `takeNowRequested(str, int)` | `RoutineDark.take_now(exposure_s)` | s | — |
+    | `BackgroundRow.btn_discard` | `discardRequested()` | `RoutineDark.discard(exposure_s)` → `DarkStore.discard(conditions)` | — | — |
+    | `BackgroundRow.chk_subtract` | `toggled(bool)`; S&G: `set_subtract_dark(bool)` | `BackgroundRow.for_display`, `corrected`; `Backend.subtract_dark` | bool | True |
+    | exposición de la rutina (spin; Raman: la de la cámara) | — | `DarkConditions.exposure_s` | s | la de la medición |
+    | `BackgroundRow.lbl_status` | ← `RoutineDark.changed` y timer de 1 s | `DarkStore.status` → (estado, fondo, motivo) | — | — |
+    | S&G `btn_lock_substrate` | `lockSubstrateSignal(float, float, float, float, bool)` | `Backend.lock_substrate` → `start_sweep(substrate=True)` | nm, nm, fracción, s, zona óptica | — |
+    | escaneo lineal: método / tomar / descartar | `darkMethodSignal(str)` / `acquireBackgroundSignal(dict)` / `discardBackgroundSignal()` | `set_dark_method` / `acquire_background_only` / `discard_background` | — | `"shutter"` |
+
+    Ninguna discrepancia: cada control tiene su parámetro, con el mismo tipo y la misma unidad.
+  * **Tests nuevos:** `test_procedure_background.py`, `_routines.py`, `_stepglue.py` y `_linescan.py`. Los tests de las rutinas se actualizaron al contrato nuevo (una exposición más por corrida, por el fondo). `conftest.py` vacía el almacén en cada test.
+  * **Mutaciones:** 25, todas detectadas. Seis sobrevivían al principio y cada una pedía un test nuevo: la forma del fondo en el `.txt` de Raman; el rechazo antes del hilo en Luminiscencia y Crecimiento puntuales y en la grilla de Crecimiento (el cuerpo también rechaza, pero ya con la sesión tomada); el del mapa, que sin el rechazo previo pasaba la cámara a FVB y guardaba un mapa vacío; y la ganancia EM en la clave del fondo del escaneo lineal.
+  * **Suite completa:** 1613 passed, 3 xfailed, 0 failed. En la corrida anterior, dos tests del escaneo lineal fallaban sólo en la suite completa: un objeto dejado por otro test cerraba el obturador del mismo espectrómetro simulado. El espía registra ahora sólo las llamadas del escaneo lineal; una mutación del obturador confirma que sigue detectando.
+  * **Pendiente de banco:** BANCO-62.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 

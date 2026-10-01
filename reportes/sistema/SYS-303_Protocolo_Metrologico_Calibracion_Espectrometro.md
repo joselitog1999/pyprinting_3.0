@@ -232,6 +232,8 @@ $$\Delta\tilde{\nu} \;[\text{cm}^{-1}] = \left(\frac{1}{\lambda_{\text{láser}}\
 9. Si $\delta\nu_{\text{offset}} \ne 0.00$, el valor se compensa automáticamente en `core/raman_engine.py` y se registra en `pyspectrum_calibration_last.txt`.
 
 #### Paso 4.2: Verificación Secundaria con Agua Destilada
+> **Nota (2026-09-30, DEC-040):** el botón "Verificar calibración con agua" de la pestaña Calibraciones de PySpectrum 3.0 se **retiró** (abría el 532, leía un cuadro sin adquirir y, sin banda, informaba corrimiento 0). Este paso, si se hace, no tiene hoy una acción de software dedicada; la λ se verifica con la Calibración de λ (automática).
+
 * Medir una microgota de agua Milli-Q en el rango amplio con la red de $150\text{ l/mm}$.
 * El módulo `fit_raman_water.py` ajusta el triplete Lorentziano de estiramiento $\text{O-H}$ centrado en $3300\text{ cm}^{-1}$ ($640 - 655\text{ nm}$ para bombeo a 532 nm), validando la linealidad a altas frecuencias vibracionales.
 

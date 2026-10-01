@@ -31,8 +31,8 @@ longitud de onda, aplica el protocolo completo de obturadores y watchdog.
 
 **Sondas de `tools/bench/`** (con `tools/bench/INSTRUCCIONES.txt`). Ninguna acciona obturadores, láseres,
 la platina ni el espectrógrafo:
-- `legacy_console_probe.py`: dentro del proceso legado. Lee la cámara por pylablib, y el Shamrock y dos
-  getters de la cámara por ctypes (ver la regla de abajo).
+- `legacy_console_probe.py`: dentro del proceso legado. Lee la cámara **sólo** por pylablib (desde el
+  2026-09-30; antes tenía dos getters por ctypes) y el Shamrock con los `Get*` del objeto del legado.
 - `andor_acquisition_mode_probe.py`: la cámara por ctypes, sola. **Archivada por la regla de abajo**
   (BANCO-03).
 - `pi_stage_probe.py`: sólo lectura de la platina, sin servo (BANCO-17).
@@ -71,7 +71,7 @@ la platina ni el espectrógrafo:
 | Prueba | Veredicto de la revisión | Qué cambió |
 | :--- | :--- | :--- |
 | BANCO-01 | vale | ya se leyó por pylablib |
-| BANCO-02 | vale sólo para el legado | la parte que falta no bloquea a 3.0; `observar_live()` usa ctypes: se reemplaza por pylablib (propuesta) |
+| BANCO-02 | vale sólo para el legado | la parte que falta no bloquea a 3.0; `observar_live()` ya usa el contador de pylablib (2026-09-30) |
 | BANCO-03 | **archivada** | la sonda habla con la DLL por ctypes; sus preguntas T1-T4 pasan a BANCO-55 con pylablib |
 | BANCO-09 | vale, ajustada | el camino TTL es `setup_shutter` de pylablib |
 | BANCO-10 | vale, ajustada | la regla de "cero = falla" era del driver propio; queda como control del bias |
@@ -89,13 +89,13 @@ la platina ni el espectrógrafo:
 | Grupo H (intro) | **actualizado** | el bloque A está completo: 3.0 ya puede abrirse contra el equipo, **después** del Grupo E |
 | El resto (Shamrock, DAQ, platina, relevamiento, traza, láser) | vale | la regla no los toca |
 
-**Cambios de sondas propuestos, pendientes de aprobación** (tocan la cámara del banco, aunque sea en sólo
-lectura):
-- `legacy_console_probe.py`: reemplazar `C.sdk` y `observar_live()`, que usan ctypes, por los métodos de
-  pylablib del objeto cámara del legado (`get_device_info`, `get_status`, `get_frames_status`). La sección D
-  (Shamrock por ctypes) queda como está.
-- Una sonda nueva de 3.0 sobre pylablib para BANCO-38 y BANCO-55, que registre cada llamada y cada código.
-  Es una herramienta nueva: pasa por las Rondas 1 y 2.
+**Cambios de sondas** (aprobados por el investigador el 2026-09-30):
+- ✅ `legacy_console_probe.py`: `C.sdk` y `observar_live()` ya no usan ctypes; la cámara se lee con los
+  getters de pylablib del objeto del legado. Se sumaron la sección E (lo que compara BANCO-55, con
+  `get_full_info`), `guardar_info(ruta)` (JSON) y, en `observar_live()`, los cuadros sin leer (BANCO-60).
+  La sección D (Shamrock) queda como está. Test: `tests/test_legacy_console_probe.py` (sólo lectura).
+- ◐ Una sonda nueva de 3.0 sobre pylablib para BANCO-38 y BANCO-55, que registre cada llamada y cada código:
+  Ronda 1 aprobada (sólo lectura); falta la Ronda 2.
 
 ## Resumen
 
@@ -161,6 +161,7 @@ lectura):
 | BANCO-59 | Rutinas de grilla de 3.0: espejo, potencia y láser por fase | PySpectrum AND-1 (R4-K) | **Láser; con aprobación** | ☐ |
 | BANCO-60 | Live de 3.0 sobre pylablib: velocidad, cambios en vivo y pausa por una rutina | PySpectrum, paquete 1 de R4-M | Sin láser | ☐ |
 | BANCO-61 | Herramientas de Exploración: regla, eje λ, ajuste, fondo, traza y guardado | PySpectrum, paquete 2 de R4-M | Lámpara, sin láser | ☐ |
+| BANCO-62 | El fondo en los procedimientos: obturador, reutilización, todo apagado y sustrato | PySpectrum, R4-N | Lámpara; láser sólo en un punto, con aprobación | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -174,16 +175,16 @@ La sonda se ejecuta dentro del proceso legado, desde su consola (menú Console W
 exec(open(r"C:\Users\josel\Documents\Obsidian_Vault\printing3\tools\bench\legacy_console_probe.py", encoding="utf-8").read())
 ```
 
-No llama a nada que modifique la cámara: sólo getters de pylablib y funciones `Get*`. Las de la cámara
-por ctypes (`C.sdk` y `observar_live()`) quedan fuera de la regla de pylablib: sus resultados se conservan,
-pero no hace falta volver a correrlas (ver la regla al principio).
+No llama a nada que modifique la cámara: sólo getters de pylablib y funciones `Get*` del Shamrock. Desde el
+2026-09-30 la cámara se lee sólo por pylablib; los resultados anteriores de `C.sdk` (por ctypes) se conservan
+como registro.
 
 ### ✅ BANCO-01 — Geometría del detector leída del hardware
 - **Verifica**: que el detector es el que `DEC-033` estableció con hojas de datos.
 - **Estado (2026-09-28, investigador):** el tamaño de píxel queda **validado por la hoja de datos** ([DS-iXon] p. 1: 8 × 8 µm, 1004 × 1002 activos), que es fuente primaria. Esta lectura es una confirmación opcional, **no un bloqueante**: si el equipo devolviera otra cosa, el cabezal instalado no sería el de la hoja de datos, y eso se reabre en `DEC-033`.
-- **Procedimiento**: correr la sonda; leer las líneas `C.pixel_size`, `C.detector_size` y `C.sdk`.
-- **Aceptación**: `GetPixelSize = 8.00 x 8.00 um`, `GetDetector = 1004x1002`,
-  `GetHeadModel = 'DU8285_VP'`.
+- **Procedimiento**: correr la sonda; leer las líneas `C.pixel_size`, `C.detector_size` y `C.device_info`
+  (hasta el 2026-09-28, `C.sdk`, por ctypes).
+- **Aceptación**: tamaño de píxel 8.00 x 8.00 um, detector 1004 x 1002, modelo `DU8285_VP`.
 - **Si falla**: reabrir `DEC-033` y `SW-003`. El valor vive en un solo lugar
   (`andor_ccd_driver.DETECTOR_PIXEL_PITCH_UM`) y los tests usan las hojas de datos como oráculo,
   así que fallarían a propósito hasta revisar esas fuentes.
@@ -985,6 +986,20 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **Traza:** fila propia sobre la imagen de la ranura; tapar y destapar la lámpara. La traza tiene que acompañar.
 - **Carga:** con el ajuste encendido y 0.01 s de exposición, anotar "mostrados" en la línea de estado. En la PC de desarrollo un cuadro pintado cuesta unos 10 ms, y unos 26 ms con los dos ajustes.
 - **Guardar:** abrir el `.h5` y verificar el crudo, el fondo aparte y `camera_full_info_json` con la cámara real.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-62 — El fondo en los procedimientos (R4-N): obturador, reutilización, todo apagado y sustrato (lámpara; láser sólo en el último punto, con aprobación)
+- **Qué se prueba:** la fila "Fondo:" de las rutinas, con la cámara y el Shamrock reales (`DEC-040`, R4-N).
+- **Obturador cerrado (por defecto):** un Step & Glue corto con la lámpara encendida.
+  - Antes de la primera ventana se tiene que oír o ver el obturador del espectrómetro cerrarse y volver a abrirse.
+  - El `StepGlue_background_<id>.npz` tiene que estar cerca del nivel de bias, sin estructura de la lámpara. Si se ve la lámpara, el obturador no tapa bien.
+  - Las ventanas tienen que estar crudas: comparar una con el `.npz`.
+- **Reutilización:** repetir el mismo barrido. No se tiene que tomar otro fondo (el obturador no se cierra). Cambiar la exposición: se tiene que tomar uno nuevo.
+- **¿Cambia el oscuro con λc?** Es el supuesto de Q1. Tomar dos fondos con "Tomar fondo ahora" en dos λc lejanas (por ejemplo 500 y 850 nm), con la misma configuración, y comparar sus medias. Si difieren más que su ruido, la red o λc tienen que pasar a ser condiciones.
+- **Todo apagado:** elegir "Todo apagado" en Luminiscencia. Iniciar sin fondo: no tiene que arrancar. Apagar la lámpara, apretar "Tomar fondo ahora" e iniciar: tiene que arrancar y usar ese fondo.
+- **Láser abierto:** con un láser abierto desde [Obturadores] ⚠️ (con aprobación), "Tomar fondo ahora" en "Todo apagado" tiene que rechazar la toma.
+- **Sustrato:** con un sustrato limpio, "🔒 Fijar sustrato (barrido completo)"; después, la muestra con "Restar Fondo de Sustrato". Las uniones del cosido no tienen que mostrar escalones nuevos. Cambiar λ final: el sustrato no se tiene que restar, y el programa lo tiene que avisar.
+- **Raman:** tomar un fondo, adquirir y guardar. El `.txt` tiene que tener la columna `Background_Counts`, y el espectro mostrado tiene que bajar en el nivel del fondo.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación

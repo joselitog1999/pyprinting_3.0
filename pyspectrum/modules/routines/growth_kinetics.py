@@ -122,6 +122,10 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
 
         ctrl_vlo.addLayout(grid)
 
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row_point = BackgroundRow(default_frames=1)          # fondo de la serie (R4-N)
+        ctrl_vlo.addWidget(self.bg_row_point)
+
         self.btn_run = QtWidgets.QPushButton("▶️ Iniciar Monitoreo de Crecimiento")
         self.btn_run.setStyleSheet("background-color: #FAB387; color: #11111B; font-weight: bold;")
         self.btn_run.setCheckable(True)
@@ -188,7 +192,7 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
     @pyqtSlot(np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, int)
     def update_growth_data(self, wave: np.ndarray, spec: np.ndarray, wave_fit: np.ndarray, spec_fit: np.ndarray,
                            t_axis: np.ndarray, lmax_axis: np.ndarray, current_lmax: float, progress: int):
-        self.curve_spec.setData(wave, spec)
+        self.curve_spec.setData(wave, self.bg_row_point.for_display(spec))
         if len(wave_fit) > 0:
             self.curve_fit.setData(wave_fit, spec_fit)
         self.curve_spr.setData(t_axis, lmax_axis)
@@ -265,6 +269,10 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
         self.chk_center_seed = QtWidgets.QCheckBox("Centrar Semilla (confocal)")
         grid_params.addWidget(self.chk_center_seed, 3, 0, 1, 2)
         ctrl_vlo.addLayout(grid_params)
+
+        from pyspectrum.ui.background_row import BackgroundRow
+        self.bg_row_grid = BackgroundRow(default_frames=1)           # un fondo por grilla (R4-N)
+        ctrl_vlo.addWidget(self.bg_row_grid)
 
         # Criterios duales de parada
         lbl_stop = QtWidgets.QLabel("Criterios de Parada por Nodo:")
@@ -408,8 +416,14 @@ class GrowthKineticsPanel(QtWidgets.QWidget):
         self.lbl_grid_progress.setText(f"Nodo: {idx + 1} / {total} | Estado: {phase_label}")
 
     @pyqtSlot(np.ndarray, np.ndarray, float, float)
+    def point_exposure(self):
+        try:
+            return float(self.edit_exp.text())
+        except ValueError:
+            return None
+
     def update_grid_spectrum(self, wave: np.ndarray, spec: np.ndarray, lmax: float, elapsed_s: float):
-        self.curve_grid_spec.setData(wave, spec)
+        self.curve_grid_spec.setData(wave, self.bg_row_grid.for_display(spec))
         self.lbl_grid_peak.setText(f"λ_max nodo actual: <b>{lmax:.2f} nm</b> | t: <b>{elapsed_s:.1f} s</b>")
 
     @pyqtSlot()
@@ -511,6 +525,11 @@ class GrowthKineticsBackend(QtCore.QObject):
 
         self.point_thread = RoutineThread(self.SESSION_NAME_POINT, self)
         self.grid_thread = RoutineThread(self.SESSION_NAME_GRID, self)
+        # Fondo de los procedimientos (R4-N): uno para la serie puntual y otro para la grilla
+        from pyspectrum.modules.routines.routine_dark import RoutineDark
+        self.point_dark = RoutineDark(self.camera, self.spectrometer, self.SESSION_NAME_POINT, "GrowthPoint", self)
+        self.grid_dark = RoutineDark(self.camera, self.spectrometer, self.SESSION_NAME_GRID, "GrowthGrid", self)
+        self.run_dark = None
         self.point_thread.finished.connect(self._on_point_finished)
         self.grid_thread.finished.connect(self._on_grid_finished)
         hardware_session.emergencyStopSignal.connect(self.stop_growth)
@@ -537,6 +556,11 @@ class GrowthKineticsBackend(QtCore.QObject):
         self.originUpdatedSignal.connect(widget.set_origin_fields)
         if hasattr(widget, "lbl_grid_progress"):
             self.statusSignal.connect(widget.lbl_grid_progress.setText)
+        if hasattr(widget, "bg_row_point"):
+            from pyspectrum.modules.routines.routine_dark import wire_row
+            wire_row(widget.bg_row_point, self.point_dark, widget.point_exposure, getattr(widget, "lbl_peak", None))
+            wire_row(widget.bg_row_grid, self.grid_dark, widget.spin_grid_exp.value,
+                     getattr(widget, "lbl_grid_progress", None))
 
     @pyqtSlot(str)
     def confirm_mirror(self, position: str):
@@ -571,6 +595,10 @@ class GrowthKineticsBackend(QtCore.QObject):
         if wave is None:
             self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la medición no arranca.")
             return
+        refusal = self.point_dark.check_start(float(exp_time))
+        if refusal:
+            self.statusSignal.emit(f"⛔ {refusal}")
+            return
         self.wave_axis = wave
         self.laser_in_use = laser
         self.total_frames = int(n_frames)
@@ -578,6 +606,9 @@ class GrowthKineticsBackend(QtCore.QObject):
         self.t_points, self.lmax_points = [], []
 
         def body(runner, ctl):
+            from pyspectrum.modules.routines.routine_dark import corrected
+            dark = self.point_dark.ensure(runner, float(exp_time))   # fondo de la serie (R4-N)
+            self.run_dark = dark
             runner.set_mirror("down")
             runner.laser(laser, True)
             t0 = time.monotonic()
@@ -589,7 +620,7 @@ class GrowthKineticsBackend(QtCore.QObject):
                 except NodeFailed as e:
                     self.statusSignal.emit(f"Cuadro {k + 1} fallido: {e}")
                     continue
-                wave_fit, spec_fit, lmax = self._fit(wave, spec)
+                wave_fit, spec_fit, lmax = self._fit(wave, corrected(spec, dark))   # λmax sin el fondo (B3)
                 self.t_points.append(time.monotonic() - t0)
                 self.lmax_points.append(float(lmax))
                 self.curr_frame = k + 1
@@ -655,6 +686,11 @@ class GrowthKineticsBackend(QtCore.QObject):
         if wave is None:
             self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la grilla no arranca.")
             return
+        refusal = self.grid_dark.check_start(float(config["exp_time"]))
+        if refusal:
+            self.statusSignal.emit(f"⛔ {refusal}")
+            hardware_session.statusWarningSignal.emit(refusal)
+            return
         self.grid_config = dict(config)
         self.nodes = list(self._pending_nodes)
         self.states = [NODE_PENDING] * len(self.nodes)
@@ -666,6 +702,7 @@ class GrowthKineticsBackend(QtCore.QObject):
             laser = cfg["laser"]
             every = max(1, int(cfg.get("autofocus_every", 1)))
             total = len(self.nodes)
+            self.run_dark = self.grid_dark.ensure(runner, float(cfg["exp_time"]))   # un fondo por grilla (R4-N)
             while self.idx < total:
                 ctl.wait_while_paused(runner, lambda: self.gridNodeProgressSignal.emit(self.idx, total, "En pausa."))
                 if ctl.take_skip():
@@ -758,7 +795,8 @@ class GrowthKineticsBackend(QtCore.QObject):
                 return
             t_frame = time.monotonic()
             spec, _mode = runner.spectrum_1d(exp_time)
-            _wf, _sf, lmax = self._fit(wave_axis, spec)
+            from pyspectrum.modules.routines.routine_dark import corrected
+            _wf, _sf, lmax = self._fit(wave_axis, corrected(spec, self.run_dark))   # λmax sin el fondo (B3)
             elapsed = time.monotonic() - t0
             self._node_t_points.append(elapsed)
             self._node_lmax_points.append(float(lmax))
@@ -819,7 +857,8 @@ class GrowthKineticsBackend(QtCore.QObject):
             os.makedirs(save_dir, exist_ok=True)
             base = os.path.join(save_dir, f"GrowthNode_{idx:03d}")
             from pyspectrum.calibration.repository import correction_header_text
-            corr = correction_header_text(self.spectrometer)        # R3-gui §4.6; λmax también depende del eje
+            corr = (correction_header_text(self.spectrometer)       # R3-gui §4.6; λmax también depende del eje
+                    + "\n" + self.grid_dark.header_text(self.run_dark, save_dir))   # fondo aparte (R4-N)
             np.savetxt(base + "_kinetics.txt", np.column_stack([t_points, lmax_points]),
                        header="t_s\tlambda_max_nm  (serie de exposiciones reales)\n" + corr, fmt="%.4f", encoding="utf-8")
             np.savetxt(base + "_final_spectrum.txt", np.column_stack([wave_axis, spec]),

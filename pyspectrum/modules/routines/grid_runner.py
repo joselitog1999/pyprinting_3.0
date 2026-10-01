@@ -173,19 +173,49 @@ class GridRunner:
         return ok
 
     # ── exposición ──
-    def spectrum_1d(self, exposure_s: float) -> Tuple[np.ndarray, str]:
-        """Un espectro 1D con una exposición real. Respeta Single-Track o FVB si la cámara está en uno de
-        esos modos; desde Imagen pasa a FVB (una exposición 2D no es un espectro). Devuelve (espectro,
-        modo)."""
+    def prepare_1d(self) -> Tuple[Tuple[int, ...], str, int]:
+        """El modo con el que se mide un espectro 1D: Single-Track o FVB si la cámara está en uno de esos
+        modos; desde Imagen pasa a FVB (una exposición 2D no es un espectro). Devuelve (forma, nombre, modo)."""
         from pyspectrum.drivers.andor_ccd_driver import READ_MODE_FVB, READ_MODE_SINGLE_TRACK
         mode = self.camera.get_read_mode() if hasattr(self.camera, "get_read_mode") else READ_MODE_FVB
         if mode == READ_MODE_SINGLE_TRACK:
-            name = "Single-Track"
-        else:
-            if mode != READ_MODE_FVB:
-                self.camera.set_read_mode(READ_MODE_FVB)
-            name = "FVB" if mode == READ_MODE_FVB else "FVB (la cámara estaba en otro modo)"
-        return self.expose((1004,), exposure_s), name
+            return (1004,), "Single-Track", READ_MODE_SINGLE_TRACK
+        if mode != READ_MODE_FVB:
+            self.camera.set_read_mode(READ_MODE_FVB)
+        return (1004,), ("FVB" if mode == READ_MODE_FVB else "FVB (la cámara estaba en otro modo)"), READ_MODE_FVB
+
+    def spectrum_1d(self, exposure_s: float) -> Tuple[np.ndarray, str]:
+        """Un espectro 1D con una exposición real (modo de `prepare_1d`). Devuelve (espectro, modo)."""
+        shape, name, _mode = self.prepare_1d()
+        return self.expose(shape, exposure_s), name
+
+    # ── Fondo del procedimiento (R4-N; DEC-040) ───────────────────────────
+    def ensure_dark_1d(self, exposure_s: float, *, spectrometer, method: str, n_frames: int, store=None):
+        """El fondo de la corrida con el modo de `spectrum_1d` y la exposición de la medición. Se reutiliza si
+        las condiciones no cambiaron. Con "obturador cerrado" se toma solo y el obturador del espectrómetro
+        vuelve a abrirse (verificado) antes de medir; con "todo apagado" nunca se toma solo: el operador lo
+        toma antes con [Tomar fondo ahora]."""
+        from pyspectrum.services import procedure_background as pb
+        shape, _name, mode = self.prepare_1d()
+        cond = pb.read_conditions(self.camera, shape, exposure_s=exposure_s, read_mode=mode)
+        try:
+            return pb.ensure_dark(self.camera, spectrometer, cond, method=method, n_frames=n_frames,
+                                  expose=self.expose, store=store)
+        except pb.DarkMissing as e:
+            raise GridAbort(str(e))
+        except pb.DarkError as e:
+            raise GridAbort(f"No se pudo tomar el fondo: {e}")
+
+    def take_dark_1d(self, exposure_s: float, *, spectrometer, method: str, n_frames: int, store=None):
+        """Toma un fondo nuevo (siempre mide) y lo guarda en el almacén ([Tomar fondo ahora])."""
+        from pyspectrum.services import procedure_background as pb
+        shape, _name, mode = self.prepare_1d()
+        cond = pb.read_conditions(self.camera, shape, exposure_s=exposure_s, read_mode=mode)
+        try:
+            return pb.take_dark(self.camera, spectrometer, cond, method=method, n_frames=n_frames,
+                                expose=self.expose, store=store)
+        except pb.DarkError as e:
+            raise GridAbort(f"No se pudo tomar el fondo: {e}")
 
     def expose(self, shape, exposure_s: float) -> np.ndarray:
         """Una exposición real (R4-5). Stop/E-STOP → GridAbort; cualquier otra falla → NodeFailed."""
@@ -199,3 +229,16 @@ class GridRunner:
         if kind in ("user_stop", "estop"):
             raise GridAbort("Detenida durante la exposición.")
         raise NodeFailed(f"La exposición falló: {fr.detail} ({kind}).")
+
+
+def expected_1d_conditions(camera, exposure_s: float):
+    """Las condiciones con las que `spectrum_1d` va a medir, sin tocar la cámara (para verificar el fondo
+    antes de iniciar y para el estado de la fila "Fondo")."""
+    from pyspectrum.drivers.andor_ccd_driver import READ_MODE_FVB, READ_MODE_SINGLE_TRACK
+    from pyspectrum.services import procedure_background as pb
+    try:
+        mode = camera.get_read_mode()
+    except Exception:
+        mode = READ_MODE_FVB
+    mode = READ_MODE_SINGLE_TRACK if mode == READ_MODE_SINGLE_TRACK else READ_MODE_FVB
+    return pb.read_conditions(camera, (1004,), exposure_s=exposure_s, read_mode=mode)

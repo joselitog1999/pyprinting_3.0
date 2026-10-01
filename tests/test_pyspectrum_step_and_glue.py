@@ -461,33 +461,46 @@ class TestEdgeCropOpticalCoreAndSubstrate(unittest.TestCase):
 
     # ── 3. Fijar y restar fondo de sustrato ───────────────────────────────
 
-    def test_lock_substrate_stores_current_camera_reading(self):
-        self.assertIsNone(self.be._substrate_signal)
-        self.be.lock_substrate()
-        self.assertIsNotNone(self.be._substrate_signal)
-        self.assertEqual(self.be._substrate_signal.shape, (1004,))
+    def _processing_events_until_idle(self, timeout_s=30.0):
+        import time
+        from PyQt6.QtWidgets import QApplication
+        t_end = time.monotonic() + timeout_s
+        while self.be._thread is not None and time.monotonic() < t_end:
+            QApplication.processEvents()
+            time.sleep(0.01)
+
+    def test_lock_substrate_stores_one_window_per_center(self):
+        # R4-N, B4: el sustrato es un barrido completo con el mismo plan, una ventana por λc.
+        self.assertIsNone(self.be.substrate)
+        self.be.measure_substrate(450.0, 650.0, 0.20, 0.05)
+        req, the_plan, _rep = self.be._prepare(450.0, 650.0, 0.20, 0.05, False, False)
+        self.assertIsNotNone(self.be.substrate)
+        self.assertEqual(len(self.be.substrate.windows), len(the_plan.centers))
+        self.assertTrue(all(np.shape(v) == (1004,) for v in self.be.substrate.windows.values()))
 
     def test_lock_substrate_signal_from_frontend_reaches_backend(self):
-        self.fe.lockSubstrateSignal.emit()
-        self.assertIsNotNone(self.be._substrate_signal)
+        # El panel manda el plan actual; el barrido del sustrato corre en su hilo.
+        self.fe._confirm_mirror = lambda: True
+        self.fe.edit_start_wl.setValue(450.0)
+        self.fe.edit_end_wl.setValue(650.0)
+        self.fe._on_lock_substrate()
+        self._processing_events_until_idle()
+        self.assertIsNotNone(self.be.substrate)
 
-    def test_subtract_substrate_removes_locked_background_from_each_step(self):
-        # Fija un fondo de sustrato constante conocido monkeypatchando get_1d_spectrum.
-        substrate_level = np.full(1004, 300.0)
-        self.be._substrate_signal = substrate_level.copy()
-
+    def test_subtract_substrate_removes_its_own_window_from_each_step(self):
         original_get_1d = self.camera.get_1d_spectrum
-        signal_level = 1000.0
-        self.camera.get_1d_spectrum = lambda: np.full(1004, signal_level)
         try:
-            self.be.measure_step_and_glue(450.0, 650.0, 0.20, 0.05, normalize=False, check_water=False, subtract_substrate=True)
+            self.camera.get_1d_spectrum = lambda: np.full(1004, 300.0)       # oscuro y sustrato: 300
+            self.be.measure_substrate(450.0, 650.0, 0.20, 0.05)
+            self.camera.get_1d_spectrum = lambda: np.full(1004, 1000.0)      # muestra: 1000
+            self.be.measure_step_and_glue(450.0, 650.0, 0.20, 0.05, normalize=False, check_water=False,
+                                          subtract_substrate=True)
         finally:
             self.camera.get_1d_spectrum = original_get_1d
-
-        # Cada paso crudo cacheado debe reflejar signal - substrate = 700, no 1000.
+        # Cada ventana menos el sustrato de su λc = 700 (el oscuro se cancela), no 1000.
         self.assertGreater(len(self.be._raw_spec_steps), 0)
         for step_spec in self.be._raw_spec_steps:
-            np.testing.assert_allclose(step_spec, signal_level - 300.0)
+            np.testing.assert_allclose(step_spec, 700.0)
 
     def test_subtract_substrate_ignored_without_lock(self):
         # subtract_substrate=True pero nunca se fijó sustrato: no debe lanzar ni alterar datos.
@@ -500,7 +513,11 @@ class TestEdgeCropOpticalCoreAndSubstrate(unittest.TestCase):
     def test_subtract_substrate_shape_mismatch_does_not_raise(self):
         # Sustrato fijado en 2D pero el barrido corre en 1D: forma incompatible, debe
         # ignorarse con seguridad (no restar, no lanzar).
-        self.be._substrate_signal = np.zeros((self.camera.height, self.camera.width))
+        from pyspectrum.modules.step_and_glue import Substrate
+        req, the_plan, _rep = self.be._prepare(450.0, 650.0, 0.20, 0.05, False, False)
+        self.be.substrate = Substrate(self.be._plan_key(req, the_plan),
+                                      {round(c, 4): np.zeros((self.camera.height, self.camera.width))
+                                       for c in the_plan.centers}, None, "")
         try:
             self.be.measure_step_and_glue(450.0, 650.0, 0.20, 0.05, normalize=False, check_water=False, subtract_substrate=True)
         except Exception as e:
