@@ -63,6 +63,16 @@ El módulo **Raman Analyzer** es una suite completa de procesamiento, calibraci�
 - **Dónde se usa:** `core/raman_engine.py::parse_spectrum_file` es el cargador único (`.sif` o texto) de la suite multi-espectro. El panel de espectro individual usa `read_raman_sif` con los controles del grupo "Archivo .sif".
 - **Tests:** `tests/test_sif_slots_and_raman.py`, sobre `reserva/cumulo_594.sif` (Raman: señal ya corregida más fondo) y los dos SIF de transmitancia.
 
+### Rango de cada espectro en la suite multi-espectro (2026-10-02)
+- **Antes:** la suite pasaba todo a `interpolate_spectra_to_common_grid`, la intersección de los rangos, y Overlay y Crudos mostraban sólo esa parte, sin aviso. Con `pl_400.sif` (698-802 nm) y `cumulo_594.sif` (610-714 nm) quedaban 154 de 1004 puntos.
+- **Ahora:**
+  - `native_spectra` guarda cada espectro en su eje, con el recorte aplicado;
+  - `_process_native` aplica la misma línea base (un blanco más corto da `NaN` fuera de su rango), el mismo suavizado, la misma normalización por espectro y la misma cascada;
+  - Overlay y Crudos dibujan esos espectros, y su CSV exporta pares de columnas.
+- **La grilla común** queda para promedio, cinética, mapa y PCA. `lbl_common_range` avisa cuando deja datos afuera.
+- **Señal por segundo:** `read_raman_sif` pasa el fondo a cuentas por segundo (`RamanSifData.per_second`).
+- **Tests:** `tests/test_multi_spectrum_native_ranges.py` y `tests/test_sif_slots_and_raman.py`.
+
 ### Estudio de Exportación (2026-10-02)
 - **Panel individual:** `btn_studio_top` y `btn_studio_bottom` abren `analysis/figure_export_studio.py::FigureExportStudioDialog` con el gráfico superior o el inferior. Esos gráficos son `PlotItem` de un `GraphicsLayout`, así que se pasan envueltos en un objeto con `.plotItem`, que es lo único que lee el estudio.
 - **Suite multi-espectro:** `btn_export_studio` abre el gráfico de la pestaña activa; en PCA, las cargas.

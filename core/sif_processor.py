@@ -2083,6 +2083,7 @@ class RamanSifData:
     note: str
     metadata: Dict[str, str]
     slots: Tuple[str, ...]
+    per_second: bool = False         # la señal está en cuentas por segundo; el fondo se pasó a la misma unidad
 
 
 def _reduce(data: np.ndarray, frame: Optional[int], rows: Optional[Tuple[int, int]]) -> np.ndarray:
@@ -2115,6 +2116,7 @@ def read_raman_sif(filepath, *, frame: Optional[int] = None, rows: Optional[Tupl
     n_frames, n_rows, width = sig.data.shape
     raw = _reduce(sig.data, frame, rows)
     notes: List[str] = []
+    per_second = "per second" in sig.data_type.lower()
 
     background = None
     bg_ok, why = False, ""
@@ -2124,6 +2126,15 @@ def read_raman_sif(filepath, *, frame: Optional[int] = None, rows: Optional[Tupl
         else:
             bg_frame = None if (frame is None or bg_slot.data.shape[0] != n_frames) else frame
             background = _reduce(bg_slot.data, bg_frame, rows)
+            if per_second and "per second" not in bg_slot.data_type.lower():
+                # La señal está en cuentas por segundo y el fondo en cuentas de la exposición: se lleva el fondo
+                # a cuentas por segundo para que sean comparables (investigador, 2026-10-02).
+                if bg_slot.exposure_s and bg_slot.exposure_s > 0:
+                    background = background / bg_slot.exposure_s
+                    notes.append(f"El fondo se pasó a cuentas por segundo (÷ {bg_slot.exposure_s:g} s), como la señal.")
+                else:
+                    why = "la señal está en cuentas por segundo y el fondo no dice su exposición"
+                    background = None
             if (sig.exposure_s is not None and bg_slot.exposure_s is not None
                     and abs(sig.exposure_s - bg_slot.exposure_s) > 1e-6 * max(sig.exposure_s, 1e-9)):
                 why = f"el fondo tiene otra exposición ({bg_slot.exposure_s:g} s contra {sig.exposure_s:g} s)"
@@ -2163,6 +2174,7 @@ def read_raman_sif(filepath, *, frame: Optional[int] = None, rows: Optional[Tupl
                        ("GainDAC", "Gain DAC"), ("GratingBlaze", "Grating Blaze"), ("FrameAxis", "Frame Axis")):
         if info.get(key) is not None:
             meta[label] = _decode(info.get(key))
+    meta["Unidades"] = "cuentas/s" if per_second else "cuentas"
     meta["Filas"] = str(n_rows)
     meta["Cuadros"] = str(n_frames)
     if info.get("RamanExWavelength") is not None:
@@ -2170,4 +2182,4 @@ def read_raman_sif(filepath, *, frame: Optional[int] = None, rows: Optional[Tupl
     meta["Fondo"] = " ".join(notes)
 
     return RamanSifData(np.asarray(wl, dtype=np.float64), counts, raw, background, corrected, subtracted, axis_cal,
-                        n_frames, n_rows, " ".join(notes), meta, tuple(slots))
+                        n_frames, n_rows, " ".join(notes), meta, tuple(slots), per_second)

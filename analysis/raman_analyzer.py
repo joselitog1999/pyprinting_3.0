@@ -993,7 +993,7 @@ class RamanAnalyzerWindow(QMainWindow):
         self.chk_sif_subtract.setEnabled(can_subtract)
         self.sif_path, self.sif_data = filepath, r
         self.lbl_sif_info.setText(f"Casilleros: {', '.join(r.slots)} · señal: {r.metadata.get('Tipo de la señal')}"
-                                  f"<br>{r.note}")
+                                  f" · unidades: {r.metadata.get('Unidades', 'cuentas')}<br>{r.note}")
         self.sif_box.show()
         return dict(r.metadata), r.wavelengths, r.counts
 
@@ -1900,12 +1900,13 @@ class RamanAnalyzerWindow(QMainWindow):
             sif_lines = ""
             if self.sif_data is not None:
                 r = self.sif_data
-                sif_lines = (f"# SIF: casilleros {', '.join(r.slots)}; señal '{r.metadata.get('Tipo de la señal')}'\n"
+                sif_lines = (f"# SIF: casilleros {', '.join(r.slots)}; señal '{r.metadata.get('Tipo de la señal')}'; "
+                             f"unidades {r.metadata.get('Unidades', 'cuentas')}\n"
                              f"# SIF: {r.note}\n"
                              f"# SIF: Raw_Counts es {'señal − fondo' if r.subtracted else 'la señal del SIF'}\n")
                 if r.background is not None and len(r.background) == len(self.crop_mask):
                     columns.append(r.background[self.crop_mask])         # el fondo, aparte
-                    names += ",SIF_Background_Counts"
+                    names += ",SIF_Background_Counts_per_s" if r.per_second else ",SIF_Background_Counts"
                     fmt += ",%.2f"
             data_matrix = np.column_stack(columns)
 

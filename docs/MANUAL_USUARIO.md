@@ -1268,6 +1268,7 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
     - si dice `Counts`, se muestra **señal − fondo** por defecto, y **"Restar el fondo del SIF"** permite ver el crudo;
     - sólo se resta si el fondo tiene la misma forma y la misma exposición. Si no, la casilla se deshabilita y el grupo dice por qué.
   - **Filas y cuadros:** con varias filas (Image o Multi-Track) se promedian las filas [desde, hasta), por defecto todas. Con varios cuadros (cinética), el promedio de todos o uno. En un FVB de un cuadro, esos controles quedan deshabilitados.
+  - **Señal en cuentas por segundo** (por ejemplo, `Counts (Bg corrected per second)`): el fondo se pasa también a cuentas por segundo (÷ su exposición), para que se puedan comparar. El grupo dice las unidades, y la columna exportada se llama `SIF_Background_Counts_per_s`.
   - **Eje y láser:** el eje λ sale de la calibración guardada en el SIF; si no tiene, el eje queda en píxeles y se avisa. **El láser no viene en el SIF:** elegilo siempre en "Excitación y Ejes". El `RamanExWavelength` del SIF (por ejemplo, 422 en `reserva/cumulo_594.sif`) no se usa. Podés ver el espectro en longitud de onda, en corrimiento Raman o en energía.
   - **Exportar CSV:** la cabecera dice qué casilleros vinieron, qué se hizo con el fondo y qué es `Raw_Counts`. El fondo del SIF va en una columna aparte, `SIF_Background_Counts`.
 - **Conversión Fotónica de Unidades en Vivo**:
@@ -1287,6 +1288,11 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
 
 ### 11.2 Suite Multi-Espectro & Series Temporales (`MultiSpectrumWidget`)
 Diseñada para cinéticas químicas, series temporales SERS y comparaciones de lotes:
+- **Rango de cada espectro (2026-10-02):**
+  - **"Overlay" y "Crudos & Línea Base"** muestran cada espectro con su rango completo, con la misma línea base, el mismo suavizado y la misma normalización.
+  - **Un fondo de referencia más corto que un espectro** no se extrapola: fuera de su rango, ese espectro queda sin corregir y no se dibuja.
+  - **Promedio, cinética, mapa de calor y PCA** necesitan una grilla común a todos los espectros, así que usan sólo el rango que tienen todos. Cuando eso deja datos afuera, un aviso naranja arriba de las pestañas dice el rango común y cuántos puntos quedan.
+  - **El CSV de "Overlay" y de "Crudos"** exporta cada espectro con su propio eje, en pares de columnas.
 - **🔬 Láser de Excitación y Selector Tri-Modal de Unidades Espectrales**:
   - **Selector de Láser**: Longitudes de onda estándar (532.0 nm Verde, 632.8 nm Rojo He-Ne, 637.0 nm Diodo, 785.0 nm NIR, 592.0 nm Amarillo) o valor personalizado.
   - **Selector de Unidades Eje X**: Permite alternar de forma inmediata entre **Corrimiento Raman ($\text{cm}^{-1}$)**, **Longitud de Onda ($\text{nm}$)** y **Energía Relativa ($\text{eV}$)**.

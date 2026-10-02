@@ -273,3 +273,45 @@ def test_the_sif_analyzer_does_not_subtract_the_dark_from_a_corrected_live(monke
     assert w.current_live_1d is not None
     np.testing.assert_allclose(np.nanmean(w.current_live_1d), sig.mean(), rtol=0.02)
     assert np.nanmin(w.current_live_1d) > 0                # antes: ≈ −2600 (resta doble)
+
+
+# ── Señal por segundo: el fondo también (investigador, 2026-10-02) ──────────────────────────
+
+@pytest.mark.skipif(not PL400.exists(), reason="falta reserva/pl_400.sif")
+def test_a_per_second_signal_gets_a_per_second_background():
+    r = sp.read_raman_sif(PL400)
+    raw_bg = sp.read_sif_slots(PL400)["background"].data[0, 0]
+    assert r.per_second
+    np.testing.assert_allclose(r.background, raw_bg / 5.0)            # ÷ la exposición del fondo
+    assert "por segundo" in r.note and r.metadata["Unidades"] == "cuentas/s"
+    assert not r.subtracted                                          # Solis ya restó: igual no se resta
+
+
+def test_a_raw_per_second_signal_subtracts_a_per_second_background(monkeypatch):
+    _fake_slots(monkeypatch, np.full((1, 1, 10), 100.0), np.full((1, 1, 10), 300.0), sig_type="Counts per second",
+                sig_exp=3.0, bg_exp=3.0)
+    r = sp.read_raman_sif("x.sif")
+    assert r.per_second and r.subtracted
+    np.testing.assert_allclose(r.background, 100.0)
+    np.testing.assert_allclose(r.counts, 0.0)
+
+
+def test_a_counts_signal_keeps_the_background_in_counts(monkeypatch):
+    _fake_slots(monkeypatch, np.full((1, 1, 10), 500.0), np.full((1, 1, 10), 300.0), sig_exp=3.0, bg_exp=3.0)
+    r = sp.read_raman_sif("x.sif")
+    assert not r.per_second and r.metadata["Unidades"] == "cuentas"
+    np.testing.assert_allclose(r.background, 300.0)
+
+
+@pytest.mark.skipif(not PL400.exists(), reason="falta reserva/pl_400.sif")
+def test_the_export_names_the_per_second_background(analyzer, monkeypatch, tmp_path):
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+    analyzer.load_spectrum_file(PL400)
+    out = tmp_path / "pl.csv"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    analyzer._on_export_csv()
+    text = out.read_text(encoding="utf-8")
+    header = [l for l in text.splitlines() if l.startswith("Wavelength_nm")][0]
+    assert header.endswith(",SIF_Background_Counts_per_s") and "cuentas/s" in text
+    assert "cuentas/s" in analyzer.lbl_sif_info.text()

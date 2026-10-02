@@ -1242,6 +1242,14 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * Before the slot change, the file was mislabelled instead (transmittance + live).
   * Fix: `SifSpectrum.live_is_bg_corrected`, set from the slot that becomes `live`: the Signal when there is no Live slot. The analyzer passes it as `ref_is_bg_subtracted` for the live channel, so a corrected live is never subtracted again, even with "restar ruido" checked.
   * The Live slot of the transmittance files (raw counts) is not marked. 3 mutations, all killed.
+* **Operator decisions, 2026-10-02 (both "yes"):**
+  * **The multi-spectrum suite shows each spectrum with its full range** in "Overlay" and "Crudos & Línea Base".
+    * Each spectrum gets the same baseline, smoothing, normalization and waterfall, on its own axis. A shorter reference blank gives `NaN` outside its range and is never extrapolated.
+    * The mean, kinetics, heatmap and PCA keep the common grid (the intersection), with a visible notice of the common range and its point count whenever it leaves data out.
+    * The CSV of those two tabs exports each spectrum with its own axis.
+    * Before this, `pl_400.sif` together with `cumulo_594.sif` showed 154 of 1004 points, with no notice.
+    * 6 tests and 6 mutations, all killed.
+  * **A per-second signal gets a per-second background.** When the signal's DataType says "per second", the background is divided by its own exposure before any subtraction or plot. The panel shows the units, and the export column is `SIF_Background_Counts_per_s`. 4 tests.
 
 ### DEC-043: R4-17 (C-01, Round 4) — Phase 0: Grid-Chain Test Rig and the `legacy_timer` Golden Baseline (2026-10-02)
 * **Context:** Round 2 of R4-17 is approved (`c01_ronda4/SINTESIS_RONDA2.md`; answers in `RESPUESTAS_INVESTIGADOR.md`, 2026-10-02):
