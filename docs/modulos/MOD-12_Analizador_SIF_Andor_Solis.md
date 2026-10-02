@@ -70,6 +70,8 @@ restituyendo con precisión sub-nanométrica el rango experimental genuino (ej. 
 
 ## 3. Estructura Multi-Canal de Andor Solis y Resolución de la Transmitancia
 
+> **Lectura por casillero (2026-10-02, `DEC-042`).** Los canales se identifican por el casillero del `.sif` (Señal, Referencia, Fondo, Live y Fuente, con su bandera de presencia), no por la posición del bloque. Con 4 canales el resultado es el mismo de antes. Un archivo con menos canales se nombra por lo que trae. Por ejemplo, un Raman con señal y fondo da `live` + `dark`; antes se leía, mal, como `transmittance` + `live`. En los SIF de `reserva/`, el casillero Live declara `Transmittance` aunque guarda cuentas crudas: por eso el casillero manda, no el tipo declarado.
+
 ### La Causa Raíz de las Transmitancias Disparatadas (>6000%)
 En archivos SIF multi-canal generados en mediciones de transmitancia por Andor Solis, la cámara adquiere 4 canales secuenciales:
 * **Canal 0 (`Transmittance`)**: Transmitancia calculada internamente por Andor Solis ($T_{\text{meas}}$).

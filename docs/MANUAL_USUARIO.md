@@ -1261,6 +1261,15 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
 
 ### 11.1 Modo Espectro Individual
 - **Importador Inteligente Andor Solis**: Salta automáticamente las ~50 líneas iniciales de condiciones experimentales de Andor Solis y detecta delimitadores (tabs, comas, espacios).
+- **Archivos `.sif` de Andor Solis (2026-10-02, `DEC-042`):** "Examinar Espectro…" y los lotes de la suite multi-espectro abren `.sif` además de `.asc`, `.txt`, `.csv` y `.dat`. Aparece el grupo **"Archivo .sif"**:
+  - **Qué canales trae:** un `.sif` tiene casilleros fijos (Señal, Referencia, Fondo, Live y Fuente) y cada canal declara su tipo. El grupo dice qué casilleros vinieron y de qué tipo es la señal.
+  - **El fondo ("ruido"):**
+    - si la señal dice `Counts (Bg Corrected)`, **Solis ya restó el fondo**: se usa tal cual, nunca se resta otra vez, y el fondo se dibuja punteado sólo para ver;
+    - si dice `Counts`, se muestra **señal − fondo** por defecto, y **"Restar el fondo del SIF"** permite ver el crudo;
+    - sólo se resta si el fondo tiene la misma forma y la misma exposición. Si no, la casilla se deshabilita y el grupo dice por qué.
+  - **Filas y cuadros:** con varias filas (Image o Multi-Track) se promedian las filas [desde, hasta), por defecto todas. Con varios cuadros (cinética), el promedio de todos o uno. En un FVB de un cuadro, esos controles quedan deshabilitados.
+  - **Eje y láser:** el eje λ sale de la calibración guardada en el SIF; si no tiene, el eje queda en píxeles y se avisa. **El láser no viene en el SIF:** elegilo siempre en "Excitación y Ejes". El `RamanExWavelength` del SIF (por ejemplo, 422 en `reserva/cumulo_594.sif`) no se usa. Podés ver el espectro en longitud de onda, en corrimiento Raman o en energía.
+  - **Exportar CSV:** la cabecera dice qué casilleros vinieron, qué se hizo con el fondo y qué es `Raw_Counts`. El fondo del SIF va en una columna aparte, `SIF_Background_Counts`.
 - **Conversión Fotónica de Unidades en Vivo**:
   - Longitud de onda ($\text{nm}$).
   - Desplazamiento Raman ($\text{cm}^{-1}$): $\Delta\tilde{\nu} = (1/\lambda_{\text{laser}} - 1/\lambda) \times 10^7$ con $\lambda_{\text{laser}}$ configurable (532 nm, 632.8 nm, 785 nm o libre).

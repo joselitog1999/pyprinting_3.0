@@ -1215,6 +1215,29 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Bench:** BANCO-70.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-042: `.sif` Files Read by Slot; the Raman Analyzer Opens Them (2026-10-02)
+* **Context:** the operator has Raman `.sif` files that carry the signal and the noise (background) in the same file (`reserva/cumulo_594.sif`).
+  * The Raman analyzer did not open `.sif` at all.
+  * The transmittance analyzer's reader assigned channels by block position. A two-channel Raman file came out as "transmittance + live".
+* **Facts from the files:**
+  * A `.sif` has fixed slots in this order: Signal, Reference, Background, Live and Source. Each is preceded by a presence flag (`0`/`1`); the SIFX XML footer names the same sections.
+  * Each channel declares a DataType.
+  * `cumulo_594.sif`: Signal `Counts (Bg Corrected)` + Background `Counts` (≈ 320 counts, the bias), with the Reference flag `0`. It also carries `RamanExWavelength = 422`, which is not the laser.
+  * In the two transmittance samples, the Live slot declares `Transmittance` although it holds raw counts, so the slot, not the DataType, decides the name.
+* **Decision (operator, 2026-10-02):**
+  * `read_sif_slots` reads the slots sequentially from their flags. `parse_all_sif_channels` maps slots to names; with 4 channels the result is unchanged, and the old positional scan stays as a fallback.
+  * `read_raman_sif`:
+    * a `Bg Corrected` signal is never subtracted again;
+    * a raw `Counts` signal is shown minus the file's background by default, with a toggle, and only if shape and exposure match;
+    * rows are averaged over a chosen range and frames are averaged or one is chosen;
+    * the axis comes from the SIF calibration, or pixels with a note;
+    * **the laser is always set by the user** (the SIF value is shown as "no se usa").
+  * The CSV export carries the background in its own column, `SIF_Background_Counts`.
+  * The multi-spectrum suite loads `.sif` through `parse_spectrum_file`.
+* **Tests:** `tests/test_sif_slots_and_raman.py` (19). The test of the Raman file in the transmittance reader failed before the change (`transmittance` + `live`). 15 mutations, all killed. The existing SIF tests (`test_sif_processor.py`, the six `test_sif_analyzer_*`) pass unchanged.
+* **Docs:** MANUAL §11.1, MOD-11, MOD-12 §3.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

@@ -32,6 +32,7 @@ from PyQt6.QtGui import QFont, QColor, QPen, QPainter, QImage
 
 from core.raman_engine import (
     parse_andor_solis_file,
+    parse_spectrum_file,
     wavelength_to_raman_shift,
     raman_shift_to_wavelength,
     raman_shift_to_ev,
@@ -735,7 +736,7 @@ class MultiSpectrumWidget(QWidget):
         start_dir = str(Path.home() / "Documents")
         files, _ = QFileDialog.getOpenFileNames(
             self, "Cargar Lote de Espectros", start_dir,
-            "Archivos Espectroscópicos (*.asc *.txt *.csv *.dat);;Todos (*.*)"
+            "Archivos Espectroscópicos (*.sif *.asc *.txt *.csv *.dat);;Todos (*.*)"
         )
         if not files:
             return
@@ -744,7 +745,7 @@ class MultiSpectrumWidget(QWidget):
         for f in files:
             p = Path(f)
             try:
-                meta, wls, counts = parse_andor_solis_file(p)
+                meta, wls, counts = parse_spectrum_file(p)
                 if len(wls) > 5 and len(counts) > 5:
                     self._add_spectrum_to_collection(p.name, p, wls, counts, meta)
                     loaded_count += 1
@@ -772,7 +773,7 @@ class MultiSpectrumWidget(QWidget):
     def _on_load_demo_series(self):
         demo_file = Path(__file__).resolve().parent.parent / "reserva" / "90%_in_red_10s_3_em.asc"
         if demo_file.exists():
-            meta, wls, counts = parse_andor_solis_file(demo_file)
+            meta, wls, counts = parse_spectrum_file(demo_file)
         else:
             # Espectro sintético SERS 4-MBA
             wls = np.linspace(540.0, 600.0, 1000)
@@ -1316,7 +1317,7 @@ class MultiSpectrumWidget(QWidget):
         start_dir = str(Path.home() / "Documents")
         filepath, _ = QFileDialog.getOpenFileName(
             self, "Seleccionar Archivo de Fondo / Blanco de Referencia", start_dir,
-            "Archivos Espectroscópicos (*.asc *.txt *.csv *.dat);;Todos (*.*)"
+            "Archivos Espectroscópicos (*.sif *.asc *.txt *.csv *.dat);;Todos (*.*)"
         )
         if not filepath:
             return
@@ -1326,7 +1327,7 @@ class MultiSpectrumWidget(QWidget):
         """Carga un archivo de referencia/blanco externo para sustraer como línea base (Modo 1)."""
         p = Path(filepath)
         try:
-            meta, wls, counts = parse_andor_solis_file(p)
+            meta, wls, counts = parse_spectrum_file(p)
             self.ref_blank_filepath = p
             self.ref_blank_name = p.name
             self.ref_blank_wls = np.asarray(wls, dtype=np.float64)

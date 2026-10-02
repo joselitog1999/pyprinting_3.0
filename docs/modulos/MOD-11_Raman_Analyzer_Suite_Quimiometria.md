@@ -53,6 +53,16 @@ El módulo **Raman Analyzer** es una suite completa de procesamiento, calibraci�
 
 ---
 
+### Archivos `.sif` (2026-10-02, `DEC-042`)
+- **Lectura por casillero:** `core/sif_processor.py::read_sif_slots` lee los casilleros fijos del `.sif` (Señal, Referencia, Fondo, Live y Fuente) con sus banderas de presencia, y el tipo que declara cada canal.
+- **`read_raman_sif(path, frame=None, rows=None, subtract=True)`:**
+  - reduce la señal a un espectro: el promedio de los cuadros (o uno) y el promedio de las filas `[rows)`;
+  - con una señal `Counts (Bg Corrected)` no resta nunca el fondo;
+  - con `Counts`, resta el fondo del mismo SIF sólo si tiene la misma forma y la misma exposición;
+  - el eje sale de `Calibration_data` y el láser no se toma del SIF.
+- **Dónde se usa:** `core/raman_engine.py::parse_spectrum_file` es el cargador único (`.sif` o texto) de la suite multi-espectro. El panel de espectro individual usa `read_raman_sif` con los controles del grupo "Archivo .sif".
+- **Tests:** `tests/test_sif_slots_and_raman.py`, sobre `reserva/cumulo_594.sif` (Raman: señal ya corregida más fondo) y los dos SIF de transmitancia.
+
 ## 2. 🧮 Algoritmos Numéricos y Fundamento Matemático
 
 ### 2.1 Corrección de Línea Base y Fondo de Fluorescencia
