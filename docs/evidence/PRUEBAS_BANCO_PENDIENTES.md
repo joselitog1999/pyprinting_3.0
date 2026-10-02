@@ -1049,7 +1049,7 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
   - **OD del filtro casero** (pregunta 12, se revisa acá): potencia a la salida con el filtro en alta y en baja. Hace falta una atenuación de al menos 10 (OD ≥ 1); si es menor, la lectura a baja potencia vuelve a deliberación.
   - **Tránsito del filtro:** cuánto tarda en quedar en baja potencia después de la orden. Valida los ≈ 100 ms que pidió el investigador antes del autofoco (pregunta 4).
   - **Oscuro D** con la lámpara de campo oscuro encendida y apagada.
-  - **σ_R** de 20 lecturas de 100 ms (10 bloques de 20 ms) sobre vacío.
+  - **σ_R** de 20 lecturas de 100 ms (5 bloques de 20 ms) sobre vacío.
 - **B, con coloide:**
   - r a baja potencia contra r a alta, a 1, 10, 60 y 300 s de la impresión;
   - 60 s a baja potencia sobre un lugar vacío, sin que se imprima nada (verificar con la cámara);

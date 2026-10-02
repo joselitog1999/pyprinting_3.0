@@ -667,6 +667,17 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 - **14. No:** el láser de 532 no tiene entrada de interlock remoto.
 - **15.** No se corren PySpectrum legacy y PyPrinting 3.0 a la vez durante una grilla hasta probarlo en el banco.
 
+**C-01, Ronda 4 — Ronda 2 de R4-17 (2026-10-02).** Preguntas de `c01_ronda4/SINTESIS_RONDA2.md` §4. Se aceptan las recomendaciones salvo lo que sigue.
+- **1.** La Pausa sigue la misma regla de reanudación que el rearme: primer nodo nunca expuesto, y el cortado a revisión.
+- **2. No:** un segundo "Cerrar todos" durante la espera **no** la reinicia. Los 3 s cuentan desde el **primer** cierre.
+- **3. (b):** después de una escritura fallida quedan "sin confirmar" **las cuatro líneas**.
+- **4.** Hasta Rearmar se bloquean todos los movimientos de la platina, también los manuales.
+- **5.** Si el filtro no confirma el paso a baja potencia (`up_flipper` devuelve `False`), se pausa la grilla.
+- **6. Por ahora se deshabilita todo lo relacionado con la verificación del filtro.** No hay verificación óptica, ni con el BS ni indirecta con el fotodiodo de detección. El riesgo queda asentado (`ronda2_instrumentation.md` §5).
+- **7.** La E-STOP de PySpectrum pasa a ser la parada de todo el proceso, también con PySpectrum solo, y bloquea las aperturas hasta Rearmar.
+- **8.** La grilla de PyPrinting toma la sesión de hardware (`hardware_session`) mientras corre.
+- **9.** La base de la confirmación a baja potencia es la meseta previa a la captura, dividida por la atenuación medida en la sesión. Queda sujeta a BANCO-65 y a una revisión de metrología.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** resuelto en R4-G, que reemplaza a R4-3: valen los guardados en el equipo (150 → 87, 1200 → 195, espejo → 60, detector → 0). Falta definir el protocolo del detector.

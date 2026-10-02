@@ -584,8 +584,13 @@ class MultiSpectrumWidget(QWidget):
         self.btn_export_png.clicked.connect(self._on_export_active_png)
 
         tb_hlo.addWidget(self.btn_copy_tsv)
+        self.btn_export_studio = QPushButton("🎨 Estudio de Exportación")
+        self.btn_export_studio.setToolTip("Abre el Estudio de Exportación con el gráfico de la pestaña activa "
+                                          "(en PCA, las cargas espectrales).")
+        self.btn_export_studio.clicked.connect(self._on_export_active_studio)
         tb_hlo.addWidget(self.btn_export_csv)
         tb_hlo.addWidget(self.btn_export_png)
+        tb_hlo.addWidget(self.btn_export_studio)
 
         right_vlo.addWidget(top_bar)
 
@@ -1990,6 +1995,28 @@ class MultiSpectrumWidget(QWidget):
             self._export_plotitem_to_png(self.plot_heatmap, "Raman_Heatmap_2D.png")
         elif curr == self.tab_pca:
             self._export_pca_to_png("Raman_PCA_Analysis.png")
+
+    def _on_export_active_studio(self):
+        """El Estudio de Exportación con el gráfico de la pestaña activa (2026-10-02)."""
+        if not self.spectra_list:
+            QMessageBox.warning(self, "Sin datos", "Cargá espectros antes de abrir el Estudio de Exportación.")
+            return
+        curr = self.tabs_views.currentWidget()
+        plots = {self.tab_raw_base: (self.plot_raw_baseline, "Raman_Raw_and_Baselines"),
+                 self.tab_plot: (self.plot_multi, "Raman_Overlay_Spectra"),
+                 self.tab_mean: (self.plot_mean, "Raman_Mean_Std_Spectrum"),
+                 self.tab_kin: (self.plot_kinetics, "Raman_Band_Kinetics"),
+                 self.tab_heat: (self.plot_heatmap, "Raman_Heatmap_2D"),
+                 self.tab_pca: (self.plot_pca_loadings, "Raman_PCA_Loadings")}
+        if curr not in plots:
+            return
+        plot, name = plots[curr]
+        from analysis.figure_export_studio import FigureExportStudioDialog
+        try:
+            dlg = FigureExportStudioDialog(plot, parent=self, title=name, default_filename=name)
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Error en el Estudio de Exportación", f"No se pudo abrir el estudio:\n{e}")
 
     def _on_export_active_csv(self):
         """Exporta los datos numéricos de la pestaña actualmente visible a formato CSV."""

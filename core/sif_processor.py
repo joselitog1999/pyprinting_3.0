@@ -163,6 +163,7 @@ class SifSpectrum:
     channels_count: int = 1
     is_master: bool = False
     ref_is_bg_corrected: bool = False
+    live_is_bg_corrected: bool = False   # Solis ya restó el fondo del canal live (p. ej. un Raman con señal y fondo)
 
     @property
     def num_frames(self) -> int:
@@ -272,6 +273,20 @@ def read_sif_slots(filepath) -> Dict[str, SifSlot]:
     if "signal" not in slots:
         raise ValueError(f"{filepath}: el .sif no tiene el casillero de la señal")
     return slots
+
+
+def _is_bg_corrected(data_type: str) -> bool:
+    t = data_type.lower()
+    return "bg corrected" in t or "background corrected" in t
+
+
+def live_is_bg_corrected(slots: Dict[str, SifSlot]) -> bool:
+    """True si el canal que el analizador llama "live" ya viene con el fondo restado por Solis. Es la señal
+    cuando no hay casillero Live (un Raman con fondo); el casillero Live guarda cuentas crudas."""
+    if "live" in slots:
+        return _is_bg_corrected(slots["live"].data_type) and "trans" not in slots["live"].data_type.lower()
+    sig = slots.get("signal")
+    return bool(sig) and "trans" not in sig.data_type.lower() and _is_bg_corrected(sig.data_type)
 
 
 def _slots_to_named(slots: Dict[str, SifSlot]) -> Tuple[Dict[str, np.ndarray], int, bool]:
@@ -444,6 +459,10 @@ def read_sif_file(filepath: str, custom_calib_coeffs: Optional[List[float]] = No
         channels_count = 1
 
     is_master = (channels_count == 4)
+    try:
+        live_bg = live_is_bg_corrected(read_sif_slots(filepath))
+    except Exception:
+        live_bg = False
 
     return SifSpectrum(
         raw_data=data,
@@ -455,7 +474,8 @@ def read_sif_file(filepath: str, custom_calib_coeffs: Optional[List[float]] = No
         channels=channels,
         channels_count=channels_count,
         is_master=is_master,
-        ref_is_bg_corrected=ref_is_bg_corr
+        ref_is_bg_corrected=ref_is_bg_corr,
+        live_is_bg_corrected=live_bg
     )
 
 

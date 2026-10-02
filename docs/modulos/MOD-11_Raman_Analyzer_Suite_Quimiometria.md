@@ -63,6 +63,11 @@ El módulo **Raman Analyzer** es una suite completa de procesamiento, calibraci�
 - **Dónde se usa:** `core/raman_engine.py::parse_spectrum_file` es el cargador único (`.sif` o texto) de la suite multi-espectro. El panel de espectro individual usa `read_raman_sif` con los controles del grupo "Archivo .sif".
 - **Tests:** `tests/test_sif_slots_and_raman.py`, sobre `reserva/cumulo_594.sif` (Raman: señal ya corregida más fondo) y los dos SIF de transmitancia.
 
+### Estudio de Exportación (2026-10-02)
+- **Panel individual:** `btn_studio_top` y `btn_studio_bottom` abren `analysis/figure_export_studio.py::FigureExportStudioDialog` con el gráfico superior o el inferior. Esos gráficos son `PlotItem` de un `GraphicsLayout`, así que se pasan envueltos en un objeto con `.plotItem`, que es lo único que lee el estudio.
+- **Suite multi-espectro:** `btn_export_studio` abre el gráfico de la pestaña activa; en PCA, las cargas.
+- **Tests:** `tests/test_raman_export_studio.py`.
+
 ## 2. 🧮 Algoritmos Numéricos y Fundamento Matemático
 
 ### 2.1 Corrección de Línea Base y Fondo de Fluorescencia

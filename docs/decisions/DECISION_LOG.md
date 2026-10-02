@@ -1237,6 +1237,40 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Tests:** `tests/test_sif_slots_and_raman.py` (19). The test of the Raman file in the transmittance reader failed before the change (`transmittance` + `live`). 15 mutations, all killed. The existing SIF tests (`test_sif_processor.py`, the six `test_sif_analyzer_*`) pass unchanged.
 * **Docs:** MANUAL §11.1, MOD-11, MOD-12 §3.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+* **Defect found the next day (2026-10-02, `reserva/pl_400.sif`), fixed with a test that failed first:**
+  * Naming by slot made the transmittance analyzer subtract the dark from a live channel that Solis had already corrected. The signal of `pl_400.sif` is `Counts (Bg corrected per second)`, ≈ 930, and the dark is ≈ 3267 counts in 5 s, so the live spectrum came out at ≈ −2400.
+  * Before the slot change, the file was mislabelled instead (transmittance + live).
+  * Fix: `SifSpectrum.live_is_bg_corrected`, set from the slot that becomes `live`: the Signal when there is no Live slot. The analyzer passes it as `ref_is_bg_subtracted` for the live channel, so a corrected live is never subtracted again, even with "restar ruido" checked.
+  * The Live slot of the transmittance files (raw counts) is not marked. 3 mutations, all killed.
+
+### DEC-043: R4-17 (C-01, Round 4) — Phase 0: Grid-Chain Test Rig and the `legacy_timer` Golden Baseline (2026-10-02)
+* **Context:** Round 2 of R4-17 is approved (`c01_ronda4/SINTESIS_RONDA2.md`; answers in `RESPUESTAS_INVESTIGADOR.md`, 2026-10-02):
+  * question 2 is no (the 3 s wait counts from the first close);
+  * question 3 is (b) (all four lines unconfirmed after a failed write);
+  * every filter verification is disabled for now;
+  * the rest follow the recommendations.
+* **The phases** (`ronda2_architecture.md` §8): 0 rig and golden baseline; 1 "Cerrar Todos" that does not lie; 2 the chain on one thread; 3 closing epoch and interrupted node; 4 emergency stop and rearm; 5 between-node steps; 6 low-power confirmation (off).
+* **Phase 0 (exempt: tests only):**
+  * **`tests/harness/grid_chain_rig.py`:**
+    * the real `app.Backend` workers, with the same thread topology as `create_app_satellite`: measurement, focus, trace and confocal in a real `QThread`, with the `Backend` dispatchers on the main thread acting as the GUI thread;
+    * line writes logged at `nidaq._write_shutter_lines`, with the requesting function and the thread;
+    * stage `MOV`s logged;
+    * a photodiode scripted by read number since the node's shutter opened, not by clock, so decisions do not depend on thread jitter;
+    * sleeps scaled ×0.01.
+    * `app.py` imports the modules by their short names (`measurements`, `trace`, `focus`), which are different objects from `modules.*`, so the rig patches the modules of the workers' classes.
+  * **`tests/golden/legacy_timer_chain.json`:** recorded on `927e818` before any R4-17 change: 11 nodes, 9 captures and 2 drops. The baseline holds the decisions and decision ticks, the stage moves, the line-level transitions and the DO writes.
+  * **`tests/test_legacy_timer_golden.py`** compares all of that.
+    * The levels and their order are compared exactly.
+    * Who writes is compared as a multiset, because of the first finding below.
+    * Three mutations (N_hold off by one, the trace not closing, a 1 nm move offset) are all caught.
+* **Findings:**
+  1. **Two closes race when a node is decided.** The criterion closes from the GUI thread, and the trace closes from `confocalThread` when it is stopped by a queued signal. Which one writes first varies between runs. Both write the same levels, so it is not a hazard by itself, but it is the two-thread topology that phase 2 removes.
+  2. **P-1, confirmed:** a trace tick that was already queued when the criterion decided decides the same node again. That means two `grid_detectSignal`s, `i_global` advancing twice, and a skipped node. `tests/test_grid_double_decision_probe.py` holds it as `xfail(strict=True)`.
+     * `7f5d10a` (the lab PC) has no guard against it either.
+     * The operator has seen no skipped nodes, so in practice it is rare; it needs a tick to queue while the GUI thread is busy, for example while saving the trace.
+     * Phase 2 or 3 closes it.
+  3. **On the trace's 5th tick, `I_old` is `NaN`** (an empty window when `n − M − M2 = 0`). This is the "Mean of empty slice" warning in the suite. The criterion survives it, because a comparison with `NaN` is false. It is recorded for phase 3.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]

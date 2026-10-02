@@ -1282,6 +1282,7 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
   4. **Rolling Ball (*Esfera Rodante*)**: Morfología matemática para fondos con ondulaciones complejas.
   5. **Tercera Derivada & Splines Cúbicos**: Extracción de nodos de fondo libre de picos.
 - **Filtros de De-noising y Rayos Cósmicos**: Savitzky-Golay, Fourier Pasa-Bajos FFT y extirpador estadístico de rayos cósmicos (*Cosmic Ray Despiking* por derivada y MAD).
+- **🎨 Estudio de Exportación (2026-10-02):** "Estudio: espectro original" (espectro, línea base y, si es un `.sif`, su fondo) y "Estudio: espectro corregido" (Raman neto, picos y ajustes) abren el Estudio de Exportación Científica con las capas de ese gráfico: estilos, ejes, tamaño y formato (PNG, SVG, PDF). En la suite multi-espectro, "🎨 Estudio de Exportación" abre el gráfico de la pestaña activa (en PCA, las cargas espectrales).
 - **Reglas Duales A/B & Deconvolución Multi-Pico**: Detección automática de picos (*Find Peaks*), medición de altura y área integrada entre reglas, y ajuste no lineal con perfiles Gaussianos, Lorentzianos y Pseudo-Voigt.
 
 ### 11.2 Suite Multi-Espectro & Series Temporales (`MultiSpectrumWidget`)

@@ -238,3 +238,38 @@ def test_the_export_carries_the_background_apart(analyzer, monkeypatch, tmp_path
     data = np.loadtxt(out, delimiter=",", comments="#", skiprows=text.splitlines().index(header) + 1)
     assert data.shape[1] == 7
     assert 300.0 <= float(data[:, 6].mean()) <= 341.0
+
+
+# ── El analizador de transmitancia no resta dos veces (2026-10-02, defecto de DEC-042) ───────
+
+PL400 = RESERVA / "pl_400.sif"
+
+
+@pytest.mark.skipif(not PL400.exists(), reason="falta reserva/pl_400.sif")
+@pytest.mark.parametrize("path", [CUMULO, PL400])
+def test_a_bg_corrected_live_is_marked(path):
+    spec = sp.read_sif_file(str(path))
+    assert spec.live_is_bg_corrected is True
+    assert set(spec.channels) == {"live", "dark"}
+
+
+@pytest.mark.parametrize("path", [FBIN, OBLICUA])
+def test_the_live_slot_of_a_transmittance_file_is_not_marked(path):
+    assert sp.read_sif_file(str(path)).live_is_bg_corrected is False
+
+
+@pytest.mark.skipif(not PL400.exists(), reason="falta reserva/pl_400.sif")
+def test_the_sif_analyzer_does_not_subtract_the_dark_from_a_corrected_live(monkeypatch):
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+    import sif_analyzer as sa
+    QApplication.instance() or QApplication(["pytest"])
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: (_ for _ in ()).throw(AssertionError(a[2])))
+    w = sa.SifAnalyzerWindow()
+    _KEEP_ALIVE.append(w)
+    w._load_file_list([str(PL400)])
+    w.chk_live_sub_dark.setChecked(True)                 # aunque se pida restar
+    w._recalculate_all()
+    sig = sp.read_sif_slots(PL400)["signal"].data[0, 0]
+    assert w.current_live_1d is not None
+    np.testing.assert_allclose(np.nanmean(w.current_live_1d), sig.mean(), rtol=0.02)
+    assert np.nanmin(w.current_live_1d) > 0                # antes: ≈ −2600 (resta doble)

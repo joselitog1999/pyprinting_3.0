@@ -795,6 +795,20 @@ class RamanAnalyzerWindow(QMainWindow):
         self.btn_export_png.clicked.connect(self._on_export_png)
         exp_flo.addWidget(self.btn_export_png)
 
+        # Estudio de Exportación Científica (2026-10-02): uno por gráfico
+        studio_row = QHBoxLayout()
+        self.btn_studio_top = QPushButton("🎨 Estudio: espectro original")
+        self.btn_studio_top.setToolTip("Abre el Estudio de Exportación con el gráfico superior: espectro, línea base "
+                                       "y, si es un .sif, su fondo. Estilos, ejes, tamaño y formato (PNG, SVG, PDF).")
+        self.btn_studio_top.clicked.connect(lambda: self._open_export_studio(self.plot_top, "original"))
+        self.btn_studio_bottom = QPushButton("🎨 Estudio: espectro corregido")
+        self.btn_studio_bottom.setToolTip("Abre el Estudio de Exportación con el gráfico inferior: Raman neto, picos y "
+                                          "ajustes.")
+        self.btn_studio_bottom.clicked.connect(lambda: self._open_export_studio(self.plot_bottom, "corregido"))
+        studio_row.addWidget(self.btn_studio_top)
+        studio_row.addWidget(self.btn_studio_bottom)
+        exp_flo.addLayout(studio_row)
+
         exp_vlo.addWidget(exp_box)
         exp_vlo.addStretch()
 
@@ -1907,6 +1921,23 @@ class RamanAnalyzerWindow(QMainWindow):
             QMessageBox.information(self, "Exportación Exitosa", f"Datos exportados correctamente en:\n{out_path}")
         except Exception as e:
             QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar el archivo:\n{e}")
+
+    def _open_export_studio(self, plot_item, which: str):
+        """El Estudio de Exportación sobre uno de los dos gráficos. El estudio lee `.plotItem`; acá los gráficos son
+        PlotItem de un GraphicsLayout, así que se le pasa un envoltorio con ese atributo."""
+        if len(self.raw_wls) == 0:
+            QMessageBox.warning(self, "Sin datos", "Cargá un espectro antes de abrir el Estudio de Exportación.")
+            return
+        import types
+        from analysis.figure_export_studio import FigureExportStudioDialog
+        stem = self.filepath.stem if self.filepath else "spectrum"
+        name = f"Raman_{stem}_{which}"
+        try:
+            dlg = FigureExportStudioDialog(types.SimpleNamespace(plotItem=plot_item), parent=self,
+                                           title=name, default_filename=name)
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Error en el Estudio de Exportación", f"No se pudo abrir el estudio:\n{e}")
 
     def _on_export_png(self):
         if len(self.raw_wls) == 0:

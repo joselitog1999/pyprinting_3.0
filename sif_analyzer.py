@@ -2990,7 +2990,9 @@ class SifAnalyzerWindow(QMainWindow):
                 matrix_2d=live_mat,
                 dark_matrix=dark_mat_proc if dark_mat_proc is not None else dark_mat,
                 sub_dark=sub_dark_l,
-                ref_is_bg_subtracted=False,
+                # Si Solis ya restó el fondo del live (un .sif Raman con señal y fondo), no se resta otra vez
+                ref_is_bg_subtracted=getattr(self.master_spectrum if live_inherited and self.master_spectrum
+                                             is not None else spec, "live_is_bg_corrected", False),
                 despike=despike_l,
                 despike_sigma=4.0,
                 noise_profile=self.current_noise_profile,
