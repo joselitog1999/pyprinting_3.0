@@ -545,6 +545,19 @@ Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquet
 > Para consultar el informe técnico completo sobre compresión *lossless* `shuffle+gzip` y benchmarks de velocidad, consulte:  
 > [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5|CAT-401: Estándar de Serialización Jerárquica en Contenedor HDF5 (.h5)]].
 
+#### 3.7.4.1 `Pause` durante una grilla (C-01 Ronda 4, `DEC-041`)
+
+> [!WARNING]
+> **Hasta este arreglo, una Pausa durante el autofoco podía reabrir el 532 a alta potencia sin detección.** El defecto está también en la versión instalada en la PC del banco (`7f5d10a`). No uses PyPrinting 3.0 para grillas hasta desplegar el arreglo; si corrés una, cortá con la llave del láser en vez de pausar.
+
+- **Qué hace `Pause`:**
+  - en el acto, marca la grilla en pausa: desde ese momento, ninguna etapa de la grilla mueve la platina, cambia el filtro de densidad ni abre un obturador;
+  - enseguida cierra el obturador de impresión, sube el filtro (baja potencia) y detiene la traza y el escaneo en curso.
+- **Vale en cualquier etapa:** al terminar el autofoco, al terminar un escaneo (una corrección de deriva que llega en pausa **no se aplica**), en la traza (también si la pausa cae en el medio segundo que espera el filtro), en el paso al nodo siguiente y en el Healing Pass.
+- **`Play ►` reanuda:**
+  - si el nodo ya tenía decisión (por ejemplo, la pausa cayó en el escaneo posterior), la grilla sigue con el **nodo siguiente**: un nodo decidido nunca se vuelve a exponer;
+  - si la pausa cortó la exposición, la grilla vuelve al mismo nodo, como antes. La Ronda 4 de C-01 cambia esto: ese nodo irá a revisión.
+
 #### 3.7.5 Seguridad y Resiliencia ante Fallas de Comunicación con la Platina PI
 
 > 🔩 **Referencia Técnica**: Consultar [[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas|SYS-205: Resiliencia del Driver de Platina PI E-517 y Tolerancia a Fallas]] para el detalle arquitectónico completo.

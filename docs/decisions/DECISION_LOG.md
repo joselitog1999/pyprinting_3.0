@@ -1192,6 +1192,29 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-041: A Grid Pause Halts Every Stage of the Printing Chain (C-01, Round 4, Question 1; 2026-10-01)
+* **Context (instrumentation panel of the C-01 Round 4 mini Round 1, `docs/evidence/auditoria_2026-09-27/c01_ronda4/`):** a Pause pressed during the between-node autofocus could reopen the 532 nm shutter at high power with no detection.
+  * The autofocus finish is dispatched to the GUI thread by a closure (`app.py::_on_autofinish`). The criterion is dispatched there too (`app.py::_dispatch_trace`), while the workers live in `confocalThread`.
+  * The Pause arrives queued to the workers. It ran first: it closed the shutter and set `mode_printing = "none"`.
+  * Then the GUI thread continued with `grid_finish_autofoco` → `_grid_trace`, which lowered the filter and opened the 532.
+  * With `"none"` the trace sends nothing to the criterion, so nothing closes the shutter, and the trace's own heartbeat renews the watchdog indefinitely.
+  * Reproduced in `SAFE_MODE`. **It is also in `7f5d10a`, the commit on the lab PC**; the legacy program connected the signal to the worker's slot.
+  * Interim rule from the operator: PyPrinting 3.0 is not used for grids until this fix is deployed.
+* **Decision (operator, 2026-10-01: fix it now, apart from R4-17, test first, short Round 2):**
+  * `Backend.is_paused` is now a `threading.Event` behind a property, so every existing write keeps working and every reader sees it from either thread.
+  * The Pause button marks it **at once**, with a direct connection to `request_pause`; the queued `grid_pause` then closes the shutter and raises the filter.
+  * Every entry of the chain checks it before moving, switching the filter or opening:
+    * `grid_autofoco`, `grid_finish_autofoco` (after its 0.1 s wait);
+    * `_grid_trace`, before lowering the filter and again right before opening;
+    * `grid_scan`, `_grid_center_scan`, `on_scan_finished` (a drift correction that arrives during a pause is not applied), `grid_finish` (dimers);
+    * `_grid_detect`, `_advance_healing_pass`.
+  * `_grid_trace` also never opens with `mode_printing == "none"`.
+  * **Resume never re-exposes a decided node.** `_detect_pending` is set when the criterion decides and cleared when the chain advances. If the pause fell after the decision (post-scan, wait), Play continues with the next node. A pause that cut the exposure still resumes on the same node, as before; the Round 4 rule P4 (question 5) changes that.
+* **Not in this fix (R4-17 and option E):** moving the chain onto one thread, PyPrinting's own emergency stop, "Cerrar todos" with a closing epoch, and the ≈ 100 ms after raising the filter (question 4; the current entries already wait 0.5-1 s).
+* **Tests:** `tests/test_grid_pause_halts_chain.py` (17). 12 of the first 13 failed before the fix; the one that passed is the normal flow without a pause. 16 mutations, all killed.
+* **Bench:** BANCO-70.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

@@ -8,6 +8,8 @@
 
 Todo toca obturadores, así que nada de esto es exento.
 
+**Respuestas del investigador (2026-10-01):** en `RESPUESTAS_INVESTIGADOR.md`, "C-01, Ronda 4 — mini Ronda 1". Se aceptan las recomendaciones salvo: la 4 lleva una espera de ≈ 100 ms; la 6 es no; la 10 y la 11 se descartan porque el BS no está habilitado (pasan a `PERSPECTIVAS.md` §1.9); la 12 va al banco; la 13: el Scan no se usa siempre; la 14 es no.
+
 **Panel:** `instrumentation.md`, `experimentalist.md` y `devil_advocate.md`, en esta carpeta. Ninguno tocó código ni hardware.
 
 **Veredictos:**

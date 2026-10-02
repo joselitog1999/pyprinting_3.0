@@ -19,6 +19,7 @@ Incorpora 5 Modos de Criterio de Parada Seleccionables en Tiempo Real:
 from __future__ import annotations
 import os
 import sys
+import threading
 import time
 import numpy as np
 
@@ -1557,11 +1558,48 @@ class Backend(QObject):
     grid_scan_stopSignal   = pyqtSignal()
     goSignal               = pyqtSignal()
 
+    # ── Pausa de la grilla (C-01 Ronda 4, 2026-10-01) ──
+    # La cadena de la grilla salta entre el hilo de los workers y el hilo GUI (el fin del autofoco y el criterio
+    # de la traza se despachan ahí, `app.py`). Una pausa que llega por una señal encolada podía correr ANTES de
+    # que el hilo GUI siguiera con `grid_finish_autofoco` → `_grid_trace`, que abría el 532 a alta potencia sin
+    # detección. Por eso `is_paused` es un evento entre hilos: lo marca el clic en Pausa en el acto, y cada
+    # entrada de la cadena lo mira antes de mover, cambiar el filtro o abrir.
+    @property
+    def is_paused(self) -> bool:
+        return self._grid_pause_event().is_set()
+
+    @is_paused.setter
+    def is_paused(self, value: bool) -> None:
+        ev = self._grid_pause_event()
+        ev.set() if value else ev.clear()
+
+    def _grid_pause_event(self) -> threading.Event:
+        ev = self.__dict__.get("_grid_pause_ev")
+        if ev is None:
+            ev = self.__dict__["_grid_pause_ev"] = threading.Event()
+        return ev
+
+    def grid_halted(self) -> bool:
+        """True si la grilla está en pausa (o detenida): ninguna entrada de la cadena sigue."""
+        return self.is_paused
+
+    def request_pause(self) -> None:
+        """Lo llama el clic en Pausa, en el hilo GUI y en el acto (conexión directa). Sólo marca la pausa;
+        `grid_pause`, encolada a este worker, cierra el obturador y sube el filtro."""
+        self.is_paused = True
+
+    def _halted(self, where: str) -> bool:
+        if self.is_paused:
+            print(f"[Measurements] ⏸️ Grilla en pausa: {where} no sigue (no mueve, no cambia el filtro, no abre).")
+            return True
+        return False
+
     def __init__(self, mode: str = "printing", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mode_arg      = mode
         self.mode_printing = "none"
         self.number_scan   = "none"
+        self._detect_pending = False     # el nodo ya tiene decisión y la cadena todavía no avanzó
         self.file_path     = str(DEFAULT_DATA_PATH)
         self.printing_error_x: list = []
         self.printing_error_y: list = []
@@ -1681,6 +1719,8 @@ class Backend(QObject):
         if hasattr(frontend, "foldergridSignal"):
             frontend.foldergridSignal.connect(self.grid_create_folder)
         if hasattr(frontend, "pauseSignal"):
+            # Primero, en el acto y en el hilo GUI, la marca (C-01 Ronda 4); después, encolada, el cierre.
+            frontend.pauseSignal.connect(self.request_pause, Qt.ConnectionType.DirectConnection)
             frontend.pauseSignal.connect(self.grid_pause)
         if hasattr(frontend, "next_index_Signal"):
             frontend.next_index_Signal.connect(self.grid_next_index)
@@ -1967,6 +2007,12 @@ class Backend(QObject):
         if getattr(self, "is_paused", False):
             self.is_paused = False
             self.mode_printing = self.mode_arg
+            if self._detect_pending:
+                # La pausa llegó después de la decisión del nodo (escaneo posterior o espera): se sigue con el
+                # próximo, nunca se reexpone el que ya se decidió.
+                print(f"[Measurements] ▶️ Reanudando: el nodo {self.i_global} ya tenía decisión; sigue el próximo.")
+                self._grid_detect()
+                return
             print(f"[Measurements] ▶️ Reanudando impresión en nodo {self.i_global}...")
             self.indexSignal.emit(self.i_global)
             self._grid_move()
@@ -2007,6 +2053,7 @@ class Backend(QObject):
     def _grid_start(self):
         self.mode_printing        = self.mode_arg
         self.is_paused            = False
+        self._detect_pending      = False
         self.is_healing_pass      = False
         self.healing_failed_queue = []
         self.healing_index_in_queue = 0
@@ -2221,6 +2268,8 @@ class Backend(QObject):
 
     @pyqtSlot()
     def grid_autofoco(self):
+        if self._halted("el paso después de mover"):
+            return
         start_idx = 1 if (getattr(self, "driftbool", False) and self.particulas > 1) else 0
         n_every = getattr(self, "current_n_effective", getattr(self, "autofoc", 5))
 
@@ -2270,6 +2319,8 @@ class Backend(QObject):
     @pyqtSlot()
     def grid_finish_autofoco(self):
         time.sleep(0.1)
+        if self._halted("el fin del autofoco"):
+            return
         # Actualizar Drift Z tras cualquier autofoco
         try:
             current_z = float(pi.qPOS().get("3", getattr(self, 'zref', 10.0)))
@@ -2315,7 +2366,15 @@ class Backend(QObject):
             else:                         self._grid_trace()
 
     def _grid_trace(self):
+        # Última barrera antes de abrir a alta potencia (C-01 Ronda 4): ni en pausa ni sin modo de impresión,
+        # porque con "none" la traza no le manda datos al criterio y nada cerraría el obturador.
+        if self._halted("la traza") or self.mode_printing == "none":
+            return
         down_flipper(); time.sleep(0.5)  # Conmutar estrictamente a ALTA potencia para la traza de impresión
+        if self._halted("la traza") or self.mode_printing == "none":
+            up_flipper()
+            return
+        self._detect_pending = False
         open_shutter(self.laser); time.sleep(0.01)
         self.timer_inicio = time.time()
         self.hold_counter = 0
@@ -2436,10 +2495,13 @@ class Backend(QObject):
                 self.timeRemainingSignal.emit(eta_text)
             print(f"[ETA] ⏱️ <t_raw>={mean_t:.2f}s | N_restantes={rem_nodes} -> ETA: {eta_text}")
 
+            self._detect_pending = True          # decidido: al reanudar se sigue con el próximo nodo
             self.grid_detectSignal.emit()
 
     @pyqtSlot()
     def grid_scan(self):
+        if self._halted("el escaneo posterior"):
+            return
         if self.scanbool and self.mode_arg == "printing":
             up_flipper(); time.sleep(1)
             self.number_scan = "none"
@@ -2448,6 +2510,8 @@ class Backend(QObject):
             self._grid_detect()
 
     def _grid_center_scan(self):
+        if self._halted("el escaneo de centrado"):
+            return
         up_flipper(); time.sleep(0.5)  # Conmutar estrictamente a BAJA potencia para el escaneo 2D de centrado
         self.number_scan = "center_scan"
         self.grid_scanSignal.emit(self.laser, self.mode_printing, self.number_scan)
@@ -2458,6 +2522,8 @@ class Backend(QObject):
                           mode: str, number_scan: str):
         if mode != self.mode_arg:
             return
+        if self._halted(f"el fin del escaneo ({number_scan})"):
+            return                               # una corrección que llega en pausa no se aplica
 
         if number_scan == "drift_scan":
             if center_mass and len(center_mass) >= 2:
@@ -2550,6 +2616,8 @@ class Backend(QObject):
 
     @pyqtSlot()
     def grid_finish(self):
+        if self._halted("el escaneo posterior del dímero"):
+            return
         if self.postscanbool:
             up_flipper(); time.sleep(1)
             self.number_scan = "post_scan"
@@ -2815,6 +2883,9 @@ class Backend(QObject):
         })
 
     def _grid_detect(self):
+        if self._halted("el paso al nodo siguiente"):
+            return
+        self._detect_pending = False
         # Si estamos ejecutando el pase de autocompletitud (Healing Pass)
         if getattr(self, "is_healing_pass", False):
             self.healing_index_in_queue += 1
@@ -2848,6 +2919,8 @@ class Backend(QObject):
         Posiciona en el nodo, evalúa la necesidad de corrección de deriva XY en P0 (cada N partículas),
         realiza autofoco in-situ en el sitio exacto y activa la traza con tiempo extendido (+10s).
         """
+        if self._halted("el Healing Pass"):
+            return
         if not getattr(self, "healing_failed_queue", None) or self.healing_index_in_queue >= len(self.healing_failed_queue):
             print("[Healing Pass] 🎉 Todos los nodos del pase de autocompletitud han sido procesados.")
             self.is_healing_pass = False

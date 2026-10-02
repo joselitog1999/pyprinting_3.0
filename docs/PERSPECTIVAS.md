@@ -103,6 +103,18 @@ En concordancia con los principios de evolución continua y la **Directiva Máxi
 - **Restricción:** mueve la platina y el espejo, así que pasa por las Rondas 1 y 2 y respeta DEC-036 (límites de recorrido, llegada confirmada, nunca un movimiento sin aprobación en la primera prueba de banco).
 - **Módulos vinculados:** [[MOD-04_Camara_Live_View_Canon_EDSDK|MOD-04]], [[MOD-06_PySpectrum_Espectroscopia_Shamrock|MOD-06]], [[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica|SYS-103]].
 
+### 1.9 Usos del fotodiodo del beamsplitter (BS) en la impresión (descartados por ahora, 2026-10-01)
+- **Estado:** ideas para cuando el BS esté habilitado. El investigador las descartó en la Ronda 4 de C-01 porque **hoy el BS no está habilitado** (`docs/evidence/auditoria_2026-09-27/RESPUESTAS_INVESTIGADOR.md`, C-01 R4, preguntas 10 y 11).
+- **Qué ve el BS:** está en el beamsplitter y ve la emisión transmitida, después del obturador y del filtro de densidad. El espejo de detección no lo afecta; el filtro sí (Q14 y P-c de la Ronda 3).
+- **Ideas:**
+  1. **Verificar el filtro de densidad con el BS.** El filtro casero no tiene sensor. Antes de una lectura a baja potencia o de un autofoco, si el BS sigue en el nivel de alta potencia: cortar en el acto y pausar la grilla. Así ni la confirmación ni el autofoco quedan a alta potencia sin saberlo (`c01_ronda4/experimentalist.md` §4).
+  2. **P-c, espejo arriba o detección desalineada.** Si el BS ve luz y el fotodiodo de detección no, el espejo de detección está arriba o la detección está desalineada. Cortar el nodo y pausar la grilla.
+  3. **Normalizar la lectura de confirmación por el BS:** B = (PD − D)/(BS − D_BS). Cancela las variaciones de potencia entre la base y la lectura. Exige medir la linealidad PD/BS entre alta y baja potencia.
+  4. **Avisos por rachas con el BS.** Ejemplo: "3 nodos seguidos perdieron la señal; BS: 0.02 V (antes ≈ 1.1 V)". Separa una falla del láser o del filtro de una de la muestra (`c01_ronda3/gui_design_v2.md` §5.4).
+  5. **El BS como testigo de luz** en los escaneos de deriva y en el autofoco. Si no hubo luz, el paso no se aplica. Hoy el escaneo confocal lee el BS y lo descarta (`confocal.py:819-820`).
+- **Antes de implementarlas:** habilitar el BS y medir en el banco si distingue luz de oscuridad a baja potencia. Era el BANCO-69 propuesto, que quedó en suspenso.
+- **Restricción:** toca obturadores y la decisión sobre la grilla, así que pasa por las Rondas 1 y 2.
+
 ---
 
 ## 💡 2. Hoja de Ruta de Arquitectura de Software e Ingeniería (Insights de Graphify)

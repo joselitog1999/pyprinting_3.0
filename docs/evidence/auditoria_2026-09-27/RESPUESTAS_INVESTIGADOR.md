@@ -647,6 +647,26 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 - **P6.** `flipper_notch532` queda como alias de `set_detection_mirror`; PyPrinting se renombra más adelante.
 - **P7.** Se lee, sólo lectura, el archivo de estado del espejo del legado, si se da su ruta en `config`.
 
+**C-01, Ronda 4 — mini Ronda 1 de instrumentación (2026-10-01).** Preguntas de `c01_ronda4/SINTESIS_RONDA1.md` §4. Se aceptan todas las recomendaciones, salvo lo que sigue.
+- **1.** Se corrige ya la Pausa durante el autofoco, aparte de R4-17, con un test que hoy falla y una Ronda 2 corta.
+- **2.** PyPrinting 3.0 no se usa para grillas hasta ese arreglo.
+- **3.** Si el cerrador no consigue la placa: banner persistente "cortá con la llave del láser" y reintentos.
+- **4. Sí, con un agregado.** Después de una parada, el filtro pasa a baja potencia y recién después se mueve para el autofoco (en el nodo o en el ancla). Hay que **esperar ≈ 100 ms después de subir el filtro**, para que el láser quede en baja potencia antes del autofoco y no se imprima nada sin querer.
+- **5.** Se retoma desde el primer nodo nunca expuesto. El interrumpido va a revisión. Si la parada duró más de un minuto, autofoco y deriva antes.
+- **6. No.** Un segundo "Cerrar todos" **no** pausa la grilla.
+- **7.** Una deriva o un autofoco no plausibles después de repetir el paso pausan la grilla, con topes provisorios.
+- **8.** La confirmación de los nodos que cortó el operador se hace en diferido.
+- **9.** Un "no sé" después de dos lecturas va a revisión, en todos los presets.
+- **10 y 11. Se descartan por ahora:** **el BS no está habilitado.** Quedan como ideas para el futuro en `docs/PERSPECTIVAS.md`:
+  - verificar el filtro con el BS;
+  - P-c (el BS ve luz y la detección no: cortar y pausar);
+  - la normalización por el BS;
+  - los avisos por rachas con el BS.
+- **12.** La OD del filtro de densidad casero se revisa en el banco.
+- **13.** El "Scan" posterior **no se usa siempre**, por el tiempo que consume cada escaneo. La confirmación es la lectura puntual.
+- **14. No:** el láser de 532 no tiene entrada de interlock remoto.
+- **15.** No se corren PySpectrum legacy y PyPrinting 3.0 a la vez durante una grilla hasta probarlo en el banco.
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** resuelto en R4-G, que reemplaza a R4-3: valen los guardados en el equipo (150 → 87, 1200 → 195, espejo → 60, detector → 0). Falta definir el protocolo del detector.

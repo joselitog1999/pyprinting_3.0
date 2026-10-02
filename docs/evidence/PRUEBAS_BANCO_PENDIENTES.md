@@ -164,6 +164,11 @@ la platina ni el espectrógrafo:
 | BANCO-62 | El fondo en los procedimientos: obturador, reutilización, todo apagado y sustrato | PySpectrum, R4-N | Lámpara; láser sólo en un punto, con aprobación | ☐ |
 | BANCO-63 | Centro de la ranura en orden cero: una gaussiana por fila | PySpectrum, R4-N 1a | Lámpara, sin láser | ☐ |
 | BANCO-64 | Espejo de detección entre sesiones y resincronización | PySpectrum y PyPrinting, R4-N 3 | **Láseres apagados** | ☐ |
+| BANCO-65 | Confirmación a baja potencia: OD del filtro, oscuro, ruido y separación de poblaciones | C-01 Ronda 4, R4-3 | ⚠️ 532 a baja potencia, con aprobación | ☐ |
+| BANCO-66 | Parada de emergencia de PyPrinting de punta a punta, con modales y en modo satélite | C-01 Ronda 4, R4-17 | Láseres apagados; osciloscopio en las líneas | ☐ |
+| BANCO-67 | "Cerrar todos" durante una grilla con `legacy_timer` | C-01 Ronda 4, N-4 | Láseres apagados | ☐ |
+| BANCO-68 | Cuánto tiempo se retiene `_nidaq_lock` | C-01 Ronda 4, N-2 | Láseres apagados | ☐ |
+| BANCO-70 | Pausa en cada etapa de la grilla de PyPrinting 3.0 | C-01 Ronda 4, `DEC-041` | **Láseres apagados**; osciloscopio en la línea del 532 | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -767,6 +772,7 @@ encender nada. Resuelve preguntas de la Ronda 2 de C-01
   PyPrinting 3.0, (a) accionar desde cada programa cada botón de obturador y
   anotar qué servo se mueve; (b) correr la traza de PyPrinting mientras PySpectrum lee un
   fotodiodo, y anotar errores de cada consola.
+- **Mientras no se pruebe (respuesta del 2026-10-01, C-01 Ronda 4, pregunta 15):** no correr PySpectrum legacy y PyPrinting 3.0 a la vez durante una grilla. Cada programa escribe las cuatro líneas con su propio estado, y ninguna parada sabe lo que abrió el otro (`c01_ronda4/devil_advocate.md`).
 - **Combinación 3.0 + 3.0 (R4-2b, 2026-09-28)**: PyPrinting 3.0 se abre **sólo desde el menú
   Herramientas de PySpectrum 3.0**, como ventana satélite en el mismo proceso. En modo laboratorio,
   el lanzador bloquea abrir los dos por separado. Verificar además que:
@@ -1034,6 +1040,56 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
   3. apretar [Está abajo] (es lo que se ve ahora), ordenar "arriba" y verificar que queda arriba.
 - **Legados:** anotar las rutas de los `flipper_notch532_status.txt` del PyPrinting y del PySpectrum legados y ponerlas en `config.LEGACY_DETECTION_MIRROR_STATUS_FILE`, separadas por `;`. Verificar que "el legado dice" coincide con cada archivo ("0" arriba, "1" abajo; TRIAGE_SISTEMA_VS_LEGADO, C-08).
 - **Cierre forzado:** terminar 3.0 desde el Administrador de tareas justo después de mover el espejo. Al reabrir, el último conocido tiene que ser el de ese movimiento.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-65 — Confirmación a baja potencia (C-01 Ronda 4, R4-3) ⚠️ 532 a baja potencia, con aprobación
+- **Qué se prueba:** si una lectura con el filtro de densidad en baja potencia distingue una NP impresa de un lugar vacío, sin imprimir nada (`c01_ronda4/experimentalist.md`; respuestas del 2026-10-01).
+- **Sin BS:** el BS no está habilitado, así que la magnitud es R = (V − D)/(V_base − D), sin normalizar por el BS. D es el oscuro con el obturador cerrado y las mismas luces.
+- **A, sin coloide:**
+  - **OD del filtro casero** (pregunta 12, se revisa acá): potencia a la salida con el filtro en alta y en baja. Hace falta una atenuación de al menos 10 (OD ≥ 1); si es menor, la lectura a baja potencia vuelve a deliberación.
+  - **Tránsito del filtro:** cuánto tarda en quedar en baja potencia después de la orden. Valida los ≈ 100 ms que pidió el investigador antes del autofoco (pregunta 4).
+  - **Oscuro D** con la lámpara de campo oscuro encendida y apagada.
+  - **σ_R** de 20 lecturas de 100 ms (10 bloques de 20 ms) sobre vacío.
+- **B, con coloide:**
+  - r a baja potencia contra r a alta, a 1, 10, 60 y 300 s de la impresión;
+  - 60 s a baja potencia sobre un lugar vacío, sin que se imprima nada (verificar con la cámara);
+  - matriz de confusión de 20 nodos cortados con "Cerrar todos", contra la cámara. Ningún nodo impreso puede quedar como "no la ve".
+- **C, ruido de los pasos entre nodos:** ruido del centro de masa de la deriva y del autofoco, y qué dan el escaneo y el autofoco con el obturador cerrado. Fija los topes de plausibilidad provisorios (pregunta 7).
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-66 — Parada de emergencia de PyPrinting de punta a punta (C-01 Ronda 4, R4-17)
+- **Qué se prueba:** la parada propia de PyPrinting, cuando exista. Láseres apagados y osciloscopio en las líneas de los obturadores (`Dev1/port0/line8` a `line11`).
+- **Procedimiento:**
+  - `Ctrl+E` y `F12` desde cada ventana de PyPrinting: principal, impresión, dímeros, cámara y Láser 532;
+  - lo mismo con un diálogo modal abierto, incluido un `QFileDialog` nativo de Windows (guardar imagen de la cámara);
+  - en modo satélite: una sola parada para los dos programas;
+  - medir el tiempo entre la tecla y la línea cerrada;
+  - con la grilla en cada etapa (autofoco, ancla, deriva, traza, escaneo posterior): verificar que no se emite ningún movimiento ni apertura después de la parada;
+  - Rearmar habilitado sólo con el cierre confirmado; Play aparte;
+  - después de rearmar: el filtro en baja potencia, ≈ 100 ms de espera antes del autofoco (pregunta 4), y se retoma desde el primer nodo nunca expuesto (pregunta 5).
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-67 — "Cerrar todos" durante una grilla con `legacy_timer` (C-01 Ronda 4, N-4)
+- **Qué se prueba:** con el backend por defecto, "Cerrar todos" durante un nodo deja el nodo como "interrumpido" y en revisión, y no como "timeout". El Healing Pass no lo reexpone, y la grilla sigue con el nodo siguiente después de la espera visible de 3 s. Un segundo "Cerrar todos" no pausa (pregunta 6).
+- **También:** "Cerrar todos" durante el autofoco o la deriva entre nodos. El paso no se aplica, se restituye la posición y se repite (P-a).
+- **Láseres apagados**: se observa el log de escrituras DO y los rótulos de los nodos.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-68 — Retención de `_nidaq_lock` (C-01 Ronda 4, N-2)
+- **Qué se prueba:** cuánto tiempo retiene el candado de la placa cada operación real (abrir, cerrar con reintentos, pulsos de los flippers, lectura de fotodiodos). Fija el plazo del cerrador de la parada, provisorio en 0.25 s.
+- **Láseres apagados**; un registro de tiempos en la consola durante una grilla corta.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-70 — Pausa en cada etapa de la grilla (C-01 Ronda 4, `DEC-041`; láseres apagados)
+- **Qué se prueba:** con el arreglo de la Pausa, una grilla corta de PyPrinting 3.0 en `main`, con la llave del láser apagada y el osciloscopio (o el LED de la placa) en `Dev1/port0/line11` (el 532, activo en BAJO).
+- **Procedimiento:** pausar en cada etapa: durante el autofoco en el nodo, durante el autofoco en el ancla, durante el escaneo de deriva, durante la traza y durante el escaneo posterior.
+- **En cada caso**, después de la pausa:
+  - la línea del 532 no se vuelve a abrir;
+  - la platina no se mueve;
+  - el filtro de densidad queda en baja potencia;
+  - la consola dice "Grilla en pausa: … no sigue".
+- **Play:** si la pausa cayó después de la decisión del nodo, se sigue con el próximo; si cortó la exposición, vuelve al mismo.
+- **Antes del arreglo** (`7f5d10a`, como control, sólo con la llave apagada): pausar durante el autofoco y ver si la línea del 532 se abre igual.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación
