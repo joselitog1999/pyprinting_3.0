@@ -124,11 +124,14 @@ class Frontend(QFrame):
         btn = self._shutter_button(name)
         if confirmed:
             self._unconfirmed.discard(name)
-            self._set_checked_silently(btn, False)
+            # "estado confirmado (abierto)": una línea abierta a propósito que una escritura fallida dejó sin
+            # confirmar (R4-17 fase 1) sigue abierta; sólo vuelve el estilo normal.
+            if "abierto" not in detail:
+                self._set_checked_silently(btn, False)
             if btn is not None:
                 btn.setStyleSheet(self._default_shutter_styles.get(name, ""))
             self._last_open_failure = ""
-        elif "cierre" in detail:
+        elif "cierre" in detail or "sin confirmar" in detail:
             self._unconfirmed.add(name)
             self._set_checked_silently(btn, True)
             if btn is not None:
@@ -306,12 +309,15 @@ class Frontend(QFrame):
         self._update_security_status()
 
     def _close_all_shutters_clicked(self):
-        for btn in (self.shutter0button, self.shutter1button, self.shutter2button, self.shutter3button):
-            if btn is not None and btn.isChecked():
-                btn.blockSignals(True)
-                btn.setChecked(False)
-                btn.blockSignals(False)
-        close_all_shutters()
+        """Cierra los cuatro y desmarca sólo si la placa lo confirmó (R4-17 fase 1). Antes desmarcaba primero e
+        ignoraba el resultado: un cierre fallido quedaba como si nada. Si falla, los avisos de DEC-036 dejan cada
+        obturador marcado en rojo con el banner, y el watchdog reintenta."""
+        if close_all_shutters():
+            for btn in (self.shutter0button, self.shutter1button, self.shutter2button, self.shutter3button):
+                if btn is not None and btn.isChecked():
+                    btn.blockSignals(True)
+                    btn.setChecked(False)
+                    btn.blockSignals(False)
         self._update_security_status()
 
     def _update_security_status(self):

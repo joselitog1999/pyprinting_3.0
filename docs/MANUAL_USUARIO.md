@@ -392,6 +392,9 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
     - `Sin límite (Modo Alineación)`: Desactiva el corte por tiempo para sesiones de alineación óptica manual y colimación de cavidades.
   - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⏱️ Auto-cierre en: Xs`), el modo seguro armado (`⏱️ Auto-cierre activo (Xs)`) o el modo alineación continua (`⚠️ MODO ALINEACIÓN (Sin auto-cierre)`).
   - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores digitales.
+    - **Desde el 2026-10-02 (R4-17 fase 1, `DEC-044`):** las casillas se desmarcan **sólo si la placa confirmó el cierre**. Si la escritura falla, los obturadores quedan marcados en rojo con el banner "CIERRE SIN CONFIRMAR", se tratan como abiertos y el watchdog sigue reintentando.
+    - **Después de cualquier escritura fallida** (abrir, cerrar o "Cerrar Todos") quedan sin confirmar **las cuatro líneas**, porque el estado real de la placa no se conoce. Una línea que tenías abierta a propósito sigue marcada, en rojo, hasta que una escritura buena la confirme.
+    - "Cerrar Todos" no detiene la grilla. Para eso están la Pausa y, cuando exista, la parada de emergencia de PyPrinting (R4-17).
   - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos de obturador, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
 
 > [!IMPORTANT]

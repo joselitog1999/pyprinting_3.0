@@ -37,6 +37,12 @@ os.environ["PYSPECTRUM_ROUTINE_DATA_DIR"] = _tempfile.mkdtemp(prefix="pyspectrum
 # para TODOS los imports de PyQt6 posteriores, sin depender del orden de imports interno
 # de cada archivo de test individual.
 import config  # noqa: F401
+# `core/nidaq.py` se registra con los dos nombres (`nidaq` y `core.nidaq`), pero si lo importa primero un módulo
+# de PyPrinting por su nombre corto (`from nidaq import ...`, como `modules/measurements.py`), el paquete `core`
+# queda sin el atributo `nidaq` y fallan los `monkeypatch.setattr("core.nidaq....")` de los tests siguientes.
+# Pasaba según el orden de los archivos (p. ej. test_grid_pause_halts_chain antes que test_grid_runner,
+# 2026-10-02). Importarlo acá con su nombre de paquete lo deja bien registrado para todos.
+import core.nidaq  # noqa: F401,E402
 
 # Una sola QApplication para toda la suite, creada acá CON argv. Si el primer test que la crea
 # usa `QApplication([])`, QtWebEngine (el navegador del wiki científico) mata el proceso con

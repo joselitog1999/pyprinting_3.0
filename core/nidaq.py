@@ -391,19 +391,45 @@ def _write_shutter_lines(desired: list[bool]) -> tuple[Optional[str], bool]:
         return str(e), False
 
 
-def _apply_shutter_lines(desired: list[bool]) -> tuple[Optional[str], bool, list[str]]:
+def _apply_shutter_lines(desired: list[bool]) -> tuple[Optional[str], bool, list[str], list[str]]:
     """Escribe `desired` y, sólo si tuvo éxito, lo adopta como valor comandado. Toda escritura
-    exitosa aplica el arreglo completo, así que confirma cualquier cierre pendiente de una línea
-    comandada "cerrar". Devuelve (error, simulado, obturadores recién confirmados)."""
+    exitosa aplica el arreglo completo, así que confirma las cuatro líneas: un cierre pendiente de
+    una línea comandada "cerrar", y el estado de una comandada "abrir" que quedó sin confirmar por una
+    escritura fallida (R4-17 fase 1). Devuelve (error, simulado, cierres recién confirmados,
+    aperturas recién confirmadas)."""
     err, simulated = _write_shutter_lines(desired)
     recovered: list[str] = []
+    recovered_open: list[str] = []
     if err is None:
         _shutter_signal[:] = list(desired)
         for name, sig in zip(SHUTTERS, desired):
-            if sig == (not SHUTTER_POLARITY[name]) and name in _unconfirmed_shutters:
+            if name in _unconfirmed_shutters:
                 _unconfirmed_shutters.discard(name)
-                recovered.append(name)
-    return err, simulated, recovered
+                (recovered if sig == (not SHUTTER_POLARITY[name]) else recovered_open).append(name)
+    return err, simulated, recovered, recovered_open
+
+
+def _confirmed_notes(recovered: list[str], recovered_open: list[str], how: str = "cierre confirmado"):
+    return ([(n, how, True) for n in recovered]
+            + [(n, "estado confirmado (abierto)", True) for n in recovered_open])
+
+
+def _mark_all_unconfirmed(err: str, why: str) -> list[tuple[str, str, bool]]:
+    """Después de una escritura fallida no se sabe el estado real de la placa: las cuatro líneas quedan sin
+    confirmar y se tratan como abiertas (respuesta 3 (b) del investigador, 2026-10-02; R4-17 fase 1). Antes,
+    sólo las que el software creía abiertas, así que un cierre fallido con nada creído abierto no marcaba
+    nada y `_all_closed_confirmed()` daba verdadero. Devuelve un aviso por cada línea recién marcada."""
+    notes: list[tuple[str, str, bool]] = []
+    for name, sig in zip(SHUTTERS, _shutter_signal):
+        if name in _unconfirmed_shutters:
+            continue
+        _unconfirmed_shutters.add(name)
+        if sig == (not SHUTTER_POLARITY[name]):
+            notes.append((name, f"cierre NO confirmado ({why}): {err}", False))
+        else:
+            notes.append((name, f"estado sin confirmar ({why}): {err}", False))
+    _arm_retry()
+    return notes
 
 
 def _all_closed_confirmed() -> bool:
@@ -439,9 +465,9 @@ def _reconfirm_unconfirmed_shutters() -> None:
             with _watchdog_lock:
                 _retry_due = None
             return
-        err, _sim, recovered = _apply_shutter_lines(list(_shutter_signal))
+        err, _sim, recovered, recovered_open = _apply_shutter_lines(list(_shutter_signal))
         if err is None:
-            notes += [(n, "cierre confirmado en un reintento", True) for n in recovered]
+            notes += _confirmed_notes(recovered, recovered_open, "cierre confirmado en un reintento")
             _settle_after_success()
         else:
             _arm_retry()
@@ -473,11 +499,11 @@ def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> bool:
             idx = SHUTTERS.index(name)
             desired = list(_shutter_signal)
             desired[idx] = SHUTTER_POLARITY[name]
-            err, simulated, recovered = _apply_shutter_lines(desired)
+            err, simulated, recovered, recovered_open = _apply_shutter_lines(desired)
             # El watchdog se arma aunque la escritura falle: si el obturador llegó a abrirse,
             # el plazo lo cierra igual.
             heartbeat_shutter(timeout_s)
-            notes += [(n, "cierre confirmado", True) for n in recovered]
+            notes += _confirmed_notes(recovered, recovered_open)
             if err is None:
                 if simulated:
                     print(f"[NI MOCK] open_shutter({name})")
@@ -485,6 +511,7 @@ def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> bool:
             else:
                 print(f"[NI-DAQ Error] open_shutter({name}) NO confirmado: {err}")
                 notes.append((name, f"apertura no confirmada: {err}", False))
+                notes += _mark_all_unconfirmed(err, f"falló la apertura de {name}")
                 ok = False
     _dispatch_shutter_notes(notes)
     return ok
@@ -504,7 +531,7 @@ def close_shutter(name: str) -> bool:
         desired[idx] = not SHUTTER_POLARITY[name]
         err = None
         for attempt in range(SHUTTER_CLOSE_RETRIES):
-            err, simulated, recovered = _apply_shutter_lines(desired)
+            err, simulated, recovered, recovered_open = _apply_shutter_lines(desired)
             if err is None:
                 break
             if attempt < SHUTTER_CLOSE_RETRIES - 1:
@@ -512,19 +539,15 @@ def close_shutter(name: str) -> bool:
         if err is None:
             if simulated:
                 print(f"[NI MOCK] close_shutter({name})")
-            notes += [(n, "cierre confirmado", True) for n in recovered]
+            notes += _confirmed_notes(recovered, recovered_open)
             _settle_after_success()
             ok = True
         else:
             # El valor comandado sigue siendo "cerrar": toda escritura posterior lo reintenta.
             _shutter_signal[idx] = not SHUTTER_POLARITY[name]
-            first = name not in _unconfirmed_shutters
-            _unconfirmed_shutters.add(name)
-            _arm_retry()
             print(f"[NI-DAQ Error] close_shutter({name}) NO confirmado tras "
-                  f"{SHUTTER_CLOSE_RETRIES} intentos: {err}. Se trata como ABIERTO.")
-            if first:
-                notes.append((name, f"cierre NO confirmado tras {SHUTTER_CLOSE_RETRIES} intentos: {err}", False))
+                  f"{SHUTTER_CLOSE_RETRIES} intentos: {err}. Las cuatro líneas se tratan como ABIERTAS.")
+            notes += _mark_all_unconfirmed(err, f"tras {SHUTTER_CLOSE_RETRIES} intentos de cerrar {name}")
             ok = False
     _dispatch_shutter_notes(notes)
     return ok
@@ -536,29 +559,26 @@ def close_all_shutters() -> bool:
     notes: list[tuple[str, str, bool]] = []
     with _nidaq_lock:
         desired = [not SHUTTER_POLARITY[s] for s in SHUTTERS]
-        previously_open = [n for n, s in zip(SHUTTERS, _shutter_signal) if s == SHUTTER_POLARITY[n]]
         err = None
         for attempt in range(SHUTTER_CLOSE_RETRIES):
-            err, _simulated, recovered = _apply_shutter_lines(desired)
+            err, _simulated, recovered, recovered_open = _apply_shutter_lines(desired)
             if err is None:
                 break
             if attempt < SHUTTER_CLOSE_RETRIES - 1:
                 time.sleep(SHUTTER_RETRY_DELAY_S)
         if err is None:
-            notes += [(n, "cierre confirmado", True) for n in recovered]
+            notes += _confirmed_notes(recovered, recovered_open)
             with _watchdog_lock:
                 _watchdog_deadline = None
                 _retry_due = None
             ok = True
         else:
             _shutter_signal[:] = desired
-            for n in previously_open:
-                if n not in _unconfirmed_shutters:
-                    _unconfirmed_shutters.add(n)
-                    notes.append((n, f"cierre NO confirmado tras {SHUTTER_CLOSE_RETRIES} intentos: {err}", False))
-            if _unconfirmed_shutters:
-                _arm_retry()
-            print(f"[NI-DAQ Error] close_all_shutters() NO confirmado: {err}")
+            # Las cuatro, no sólo las que se creían abiertas (R4-17 fase 1, respuesta 3 (b)): con nada creído
+            # abierto, antes no se marcaba nada y el cierre fallido pasaba por confirmado.
+            notes += _mark_all_unconfirmed(err, f"tras {SHUTTER_CLOSE_RETRIES} intentos de cerrar todos")
+            print(f"[NI-DAQ Error] close_all_shutters() NO confirmado: {err}. Las cuatro líneas se tratan "
+                  f"como ABIERTAS.")
             ok = False
     _dispatch_shutter_notes(notes)
     return ok

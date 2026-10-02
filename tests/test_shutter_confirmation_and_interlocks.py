@@ -197,10 +197,12 @@ def test_any_later_successful_write_confirms_a_pending_close(daq):
 
 
 def test_close_all_failure_marks_previously_open_shutters(daq):
+    # Desde R4-17 fase 1 (DEC-044): después de una escritura fallida quedan sin confirmar las cuatro, no sólo
+    # la que se creía abierta (respuesta 3 (b) del investigador, 2026-10-02).
     nidaq.open_shutter(LASER, timeout_s=None)
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
     assert nidaq.close_all_shutters() is False
-    assert nidaq.get_unconfirmed_shutters() == [LASER]
+    assert nidaq.get_unconfirmed_shutters() == list(nidaq.SHUTTERS)
     assert all(s == _closed(n) for n, s in zip(nidaq.SHUTTERS, nidaq._shutter_signal))
 
 

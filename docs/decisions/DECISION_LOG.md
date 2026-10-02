@@ -1280,6 +1280,26 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   3. **On the trace's 5th tick, `I_old` is `NaN`** (an empty window when `n − M − M2 = 0`). This is the "Mean of empty slice" warning in the suite. The criterion survives it, because a comparison with `NaN` is false. It is recorded for phase 3.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-044: R4-17 Phase 1 — A Failed Write Confirms Nothing; "Cerrar Todos" Unchecks Only After a Confirmed Close (2026-10-02)
+* **Context:** two findings of the C-01 Round 4 mini Round 1 (devil's advocate, instrumentation), both confirmed in the code.
+  * After a failed write, `close_all_shutters` marked as unconfirmed only the shutters believed open. With nothing believed open it returned `False`, yet `_all_closed_confirmed()` was `True`, so a later "4 of 4 confirmed" could have been a lie.
+  * The "Cerrar Todos" button unchecked every shutter **before** writing and ignored the result, so it failed silently.
+* **Decision** (operator, Round 2 question 3, option (b)): **after any failed write** (open, close or close-all), **all four lines** are unconfirmed, because the board state is unknown. They are treated as open, and the watchdog retries.
+  * **Where:** `core/nidaq.py::_mark_all_unconfirmed`.
+  * **Notices:** a line commanded closed gets "cierre NO confirmado"; a line commanded open on purpose gets "estado sin confirmar".
+  * **Confirmation:** a successful write applies the whole array, so it confirms all four. A line commanded open gets the notice "estado confirmado (abierto)", and the dock keeps it checked.
+  * **The button:** "Cerrar Todos" (`core/shutters.py::_close_all_shutters_clicked`) unchecks only if `close_all_shutters()` confirmed. Otherwise the DEC-036 notices leave each shutter checked in red, with the banner.
+  * **The dock:** it also treats "sin confirmar" as an unconfirmed state (checked, red).
+* **Deliberate contract change:** `test_close_all_failure_marks_previously_open_shutters` now expects all four, not only the one believed open.
+* **Tests:**
+  * `tests/test_close_all_does_not_lie.py` (7); four of them failed before the change. 7 mutations, all killed.
+  * The golden baseline (DEC-043) is unchanged, because its script has no failures.
+* **Test isolation fix (exempt):**
+  * `core/nidaq.py` registers itself as both `nidaq` and `core.nidaq`. When a PyPrinting module imports it first by the short name, the `core` package is left without the `nidaq` attribute, and later `monkeypatch.setattr("core.nidaq....")` calls fail.
+  * Whether this happened depended on file order (`test_grid_pause_halts_chain` before `test_grid_runner`).
+  * `tests/conftest.py` now imports `core.nidaq` by its package name first.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background
