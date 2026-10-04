@@ -21,6 +21,7 @@ import os
 import sys
 import threading
 import time
+from time import monotonic as _monotonic
 import numpy as np
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -33,7 +34,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 from PIL import Image
 
 import pyqtgraph as pg
-from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore    import Qt, QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QWidget, QFrame, QGridLayout,
                                QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QComboBox,
                                QPushButton, QCheckBox, QGroupBox, QProgressBar,
@@ -51,7 +52,10 @@ from config import (pi, SAFE_MODE, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE,
                     DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY,
                     DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, PI_STAGE_RANGE_UM, wait_on_target)
 from nidaq  import (open_shutter, close_shutter, close_all_shutters,
-                    up_flipper, down_flipper, heartbeat_shutter)
+                    up_flipper, down_flipper, heartbeat_shutter,
+                    get_close_epoch, get_open_hold_remaining_s, get_unconfirmed_shutters,
+                    set_routine_running)
+from core.grid_state import (GridRunState, NodeMeta, PAUSE_CAUSE, INTERRUPTED, policy_for)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -255,18 +259,21 @@ class InteractiveGridWidget(QFrame):
             "retrying": "#fab387",  # Naranja cálido para nodos en Healing Pass
             "success":  "#a6e3a1",
             "timeout":  "#f38ba8",
+            "interrupted": "#f38ba8",  # expuesto sin decisión: en revisión (gui_design_v2.md §5.3)
         }
 
         spots = []
         for i in range(N):
             st = self.node_states[i]
             col = color_map.get(st, "#45475a")
+            interrupted = st == "interrupted"
             spots.append({
                 'pos': (x_disp[i], y_disp[i]),
                 'data': i,
                 'brush': pg.mkBrush(col),
-                'pen': pg.mkPen('#11111b', width=1),
-                'symbol': 'o',
+                # Triángulo hacia arriba con anillo Peach: "expuesto sin decisión: en revisión"
+                'pen': pg.mkPen('#fab387', width=2) if interrupted else pg.mkPen('#11111b', width=1),
+                'symbol': 't1' if interrupted else 'o',
                 'size': 16 if st in ('active', 'retrying') else 14
             })
 
@@ -1538,6 +1545,10 @@ class Backend(QObject):
     namefolderSignal      = pyqtSignal(str)
     indexSignal           = pyqtSignal(int)
     nodeStatusSignal      = pyqtSignal(int, str)
+    # R4-17 fase 3 (DEC-046): un nodo en exposición que terminó sin decisión del criterio (nodo, causa, s
+    # expuesto), y la espera de la retención de "Cerrar todos" (nodo que sigue, hora de pared en que vence)
+    nodeInterruptedSignal = pyqtSignal(int, str, float)
+    countdownSignal       = pyqtSignal(int, float)
     patternFinishedSignal = pyqtSignal(str)
     driftDisplacementSignal = pyqtSignal(str)
     driftZDisplacementSignal = pyqtSignal(str)
@@ -1600,6 +1611,14 @@ class Backend(QObject):
         self.mode_printing = "none"
         self.number_scan   = "none"
         self._detect_pending = False     # el nodo ya tiene decisión y la cadena todavía no avanzó
+        # El nodo en exposición (R4-17 fase 3): la época de cierre que se anotó antes de abrir, cuándo abrió y si
+        # ya tiene decisión (del criterio o de la interrupción). Una sola decisión por nodo.
+        self._node_epoch: int | None   = None
+        self._node_t_open: float | None = None
+        self._node_decided: bool        = False
+        self.node_meta: dict            = {}
+        self._hold_timer: QTimer | None = None
+        self._hold_continuation         = None
         self.file_path     = str(DEFAULT_DATA_PATH)
         self.printing_error_x: list = []
         self.printing_error_y: list = []
@@ -1771,6 +1790,11 @@ class Backend(QObject):
             pass
 
         # 3. Restablecer estados, acumuladores y variables internas
+        set_routine_running(f"grilla {self.mode_arg}", False)
+        self._cancel_hold_wait()
+        self._node_t_open = None
+        self._node_decided = False
+        self.node_meta.clear()
         self.xref = self.yref = self.zref = 0.0
         self.startX = self.startY = 0.0
         self.custom_name = ""
@@ -2078,6 +2102,12 @@ class Backend(QObject):
             self.mode_printing = "none"
             return
 
+        self.node_meta.clear()
+        self._node_t_open = None
+        self._node_decided = False
+        # Con la grilla corriendo, "Cerrar todos" retiene las aperturas (R4-17 fase 3)
+        set_routine_running(f"grilla {self.mode_arg}", True)
+
         self.printing_error_x = []; self.printing_error_y = []
         self.drift_history_xy = []
         self.drift_history_z  = []
@@ -2384,10 +2414,138 @@ class Backend(QObject):
             up_flipper()
             return
         self._detect_pending = False
-        open_shutter(self.laser); time.sleep(0.01)
+        # La época se anota ANTES de abrir: un cierre que llegue después se nota en el primer tick (R4-17 fase 3)
+        self._node_epoch = get_close_epoch().epoch
+        if not open_shutter(self.laser):
+            self._on_open_rejected()
+            return
+        self._node_t_open = _monotonic()
+        self._node_decided = False
+        self.ptr, self.timeaxis, self.data1, self.data_BS = 0, [], [], []   # la traza de ESTE nodo
+        time.sleep(0.01)
         self.timer_inicio = time.time()
         self.hold_counter = 0
         self.grid_traceSignal.emit(self.laser, self.mode_printing)
+
+    def _on_open_rejected(self):
+        """El obturador del nodo no abrió (R4-17 fase 3). Si la escritura falló y la línea quedó sin confirmar, pudo
+        haber abierto: el nodo se trata como expuesto sin decisión. Si lo retuvo "Cerrar todos", el nodo no se
+        expuso y se reintenta cuando vence la retención. Si lo bloqueó un interlock, la grilla pausa."""
+        if self.laser in get_unconfirmed_shutters():
+            self._node_t_open = _monotonic()
+            self._node_decided = False
+            self._finalize_interrupted_node("apertura sin confirmar")
+            return
+        try:
+            up_flipper()
+        except Exception:
+            pass
+        if get_open_hold_remaining_s() > 0:
+            print(f"[Measurements] ⏳ Nodo {self.i_global}: \"Cerrar todos\" retiene las aperturas; "
+                  f"se reintenta en {get_open_hold_remaining_s():.1f} s.")
+            self._schedule_after_hold(self._grid_trace, next_node=self.i_global)
+        else:
+            self._pause_for("interlock")
+
+    # ── Nodo interrumpido y espera de la retención (R4-17 fase 3, DEC-046) ──
+    def _interruption_cause(self):
+        """Por qué el nodo en exposición ya no puede decidirse con el criterio, o None."""
+        if self.is_paused:
+            return PAUSE_CAUSE
+        if self._node_epoch is not None:
+            ep = get_close_epoch()
+            if ep.epoch != self._node_epoch:
+                return getattr(ep.cause, "value", str(ep.cause))
+        return None
+
+    def _finalize_interrupted_node(self, cause: str):
+        """Cierra, una sola vez, un nodo que estuvo expuesto y terminó sin decisión del criterio: no late, detiene
+        la traza, cierra, lo marca "interrupted" (en revisión: el Healing Pass no lo toma), guarda la traza con
+        su causa y sigue según `CAUSE_POLICY`. Nunca se reexpone (respuesta 1 del investigador, 2026-10-02)."""
+        if self._node_decided:
+            return
+        self._node_decided = True
+        t_open = self._node_t_open
+        t_exp = max(0.0, _monotonic() - t_open) if t_open is not None else 0.0
+        self._node_t_open = None
+        self.grid_trace_stopSignal.emit()
+        try:
+            close_shutter(self.laser)
+        except Exception as e:
+            print(f"[Measurements] ⚠️ Cierre del nodo interrumpido: {e}")
+        i = self.i_global
+        self.timer_real = round(t_exp, 2)
+        self.node_results[i] = INTERRUPTED
+        self.node_meta[i] = NodeMeta(str(cause), float(t_exp), int(get_close_epoch().epoch),
+                                     1 if getattr(self, "is_healing_pass", False) else 0, True)
+        try:
+            self._save_trace()
+        except Exception as e:
+            print(f"[Measurements] ⚠️ No se pudo guardar la traza del nodo interrumpido {i}: {e}")
+        self.nodeStatusSignal.emit(i, INTERRUPTED)
+        self.nodeInterruptedSignal.emit(i, str(cause), float(t_exp))
+        print(f"[Measurements] ✋ Nodo {i} interrumpido ({cause}) después de {t_exp:.2f} s de exposición: "
+              f"queda en revisión y no se reexpone.")
+        self._detect_pending = True                   # al seguir (o al reanudar) va el nodo siguiente
+        policy = policy_for(cause)
+        if policy.run_state == GridRunState.RUNNING and policy.continue_after_hold and not self.is_paused:
+            self._schedule_after_hold(self._grid_detect, next_node=i + 1)
+        else:
+            self._pause_for(cause)
+
+    def _pause_for(self, cause: str):
+        """La grilla queda en pausa por un corte que no fue la Pausa del operador (o además de ella)."""
+        self.is_paused = True
+        self.mode_printing = "none"
+        self._cancel_hold_wait()
+        try:
+            up_flipper()
+        except Exception:
+            pass
+        try:
+            self.grid_scan_stopSignal.emit()
+        except Exception:
+            pass
+        print(f"[Measurements] ⏸️ Grilla en pausa en el nodo {self.i_global} ({cause}). Presione 'Play ►' para "
+              f"seguir con el nodo siguiente.")
+
+    def _schedule_after_hold(self, continuation, next_node: int):
+        """Sigue con `continuation` cuando vence la retención de aperturas de "Cerrar todos" (más 20 ms). Es el
+        mismo plazo que la barrera de `nidaq`, en un QTimer preciso del worker (nunca un sleep): si al dispararse
+        todavía queda retención, se reprograma."""
+        self._hold_continuation = continuation
+        remaining = get_open_hold_remaining_s()
+        self.countdownSignal.emit(int(next_node), time.time() + remaining)
+        if remaining > 0:
+            print(f"[Measurements] ⏳ La grilla sigue con el nodo {next_node} en {remaining:.1f} s.")
+        if self._hold_timer is None:
+            self._hold_timer = QTimer(self)
+            self._hold_timer.setSingleShot(True)
+            self._hold_timer.setTimerType(Qt.TimerType.PreciseTimer)
+            self._hold_timer.timeout.connect(self._on_hold_elapsed)
+        self._hold_timer.start(int(remaining * 1000) + 20)
+
+    def _on_hold_elapsed(self):
+        continuation = self._hold_continuation
+        if continuation is None:
+            return
+        if self._halted("la espera de \"Cerrar todos\""):
+            self._hold_continuation = None
+            return
+        remaining = get_open_hold_remaining_s()
+        if remaining > 0:
+            self._hold_timer.start(int(remaining * 1000) + 20)
+            return
+        self._hold_continuation = None
+        continuation()
+
+    def _cancel_hold_wait(self):
+        self._hold_continuation = None
+        if self._hold_timer is not None:
+            try:
+                self._hold_timer.stop()
+            except Exception:
+                pass
 
     @pyqtSlot(list)
     def on_trace_data(self, data: list):
@@ -2408,6 +2566,16 @@ class Backend(QObject):
         # de estados se enterara (queda esperando un salto que ya no puede ocurrir hasta
         # el timeout por `elapsed > effective_tmax`). Sin timeout_s explícito: respeta la
         # política global configurada en el dock de Shutters (no la hardcodea a 30.0).
+        #
+        # Primera línea, antes del latido (R4-17 fase 3): un nodo ya decidido no se vuelve a decidir (P-1), y un
+        # nodo cortado (Pausa, "Cerrar todos", watchdog, interlock: la época cambió) no lo decide el criterio:
+        # queda "interrupted" y no vuelve a latir.
+        if self._node_decided:
+            return
+        cut = self._interruption_cause()
+        if cut is not None:
+            self._finalize_interrupted_node(cut)
+            return
         heartbeat_shutter()
         self.ptr      = data[0]
         self.timeaxis = data[1]
@@ -2484,6 +2652,8 @@ class Backend(QObject):
         effective_tmax = getattr(self, "effective_timemax", self.timemax) if getattr(self, "is_healing_pass", False) else self.timemax
 
         if should_stop or (I_new < I_old * self.umbral_down) or (elapsed > effective_tmax):
+            self._node_decided = True
+            self._node_t_open = None
             self.grid_trace_stopSignal.emit()
             close_shutter(self.laser)
             self.timer_real = round(elapsed, 2)
@@ -2699,6 +2869,7 @@ class Backend(QObject):
 
         files = sorted(files, key=_sort_key)
         rows = []
+        interrupted_rows = []    # expuestos sin decisión (R4-17 fase 3): no entran en las estadísticas del criterio
         for file_p in files:
             try:
                 base = os.path.basename(file_p)
@@ -2707,6 +2878,7 @@ class Backend(QObject):
 
                 # Leer tag de encabezado si fue Healing Pass
                 tag = "Primary Pass"
+                first_line = ""
                 try:
                     with open(file_p, "r", encoding="utf-8") as hf:
                         first_line = hf.readline()
@@ -2714,6 +2886,10 @@ class Backend(QObject):
                             tag = "Healing Pass (Retry)"
                 except Exception:
                     pass
+                if "INTERRUPTED" in first_line:
+                    interrupted_rows.append({"node": node_idx, "header": first_line.strip().lstrip("#").strip(),
+                                             "tag": tag})
+                    continue
 
                 data = np.loadtxt(file_p, unpack=True)
                 if data.ndim < 2 or data.shape[1] == 0:
@@ -2830,7 +3006,13 @@ class Backend(QObject):
                     f.write(f"  * Éxito en Pase Primario:          {primary_success}/{len(primary_rows)} ({primary_success/max(1,len(primary_rows))*100:.1f}%)\n")
                     f.write(f"  * Nodos Reintentados (Healing):    {len(healing_rows)}\n")
                     f.write(f"  * Recuperados en Healing Pass:     {healing_success}/{len(healing_rows)} ({healing_success/max(1,len(healing_rows))*100:.1f}%)\n")
-                f.write(f"- Timeouts / Sin Salto Finales:      {total_cnt - success_cnt} ({100.0 - success_rate:.1f}%)\n\n")
+                f.write(f"- Timeouts / Sin Salto Finales:      {total_cnt - success_cnt} ({100.0 - success_rate:.1f}%)\n")
+                if interrupted_rows:
+                    f.write(f"- Nodos Interrumpidos (en revisión): {len(interrupted_rows)} — fuera de estas estadísticas: "
+                            f"estuvieron expuestos sin decisión del criterio\n")
+                    for r in interrupted_rows:
+                        f.write(f"  * {r['node']:03d}: {r['header']}\n")
+                f.write("\n")
 
                 f.write(f"- Tiempo Raw Promedio <t_raw>:   {np.mean(t_raw_vals):.3f} ± {np.std(t_raw_vals):.3f} s  (Min: {np.min(t_raw_vals):.3f} s, Max: {np.max(t_raw_vals):.3f} s)\n")
                 f.write(f"- Tiempo Step Promedio <t_step>: {np.mean(t_step_vals):.3f} ± {np.std(t_step_vals):.3f} s  (Min: {np.min(t_step_vals):.3f} s, Max: {np.max(t_step_vals):.3f} s)\n")
@@ -2977,6 +3159,8 @@ class Backend(QObject):
             self.grid_autofocusSignal.emit(self.mode_printing)
 
     def _finalize_grid_measurement(self):
+        set_routine_running(f"grilla {self.mode_arg}", False)
+        self._cancel_hold_wait()
         finished_folder = getattr(self, 'new_folder', self.old_folder)
         self.file_path = self.old_folder
         self.mode_printing = "none"
@@ -3035,6 +3219,11 @@ class Backend(QObject):
         except Exception: pass
         self.is_paused = True
         self.mode_printing = "none"
+        self._cancel_hold_wait()
+        # Una Pausa durante la exposición deja el nodo "interrupted" (H7; respuesta 1 del 2026-10-02): no se
+        # reexpone al reanudar.
+        if self._node_t_open is not None and not self._node_decided:
+            self._finalize_interrupted_node(PAUSE_CAUSE)
         print(f"[Measurements] ⏸️ Impresión pausada en nodo {self.i_global}. Presione 'Play ►' para reanudar.")
 
     @pyqtSlot()
@@ -3064,6 +3253,24 @@ class Backend(QObject):
 
         status_val = self.node_results.get(self.i_global, "UNKNOWN")
         is_healing = getattr(self, "is_healing_pass", False)
+
+        if status_val == INTERRUPTED:
+            meta = self.node_meta.get(self.i_global)
+            cause = meta.cause if meta is not None else "?"
+            pass_tag = " - Healing Pass - Retry" if is_healing else ""
+            hdr_status = f"INTERRUPTED ({cause}, t_exp = {self.timer_real:.1f} s){pass_tag}"
+            n = min(len(self.data1), len(self.data_BS))
+            t = list(np.linspace(0.01, self.timer_real, n)) if n else []
+            hdr = f"Status: {hdr_status}\nTime_s\tPhotodiode_V\tPhotodiode_BS_V"
+            np.savetxt(name, np.column_stack([t, list(self.data1)[:n], list(self.data_BS)[:n]]) if n
+                       else np.empty((0, 3)), fmt="%.3e", header=hdr)
+            if getattr(self, "h5_container", None):
+                try:
+                    self.h5_container.add_node_data(node_idx=self.i_global, status=status_val,
+                                                    t_print=self.timer_real)
+                except Exception as e:
+                    print(f"[HDF5 Warning] Error al registrar el nodo interrumpido {self.i_global}: {e}")
+            return
 
         hdr_status = f"SUCCESS (Healing Pass - Retry, t_print={self.timer_real:.2f}s)" if (is_healing and status_val == "success") else \
                      (f"TIMEOUT (Healing Pass - Retry, t_print={self.timer_real:.2f}s)" if (is_healing and status_val != "success") else \

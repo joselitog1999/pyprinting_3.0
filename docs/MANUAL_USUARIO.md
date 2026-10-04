@@ -395,6 +395,13 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
     - **Desde el 2026-10-02 (R4-17 fase 1, `DEC-044`):** las casillas se desmarcan **sólo si la placa confirmó el cierre**. Si la escritura falla, los obturadores quedan marcados en rojo con el banner "CIERRE SIN CONFIRMAR", se tratan como abiertos y el watchdog sigue reintentando.
     - **Después de cualquier escritura fallida** (abrir, cerrar o "Cerrar Todos") quedan sin confirmar **las cuatro líneas**, porque el estado real de la placa no se conoce. Una línea que tenías abierta a propósito sigue marcada, en rojo, hasta que una escritura buena la confirme.
     - "Cerrar Todos" no detiene la grilla. Para eso están la Pausa y, cuando exista, la parada de emergencia de PyPrinting (R4-17).
+    - **Durante una grilla (R4-17 fase 3, `DEC-046`):**
+      - el nodo que estaba en exposición queda **"interrumpido"**: un triángulo rojo con anillo naranja en el mapa de la grilla, y "en revisión". No se marca "timeout", el Healing Pass no lo reintenta, y su traza (`NP_xxx.txt`) dice `INTERRUPTED (operator, t_exp = … s)`. Pudo haber impreso: revisalo con la cámara;
+      - **ningún obturador se puede abrir durante 3 s**, por ningún camino (la grilla, la traza, el autofoco ni otra rutina). Un segundo "Cerrar Todos" durante esos 3 s **no** los reinicia: cuentan desde el primero;
+      - después de los 3 s, la grilla **sigue sola** con el nodo siguiente. Para detenerla, usá la Pausa;
+      - cerrar el obturador del láser de la grilla con su botón cuenta igual que "Cerrar Todos";
+      - si cae justo antes de un autofoco, el autofoco no se hace y Z queda donde estaba: no se barre ni se corrige el foco con el obturador cerrado.
+    - Sin una grilla corriendo, "Cerrar Todos" cierra y no retiene nada.
   - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos de obturador, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
 
 > [!IMPORTANT]
@@ -559,7 +566,9 @@ Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquet
 - **Vale en cualquier etapa:** al terminar el autofoco, al terminar un escaneo (una corrección de deriva que llega en pausa **no se aplica**), en la traza (también si la pausa cae en el medio segundo que espera el filtro), en el paso al nodo siguiente y en el Healing Pass.
 - **`Play ►` reanuda:**
   - si el nodo ya tenía decisión (por ejemplo, la pausa cayó en el escaneo posterior), la grilla sigue con el **nodo siguiente**: un nodo decidido nunca se vuelve a exponer;
-  - si la pausa cortó la exposición, la grilla vuelve al mismo nodo, como antes. La Ronda 4 de C-01 cambia esto: ese nodo irá a revisión.
+  - si la pausa cortó la exposición, ese nodo queda **"interrumpido"** (en revisión) y la grilla sigue con el **nodo siguiente**: el nodo cortado nunca se vuelve a exponer, porque pudo haber impreso (R4-17 fase 3, `DEC-046`; respuesta 1 del 2026-10-02). Antes volvía al mismo nodo.
+- **La Pausa no mueve la platina** (R4-17 fase 3). Hasta este arreglo, la Pausa llevaba la platina al inicio del último escaneo confocal (o a (50, 50) µm, si no había habido ninguno), aunque no hubiera ningún escaneo en curso.
+- **Otros cortes durante la exposición:** si el watchdog, un interlock o la falla de la placa cierran el obturador a mitad de un nodo, el nodo queda "interrumpido" y la grilla **pausa**. `Play ►` sigue con el nodo siguiente.
 
 #### 3.7.5 Seguridad y Resiliencia ante Fallas de Comunicación con la Platina PI
 

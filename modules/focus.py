@@ -325,7 +325,12 @@ class Backend(QObject):
                 flag = True
                 retries = 0
                 while flag:
-                    open_shutter(self.laser)
+                    if not open_shutter(self.laser):
+                        # Retención de "Cerrar todos", interlock o escritura fallida (R4-17 fase 3): con el obturador
+                        # cerrado se fijaría el foco sobre un perfil oscuro. No se fija, y Z vuelve a donde estaba
+                        # (el inicio de la rampa está 3.75 µm más abajo: la grilla imprimiría fuera de foco).
+                        self._move_z(z_lock)
+                        raise RuntimeError("[Focus] ABORT lock_focus: el obturador no abrió; el foco no se fija.")
                     heartbeat_shutter(30.0)
                     try:
                         gone, _, flag = self._ramp_lin()
@@ -377,7 +382,13 @@ class Backend(QObject):
                 self.autofocusFinished.emit(mode_printing, None)
                 return
 
-        open_shutter(self.laser)
+        if not open_shutter(self.laser):
+            # Retención de "Cerrar todos", interlock o escritura fallida (R4-17 fase 3): con el obturador cerrado
+            # las rampas darían una corrección de Z a partir de la oscuridad. No se hace el autofoco.
+            print("[Focus] ⚠️ El obturador no abrió: no se hace el autofoco y Z no se corrige.")
+            self.autofinishSignal.emit(mode_printing)
+            self.autofocusFinished.emit(mode_printing, None)
+            return
         ok = True
         try:
             for _ in range(2):

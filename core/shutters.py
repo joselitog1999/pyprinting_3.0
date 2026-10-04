@@ -31,6 +31,7 @@ try:
                             is_flipper_high_power, set_default_shutter_timeout,
                             register_shutter_fault_callback, unregister_shutter_fault_callback,
                             get_unconfirmed_shutters,
+                            operator_close_all, operator_close_shutter, is_close_confirmed,
                             _shutter_signal)
 except ImportError:
     from nidaq   import (open_shutter, close_shutter, close_all_shutters, up_flipper, down_flipper,
@@ -41,6 +42,7 @@ except ImportError:
                          is_flipper_high_power, set_default_shutter_timeout,
                          register_shutter_fault_callback, unregister_shutter_fault_callback,
                          get_unconfirmed_shutters,
+                         operator_close_all, operator_close_shutter, is_close_confirmed,
                          _shutter_signal)
 
 
@@ -311,8 +313,12 @@ class Frontend(QFrame):
     def _close_all_shutters_clicked(self):
         """Cierra los cuatro y desmarca sólo si la placa lo confirmó (R4-17 fase 1). Antes desmarcaba primero e
         ignoraba el resultado: un cierre fallido quedaba como si nada. Si falla, los avisos de DEC-036 dejan cada
-        obturador marcado en rojo con el banner, y el watchdog reintenta."""
-        if close_all_shutters():
+        obturador marcado en rojo con el banner, y el watchdog reintenta.
+
+        Es un corte del operador (R4-17 fase 3): con una grilla corriendo, el nodo en exposición queda
+        "interrumpido" y las aperturas se retienen `OPERATOR_HOLD_S`; la grilla sigue después."""
+        epoch = operator_close_all("Cerrar todos")
+        if is_close_confirmed(epoch):
             for btn in (self.shutter0button, self.shutter1button, self.shutter2button, self.shutter3button):
                 if btn is not None and btn.isChecked():
                     btn.blockSignals(True)
@@ -521,26 +527,28 @@ class Backend(QObject):
         except Exception:
             pass
 
+    # Los botones del dock: cerrar uno es un corte del operador, igual que "Cerrar todos" (R4-17 fase 3; BANCO-67):
+    # el nodo de una grilla en exposición queda "interrumpido" y no "timeout".
     @pyqtSlot(bool)
     def shutter0(self, state: bool):
         if state:
             open_shutter(SHUTTERS[0], timeout_s=self.current_timeout)
         else:
-            close_shutter(SHUTTERS[0])
+            operator_close_shutter(SHUTTERS[0])
 
     @pyqtSlot(bool)
     def shutter1(self, state: bool):
         if state:
             open_shutter(SHUTTERS[1], timeout_s=self.current_timeout)
         else:
-            close_shutter(SHUTTERS[1])
+            operator_close_shutter(SHUTTERS[1])
 
     @pyqtSlot(bool)
     def shutter2(self, state: bool):
         if state:
             open_shutter(SHUTTERS[2], timeout_s=self.current_timeout)
         else:
-            close_shutter(SHUTTERS[2])
+            operator_close_shutter(SHUTTERS[2])
 
     @pyqtSlot(bool)
     def shutter3(self, state: bool):
@@ -548,7 +556,7 @@ class Backend(QObject):
             if state:
                 open_shutter(SHUTTERS[3], timeout_s=self.current_timeout)
             else:
-                close_shutter(SHUTTERS[3])
+                operator_close_shutter(SHUTTERS[3])
 
     @pyqtSlot(bool)
     def power_change(self, high: bool):

@@ -19,6 +19,7 @@ import time
 import sys
 import atexit
 import threading
+from enum import Enum
 from typing import Callable, Optional, NamedTuple
 import numpy as np
 
@@ -151,6 +152,114 @@ _default_timeout_s: float | None  = 30.0
 _SENTINEL = object()
 
 
+# ── Época de cierre y retención de apertura (C-01 Ronda 4, R4-17 fase 3; DEC-046) ─────────────
+class CloseCause(str, Enum):
+    """Quién pidió un cierre. La política de la grilla por causa está en `core/grid_state.py::CAUSE_POLICY`."""
+    OPERATOR = "operator"        # "Cerrar todos" o un botón del dock
+    ESTOP = "estop"              # parada de emergencia (fase 4)
+    WATCHDOG = "watchdog"
+    INTERLOCK = "interlock"
+    ROUTINE = "routine"          # una rutina o un camino sin causa propia
+    EXCEPTHOOK = "excepthook"
+    EXIT = "exit"
+    STAGE = "stage"
+
+
+class CloseEpoch(NamedTuple):
+    epoch: int
+    cause: CloseCause
+    detail: str
+    t_mono: float
+
+
+OPERATOR_HOLD_S = 3.0              # [INV-R4] 5: "Cerrar todos" con una rutina corriendo retiene las aperturas 3 s
+
+# La época crece con cada pedido de cierre, ANTES de tomar _nidaq_lock: quien anotó la época al abrir sabe que
+# hubo un cierre aunque el que cierra todavía espere la placa. Monótona: no hay bandera que limpiar ni dueño.
+# Se reemplaza entera (lectura sin candado); los escritores se serializan con _epoch_lock, que nunca se anida
+# con _nidaq_lock.
+_close_epoch: CloseEpoch          = CloseEpoch(0, CloseCause.ROUTINE, "", 0.0)
+_epoch_lock                       = threading.Lock()
+_open_hold_until: float           = 0.0      # time.monotonic(); open_shutter rechaza antes de este instante
+# Época más alta que una escritura exitosa de las cuatro líneas cerradas ya cubrió (se lee antes de escribir:
+# una escritura confirma sólo los pedidos anteriores a ella).
+_last_written_epoch: int          = 0
+# Rutinas que corren (la grilla): con alguna, "Cerrar todos" retiene las aperturas. Provisorio de la fase 3:
+# en la fase 4 lo sabe el coordinador de la parada.
+_routines_running: set[str]       = set()
+
+
+def _bump_close_epoch(cause: CloseCause, detail: str = "") -> int:
+    global _close_epoch
+    with _epoch_lock:
+        _close_epoch = CloseEpoch(_close_epoch.epoch + 1, CloseCause(cause), str(detail), time.monotonic())
+        return _close_epoch.epoch
+
+
+def get_close_epoch() -> CloseEpoch:
+    """La época de cierre vigente (sin candado)."""
+    return _close_epoch
+
+
+def _set_open_hold(hold_s: float) -> None:
+    """Retiene las aperturas `hold_s` segundos. Una retención vigente NO se extiende: los 3 s cuentan desde el
+    primer cierre (respuesta 2 del investigador, 2026-10-02)."""
+    global _open_hold_until
+    if hold_s is None or hold_s <= 0:
+        return
+    with _epoch_lock:
+        now = time.monotonic()
+        if _open_hold_until > now:
+            return
+        _open_hold_until = now + float(hold_s)
+
+
+def get_open_hold_remaining_s() -> float:
+    """Segundos que faltan para que se vuelvan a aceptar aperturas (0 sin retención)."""
+    return max(0.0, _open_hold_until - time.monotonic())
+
+
+def is_close_confirmed(epoch: int) -> bool:
+    """True si una escritura exitosa de las cuatro líneas cerradas cubrió el pedido de cierre `epoch`."""
+    return _last_written_epoch >= int(epoch)
+
+
+def set_routine_running(name: str, running: bool) -> None:
+    """Una rutina (la grilla) avisa que empieza o que terminó."""
+    with _epoch_lock:
+        (_routines_running.add if running else _routines_running.discard)(str(name))
+
+
+def any_routine_running() -> bool:
+    return bool(_routines_running)
+
+
+def request_close_all(cause: CloseCause, detail: str = "", hold_s: float = 0.0) -> int:
+    """Pide el cierre de los cuatro: época + 1, la retención si `hold_s > 0`, y el cierre. Devuelve la época del
+    pedido; `is_close_confirmed(época)` dice si la placa lo confirmó. En la fase 3 el cierre es sincrónico (el
+    hilo cerrador sin bloqueo es de la fase 4)."""
+    epoch = _bump_close_epoch(cause, detail)
+    _set_open_hold(hold_s)
+    _close_all_locked_write()
+    return epoch
+
+
+def operator_close_all(detail: str = "Cerrar todos") -> int:
+    """"Cerrar todos" del operador: con una rutina corriendo retiene las aperturas `OPERATOR_HOLD_S`; sin rutina,
+    sólo cierra (`ronda2_architecture.md` §4.1.3)."""
+    hold = OPERATOR_HOLD_S if any_routine_running() else 0.0
+    return request_close_all(CloseCause.OPERATOR, detail, hold_s=hold)
+
+
+def operator_close_shutter(name: str, detail: str = "") -> bool:
+    """El operador cierra un obturador desde su botón: cuenta como un corte suyo, igual que "Cerrar todos" (el
+    nodo en exposición queda interrumpido y, con una rutina corriendo, se retienen las aperturas)."""
+    _bump_close_epoch(CloseCause.OPERATOR, detail or f"botón {name}")
+    if any_routine_running():
+        _set_open_hold(OPERATOR_HOLD_S)
+    return close_shutter(name)
+
+
 def set_default_shutter_timeout(timeout_s: float | None) -> None:
     """Establece la política global de auto-cierre. Toda llamada posterior a open_shutter()/
     heartbeat_shutter() sin timeout_s explícito usará este valor. None o <= 0 activa el Modo
@@ -184,7 +293,7 @@ def _watchdog_loop():
             try:
                 # Si no confirma, close_all_shutters() deja _retry_due armado: el reintento
                 # sigue en este mismo hilo aunque el plazo ya se haya consumido.
-                close_all_shutters()
+                close_all_shutters(CloseCause.WATCHDOG, "heartbeat expirado")
             except Exception as err:
                 try: print(f"[WATCHDOG Error] Error en cierre forzado: {err}")
                 except Exception: pass
@@ -305,7 +414,7 @@ def get_shutter_interlocks() -> dict[str, str]:
 def trip_shutter_interlock(source: str, reason: str) -> bool:
     """Activa el interlock y cierra todos los obturadores. Devuelve si el cierre se confirmó."""
     set_shutter_interlock(source, reason)
-    return close_all_shutters()
+    return close_all_shutters(CloseCause.INTERLOCK, f"{source}: {reason}")
 
 
 def register_flipper_callback(fn: Callable[[bool], None]) -> None:
@@ -327,7 +436,7 @@ def is_flipper_high_power() -> bool:
 
 def _emergency_shutdown():
     try:
-        close_all_shutters()
+        close_all_shutters(CloseCause.EXIT, "fin del proceso")
         up_flipper()
     except Exception:
         pass
@@ -397,11 +506,15 @@ def _apply_shutter_lines(desired: list[bool]) -> tuple[Optional[str], bool, list
     una línea comandada "cerrar", y el estado de una comandada "abrir" que quedó sin confirmar por una
     escritura fallida (R4-17 fase 1). Devuelve (error, simulado, cierres recién confirmados,
     aperturas recién confirmadas)."""
+    global _last_written_epoch
+    epoch_before = _close_epoch.epoch          # se lee antes: la escritura cubre sólo los pedidos anteriores
     err, simulated = _write_shutter_lines(desired)
     recovered: list[str] = []
     recovered_open: list[str] = []
     if err is None:
         _shutter_signal[:] = list(desired)
+        if all(sig == (not SHUTTER_POLARITY[n]) for n, sig in zip(SHUTTERS, desired)):
+            _last_written_epoch = max(_last_written_epoch, epoch_before)
         for name, sig in zip(SHUTTERS, desired):
             if name in _unconfirmed_shutters:
                 _unconfirmed_shutters.discard(name)
@@ -485,12 +598,20 @@ def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> bool:
     para que la elección del usuario en el dock de Shutters ("Auto-cierre" / "Sin límite") se
     respete también cuando una rutina experimental abre el shutter.
 
-    Un interlock activo (placa no disponible, falla de la platina) bloquea la apertura."""
+    Un interlock activo (placa no disponible, falla de la platina) bloquea la apertura, y también la retención de
+    "Cerrar todos" (`get_open_hold_remaining_s()`, R4-17 fase 3): se revisa antes de pedir el candado y otra vez
+    adentro. Una apertura retenida no escribe ni arma el watchdog."""
     if name not in SHUTTERS:
         raise ValueError(f"Shutter desconocido: {name}")
+    if get_open_hold_remaining_s() > 0:
+        _print_hold_rejection(name)
+        return False
     notes: list[tuple[str, str, bool]] = []
+    held = False
     with _nidaq_lock:
-        if _shutter_interlocks:
+        if get_open_hold_remaining_s() > 0:
+            held, ok = True, False
+        elif _shutter_interlocks:
             reason = "; ".join(f"{k}: {v}" for k, v in _shutter_interlocks.items())
             print(f"[NI-DAQ] open_shutter({name}) BLOQUEADO por interlock — {reason}")
             notes.append((name, f"apertura bloqueada por interlock ({reason})", False))
@@ -513,8 +634,18 @@ def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> bool:
                 notes.append((name, f"apertura no confirmada: {err}", False))
                 notes += _mark_all_unconfirmed(err, f"falló la apertura de {name}")
                 ok = False
+    if held:
+        _print_hold_rejection(name)
     _dispatch_shutter_notes(notes)
     return ok
+
+
+def _print_hold_rejection(name: str) -> None:
+    try:
+        print(f"[NI-DAQ] open_shutter({name}) RETENIDO: \"Cerrar todos\" retiene las aperturas "
+              f"{get_open_hold_remaining_s():.1f} s más.")
+    except Exception:
+        pass
 
 
 def close_shutter(name: str) -> bool:
@@ -553,8 +684,14 @@ def close_shutter(name: str) -> bool:
     return ok
 
 
-def close_all_shutters() -> bool:
-    """Cierra los cuatro obturadores con una sola escritura. Devuelve True sólo si se confirmó."""
+def close_all_shutters(cause: CloseCause = CloseCause.ROUTINE, detail: str = "") -> bool:
+    """Cierra los cuatro obturadores con una sola escritura. Devuelve True sólo si se confirmó. Todo cierre de los
+    cuatro es un corte: incrementa la época antes de tomar la placa (R4-17 fase 3)."""
+    _bump_close_epoch(cause, detail)
+    return _close_all_locked_write()
+
+
+def _close_all_locked_write() -> bool:
     global _watchdog_deadline, _retry_due
     notes: list[tuple[str, str, bool]] = []
     with _nidaq_lock:
@@ -887,7 +1024,7 @@ def channels_photodiodos(rate: float, samps_per_chan: int, continuous: bool = Fa
         except Exception:
             pass
         _daq_fault("fotodiodos", e)
-        close_all_shutters()
+        close_all_shutters(CloseCause.INTERLOCK, "tarea de fotodiodos no disponible")
         return _UnavailableNITask(len(PD_CHANS_LIST) + 1, samps_per_chan)
 
 

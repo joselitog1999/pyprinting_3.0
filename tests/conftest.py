@@ -180,6 +180,20 @@ def _purge_deleted_pyqtgraph_views():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_open_hold():
+    """La retención de aperturas de "Cerrar todos" y el registro de rutinas que corren (R4-17 fase 3) son estado
+    de proceso: una retención vigente al terminar un test rechazaría las aperturas del siguiente, y una grilla que
+    quedó registrada haría que un "Cerrar todos" posterior retuviera. La época no se toca: es monótona y cada
+    consumidor la compara con la que anotó."""
+    from core import nidaq
+    nidaq._open_hold_until = 0.0
+    nidaq._routines_running.clear()
+    yield
+    nidaq._open_hold_until = 0.0
+    nidaq._routines_running.clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_dark_store():
     """El almacén de fondos de los procedimientos (R4-N) es global y se reutiliza mientras las condiciones no
     cambien: sin vaciarlo, que una rutina tome o no su fondo dependería de los tests anteriores. Sólo actúa

@@ -763,9 +763,14 @@ class Backend(QObject):
         key = (self.scan_mode_option, self.psf_mode_option)
         if key in timers:
             timer, axes, targets = timers[key]
-            if timer is not None and timer.isActive():
+            # Vuelve al inicio sólo si había un escaneo corriendo (R4-17 fase 3, DEC-046). Antes movía siempre: la
+            # Pausa de la grilla (que llama a stop_scan por grid_scan_stopSignal) llevaba la platina al inicio del
+            # último escaneo, o a (50, 50) µm, sin ningún escaneo en curso, contra DEC-041 ("en pausa la platina no
+            # se mueve").
+            was_scanning = timer is not None and timer.isActive()
+            if was_scanning:
                 timer.stop()
-            if self.mode_printing == "none":
+            if was_scanning and self.mode_printing == "none":
                 pi.MOV(axes, targets)
 
     # ── Scan step ─────────────────────────────────────────────────────────────

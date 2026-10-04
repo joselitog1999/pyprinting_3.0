@@ -1337,6 +1337,97 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Bench:** BANCO-70 can now run (with the trace Δt and a busy-GUI check added). BANCO-71 was added, along with the Round 2 additions to BANCO-66/67/68.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-046: R4-17 Phase 3 — Closing Epoch, the Interrupted Node and the 3 s Hold (2026-10-02)
+* **Context:** a "Cerrar todos" (or the laser's dock button, or a Pause) during an exposure left the trace running with the shutter closed.
+  * The signal dropped, so the criterion decided "timeout". The Healing Pass then re-exposed a node that may already have printed.
+  * The next node opened at once.
+  * A Pause during the exposure resumed on the same node (DEC-041), with the same risk.
+  * The rest of the closing-epoch design is approved in `ronda2_architecture.md` §4.1.1, §4.1.3 and §4.6.
+* **Operator decisions** (Round 2 answers, 2026-10-02):
+  * **Question 1:** a Pause follows the same rule as a cut. The cut node goes to review and is never re-exposed.
+  * **Question 2:** a second "Cerrar todos" does not restart the hold; the 3 s count from the first close. This reverses mutation m17 of the design (which extended the hold with the max).
+* **Decision, `core/nidaq.py`:**
+  * **Closing epoch.** `CloseCause`, `CloseEpoch` and `get_close_epoch()`. Every close-all and every operator close bumps it before taking `_nidaq_lock`:
+    * the watchdog passes `WATCHDOG`;
+    * `trip_shutter_interlock` and the photodiode-task fault pass `INTERLOCK`;
+    * the atexit close passes `EXIT`;
+    * the default is `ROUTINE`.
+  * **Confirmation.** `is_close_confirmed(epoch)` is backed by `_last_written_epoch`. That value is read before every write and advanced by any successful write that leaves all four lines closed.
+  * **The hold.** `request_close_all(cause, detail, hold_s)` (synchronous until the phase 4 closer thread) plus `operator_close_all()`: with a routine running (`set_routine_running` / `any_routine_running`, interim until the phase 4 coordinator), it holds every opening for `OPERATOR_HOLD_S` = 3 s.
+    * `open_shutter` checks the hold before and inside the lock. A held opening neither writes nor arms the watchdog.
+    * `operator_close_shutter(name)` is a dock button's close, and counts like "Cerrar todos".
+* **Decision, `core/grid_state.py` (new, no Qt):** `GridRunState`, `GridTransition`, `CAUSE_POLICY`, `NodeMeta` and `INTERRUPTED`.
+  * `operator` → the grid goes on after the hold.
+  * `estop` → stopped (phase 4).
+  * `pause`, `watchdog`, `interlock`, `stage`, `routine`, `excepthook` and `exit` → paused.
+  * An unknown cause is treated as paused (the safe side).
+* **Decision, `modules/measurements.py`:**
+  * **`_grid_trace`** records the epoch **before** opening and checks the result of `open_shutter`:
+    * the line left unconfirmed → the node may have opened, so it is treated as interrupted;
+    * held → the node was not exposed, and it is retried when the hold expires;
+    * an interlock → pause.
+  * **`grid_trace_detect`, first lines, before the heartbeat:**
+    * a node already decided is ignored (`_node_decided`, the P-1 guard). The direct-call probe now passes, so its `xfail` was removed;
+    * a pause, or a changed epoch, → `_finalize_interrupted_node(cause)`.
+  * **`_finalize_interrupted_node`** runs once per node. It:
+    * does not beat;
+    * stops the trace and closes;
+    * sets `node_results = "interrupted"` and `node_meta`;
+    * saves the trace with the header `INTERRUPTED (<cause>, t_exp = … s)`;
+    * emits `nodeStatusSignal` and the new `nodeInterruptedSignal(int, str, float)`;
+    * sets `_detect_pending = True` (resume goes to the next node);
+    * continues per `CAUSE_POLICY`.
+  * **The wait** is a worker `QTimer` (precise, the hold plus 20 ms, re-armed if any hold remains), never a sleep. It emits `countdownSignal(int, float)`; a Pause cancels it.
+  * **`grid_pause`** finalizes a node that was exposed and undecided.
+  * **The Healing Pass** still takes only `"timeout"`, so it never re-exposes an interrupted node.
+  * **The Time-Volt report** keeps interrupted nodes out of its statistics and lists them apart (R-15).
+  * **The grid view** draws an interrupted node as an up-triangle, Red fill and Peach ring (`gui_design_v2.md` §5.3).
+* **Decision, `core/shutters.py`:** the "Cerrar Todos" button calls `operator_close_all` and unchecks on `is_close_confirmed(epoch)`. Each shutter button's close calls `operator_close_shutter`.
+* **Decision, `modules/focus.py`:** the first autofocus of a grid opens twice, for the "auto-lock" (`focus_lock_lin`, the reference profile) and for the ramps (`focus_autocorr_lin_x2`). Both ignored the result of `open_shutter`. When an opening is refused (held, interlock, failed write):
+  * **the lock** is not fixed on a dark profile, and Z goes back to where it was. The lock first moves Z to the start of its ramp, 3.75 µm lower, so without the move back the grid would have printed out of focus;
+  * **the ramps** are skipped, Z is not corrected from a dark profile, and the grid is still notified.
+  * Validity of the autofocus result in general is phase 5.
+* **Pre-existing defect found and fixed, `modules/confocal.py::stop_scan`:**
+  * It always moved the stage back to the last scan start, or to (50, 50) µm. A Pause during a grid calls it through `grid_scan_stopSignal`, so **the Pause moved the stage** even with no scan running, against DEC-041.
+  * `test_grid_pause_halts_chain` never saw it, because it has no confocal worker. The new rig does.
+  * `stop_scan` now moves back only when a scan timer was active.
+* **Tests:**
+  * **`tests/test_grid_cuts_phase3.py` (12 in phase 3a):**
+    * a close during the exposure (by "Cerrar todos" and by the laser's button) with the Healing Pass on;
+    * the Time-Volt report;
+    * a close in the filter wait (E-5);
+    * a close right before each focus opening (the lock and the ramps);
+    * a Pause during the exposure;
+    * "Cerrar todos" with no grid (E-12);
+    * a second "Cerrar todos" during the wait;
+    * a watchdog close;
+    * a Pause during the wait;
+    * `stop_scan` with no scan running.
+  * **The rig** gained cut injection (`at_read`, `after`, `close_all`, `close_laser`, `pause`, `play`, `wait_until`). It also records DO write times, cut times, criterion heartbeats per node and every node status.
+  * **Eleven mutations, all caught.** Each selected test also passes unmutated:
+    * m3 (no epoch check);
+    * m4 (heartbeat before the check);
+    * m11 (Healing takes interrupted);
+    * m17r (the hold extends);
+    * m19 (no decided-node guard);
+    * m20 (Pause leaves the node open);
+    * m21 (`open_shutter` without the hold);
+    * m22 (`stop_scan` always moves);
+    * m23 (the autofocus ignores a refused opening);
+    * m24 (the lock ignores it);
+    * m25 (the lock does not move Z back).
+  * **Deliberate contract changes:**
+    * `test_a_pause_during_the_exposure_*` now expects the node interrupted and resume on the next node (question 1);
+    * the focus tests' `open_shutter` mocks return `True`, the real contract, instead of `None`.
+  * **`tests/conftest.py`** clears the hold and the routine registry between tests.
+* **Pending for the GUI** (phase 4, with `runStateChanged`), not in this phase:
+  * the "Cerrar todos · la grilla sigue" label and tooltip;
+  * the Peach 20 s banner;
+  * the visible countdown;
+  * telling the GUI that the grid paused itself after a watchdog or interlock cut. Until then, the console and the node glyph say it.
+* **Bench:** BANCO-67 can run. BANCO-70 now expects Play to go to the next node and the stage not to move.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

@@ -210,6 +210,21 @@ En la arquitectura definitiva de PyPrinting 3.0:
 3. **Manejo de Eventos en PyQt6 (`clicked` vs `setChecked`)**: En [`core/shutters.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py), la acción del operador se conecta a la señal `powerbutton.clicked`, garantizando que únicamente los clics directos del usuario emitan órdenes al hardware. Para la sincronización de retorno de hardware a GUI, el método `update_power_ui(is_high)` actualiza visualmente el casillero sin disparar recursiones de señal ni bloqueos.
 4. **Referencia Técnica Exhaustiva**: Para el análisis detallado de causas raíz (tareas zombi en NI-DAQmx, trampa de polaridad en 532 nm y ciclo de vida de tareas), consúltese el documento dedicado: [`SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx.md).
 
+### 4.5 Época de cierre y retención de aperturas (R4-17 fase 3, `DEC-046`)
+
+Sirven para que una rutina sepa que alguien cortó mientras exponía, sin tener que limpiar ninguna bandera después.
+
+- **Época de cierre** (`core/nidaq.py::get_close_epoch()`):
+  - es un contador monótono, con la causa y la hora (`CloseCause`: operador, watchdog, interlock, rutina, salida, platina; la parada de emergencia llega en la fase 4);
+  - la incrementan `close_all_shutters(cause)`, `request_close_all(...)` y los botones del dock (`operator_close_all`, `operator_close_shutter`), **antes** de tomar `_nidaq_lock`;
+  - la grilla la anota antes de abrir el obturador de cada nodo y la compara en cada tick del criterio. Si cambió, el nodo queda `"interrupted"` (expuesto sin decisión) en lugar de decidirse "timeout" con el obturador ya cerrado;
+  - `is_close_confirmed(época)` dice si una escritura exitosa de las cuatro líneas cerradas cubrió ese pedido. La época se lee antes de escribir, así que una escritura sólo confirma pedidos anteriores a ella.
+- **Retención** (`get_open_hold_remaining_s()`):
+  - "Cerrar todos" con una rutina corriendo (`any_routine_running()`) bloquea toda apertura durante `OPERATOR_HOLD_S` = 3 s, por cualquier camino. `open_shutter` la revisa antes de pedir el candado y otra vez adentro; una apertura retenida no escribe ni arma el watchdog;
+  - una retención vigente **no se extiende**: los 3 s cuentan desde el primer cierre (respuesta 2 del investigador, 2026-10-02);
+  - la grilla espera ese mismo plazo con un `QTimer` preciso, nunca con `sleep`, y después sigue con el nodo siguiente (`core/grid_state.py::CAUSE_POLICY`).
+- **Provisorio:** el registro de rutinas que corren vive en `nidaq` hasta que lo tome el coordinador de la parada (fase 4), y el cierre de `request_close_all` todavía es sincrónico (el hilo cerrador también es de la fase 4).
+
 ---
 
 ## 5. 🔬 Solución del Problema de la Traza y Alineación Óptica

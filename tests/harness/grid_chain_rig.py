@@ -19,6 +19,10 @@ Dobles:
   de la decisión no depende de la topología, y se cuentan todas las decisiones de cada nodo, no sólo la última.
 - **Hilo GUI ocupado (P-1):** `run_grid(gui_period_s=...)` atiende la cola del hilo principal cada tanto, como un
   hilo GUI que dibuja: los ticks de la traza que crucen al hilo GUI se acumulan en su cola.
+- **Cortes (fase 3):** `at_read(nodo, lectura, acción)` corre `acción` en el hilo principal (como un clic del
+  operador) cuando la traza de ese nodo hace esa lectura; `after(s, acción)`, `s` segundos después de la anterior.
+  Se registran la hora de cada escritura DO (`do_times`), la de cada corte (`cut_times`), los latidos del criterio
+  (`heartbeats`, por nodo) y todos los estados de los nodos (`status_log`).
 
 `run_grid(script)` corre una grilla completa y devuelve un `ChainRecord`. Lo usan el test dorado de `legacy_timer`
 (`tests/test_legacy_timer_golden.py`) y, desde la fase 3, la matriz de cortes por etapa.
@@ -55,7 +59,23 @@ class ChainRecord:
     moves: List[Tuple[float, ...]] = field(default_factory=list)
     stage_threads: Dict[str, List[str]] = field(default_factory=dict)
     decision_events: List[Tuple[int, str]] = field(default_factory=list)
+    do_times: List[float] = field(default_factory=list)
+    cut_times: List[float] = field(default_factory=list)
+    heartbeats: List[Tuple[int, float]] = field(default_factory=list)
+    status_log: List[Tuple[int, str, float]] = field(default_factory=list)
     finished: bool = False
+
+    def line_opens(self, line: int, after_t: float = float("-inf")) -> List[float]:
+        """Horas de las escrituras que llevan la línea `line` a abierto (según su polaridad), después de `after_t`."""
+        import config
+        level_open = config.SHUTTER_POLARITY[config.SHUTTERS[line]]
+        out, prev = [], None
+        for (lines, _caller), t in zip(self.do_writes, self.do_times):
+            now_open = lines[line] == level_open
+            if now_open and (prev is None or not prev) and t > after_t:
+                out.append(t)
+            prev = now_open
+        return out
 
     def transitions(self) -> List[Tuple[int, bool, str]]:
         """Cambios de nivel por línea, en orden: (línea, nivel nuevo, quién)."""
@@ -131,6 +151,62 @@ class GridChainRig:
         self.record = ChainRecord()
         self._reads_since_open = 0
         self._lock = threading.Lock()
+        self._cuts: Dict[Tuple[int, int], object] = {}
+        self._pending: List[Tuple[float, object]] = []      # (hora monotónica, acción) para el hilo principal
+
+    # ── cortes ──
+    def at_read(self, node: int, read: int, action):
+        """Corre `action()` en el hilo principal cuando la traza del nodo `node` hace la lectura `read`."""
+        self._cuts[(int(node), int(read))] = action
+
+    def after(self, delay_s: float, action):
+        """Programa `action()` en el hilo principal, `delay_s` segundos desde ahora (lo usan las acciones)."""
+        with self._lock:
+            self._pending.append((time.monotonic() + float(delay_s), action))
+
+    def _run_pending(self):
+        now = time.monotonic()
+        with self._lock:
+            due = [a for t, a in self._pending if t <= now]
+            self._pending = [(t, a) for t, a in self._pending if t > now]
+        for action in due:
+            action()
+
+    def close_all(self):
+        """El "Cerrar todos" del operador (el mismo camino que el botón del dock)."""
+        from core import nidaq
+        self.record.cut_times.append(time.monotonic())
+        nidaq.operator_close_all("banco de pruebas")
+
+    def close_laser(self):
+        """El botón del obturador del láser de la grilla, en el dock."""
+        from core import nidaq
+        self.record.cut_times.append(time.monotonic())
+        nidaq.operator_close_shutter(self.backend.printingWorker.laser)
+
+    def pause(self):
+        """El clic en Pausa: marca en el acto y encola `grid_pause`, como el Frontend."""
+        from PyQt6.QtCore import QMetaObject, Qt
+        pw = self.backend.printingWorker
+        self.record.cut_times.append(time.monotonic())
+        pw.request_pause()
+        QMetaObject.invokeMethod(pw, "grid_pause", Qt.ConnectionType.QueuedConnection)
+
+    def play(self):
+        from PyQt6.QtCore import QMetaObject, Qt
+        QMetaObject.invokeMethod(self.backend.printingWorker, "grid_measurment", Qt.ConnectionType.QueuedConnection)
+
+    def wait_until(self, predicate, timeout_s: float = 30.0, gui_period_s: float = 0.002) -> bool:
+        from PyQt6.QtWidgets import QApplication
+        t_end = time.monotonic() + timeout_s
+        while time.monotonic() < t_end:
+            QApplication.processEvents()
+            self._run_pending()
+            if predicate():
+                return True
+            time.sleep(gui_period_s)
+        QApplication.processEvents()
+        return bool(predicate())
 
     # ── dobles ──
     def next_read(self, n_samples: int):
@@ -139,6 +215,10 @@ class GridChainRig:
             self._reads_since_open += 1
             k = self._reads_since_open
         node = self.backend.printingWorker.i_global if hasattr(self, "backend") else 0
+        action = self._cuts.pop((node, k), None)
+        if action is not None:
+            with self._lock:
+                self._pending.append((0.0, action))
         sc = self.script[node] if 0 <= node < len(self.script) else NodeScript()
         v = BASE_V
         if sc.capture_read is not None and k >= sc.capture_read:
@@ -205,6 +285,7 @@ class GridChainRig:
         def logged_write(desired):
             self.record.do_writes.append((tuple(bool(v) for v in desired), _caller_outside(nidaq.__file__)))
             self.record.do_threads.append(_thread_name())
+            self.record.do_times.append(time.monotonic())
             return real_write(desired)
         self.mp.setattr(nidaq, "_write_shutter_lines", logged_write)
 
@@ -230,6 +311,13 @@ class GridChainRig:
                 self._reads_since_open = 0
             return real_open(name, *a, **k)
         self.mp.setattr(trace_mod, "open_shutter", open_and_reset)
+
+        real_heartbeat = meas.heartbeat_shutter
+
+        def logged_heartbeat(*a, **k):
+            self.record.heartbeats.append((int(self.backend.printingWorker.i_global), time.monotonic()))
+            return real_heartbeat(*a, **k)
+        self.mp.setattr(meas, "heartbeat_shutter", logged_heartbeat)
 
         real_meas_time = meas.time
         scaled = types.SimpleNamespace(sleep=lambda s: real_meas_time.sleep(s * SLEEP_SCALE), time=real_meas_time.time,
@@ -273,7 +361,8 @@ class GridChainRig:
         return False
 
     def _on_status(self, i: int, status: str):
-        if status in ("success", "timeout"):
+        self.record.status_log.append((int(i), str(status), time.monotonic()))
+        if status in ("success", "timeout", "interrupted"):
             self.record.decision_events.append((int(i), status))
             self.record.decisions[int(i)] = status
             self.record.decision_ticks[int(i)] = int(getattr(self.backend.printingWorker, "ptr", -1))
@@ -296,15 +385,11 @@ class GridChainRig:
             setattr(pw, k, v)
         self.backend.traceWorker.parameters([5, 5])           # steps_after, steps_before (ventanas cortas)
 
-    def run_grid(self, timeout_s: float = 120.0, gui_period_s: float = 0.002) -> ChainRecord:
-        from PyQt6.QtCore import QMetaObject, Qt
-        from PyQt6.QtWidgets import QApplication
+    def run_grid(self, timeout_s: float = 120.0, gui_period_s: float = 0.002, until=None) -> ChainRecord:
+        """Arranca la grilla y atiende el hilo principal hasta que termina (o hasta `until()`, si se da)."""
         pw = self.backend.printingWorker
         pw.mode_printing = "none"
-        QMetaObject.invokeMethod(pw, "grid_measurment", Qt.ConnectionType.QueuedConnection)
-        t_end = time.monotonic() + timeout_s
-        while not self.record.finished and time.monotonic() < t_end:
-            QApplication.processEvents()
-            time.sleep(gui_period_s)
-        QApplication.processEvents()
+        self.play()
+        done = until if until is not None else (lambda: self.record.finished)
+        self.wait_until(done, timeout_s=timeout_s, gui_period_s=gui_period_s)
         return self.record

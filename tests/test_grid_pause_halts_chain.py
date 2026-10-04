@@ -12,7 +12,8 @@ Contrato:
 - cada entrada de la cadena (después de mover, fin del autofoco, traza, escaneo, detección, Healing Pass)
   no sigue si la grilla está en pausa: no mueve la platina, no cambia el filtro, no abre;
 - `_grid_trace` es la última barrera: no abre en pausa ni con `mode_printing == "none"`;
-- Play (reanudar) limpia la pausa y la grilla sigue como antes; sin pausa, nada cambia.
+- Play (reanudar) limpia la pausa y la grilla sigue como antes; sin pausa, nada cambia;
+- una Pausa durante la exposición deja el nodo "interrupted" y Play sigue con el próximo (R4-17 fase 3, DEC-046).
 """
 import os
 
@@ -204,14 +205,21 @@ def test_the_decision_marks_the_node_and_resume_goes_to_the_next(grid, monkeypat
     assert not pw._detect_pending
 
 
-def test_a_pause_during_the_exposure_resumes_the_same_node_as_today(grid):
-    """Sin decisión, el reanudar vuelve al mismo nodo (como hoy). La regla P4 de la Ronda 4 lo cambia (pregunta 5)."""
+def test_a_pause_during_the_exposure_leaves_the_node_interrupted_and_resume_goes_to_the_next(grid, monkeypatch):
+    """Una Pausa que corta la exposición deja el nodo "interrupted" (en revisión) y Play sigue con el próximo: el
+    nodo cortado no se reexpone (respuesta 1 del investigador, 2026-10-02; R4-17 fase 3, DEC-046). Antes (DEC-041)
+    volvía al mismo nodo."""
     pw, log = grid
-    pw._grid_trace()
+    monkeypatch.setattr(pw, "_save_trace", lambda *a, **k: None)
+    pw._grid_trace()                                  # nodo 0 expuesto
     pw.grid_pause()
+    assert pw.node_results[0] == "interrupted" and pw.node_meta[0].cause == "pause"
+    assert pw._detect_pending
     log.append("PLAY")
     pw.grid_measurment()
-    assert pw.i_global == 0 and ("MOV", (50.0, 50.0)) in _after(log, "PLAY")
+    after = _after(log, "PLAY")
+    assert pw.i_global == 1 and ("MOV", (51.0, 50.0)) in after
+    assert ("MOV", (50.0, 50.0)) not in after          # el nodo 0, cortado, no se reexpone
 
 
 def test_a_new_grid_clears_a_stale_pending_detection(grid, monkeypatch):

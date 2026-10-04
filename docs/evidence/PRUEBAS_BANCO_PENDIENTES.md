@@ -1080,6 +1080,7 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **Qué se prueba:** con el backend por defecto, "Cerrar todos" durante un nodo deja el nodo como "interrumpido" y en revisión, y no como "timeout". El Healing Pass no lo reexpone, y la grilla sigue con el nodo siguiente después de la espera visible de 3 s. Un segundo "Cerrar todos" no pausa (pregunta 6).
 - **También:** "Cerrar todos" durante el autofoco o la deriva entre nodos. El paso no se aplica, se restituye la posición y se repite (P-a).
 - **Láseres apagados**: se observa el log de escrituras DO y los rótulos de los nodos.
+- **Con la fase 3 de R4-17** (`DEC-046`) ya se puede correr. En la consola: "Nodo N interrumpido (operator)" y "La grilla sigue con el nodo N+1 en 3.0 s". Con el osciloscopio en `line11`, mirá que la reapertura llegue ≥ 3 s después del cierre.
 - **Agregados de la Ronda 2 de R4-17:**
   - un segundo "Cerrar todos" durante la espera no pausa, y la reapertura llega ≥ 3 s después del **primer** cierre: la espera no se reinicia (respuesta a la pregunta 2 del 2026-10-02). Medilo con el osciloscopio;
   - el botón individual del 532 durante un nodo deja el nodo "interrumpido", igual que "Cerrar todos".
@@ -1102,7 +1103,8 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
   - la platina no se mueve;
   - el filtro de densidad queda en baja potencia;
   - la consola dice "Grilla en pausa: … no sigue".
-- **Play:** si la pausa cayó después de la decisión del nodo, se sigue con el próximo; si cortó la exposición, vuelve al mismo.
+- **Play:** se sigue con el próximo nodo, tanto si la pausa cayó después de la decisión como si cortó la exposición. Desde la fase 3 de R4-17 (`DEC-046`; respuesta 1 del 2026-10-02), el nodo cortado queda "interrumpido" (triángulo rojo con anillo naranja) y **no** se vuelve a exponer.
+- **La platina no se mueve con la Pausa** (fase 3): antes, la Pausa la llevaba al inicio del último escaneo confocal, o a (50, 50) µm. Anotá la posición antes y después de cada pausa.
 - **Antes del arreglo** (`7f5d10a`, como control, sólo con la llave apagada): pausar durante el autofoco y ver si la línea del 532 se abre igual.
 - **Con la cadena en un solo hilo** (R4-17 fase 2, `DEC-045`): esta prueba ya se puede correr, porque la topología es la definitiva. Corrila con un `main` que incluya la fase 2. Agregá:
   - el Δt medio entre ticks de la traza, para compararlo con los ≈ 47 ms de `DEC-037`. El criterio ahora corre dentro del tick y no debería cambiarlo;
