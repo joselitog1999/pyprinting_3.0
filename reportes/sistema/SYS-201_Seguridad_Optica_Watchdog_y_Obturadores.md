@@ -249,6 +249,10 @@ Sirven para que una rutina sepa que alguien cortó mientras exponía, sin tener 
   Nunca llama a `pi.connect()`.
 - **La compuerta de baja potencia** (`low_power_settle_remaining_s`) es la hora del último `up_flipper` confirmado, con un piso de 100 ms antes de abrir. La usa la grilla al reanudar (fase 4b).
 - **"Confirmado" significa que la placa aceptó la escritura** (`DEC-036`), no que el servo se movió. La única parada independiente del software es la llave del láser.
+- **Participantes** (fase 4b, `DEC-048`): son la grilla de impresión y la de dímeros, la traza, el foco y el confocal.
+  - En el disparo sólo ponen banderas. Cada hilo se detiene en su próxima consulta, sin mover y sin abrir.
+  - Están quietos (`is_quiescent`) cuando no tienen ninguna etapa, rampa ni escaneo en curso; Rearmar los espera.
+  - Rearmar deja la grilla en pausa, y Play la retoma en el primer nodo que nunca se expuso, después de la compuerta de baja potencia.
 
 ---
 

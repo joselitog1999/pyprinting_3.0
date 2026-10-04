@@ -63,7 +63,12 @@ class ChainRecord:
     cut_times: List[float] = field(default_factory=list)
     heartbeats: List[Tuple[int, float]] = field(default_factory=list)
     status_log: List[Tuple[int, str, float]] = field(default_factory=list)
+    move_results: List[Tuple[float, Tuple[float, ...], bool]] = field(default_factory=list)   # (hora, destino, salió)
     finished: bool = False
+
+    def executed_moves(self, after_t: float = float("-inf")) -> List[Tuple[float, ...]]:
+        """Los MOV que salieron de verdad (no retenidos por la parada) después de `after_t`."""
+        return [m for t, m, ok in self.move_results if ok is not False and t > after_t]
 
     def line_opens(self, line: int, after_t: float = float("-inf")) -> List[float]:
         """Horas de las escrituras que llevan la línea `line` a abierto (según su polaridad), después de `after_t`."""
@@ -192,6 +197,22 @@ class GridChainRig:
         pw.request_pause()
         QMetaObject.invokeMethod(pw, "grid_pause", Qt.ConnectionType.QueuedConnection)
 
+    def estop(self):
+        """La parada de emergencia del proceso (el mismo coordinador que el botón y las teclas)."""
+        from core.emergency_stop import get_emergency_coordinator
+        self.record.cut_times.append(time.monotonic())
+        get_emergency_coordinator().trigger("banco de pruebas")
+
+    def rearm(self, timeout_s: float = 15.0) -> bool:
+        """Rearmar cuando el coordinador lo permita (cierre confirmado, todo quieto), como el botón."""
+        from core import estop_state
+        from core.emergency_stop import get_emergency_coordinator
+        coordinator = get_emergency_coordinator()
+        gen = estop_state.generation()
+        if not self.wait_until(lambda: coordinator.rearm_check(gen).ok, timeout_s=timeout_s):
+            return False
+        return coordinator.rearm(gen)[0]
+
     def play(self):
         from PyQt6.QtCore import QMetaObject, Qt
         QMetaObject.invokeMethod(self.backend.printingWorker, "grid_measurment", Qt.ConnectionType.QueuedConnection)
@@ -292,8 +313,11 @@ class GridChainRig:
         real_mov = config.pi.MOV
 
         def logged_mov(axes, targets):
-            self.record.moves.append(tuple(round(float(v), 4) for v in np.atleast_1d(targets)))
-            return real_mov(axes, targets)
+            m = tuple(round(float(v), 4) for v in np.atleast_1d(targets))
+            self.record.moves.append(m)
+            ok = real_mov(axes, targets)
+            self.record.move_results.append((time.monotonic(), m, ok))
+            return ok
         self.mp.setattr(config.pi, "MOV", logged_mov)
         self.mp.setattr(type(config.pi), "connected", property(lambda s: True))
         # La platina simulada es global: cada grilla arranca desde la misma posición, no desde donde la dejó la

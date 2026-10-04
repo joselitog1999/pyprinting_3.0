@@ -17,6 +17,8 @@ Correcciones respecto al original:
     autofinishSignal(str) donde el str es el mode_printing
 """
 from __future__ import annotations
+import functools
+import threading
 import time
 import numpy as np
 from scipy import signal as scipy_signal
@@ -173,6 +175,18 @@ class Frontend(QFrame):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+def _focus_routine(fn):
+    """Cuenta las rutinas de foco en curso: el foco está quieto para el rearme sólo sin ninguna (R4-17 fase 4b)."""
+    @functools.wraps(fn)
+    def wrapper(self, *a, **k):
+        self._busy += 1
+        try:
+            return fn(self, *a, **k)
+        finally:
+            self._busy -= 1
+    return wrapper
+
+
 class Backend(QObject):
 
     gotomaxdoneSignal = pyqtSignal()
@@ -200,7 +214,23 @@ class Backend(QObject):
             pi.connect()
         self.laser = SHUTTERS[0] if len(SHUTTERS) > 0 else "532"
         self.locked_focus = False
+        self.name = "foco"
+        self.abort_event = threading.Event()     # la parada de emergencia (R4-17 fase 4b)
+        self._busy = 0                           # rutinas de foco en curso (para la quietud del rearme)
         self._ramp_params()
+
+    # ── Participante de la parada de emergencia (R4-17 fase 4b, DEC-048) ──
+    def on_emergency_stop(self, generation: int) -> None:
+        self.abort_event.set()
+
+    def is_quiescent(self) -> bool:
+        return self._busy == 0
+
+    def on_rearmed(self, generation: int) -> None:
+        self.abort_event.clear()
+
+    def is_running(self) -> bool:
+        return False
 
     # ── Parámetros de rampa (idénticos al original) ───────────────────────────
 
@@ -310,6 +340,7 @@ class Backend(QObject):
     # ── Lock focus ────────────────────────────────────────────────────────────
 
     @pyqtSlot(bool, int)
+    @_focus_routine
     def focus_lock_lin(self, lock_bool: bool, color_laser: int):
         self.laser = SHUTTERS[color_laser]
 
@@ -363,6 +394,7 @@ class Backend(QObject):
     # ── Autocorrelation ×2 ────────────────────────────────────────────────────
 
     @pyqtSlot(str)
+    @_focus_routine
     def focus_autocorr_lin_x2(self, mode_printing: str):
         if not self.locked_focus:
             msg = "[Focus] ⚠️ No había perfil axial bloqueado previo (Lock focus) — Ejecutando auto-lock en Z actual..."
@@ -392,6 +424,9 @@ class Backend(QObject):
         ok = True
         try:
             for _ in range(2):
+                if self.abort_event.is_set():
+                    # La parada entre las dos rampas (o antes): no se sigue ni se corrige Z
+                    raise RuntimeError("[Focus] ABORT autofoco: parada de emergencia.")
                 heartbeat_shutter(30.0)
                 self._focus_autocorr_lin()
         except (RuntimeError, TimeoutError) as e:

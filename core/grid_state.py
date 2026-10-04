@@ -4,13 +4,13 @@
 Sin Qt. La usa `modules/measurements.py` para decidir qué hace la grilla cuando un nodo en exposición termina sin
 decisión del criterio ("interrupted"): por quién cortó, no por cómo se enteró el worker.
 
-Fase 3 (DEC-046): `CAUSE_POLICY` y `NodeMeta`. La máquina de estados completa (`run_state`, Rearmar) y
-`compute_resume_index` son de la fase 4.
+Fase 3 (DEC-046): `CAUSE_POLICY` y `NodeMeta`. Fase 4b (DEC-048): `compute_resume_index` y
+`RESUME_REFOCUS_AFTER_S`; la máquina de estados (`run_state`) la lleva el worker con `GridRunState`.
 """
 from __future__ import annotations
 
 from enum import Enum
-from typing import Mapping, NamedTuple
+from typing import AbstractSet, Mapping, NamedTuple, Optional, Sequence
 
 
 class GridRunState(str, Enum):
@@ -61,3 +61,24 @@ class NodeMeta(NamedTuple):
 
 
 INTERRUPTED = "interrupted"   # valor de `node_results`: expuesto sin decisión; el Healing Pass no lo toma
+
+# [INV-R4] 4: si la grilla estuvo detenida o en pausa más que esto, antes del primer nodo se vuelve a enfocar (y,
+# con corrección de deriva, se pasa por el ancla)
+RESUME_REFOCUS_AFTER_S = 60.0
+
+
+def compute_resume_index(order: Sequence[int], results: Mapping[int, str],
+                         exposed: AbstractSet[tuple], attempt: Mapping[int, int]) -> Optional[int]:
+    """El primer nodo de `order` que nunca se expuso en su intento vigente ([INV-R4] 4; respuestas 1 y 5 del
+    investigador). Un nodo que llegó a abrir no se vuelve a exponer, tenga o no decisión: si la tiene, ya está;
+    si no, quedó "interrupted" y en revisión. En el pase principal el intento es 0; en el Healing Pass, la cola es
+    el orden y el intento es 1, así que su resultado "timeout" del pase principal no lo saltea. Devuelve None si
+    no queda ninguno (el pase terminó)."""
+    for i in order:
+        a = int(attempt.get(i, 0))
+        if (int(i), a) in exposed:
+            continue
+        if a == 0 and i in results:
+            continue                  # decidido sin registro de apertura (p. ej. una grilla anterior a la fase 4b)
+        return int(i)
+    return None

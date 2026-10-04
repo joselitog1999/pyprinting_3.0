@@ -31,10 +31,10 @@ from config import (SHUTTERS, DEFAULT_DATA_PATH,
                     PD_CHANNELS, PD_CHANS_LIST)
 try:
     from nidaq import (open_shutter, close_shutter, heartbeat_shutter,
-                        channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
+                        channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE, is_emergency_stopped)
 except ImportError:
     from core.nidaq import (open_shutter, close_shutter, heartbeat_shutter,
-                             channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
+                             channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE, is_emergency_stopped)
 
 SHUTTERS_LASER2 = ["None", "BS"] + list(SHUTTERS)
 
@@ -466,9 +466,12 @@ class Backend(QObject):
 
     dataSignal          = pyqtSignal(list)
     data_printingSignal = pyqtSignal(list)  # incluye mode en data[-1]
+    # R4-17 fase 4b (DEC-048): la traza se detuvo sola por la parada de emergencia (modo de impresión, causa)
+    traceAbortedSignal  = pyqtSignal(str, str)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.name = "traza"
         self.file_path = str(DEFAULT_DATA_PATH)
         self.pointtimer = None
         self.bs_timer   = None
@@ -642,7 +645,31 @@ class Backend(QObject):
 
     # ── Adquisición periódico ─────────────────────────────────────────────────
 
+    # ── Participante de la parada de emergencia (R4-17 fase 4b): no tiene bandera propia, mira la del proceso en
+    # la primera línea de cada tick ──
+    def on_emergency_stop(self, generation: int) -> None:
+        pass
+
+    def is_quiescent(self) -> bool:
+        return not (self.pointtimer is not None and self.pointtimer.isActive())
+
+    def on_rearmed(self, generation: int) -> None:
+        pass
+
+    def is_running(self) -> bool:
+        return False
+
     def _trace_update(self):
+        if is_emergency_stopped():
+            # Se detiene SIN latir (la parada cerró los obturadores; un latido rearmaría el plazo). Con un modo de
+            # impresión avisa a la grilla, que deja el nodo interrumpido. Vale también para la traza manual (F1).
+            if self.pointtimer is not None and self.pointtimer.isActive():
+                self.pointtimer.stop()
+            mode = self.mode_printing
+            if mode != "none":
+                self.traceAbortedSignal.emit(mode, "estop")
+            print("[Trace] ⛔ Parada de emergencia: traza detenida.")
+            return
         self._n += 1
         if self._n % 30 == 0:  # Cada ~1 segundo a 30 FPS: renueva el heartbeat del watchdog para alinear sin corte
             heartbeat_shutter(30.0)

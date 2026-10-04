@@ -1210,6 +1210,11 @@ class Backend(QObject):
         self._connect_backends()
 
     def _connect_backends(self):
+        # Participantes de la parada de emergencia del proceso (R4-17 fase 4b, DEC-048)
+        from core.emergency_stop import get_emergency_coordinator
+        coordinator = get_emergency_coordinator()
+        for worker in (self.printingWorker, self.dimersWorker, self.traceWorker, self.focusWorker):
+            coordinator.register(worker)
         for sig in (self.focusWorker.gotomaxdoneSignal,
                     self.focusWorker.lockdoneSignal,
                     self.focusWorker.autodoneSignal,
@@ -1228,6 +1233,7 @@ class Backend(QObject):
             self.focusWorker.autofocusFinished.connect(worker.on_autofocus_finished,
                                                        Qt.ConnectionType.QueuedConnection)
             self.traceWorker.data_printingSignal.connect(worker.on_trace_data)
+            self.traceWorker.traceAbortedSignal.connect(worker.on_trace_aborted)
 
         self.confocalDualWorker.gridScanFinishedSignal.connect(
             self.printingWorker.on_scan_finished)

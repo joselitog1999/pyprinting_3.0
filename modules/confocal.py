@@ -40,6 +40,7 @@ from config  import (pi, SHUTTERS, DEFAULT_DATA_PATH,
                      DEFAULT_CONFOCAL_FILTER_PERCENT,
                      DEFAULT_DRIFT_TOTAL_MINUTES, DEFAULT_DRIFT_REFRESH_SECONDS,
                      DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, wait_on_target)
+from nidaq   import is_emergency_stopped
 from nidaq   import (open_shutter, close_shutter, close_all_shutters, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, PD_CHANNELS, PD_CHANS_LIST,
                      RATE_MULTICHANNEL)
@@ -479,6 +480,8 @@ class Backend(QObject):
         if connect_stage:      # False en el satélite huésped (paso 13, V11): la platina es del anfitrión
             pi.connect()
         self.file_path         = str(DEFAULT_DATA_PATH)
+        self.name              = "confocal"
+        self._estop_abort      = False           # la parada de emergencia (R4-17 fase 4b)
         self.scan_mode_option  = SCAN_MODES[0]
         self.psf_mode_option   = PSF_MODES[0]
         self.image_scan_option = SCAN_IMAGE[0]
@@ -796,6 +799,8 @@ class Backend(QObject):
         self.PDtimer_stepxy.start(0)
 
     def _scan_step_xy(self):
+        if self._estop_halts_scan():
+            return
         if not getattr(self, "signal_scan_stop", False) and self.j < self.Ny:
             if self.i < self.Nx:
                 heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
@@ -987,6 +992,35 @@ class Backend(QObject):
         back = ph[sa:sd] if sd > sa else ph[L//2:]
         return gone, back
 
+    # ── Participante de la parada de emergencia (R4-17 fase 4b, DEC-048) ──
+    _SCAN_TIMERS = ("PDtimer_rampxy", "PDtimer_rampxz", "PDtimer_rampyx", "PDtimer_rampyz", "PDtimer_stepxy")
+
+    def on_emergency_stop(self, generation: int) -> None:
+        self._estop_abort = True
+
+    def is_quiescent(self) -> bool:
+        return not any(getattr(self, n, None) is not None and getattr(self, n).isActive() for n in self._SCAN_TIMERS)
+
+    def on_rearmed(self, generation: int) -> None:
+        self._estop_abort = False
+
+    def is_running(self) -> bool:
+        return False
+
+    def _estop_halts_scan(self) -> bool:
+        """Primera línea de cada tick de escaneo: con la parada, detiene los timers sin el MOV de retorno y sin
+        despachar `scanfinishedSignal` (la grilla no recibe un escaneo a medias). Los obturadores los cierra el
+        cerrador de la parada."""
+        if not (self._estop_abort or is_emergency_stopped()):
+            return False
+        self.signal_scan_stop = True
+        for name in self._SCAN_TIMERS:
+            timer = getattr(self, name, None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+        print("[Confocal] ⛔ Parada de emergencia: escaneo detenido (sin volver al inicio).")
+        return True
+
     def _abort_scan_on_stage_fault(self):
         """Falla de la platina a mitad del escaneo (DEC-036): se detiene todo y se cierran los
         obturadores. No se vuelve a la posición inicial: con la platina en falla, un MOV más
@@ -1022,6 +1056,8 @@ class Backend(QObject):
     # ── Scan ramp loops ───────────────────────────────────────────────────────
 
     def _scan_ramp_xy(self):
+        if self._estop_halts_scan():
+            return
         dy = self.range_y / self.Ny
         if self.i < self.Ny:
             heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
@@ -1052,6 +1088,8 @@ class Backend(QObject):
             self._post_scan_dispatch(x_o, y_o)
 
     def _scan_ramp_xz(self):
+        if self._estop_halts_scan():
+            return
         dz = self.range_y / self.Ny
         if self.i < self.Ny:
             heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
@@ -1073,6 +1111,8 @@ class Backend(QObject):
             self._save_frame(); self.scandoneSignal.emit()
 
     def _scan_ramp_yx(self):
+        if self._estop_halts_scan():
+            return
         dx = self.range_x / self.Nx
         if self.i < self.Nx:
             heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
@@ -1096,6 +1136,8 @@ class Backend(QObject):
             self._post_scan_dispatch(x_o, y_o)
 
     def _scan_ramp_yz(self):
+        if self._estop_halts_scan():
+            return
         dz = self.range_x / self.Nx
         if self.i < self.Nx:
             heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0

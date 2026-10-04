@@ -567,6 +567,10 @@ Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquet
 - **`Play ►` reanuda:**
   - si el nodo ya tenía decisión (por ejemplo, la pausa cayó en el escaneo posterior), la grilla sigue con el **nodo siguiente**: un nodo decidido nunca se vuelve a exponer;
   - si la pausa cortó la exposición, ese nodo queda **"interrumpido"** (en revisión) y la grilla sigue con el **nodo siguiente**: el nodo cortado nunca se vuelve a exponer, porque pudo haber impreso (R4-17 fase 3, `DEC-046`; respuesta 1 del 2026-10-02). Antes volvía al mismo nodo.
+- **Al reanudar** (R4-17 fase 4b, `DEC-048`):
+  - la grilla sigue en el **primer nodo que nunca se expuso**: uno que llegó a abrir no se vuelve a exponer, tenga o no decisión. Vale igual para la Pausa, para la reconexión de la platina y para la parada de emergencia;
+  - antes de moverse, sube el filtro de densidad (baja potencia) y espera 100 ms. Si la placa no confirma el filtro, la grilla queda en pausa;
+  - si la grilla estuvo quieta **más de un minuto**, antes del primer nodo vuelve a enfocar (con corrección de deriva, pasa por el ancla).
 - **La Pausa no mueve la platina** (R4-17 fase 3). Hasta este arreglo, la Pausa llevaba la platina al inicio del último escaneo confocal (o a (50, 50) µm, si no había habido ninguno), aunque no hubiera ningún escaneo en curso.
 - **Otros cortes durante la exposición:** si el watchdog, un interlock o la falla de la placa cierran el obturador a mitad de un nodo, el nodo queda "interrumpido" y la grilla **pausa**. `Play ►` sigue con el nodo siguiente.
 

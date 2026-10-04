@@ -467,6 +467,13 @@ class Backend(QObject):
 
         self.file_path = str(DEFAULT_DATA_PATH)
         self._connect_backends()
+        # Participantes de la parada de emergencia del proceso (R4-17 fase 4b, DEC-048): el coordinador es uno por
+        # proceso, así que en modo satélite PySpectrum y PyPrinting comparten parada y Rearmar
+        from core.emergency_stop import get_emergency_coordinator
+        coordinator = get_emergency_coordinator()
+        for worker in (self.printingWorker, self.dimersWorker, self.traceWorker, self.focusWorker,
+                       self.confocalWorker):
+            coordinator.register(worker)
 
     def _connect_backends(self):
         # Vincular focus worker a confocal worker para escaneo con corrección dinámica de inclinación Z
@@ -491,6 +498,7 @@ class Backend(QObject):
             self.focusWorker.autofocusFinished.connect(worker.on_autofocus_finished,
                                                        Qt.ConnectionType.QueuedConnection)
             self.traceWorker.data_printingSignal.connect(worker.on_trace_data)
+            self.traceWorker.traceAbortedSignal.connect(worker.on_trace_aborted)
 
         # scanfinishedSignal unificada
         self.confocalWorker.scanfinishedSignal.connect(

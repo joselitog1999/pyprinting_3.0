@@ -1490,6 +1490,58 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Bench:** BANCO-68 before using the stop with the lasers on (it fixes `ESTOP_LOCK_TIMEOUT_S`); BANCO-66 after 4c.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-048: R4-17 Phase 4b — The Grid as an Emergency-Stop Participant: Stopped State, Rearm to Pause, Resume at the First Never-Exposed Node, Refocus After 60 s, Low-Power Gate (2026-10-02)
+* **Context:** the approved design (`ronda2_architecture.md` §4.4-§4.6). Operator answers:
+  * **Question 1:** a Pause follows the same resume rule as the stop.
+  * **Question 5:** an unconfirmed filter pauses the grid.
+  * **Round 1, question 4:** after a stop, the filter goes to low power, and ≈ 100 ms pass before any autofocus.
+* **Decision, `modules/measurements.py` (`MeasBackend` is a participant):**
+  * **Flags only.** `on_emergency_stop` sets `_stop_event` and, if the grid was running or paused, `t_halt` and `STOPPED`. A grid that was idle stays idle, because the stop itself refuses a start.
+  * **`is_quiescent()`** requires no stage in progress, no pending hold wait or resume wait, and no exposed undecided node. The stage counter comes from the `_stage` decorator on the slots of the chain.
+  * **`on_rearmed`** leaves the grid in `PAUSED`: Play is still needed.
+  * **`is_running()`** is true for running, paused and stopped.
+  * **`run_state` (`GridRunState`)** has its own lock and emits `runStateChanged(str)`. The transitions are:
+    * IDLE → RUNNING on start;
+    * PAUSED on Pause or a self-pause;
+    * STOPPED on a stop;
+    * PAUSED on Rearm;
+    * RUNNING on Play;
+    * FINISHED → IDLE at the end.
+  * **`_halted()` and `grid_halted()`** also stop on the process stop and on the grid's own `_stop_event`. Every guard of DEC-041 therefore stops the chain for the stop as well.
+  * **Play while stopped does nothing.** `grid_measurment` refuses, which is the engine-side defence even if the GUI fails.
+  * **A stop during an exposure** leaves the node interrupted with cause `estop`, through the epoch or through the trace's new `traceAbortedSignal`. The grid then goes to `_stop_for`, which neither touches the filter (the closer raises it) nor moves anything.
+  * **The resume rule.** The resume follows `core/grid_state.py::compute_resume_index` and goes to the first node of the order never exposed in its current attempt. It uses `exposed`, a set of (node, attempt) recorded at every opening; the attempt is 0 in the primary pass and 1 in the Healing Pass.
+    * It **replaces `_detect_pending` and the use of `i_global`** in Play and in `resume_after_reconnect`.
+    * A node that opened is never exposed again, whether or not it was decided.
+    * With nothing left, the pass ends (the Healing Pass, or the end of the grid).
+  * **Before the first action of a resume** comes the low-power gate. Without a confirmed low power, `up_flipper()` runs; a `False` pauses the grid ("filtro no confirmado"). The 100 ms floor since the confirmation is waited with a precise `QTimer`, never a sleep.
+  * **Refocus.** After more than `RESUME_REFOCUS_AFTER_S` = 60 s stopped or paused, `_force_refocus` makes `grid_autofoco` refocus before the first node. With drift correction, that goes through the anchor.
+  * **Barrier 2 in `_grid_move`:** stopped, no MOV leaves. With a Pause it still does, as today ("siguiente índice"). A MOV held by the driver is not reported as "la platina no confirmó la llegada". "Siguiente índice" does nothing while stopped.
+* **Decision, the other participants:**
+  * **`TraceBackend`** checks the stop in the first line of `_trace_update`. It stops without beating and, in printing mode, emits `traceAbortedSignal(mode, "estop")`. That covers the manual trace too.
+  * **`FocusBackend`** checks its `abort_event` between the two autofocus ramps and does not correct Z. A routine counter feeds its quiescence.
+  * **`ConfocalBackend`** checks the stop in the first line of every scan tick. It stops the timers, without the return MOV and without `scanfinishedSignal`.
+* **Wiring:** `app.Backend` registers printing, dimers, trace, focus and confocal with the process coordinator, so a satellite shares the stop. `contrapropagante.py` registers printing, dimers, trace and focus. `traceAbortedSignal` → `on_trace_aborted` in both.
+* **Tests:**
+  * **`tests/test_grid_estop_phase4b.py` (16):**
+    * a stop in four stages (exposure, filter wait, autofocus, the hold wait): zero executed MOVs and zero openings until Rearm and Play, Play refused while stopped, PAUSED after Rearm, the first opening after Play, every node decided and exposed at most once, and in the exposure case no filter pulse from the worker;
+    * resume at the first never-exposed node (E-3), and after an exposure cut;
+    * a Healing Pass retry cut by the stop is not retried again;
+    * refocus only after > 60 s;
+    * the 100 ms low-power floor;
+    * an unconfirmed filter pauses;
+    * one barrier per participant (`_grid_move`, the manual trace, the confocal tick, the autofocus), plus grid quiescence during a stage.
+  * **Mutations:** 13, all caught (m8, m30-m41).
+  * **Deliberate contract changes:**
+    * the three tests of `test_grid_pause_halts_chain.py` that read `_detect_pending` now check `exposed`;
+    * `test_pi_stage_resilience.py::test_resume_after_reconnect_continues_from_pending_node` marks node 0 as exposed (its synthetic grid jumped to node 1 without printing node 0), and waits for the move, because the resume now waits the 100 ms low-power floor first.
+  * **Rig:** `estop()`, `rearm()` and a log of the MOVs that really went out (`move_results`, `executed_moves`).
+* **Not in 4b (they go to 4c):**
+  * the keys and the GUI (banner, Rearm, the runStateChanged-driven buttons);
+  * PySpectrum as a participant and its E-STOP as the process stop;
+  * the grid's `hardware_session` lease (answer 8), which is an interaction with PySpectrum and is tested with the satellite.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

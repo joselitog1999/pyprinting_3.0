@@ -193,7 +193,7 @@ def test_the_decision_marks_the_node_and_resume_goes_to_the_next(grid, monkeypat
     pw, log = grid
     pw._grid_trace()                                  # nodo 0 expuesto
     _decide_success(pw, monkeypatch)
-    assert pw.node_results[0] == "success" and pw._detect_pending
+    assert pw.node_results[0] == "success" and (0, 0) in pw.exposed
     pw.grid_pause()                                   # la pausa cae en el escaneo posterior o en la espera
     pw.grid_scan()                                    # la cadena no sigue
     assert pw.i_global == 0
@@ -202,7 +202,6 @@ def test_the_decision_marks_the_node_and_resume_goes_to_the_next(grid, monkeypat
     after = _after(log, "PLAY")
     assert pw.i_global == 1 and ("MOV", (51.0, 50.0)) in after
     assert ("MOV", (50.0, 50.0)) not in after          # el nodo 0, que ya imprimió, no se reexpone
-    assert not pw._detect_pending
 
 
 def test_a_pause_during_the_exposure_leaves_the_node_interrupted_and_resume_goes_to_the_next(grid, monkeypatch):
@@ -214,7 +213,7 @@ def test_a_pause_during_the_exposure_leaves_the_node_interrupted_and_resume_goes
     pw._grid_trace()                                  # nodo 0 expuesto
     pw.grid_pause()
     assert pw.node_results[0] == "interrupted" and pw.node_meta[0].cause == "pause"
-    assert pw._detect_pending
+    assert (0, 0) in pw.exposed                       # se expuso: la reanudación lo saltea
     log.append("PLAY")
     pw.grid_measurment()
     after = _after(log, "PLAY")
@@ -222,16 +221,18 @@ def test_a_pause_during_the_exposure_leaves_the_node_interrupted_and_resume_goes
     assert ("MOV", (50.0, 50.0)) not in after          # el nodo 0, cortado, no se reexpone
 
 
-def test_a_new_grid_clears_a_stale_pending_detection(grid, monkeypatch):
+def test_a_new_grid_clears_the_exposed_nodes_of_the_previous_one(grid, monkeypatch):
+    """La reanudación sigue en el primer nodo nunca expuesto (R4-17 fase 4b, DEC-048): una grilla nueva no hereda
+    las exposiciones de la anterior."""
     pw, log = grid
-    pw._detect_pending = True
+    pw.exposed = {(0, 0), (1, 0)}
     pw.mode_printing = "none"
     monkeypatch.setattr(pw, "_preflight_grid_range_check", lambda: True, raising=False)
     try:
         pw._grid_start()
     except Exception:
         pass                                          # el arranque completo necesita más estado; importa el borrado
-    assert pw._detect_pending is False
+    assert pw.exposed == set()
 
 
 def test_a_pause_during_the_filter_wait_does_not_open(grid, monkeypatch):

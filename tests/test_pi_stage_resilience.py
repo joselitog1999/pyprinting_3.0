@@ -37,6 +37,7 @@ import config  # noqa: F401 — antes que PyQt6, ver DEC-010/DEC-011
 from PyQt6 import QtWidgets
 app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
 
+import time
 import numpy as np
 import config as config_mod
 from config import (pi, PI_STAGE_RANGE_UM, PI_Z_RANGE_UM, GCSError, _PIController,
@@ -476,6 +477,10 @@ class TestStageDisconnectPauseResume(unittest.TestCase):
         self.assertIn("particula 1", self.disconnect_msgs[0].replace("í", "i"))
 
     def test_resume_after_reconnect_continues_from_pending_node(self):
+        # El nodo 0 ya se imprimió: la reanudación sigue en el primer nodo que nunca se expuso (R4-17 fase 4b,
+        # DEC-048), que acá es el 1, el pendiente
+        self.backend.exposed = {(0, 0)}
+        self.backend.particulas = 3
         pi.disconnect()
         self.backend._grid_move()
         self.assertTrue(self.backend.is_paused)
@@ -485,7 +490,13 @@ class TestStageDisconnectPauseResume(unittest.TestCase):
         self.assertFalse(self.backend.is_paused)
         self.assertEqual(self.backend.mode_printing, "printing")
         self.assertTrue(pi.connected)
-        # _grid_move() se re-ejecutó y sí llegó a mover la platina esta vez (ya reconectada)
+        # _grid_move() se re-ejecutó y sí llegó a mover la platina esta vez (ya reconectada). Antes de moverse, la
+        # reanudación espera el piso de 100 ms del filtro en baja potencia, en un QTimer
+        from PyQt6.QtWidgets import QApplication
+        t_end = time.monotonic() + 2.0
+        while time.monotonic() < t_end and abs(float(pi.qPOS()["1"]) - 55.0) > 1e-6:
+            QApplication.processEvents()
+            time.sleep(0.01)
         self.assertAlmostEqual(float(pi.qPOS()["1"]), 55.0)  # grid_x[1]=5 + startX=50
 
 
