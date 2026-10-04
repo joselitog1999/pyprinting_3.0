@@ -179,6 +179,9 @@ class Backend(QObject):
     lockdoneSignal    = pyqtSignal()
     autodoneSignal    = pyqtSignal()
     autofinishSignal  = pyqtSignal(str)   # emite mode_printing — unificada
+    # Fin del autofoco para la cadena de la grilla (R4-17 fase 2, DEC-045): (mode_printing, resultado). El resultado
+    # es None hasta la fase 5 (AutofocusResult). autofinishSignal se conserva para los demás oyentes.
+    autofocusFinished = pyqtSignal(str, object)
 
     # ANOM-FOCUS-01: cota de reintentos ante fallo de detección de flancos de trigger Z.
     # Sin esta cota, un cableado/controller degradado provoca un retry infinito que además
@@ -371,6 +374,7 @@ class Backend(QObject):
                 except UnicodeEncodeError:
                     print(msg.encode("ascii", "replace").decode("ascii"))
                 self.autofinishSignal.emit(mode_printing)
+                self.autofocusFinished.emit(mode_printing, None)
                 return
 
         open_shutter(self.laser)
@@ -393,6 +397,7 @@ class Backend(QObject):
         # Se emite siempre, éxito o abort: la máquina de estados de impresión/dímeros
         # (grid_finish_autofoco) espera este callback y quedaría colgada sin él (ANOM-FOCUS-01).
         self.autofinishSignal.emit(mode_printing)
+        self.autofocusFinished.emit(mode_printing, None)
 
     @pyqtSlot()
     def focus_autocorr_lin(self):

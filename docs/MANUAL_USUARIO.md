@@ -1910,7 +1910,7 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 ### Resumen de la Topología Multihilo:
 * **Main UI Thread (Hilo Principal)**: Maneja la interfaz gráfica PyQt6, gráficos PyQtGraph y eventos de usuario.
 * **`cameraThread` (`QThread`)**: Dedicado exclusivamente al procesamiento de frames EVF de la Canon EOS 500D, filtros antiruido y emisión `fullFrameSignal`.
-* **`confocalThread` (`QThread`)**: Ejecuta las rutinas de impresión de grillas, ensamblado de dímeros, muestreo analógico a 10 kHz NI-DAQmx y autofoco Z.
+* **`confocalThread` (`QThread`)**: Ejecuta las rutinas de impresión de grillas, ensamblado de dímeros, muestreo analógico a 10 kHz NI-DAQmx y autofoco Z. Desde el 2026-10-02 (`DEC-045`), la cadena de la grilla corre entera en este hilo, incluido el criterio de parada. Así, que la interfaz esté ocupada dibujando ya no puede demorar una decisión, repetirla ni atribuirla al nodo siguiente.
 * **`instrumentThread` (`QThread`)**: Gestiona la comunicación serie/USB RS-232 con la platina piezoeléctrica PI E-517 y obturadores.
 * **Hilos Nativos C++ (`EDSDK.dll` & `nicaiu.dll`)**: Manejan las transferencias DMA por hardware y el protocolo USB/PTP de la cámara.
 

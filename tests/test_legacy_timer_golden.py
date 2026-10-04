@@ -2,7 +2,10 @@
 """Línea de base dorada de la cadena de la grilla con `legacy_timer` (C-01 Ronda 4, fase 0; `ronda2_architecture.md` §9.3).
 
 Se grabó sobre `927e818` (con el arreglo de la Pausa de DEC-041 y antes de cualquier cambio de R4-17), con el guion de
-11 nodos de `tests/harness/grid_chain_rig.py` y sin cortes, paradas ni pausas. Cada fase de R4-17 tiene que dejar:
+11 nodos de `tests/harness/grid_chain_rig.py` y sin cortes, paradas ni pausas. Se regrabó sobre `ec2e198` (fase 1, la
+topología todavía repartida) cuando el banco pasó a arrancar cada grilla desde la misma posición de la platina simulada:
+antes, el Z del primer autofoco dependía de las grillas que habían corrido antes en el mismo proceso (DEC-045). Sólo
+cambiaron los `MOV` en Z; decisiones, ticks y log DO quedaron iguales. Cada fase de R4-17 tiene que dejar:
 - las decisiones y el tick de decisión de cada nodo, idénticos;
 - el log de `MOV`, idéntico;
 - las transiciones de las líneas de los obturadores (cambios de nivel con su orden), idénticas;
@@ -56,9 +59,10 @@ def test_legacy_timer_matches_the_golden_baseline(record):
     assert data["decisions"] == golden["decisions"]
     assert data["decision_ticks"] == golden["decision_ticks"]
     assert data["moves"] == golden["moves"]
-    # Niveles de las líneas, en orden: idénticos. Quién escribe se compara como conjunto con repeticiones: hoy,
-    # al decidir, el criterio (hilo GUI) y la traza (`_stop_and_save`, confocalThread) cierran el mismo obturador
-    # en carrera, y el orden entre los dos varía de una corrida a otra (fase 2 de R4-17: la cadena a un hilo).
+    # Niveles de las líneas, en orden: idénticos. Quién escribe se compara como conjunto con repeticiones: al
+    # decidir, el criterio y la traza (`_stop_and_save`) cierran el mismo obturador. Hasta la fase 2 lo hacían en
+    # carrera desde dos hilos y la línea de base guarda uno de esos órdenes; desde la fase 2 (DEC-045) el orden es
+    # fijo (primero la traza, que se detiene en forma sincrónica, y después el criterio).
     assert [t[:2] for t in data["transitions"]] == [t[:2] for t in golden["transitions"]]
     assert [w[0] for w in data["do_writes"]] == [w[0] for w in golden["do_writes"]]
     assert Counter(w[1] for w in data["do_writes"]) == Counter(w[1] for w in golden["do_writes"])

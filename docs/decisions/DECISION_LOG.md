@@ -1276,7 +1276,7 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   2. **P-1, confirmed:** a trace tick that was already queued when the criterion decided decides the same node again. That means two `grid_detectSignal`s, `i_global` advancing twice, and a skipped node. `tests/test_grid_double_decision_probe.py` holds it as `xfail(strict=True)`.
      * `7f5d10a` (the lab PC) has no guard against it either.
      * The operator has seen no skipped nodes, so in practice it is rare; it needs a tick to queue while the GUI thread is busy, for example while saving the trace.
-     * Phase 2 or 3 closes it.
+     * Phase 2 or 3 closes it. **Update (DEC-045):** phase 2 closed the path; the criterion's own guard is left to phase 3.
   3. **On the trace's 5th tick, `I_old` is `NaN`** (an empty window when `n − M − M2 = 0`). This is the "Mean of empty slice" warning in the suite. The criterion survives it, because a comparison with `NaN` is false. It is recorded for phase 3.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
@@ -1298,6 +1298,43 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * `core/nidaq.py` registers itself as both `nidaq` and `core.nidaq`. When a PyPrinting module imports it first by the short name, the `core` package is left without the `nidaq` attribute, and later `monkeypatch.setattr("core.nidaq....")` calls fail.
   * Whether this happened depended on file order (`test_grid_pause_halts_chain` before `test_grid_runner`).
   * `tests/conftest.py` now imports `core.nidaq` by its package name first.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-045: R4-17 Phase 2 — The Grid Chain Runs on One Thread (2026-10-02)
+* **Context:** the end of the autofocus (`app.py::_on_autofinish`) and the trace criterion (`app.py::_dispatch_trace`) were functions of `app.Backend`, which lives in the GUI thread. So:
+  * `grid_finish_autofoco`, the first node's `_grid_trace` and `grid_trace_detect` ran in the GUI thread;
+  * the rest of the chain ran in `confocalThread`.
+  The phase 0 rig confirmed it (DEC-043).
+* **What the split cost** (new rig scenario, with the GUI thread serving its queue every 250 ms, as when it is drawing):
+  * trace ticks pile up in the GUI thread's queue;
+  * on `ec2e198`, stale ticks of a node were judged as the next node's, so both drop nodes (2 and 6) came out as "success";
+  * with the closure reconnected on top of the new code (mutation m16b), node 3 was decided three times, and nodes 4, 5 and 8 were skipped. This is P-1 in full.
+  * `7f5d10a` (the lab PC) has the same split.
+* **Decision** (approved design, `ronda2_architecture.md` §3.3; logic unchanged):
+  * **New signal** `focusWorker.autofocusFinished(str, object)`, emitted next to `autofinishSignal`. The `object` stays `None` until phase 5 (`AutofocusResult`). `autofinishSignal` is kept for its other listeners (`pyspectrum/modules/optical_support.py`).
+  * **New slots** on `MeasBackend`. Each worker filters by its own `mode_arg`.
+    * `on_autofocus_finished(str, object)`, connected with `QueuedConnection` (a stage boundary).
+    * `on_trace_data(list)`, connected with `AutoConnection`. This is direct, because the trace lives in the same thread: the criterion decides inside the tick, and `grid_trace_stopSignal` → `traceWorker.stop` is synchronous.
+  * **`grid_detectSignal`** → `grid_scan`, and → `grid_finish` for dimers, now uses an explicit `QueuedConnection`, so the next node starts on a fresh event-loop turn.
+  * **Removed:** `_dispatch_trace` and `_on_autofinish`.
+  * **`contrapropagante.py`** had the same copy of both dispatchers. It gets the same change.
+* **Tests:**
+  * **`tests/test_grid_chain_single_thread.py`**, both failing on `ec2e198`:
+    1. every chain stage, and every shutter write of the chain, runs in `confocalThread`;
+    2. with a busy GUI thread, each of the 11 nodes is decided exactly once, in order, with the expected decision.
+  * **Mutations:** m16 (the autofocus end through a GUI-thread closure) and m16b (the trace through one) are both caught.
+  * **The golden baseline:**
+    * decisions, decision ticks, DO levels and line transitions are identical;
+    * close callers are still compared as a multiset, because the baseline holds one of the old racing orders. The order is now fixed: the trace's synchronous stop first, then the criterion.
+  * **The direct-call probe** (`tests/test_grid_double_decision_probe.py`) stays `xfail(strict)`. Phase 2 closes the path by topology, but the criterion itself still has no guard against a second call after its decision. That guard is a logic change, so it is left to phase 3.
+* **Rig fixes** (exempt: tests only):
+  * **Start position:** the simulated stage is global, so the Z of the first autofocus depended on the grids run earlier in the same process, and the golden `MOV` log failed depending on test order. The rig now starts every grid at (40, 40, 10) µm. The golden baseline was re-recorded on `ec2e198`, before the phase 2 change; only Z moves changed.
+  * **Decision ticks** are recorded with a direct connection (in the emitting thread, at emit time), and every decision event is counted.
+  * **Stage threads** are recorded by class wrappers plus `_halted(label)`. PyQt binds `@pyqtSlot` methods into the class meta-object at first instantiation, so a call through a Qt connection can bypass a later wrapper.
+  * **Thread names** come from Qt (`threading` shows a `QThread` as a new "Dummy-N" on each call).
+  * Before the change, the golden decision ticks were flaky (node 10: tick 18 instead of 20, about 1 run in 8). After it: 12 consecutive runs passed (in both file orders, plus the full suite).
+* **Phase 1 test fix** (exempt: tests only): `test_close_all_unchecks_only_after_a_confirmed_close` now pins the watchdog retry at 60 s. Under load, the fixture's 0.2 s retry confirmed the close before the checkbox was read, and the test failed once in the full suite.
+* **Bench:** BANCO-70 can now run (with the trace Δt and a busy-GUI check added). BANCO-71 was added, along with the Round 2 additions to BANCO-66/67/68.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat

@@ -168,7 +168,8 @@ la platina ni el espectrógrafo:
 | BANCO-66 | Parada de emergencia de PyPrinting de punta a punta, con modales y en modo satélite | C-01 Ronda 4, R4-17 | Láseres apagados; osciloscopio en las líneas | ☐ |
 | BANCO-67 | "Cerrar todos" durante una grilla con `legacy_timer` | C-01 Ronda 4, N-4 | Láseres apagados | ☐ |
 | BANCO-68 | Cuánto tiempo se retiene `_nidaq_lock` | C-01 Ronda 4, N-2 | Láseres apagados | ☐ |
-| BANCO-70 | Pausa en cada etapa de la grilla de PyPrinting 3.0 | C-01 Ronda 4, `DEC-041` | **Láseres apagados**; osciloscopio en la línea del 532 | ☐ |
+| BANCO-70 | Pausa en cada etapa de la grilla de PyPrinting 3.0 (con la cadena en un hilo, `DEC-045`) | C-01 Ronda 4, `DEC-041` | **Láseres apagados**; osciloscopio en la línea del 532 | ☐ |
+| BANCO-71 | La llave del láser como única parada física | C-01 Ronda 4, R4-17 | Sin accionar nada | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 
@@ -1067,17 +1068,30 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
   - con la grilla en cada etapa (autofoco, ancla, deriva, traza, escaneo posterior): verificar que no se emite ningún movimiento ni apertura después de la parada;
   - Rearmar habilitado sólo con el cierre confirmado; Play aparte;
   - después de rearmar: el filtro en baja potencia, ≈ 100 ms de espera antes del autofoco (pregunta 4), y se retoma desde el primer nodo nunca expuesto (pregunta 5).
+- **Agregados de la Ronda 2 de R4-17** (`c01_ronda4/ronda2_instrumentation.md` §7):
+  - (a) con el candado de la placa retenido por una sonda de diagnóstico, el banner "cortá con la llave" aparece en ≤ 0.5 s. En `SAFE_MODE` no hace falta el banco; en la placa, con los láseres apagados;
+  - (b) "Reset Device" de NI MAX con PyPrinting abierto y los láseres apagados, y después la parada. El banner **no** dice "confirmado" hasta una escritura exitosa, y el 532 figura sin confirmar. Anotá la posición física del servo (es el caso (b) de `BANCO-16`);
+  - (c) en el registro de `MOV` de la PI: cero movimientos después de la parada hasta Rearmar, incluido el botón "siguiente índice";
+  - (d) con el osciloscopio en `ao0` y `line11`: después de rearmar, ≥ 100 ms entre el pulso *up* y la apertura del autofoco;
+  - (e) en el satélite, la parada desde PySpectrum bloquea las aperturas y los movimientos de la grilla de PyPrinting, y al revés, con un solo Rearmar.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-67 — "Cerrar todos" durante una grilla con `legacy_timer` (C-01 Ronda 4, N-4)
 - **Qué se prueba:** con el backend por defecto, "Cerrar todos" durante un nodo deja el nodo como "interrumpido" y en revisión, y no como "timeout". El Healing Pass no lo reexpone, y la grilla sigue con el nodo siguiente después de la espera visible de 3 s. Un segundo "Cerrar todos" no pausa (pregunta 6).
 - **También:** "Cerrar todos" durante el autofoco o la deriva entre nodos. El paso no se aplica, se restituye la posición y se repite (P-a).
 - **Láseres apagados**: se observa el log de escrituras DO y los rótulos de los nodos.
+- **Agregados de la Ronda 2 de R4-17:**
+  - un segundo "Cerrar todos" durante la espera no pausa, y la reapertura llega ≥ 3 s después del **primer** cierre: la espera no se reinicia (respuesta a la pregunta 2 del 2026-10-02). Medilo con el osciloscopio;
+  - el botón individual del 532 durante un nodo deja el nodo "interrumpido", igual que "Cerrar todos".
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-68 — Retención de `_nidaq_lock` (C-01 Ronda 4, N-2)
 - **Qué se prueba:** cuánto tiempo retiene el candado de la placa cada operación real (abrir, cerrar con reintentos, pulsos de los flippers, lectura de fotodiodos). Fija el plazo del cerrador de la parada, provisorio en 0.25 s.
 - **Láseres apagados**; un registro de tiempos en la consola durante una grilla corta.
+- **Agregados de la Ronda 2 de R4-17**, a las mediciones:
+  - la escritura del estado del espejo en disco dentro del candado. Si supera 10 ms, sale del candado;
+  - la creación de las tareas DO/AO en la ruta de falla;
+  - la creación de la tarea AI finita de la lectura. Decide si se crea antes de abrir (`ronda2_instrumentation.md` §5.1).
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-70 — Pausa en cada etapa de la grilla (C-01 Ronda 4, `DEC-041`; láseres apagados)
@@ -1090,6 +1104,19 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
   - la consola dice "Grilla en pausa: … no sigue".
 - **Play:** si la pausa cayó después de la decisión del nodo, se sigue con el próximo; si cortó la exposición, vuelve al mismo.
 - **Antes del arreglo** (`7f5d10a`, como control, sólo con la llave apagada): pausar durante el autofoco y ver si la línea del 532 se abre igual.
+- **Con la cadena en un solo hilo** (R4-17 fase 2, `DEC-045`): esta prueba ya se puede correr, porque la topología es la definitiva. Corrila con un `main` que incluya la fase 2. Agregá:
+  - el Δt medio entre ticks de la traza, para compararlo con los ≈ 47 ms de `DEC-037`. El criterio ahora corre dentro del tick y no debería cambiarlo;
+  - con el hilo GUI ocupado durante la traza (arrastrar la ventana o abrir un diálogo): cada nodo aparece una sola vez en la consola y en la tabla, en orden y sin saltear ninguno. Con la llave apagada no hay captura, así que los nodos terminan por tiempo o por caída;
+  - la interfaz sigue respondiendo durante la grilla: los gráficos de la traza se actualizan y "Pausa" responde.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-71 — La llave del láser como única parada física (C-01 Ronda 4, R4-17; sin accionar nada)
+- **Qué se prueba:** el banner de la parada de PyPrinting ("cortá con la llave del láser") nombra la llave como la única parada física (`ronda2_instrumentation.md` §7, [INV-R4] 14). Esta prueba confirma que esa indicación sirve.
+- **Procedimiento:**
+  - anotá dónde está la llave de cada láser (532, 637, 592 y 808) y si se alcanza desde la silla del operador;
+  - cronometrá cuánto tarda en cortar;
+  - anotá si al volver a encender hay que esperar una estabilización o realinear.
+- **Aceptación:** el manual y el banner nombran la llave correcta de cada láser. Si alguno no tiene llave o no se alcanza, se discute un corte físico (un pulsador en la alimentación) en otra ronda.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación

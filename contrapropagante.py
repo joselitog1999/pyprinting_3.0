@@ -1221,27 +1221,18 @@ class Backend(QObject):
                     self.dimersWorker.goSignal):
             sig.connect(self.nanoWorker.read_pos)
 
-        def _on_autofinish(mode: str):
-            if mode == "printing": self.printingWorker.grid_finish_autofoco()
-            elif mode == "dimers": self.dimersWorker.grid_finish_autofoco()
-        self.focusWorker.autofinishSignal.connect(_on_autofinish)
+        # La cadena de la grilla corre entera en confocalThread, como en app.py (R4-17 fase 2, DEC-045): el fin del
+        # autofoco (encolado, frontera de etapa) y los ticks de la traza (directos, mismo hilo) van a slots de los
+        # workers, que filtran por su modo.
+        for worker in (self.printingWorker, self.dimersWorker):
+            self.focusWorker.autofocusFinished.connect(worker.on_autofocus_finished,
+                                                       Qt.ConnectionType.QueuedConnection)
+            self.traceWorker.data_printingSignal.connect(worker.on_trace_data)
 
         self.confocalDualWorker.gridScanFinishedSignal.connect(
             self.printingWorker.on_scan_finished)
         self.confocalDualWorker.gridScanFinishedSignal.connect(
             self.dimersWorker.on_scan_finished)
-
-        def _dispatch_trace(data: list):
-            if not data:
-                return
-            mode    = data[-1] if isinstance(data[-1], str) else "none"
-            payload = data[:-1]
-            if mode == "printing":
-                self.printingWorker.grid_trace_detect(payload)
-            elif mode == "dimers":
-                self.dimersWorker.grid_trace_detect(payload)
-
-        self.traceWorker.data_printingSignal.connect(_dispatch_trace)
 
         # Printing cycle
         self.printingWorker.grid_move_finishSignal.connect(
@@ -1253,7 +1244,8 @@ class Backend(QObject):
         self.printingWorker.stepsParametersSignal.connect(
             self.traceWorker.parameters)
         self.printingWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
-        self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan)
+        self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan,
+                                                      Qt.ConnectionType.QueuedConnection)   # frontera de etapa
         self.printingWorker.grid_scanSignal.connect(
             self.confocalDualWorker.start_scan_routines)
         self.printingWorker.grid_scan_stopSignal.connect(
@@ -1269,7 +1261,8 @@ class Backend(QObject):
         self.dimersWorker.stepsParametersSignal.connect(
             self.traceWorker.parameters)
         self.dimersWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
-        self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish)
+        self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish,
+                                                    Qt.ConnectionType.QueuedConnection)       # frontera de etapa
         self.dimersWorker.grid_scanSignal.connect(
             self.confocalDualWorker.start_scan_routines)
         self.dimersWorker.grid_scan_stopSignal.connect(

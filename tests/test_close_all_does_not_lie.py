@@ -98,6 +98,7 @@ def _process():
 
 def test_close_all_unchecks_only_after_a_confirmed_close(dock):
     fe, daq = dock
+    nidaq.WATCHDOG_RETRY_INTERVAL_S = 60.0          # que el reintento no confirme antes de mirar la casilla
     idx = nidaq.SHUTTERS.index(LASER)
     btn = _buttons(fe)[idx]
     assert nidaq.open_shutter(LASER, timeout_s=None)                       # el obturador abierto, y su casilla

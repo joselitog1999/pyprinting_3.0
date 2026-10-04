@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Sonda P-1 (C-01 Ronda 4, fase 0; `ronda2_architecture.md` §3, hallazgo nuevo).
+"""Sonda P-1, a nivel del criterio (C-01 Ronda 4, fase 0; `ronda2_architecture.md` §3; DEC-043, DEC-045).
 
-Con el criterio en el hilo GUI (`app.py::_dispatch_trace`) y la traza en `confocalThread`, un tick de la traza que ya
-estaba encolado cuando el criterio decidió llega igual a `grid_trace_detect`. Si ese tick vuelve a cumplir el
-criterio, el nodo se decide dos veces: dos `grid_detectSignal`, `i_global` avanza dos veces y la platina se mueve con
-el nodo siguiente salteado.
+Hasta la fase 2, el criterio corría en el hilo GUI (`app.py::_dispatch_trace`) y la traza en `confocalThread`. Un tick
+que ya estaba encolado cuando el criterio decidió llegaba igual a `grid_trace_detect`, y podía volver a decidir el nodo
+(dos `grid_detectSignal`, `i_global` avanza dos veces, un nodo salteado) o caer en el nodo siguiente.
 
-La sonda lo reproduce sin hilos: dos llamadas seguidas a `grid_trace_detect` con un escalón, como llegarían dos ticks
-encolados. Es `xfail(strict=True)` mientras el código lo reproduzca; la fase 2 (la cadena en un solo hilo) o la 3 (la
-época) lo tienen que cerrar, y entonces el test pasa y hay que sacar la marca.
+**La fase 2 cerró ese camino** (DEC-045): el criterio decide dentro del tick de la traza, en el mismo hilo, y la parada
+de la traza es sincrónica, así que no queda ningún tick encolado detrás de la decisión. Lo verifica, de punta a punta y
+con el hilo GUI ocupado, `tests/test_grid_chain_single_thread.py::test_a_busy_gui_thread_does_not_decide_a_node_twice`.
+
+Esta sonda llama dos veces seguidas a `grid_trace_detect`, sin hilos: comprueba la guarda del **criterio mismo**, que
+todavía no existe. Agregarla es un cambio de lógica, así que no entró en la fase 2 (que sólo cambia conexiones). Es
+`xfail(strict=True)` hasta la fase 3 (la época y el nodo decidido), que tiene que hacerla pasar; entonces se saca la
+marca.
 """
 import os
 
@@ -47,8 +51,8 @@ def worker(monkeypatch):
     return pw
 
 
-@pytest.mark.xfail(strict=True, reason="P-1: hoy un tick encolado después de la decisión vuelve a decidir el nodo "
-                                       "(fase 2 o 3 de R4-17)")
+@pytest.mark.xfail(strict=True, reason="P-1: el criterio no ignora un tick posterior a su decisión; la fase 2 cerró "
+                                       "el camino por topología, la guarda propia es de la fase 3 de R4-17")
 def test_a_late_tick_does_not_decide_the_same_node_twice(worker):
     emitted = []
     worker.grid_detectSignal.connect(lambda: emitted.append(worker.i_global))

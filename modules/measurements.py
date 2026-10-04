@@ -2316,6 +2316,15 @@ class Backend(QObject):
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
 
+    @pyqtSlot(str, object)
+    def on_autofocus_finished(self, mode: str, result=None):
+        """Fin del autofoco de `focusWorker`, en el hilo de este worker (R4-17 fase 2, DEC-045). Se conecta
+        encolada: la etapa siguiente empieza en una vuelta nueva del bucle de eventos. El autofoco es compartido
+        por impresión y dímeros, así que cada worker toma sólo el de su modo. `result` es `None` hasta la fase 5."""
+        if mode != self.mode_arg:
+            return
+        self.grid_finish_autofoco()
+
     @pyqtSlot()
     def grid_finish_autofoco(self):
         time.sleep(0.1)
@@ -2379,6 +2388,16 @@ class Backend(QObject):
         self.timer_inicio = time.time()
         self.hold_counter = 0
         self.grid_traceSignal.emit(self.laser, self.mode_printing)
+
+    @pyqtSlot(list)
+    def on_trace_data(self, data: list):
+        """Tick de la traza (`data_printingSignal`, con el modo en `data[-1]`), en el hilo de este worker (R4-17
+        fase 2, DEC-045). La traza vive en el mismo hilo, así que la conexión es directa: el criterio decide dentro
+        del tick y la parada de la traza es sincrónica. Antes pasaba por el hilo GUI, y un tick encolado detrás de la
+        decisión podía volver a decidir el nodo o caer en el siguiente (P-1)."""
+        if not data or data[-1] != self.mode_arg:
+            return
+        self.grid_trace_detect(data[:-1])
 
     @pyqtSlot(list)
     def grid_trace_detect(self, data: list):
