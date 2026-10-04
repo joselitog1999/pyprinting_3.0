@@ -10,7 +10,7 @@ Fase 3 (DEC-046): `CAUSE_POLICY` y `NodeMeta`. Fase 4b (DEC-048): `compute_resum
 from __future__ import annotations
 
 from enum import Enum
-from typing import AbstractSet, Mapping, NamedTuple, Optional, Sequence
+from typing import AbstractSet, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 
 class GridRunState(str, Enum):
@@ -82,3 +82,41 @@ def compute_resume_index(order: Sequence[int], results: Mapping[int, str],
             continue                  # decidido sin registro de apertura (p. ej. una grilla anterior a la fase 4b)
         return int(i)
     return None
+
+
+# ── Pasos entre nodos (R4-17 fase 5, DEC-050; ronda2_architecture.md §4.7) ──────────────────────────────────────
+
+class StepSnapshot(NamedTuple):
+    """Lo que hay que restituir si un paso que abre un obturador (autofoco, deriva sobre P0) no se puede aplicar."""
+    z_um: float
+    start_x_um: float
+    start_y_um: float
+    last_af_time: float
+    last_af_index: int
+    autofocus_stage: str
+    epoch0: int                  # la época de cierre al empezar el paso: si cambia, el paso es inválido
+    estop_gen0: int
+
+
+class StepContext(NamedTuple):
+    """Lo que la grilla le pasa al foco antes de un autofoco: con esto el foco evalúa la validez y los topes ANTES de
+    mover Z. Sin contexto (el F10 manual) el autofoco es el de siempre."""
+    epoch0: int
+    z_last_um: Optional[float]   # Z del último autofoco aceptado (F4), o None
+    t_last: Optional[float]      # su hora (time.time()), o None
+    limits: object               # core.step_plausibility.StepLimits
+
+
+class AutofocusResult(NamedTuple):
+    valid: bool                  # False: un corte (época, apertura rechazada, pausa o parada); no cuenta como falla
+    accepted: bool               # True: válido y dentro de los topes; Z quedó en el foco nuevo
+    reason: str
+    z_before_um: float
+    z_after_um: float
+    dz2_um: Optional[float]
+    corr_pearson: float
+    peak_snr: float
+    argmax_frac: float
+    epoch0: int
+    open_ok: bool
+    failed: Tuple[str, ...] = ()

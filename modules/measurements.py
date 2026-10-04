@@ -57,7 +57,11 @@ from nidaq  import (open_shutter, close_shutter, close_all_shutters,
                     get_close_epoch, get_open_hold_remaining_s, get_unconfirmed_shutters,
                     set_routine_running, is_emergency_stopped, low_power_settle_remaining_s)
 from core.grid_state import (GridRunState, NodeMeta, PAUSE_CAUSE, INTERRUPTED, policy_for,
-                             compute_resume_index, RESUME_REFOCUS_AFTER_S)
+                             compute_resume_index, RESUME_REFOCUS_AFTER_S,
+                             StepSnapshot, StepContext, AutofocusResult)
+from core.step_plausibility import (DEFAULT_LIMITS, STEP_MAX_REJECTIONS, DriftReference,
+                                    check_drift_correction, spot_amplitude_width)
+from core import estop_state as _estop_state
 
 ESTOP_CAUSE = "estop"
 
@@ -1359,6 +1363,8 @@ class Frontend(QFrame):
         if state != "running":
             self._countdown_timer.stop()
             self.lbl_countdown.setText("")
+        elif self.lbl_cut_notice.text().startswith("⏸"):
+            self.lbl_cut_notice.hide()                     # Play: el aviso de un paso rechazado ya no aplica
         if state in ("idle", "finished"):
             self._release_hardware_session()
 
@@ -1387,6 +1393,16 @@ class Frontend(QFrame):
         self.lbl_cut_notice.setText(text)
         self.lbl_cut_notice.show()
         self._cut_notice_timer.start(20000)
+
+    @pyqtSlot(int, str, str)
+    def on_step_rejected(self, node: int, step: str, reason: str):
+        """La grilla pausó por un paso entre nodos no plausible dos veces (o T6). El aviso queda hasta el Play
+        (R4-17 fase 5, DEC-050; textos de c01_ronda4/experimentalist.md §5)."""
+        what = "Corrección de deriva no plausible en P0" if step == "deriva" else f"Autofoco no plausible en el nodo {node}"
+        self.lbl_cut_notice.setText(f"⏸ {what}: {reason}. La grilla quedó en pausa: revisá el banco y pulsá Play "
+                                    f"para repetir el paso.")
+        self.lbl_cut_notice.show()
+        self._cut_notice_timer.stop()
 
     def _hardware_session(self):
         """La sesión de hardware de PySpectrum, sólo si PySpectrum está en este proceso (modo satélite)."""
@@ -1681,6 +1697,7 @@ class Frontend(QFrame):
             backend.runStateChanged.connect(self.on_run_state)
             backend.countdownSignal.connect(self.on_countdown)
             backend.nodeInterruptedSignal.connect(self.on_node_interrupted)
+            backend.stepRejectedSignal.connect(self.on_step_rejected)
             self.on_run_state(backend.run_state.value)
 
 
@@ -1701,6 +1718,8 @@ class Backend(QObject):
     countdownSignal       = pyqtSignal(int, float)
     # R4-17 fase 4b (DEC-048): el estado de la grilla (GridRunState.value) cada vez que cambia
     runStateChanged       = pyqtSignal(str)
+    # R4-17 fase 5 (DEC-050): un paso entre nodos rechazado por segunda vez pausa la grilla (nodo, paso, motivo)
+    stepRejectedSignal    = pyqtSignal(int, str, str)
     patternFinishedSignal = pyqtSignal(str)
     driftDisplacementSignal = pyqtSignal(str)
     driftZDisplacementSignal = pyqtSignal(str)
@@ -1817,6 +1836,18 @@ class Backend(QObject):
         self._force_refocus = False
         # (nodo, intento) que llegaron a abrir para imprimir: la reanudación sigue en el primero que no está
         self.exposed: set = set()
+        # Pasos entre nodos (R4-17 fase 5): el foco y el confocal de este proceso (los asigna app.Backend), la
+        # instantánea del paso en curso, la restitución diferida a la reanudación, los rechazos por (nodo, paso),
+        # la referencia de P0 y el último autofoco y la última corrección de deriva aceptados
+        self.focus_ref = None
+        self.confocal_ref = None
+        self.step_limits = DEFAULT_LIMITS
+        self._step_snap: StepSnapshot | None = None
+        self._pending_restore: StepSnapshot | None = None
+        self._step_rejections: dict = {}
+        self._drift_ref: DriftReference | None = None
+        self._last_af_z: float | None = None
+        self._last_drift_t: float | None = None
         # El nodo en exposición (R4-17 fase 3): la época de cierre que se anotó antes de abrir, cuándo abrió y si
         # ya tiene decisión (del criterio o de la interrupción). Una sola decisión por nodo.
         self._node_epoch: int | None   = None
@@ -2265,7 +2296,16 @@ class Backend(QObject):
             print(f"[Measurements] 🔍 La grilla estuvo quieta {(_monotonic() - self.t_halt):.0f} s: se reenfoca "
                   f"antes del primer nodo.")
         self.t_halt = None
-        self._after_low_power(self._resume_at_first_never_exposed)
+
+        def go():
+            # La restitución diferida de un paso cortado, antes de cualquier otra cosa (R4-17 fase 5); el paso se
+            # repite con un reenfoque (con deriva, por el ancla)
+            if self._pending_restore is not None:
+                self._restore_snapshot(self._pending_restore)
+                self._pending_restore = None
+                self._force_refocus = True
+            self._resume_at_first_never_exposed()
+        self._after_low_power(go)
 
     def _after_low_power(self, continuation):
         """Antes de la primera acción al reanudar: el filtro en baja potencia confirmado hace ≥ 100 ms. Sin
@@ -2347,6 +2387,12 @@ class Backend(QObject):
         self.exposed              = set()
         self.t_halt               = None
         self._force_refocus       = False
+        self._step_snap           = None
+        self._pending_restore     = None
+        self._step_rejections     = {}
+        self._drift_ref           = None
+        self._last_af_z           = None
+        self._last_drift_t        = None
         self.is_healing_pass      = False
         self.healing_failed_queue = []
         self.healing_index_in_queue = 0
@@ -2603,8 +2649,7 @@ class Backend(QObject):
         should_autofocus = initial_trigger or count_trigger or time_trigger or refocus_trigger
 
         if should_autofocus:
-            self.last_af_time = time.time()
-            self.last_af_index = self.i_global
+            # last_af_time / last_af_index se asignan al ACEPTAR el autofoco (R4-17 fase 5), no acá
             if getattr(self, "driftbool", False):
                 # ── ETAPA 1/4: Desplazarse a zona limpia del ancla (-1 µm en X, -1 µm en Y) y disparar Autofoco 1 ──
                 self.autofocus_stage = "anchor_autofocus"
@@ -2615,7 +2660,7 @@ class Backend(QObject):
                 up_flipper(); time.sleep(1.0)
                 reason_str = "tiempo τ_safe" if time_trigger else f"conteo (N_eff={n_every})"
                 print(f"[Measurements] 🔍 [Etapa 1/4] Autofoco Z en zona limpia del ancla ({clean_anchor_x:.3f}, {clean_anchor_y:.3f}) µm [Disparo por {reason_str}]...")
-                self.grid_autofocusSignal.emit(self.mode_printing)
+                self._emit_autofocus()
             else:
                 # ── MODO ESTÁNDAR: Autofoco in-situ con shift si aplica ──
                 self.autofocus_stage = "standard_autofocus"
@@ -2625,7 +2670,7 @@ class Backend(QObject):
                     time.sleep(0.1)
                 up_flipper(); time.sleep(1.0)
                 print(f"[Measurements] 🔍 Autofoco Z in-situ en nodo {self.i_global} (frecuencia cada {n_every} partículas)...")
-                self.grid_autofocusSignal.emit(self.mode_printing)
+                self._emit_autofocus()
         else:
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
@@ -2634,10 +2679,131 @@ class Backend(QObject):
     def on_autofocus_finished(self, mode: str, result=None):
         """Fin del autofoco de `focusWorker`, en el hilo de este worker (R4-17 fase 2, DEC-045). Se conecta
         encolada: la etapa siguiente empieza en una vuelta nueva del bucle de eventos. El autofoco es compartido
-        por impresión y dímeros, así que cada worker toma sólo el de su modo. `result` es `None` hasta la fase 5."""
+        por impresión y dímeros, así que cada worker toma sólo el de su modo.
+
+        Fase 5 (DEC-050): con un `AutofocusResult`, un autofoco inválido (un corte) se restituye y se repite, y uno
+        no plausible se rechaza (se repite una vez; la segunda falla pausa). Sólo uno aceptado sigue la cadena."""
         if mode != self.mode_arg:
             return
+        if isinstance(result, AutofocusResult):
+            if not result.valid:
+                self._step_invalid("autofoco", result.reason)
+                return
+            if not result.accepted:
+                self._step_rejected("autofoco", result.reason)
+                return
+            self._last_af_z = float(result.z_after_um)
+        self.last_af_time = time.time()
+        self.last_af_index = int(self.i_global)
+        self._step_rejections.pop((int(self.i_global), "autofoco"), None)
         self.grid_finish_autofoco()
+
+    # ── Pasos entre nodos: instantánea, validez, restitución, rechazo (R4-17 fase 5, DEC-050) ──
+    def _take_snapshot(self) -> StepSnapshot:
+        try:
+            z = float(pi.qPOS().get("3", getattr(self, "zref", 10.0)))
+        except Exception:
+            z = float(getattr(self, "zref", 10.0))
+        return StepSnapshot(z, float(self.startX), float(self.startY), float(getattr(self, "last_af_time", 0.0)),
+                            int(getattr(self, "last_af_index", 0)), str(getattr(self, "autofocus_stage", "idle")),
+                            int(get_close_epoch().epoch), int(_estop_state.generation()))
+
+    def _emit_autofocus(self):
+        """Antes de cada autofoco de la grilla: la instantánea del paso y el contexto para el foco (la época, el
+        último autofoco aceptado y los topes), así el foco evalúa la validez y los topes antes de mover Z."""
+        self._step_snap = self._take_snapshot()
+        if self.focus_ref is not None:
+            t_last = float(self.last_af_time) if self._last_af_z is not None else None
+            self.focus_ref.step_context = StepContext(self._step_snap.epoch0, self._last_af_z, t_last,
+                                                      self.step_limits)
+        self.grid_autofocusSignal.emit(self.mode_printing)
+
+    def _start_drift_scan(self):
+        """ETAPA 2/4: el escaneo confocal de P0 (el ancla), con su instantánea."""
+        pi.MOV([1, 2], [self.startX, self.startY])
+        time.sleep(0.1)
+        up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia
+        self.number_scan = "drift_scan"
+        self._step_snap = self._take_snapshot()
+        print(f"[Measurements] 📸 [Etapa 2/4] Disparando escaneo confocal 2D de Partícula 0 (Ancla) en ({self.startX:.3f}, {self.startY:.3f}) µm...")
+        self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
+
+    def _step_cut(self) -> str:
+        """Un corte invalida el paso: la época cambió desde la instantánea, o el escaneo no pudo abrir."""
+        snap = self._step_snap
+        if snap is not None:
+            ep = get_close_epoch()
+            if ep.epoch != snap.epoch0:
+                return f"corte durante el paso ({getattr(ep.cause, 'value', ep.cause)})"
+        cr = self.confocal_ref
+        if cr is not None and getattr(cr, "last_open_ok", True) is False:
+            return "la apertura del escaneo fue rechazada"
+        return ""
+
+    def _restore_snapshot(self, snap: StepSnapshot | None):
+        """No se aplica la corrección del paso y se vuelve a como estaba antes de él (Z, el ancla y last_af_*)."""
+        if snap is None:
+            return
+        self.startX, self.startY = snap.start_x_um, snap.start_y_um
+        self.last_af_time, self.last_af_index = snap.last_af_time, snap.last_af_index
+        self.autofocus_stage = snap.autofocus_stage
+        pi.MOV(3, snap.z_um)
+        if not SAFE_MODE:
+            wait_on_target(3)
+        print(f"[Measurements] ↩️ Paso restituido: Z = {snap.z_um:.4f} µm, ancla ({snap.start_x_um:.3f}, "
+              f"{snap.start_y_um:.3f}) µm.")
+
+    def _step_invalid(self, step: str, reason: str):
+        """Un corte durante el paso: no se aplica. Con "Cerrar todos" (la grilla sigue) se restituye ya y se repite
+        cuando vence la retención; con pausa, parada u otro corte, la restitución se difiere a la reanudación
+        (cero MOV hasta Play). No cuenta como falla de plausibilidad."""
+        print(f"[Measurements] ✋ {step.capitalize()} inválido en el nodo {self.i_global}: {reason}.")
+        snap = self._step_snap
+        ep = get_close_epoch()
+        policy = policy_for(getattr(ep.cause, "value", ep.cause))
+        if self.grid_halted() or not (policy.run_state == GridRunState.RUNNING and policy.continue_after_hold):
+            self._pending_restore = snap
+            if not self.grid_halted():
+                self._pause_for(getattr(ep.cause, "value", str(ep.cause)))
+            return
+        self._restore_snapshot(snap)
+        self._schedule_after_hold(lambda: self._repeat_step(step), next_node=int(self.i_global))
+
+    def _step_rejected(self, step: str, reason: str, always_pause: bool = False):
+        """Un paso no plausible: no se aplica, se restituye y se repite una vez; la segunda falla (o T6) pausa."""
+        key = (int(self.i_global), step)
+        n = self._step_rejections.get(key, 0) + 1
+        self._step_rejections[key] = n
+        self._restore_snapshot(self._step_snap)
+        if always_pause or n > STEP_MAX_REJECTIONS:
+            print(f"[Measurements] ⛔ {step.capitalize()} no plausible en el nodo {self.i_global}: {reason}. La "
+                  f"grilla queda en pausa.")
+            self.stepRejectedSignal.emit(int(self.i_global), step, reason)
+            self._pause_for(f"{step} no plausible")
+            return
+        print(f"[Measurements] ⚠️ {step.capitalize()} no plausible en el nodo {self.i_global}: {reason}. Se repite "
+              f"una vez.")
+        self._repeat_step(step)
+
+    def _repeat_step(self, step: str):
+        if self._halted(f"la repetición del paso ({step})"):
+            return
+        if step == "deriva":
+            self._start_drift_scan()
+        else:
+            self._emit_autofocus()
+
+    def _check_drift(self, image, center_mass):
+        cr = self.confocal_ref
+        box = pixel = None
+        if cr is not None and all(hasattr(cr, a) for a in ("x_min", "x_max", "y_min", "y_max", "range_x", "Nx")):
+            box = (float(cr.x_min), float(cr.x_max), float(cr.y_min), float(cr.y_max))
+            pixel = (float(cr.range_x) / float(cr.Nx), float(cr.range_y) / float(cr.Ny))
+        t_prev = self._last_drift_t if self._last_drift_t is not None else getattr(self, "grid_start_time", time.time())
+        verdict = check_drift_correction(np.asarray(image, dtype=float), (float(center_mass[0]), float(center_mass[1])),
+                                         box, pixel, self._drift_ref, (float(self.startX), float(self.startY)),
+                                         (float(self.xref), float(self.yref)), time.time() - t_prev, self.step_limits)
+        return verdict, pixel
 
     @pyqtSlot()
     @_stage
@@ -2670,12 +2836,7 @@ class Backend(QObject):
 
         if stage == "anchor_autofocus":
             # ── ETAPA 2/4: Mover al ancla P0 y disparar confocal drift_scan ──
-            pi.MOV([1, 2], [self.startX, self.startY])
-            time.sleep(0.1)
-            up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia
-            self.number_scan = "drift_scan"
-            print(f"[Measurements] 📸 [Etapa 2/4] Disparando escaneo confocal 2D de Partícula 0 (Ancla) en ({self.startX:.3f}, {self.startY:.3f}) µm...")
-            self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
+            self._start_drift_scan()
 
         elif stage in ("insitu_autofocus", "standard_autofocus", "idle"):
             # ── ETAPA 4/4: Posicionar en nodo objetivo y conmutar a ALTA potencia para imprimir ──
@@ -3032,10 +3193,27 @@ class Backend(QObject):
         if mode != self.mode_arg:
             return
         if self._halted(f"el fin del escaneo ({number_scan})"):
+            if number_scan == "drift_scan":
+                self._pending_restore = self._step_snap   # se repite al reanudar, después de restituir
             return                               # una corrección que llega en pausa no se aplica
 
         if number_scan == "drift_scan":
+            # Validez y topes ANTES de aplicar (R4-17 fase 5, DEC-050): un escaneo oscuro o cortado no mueve el ancla
+            # ni la velocidad de deriva (el centro de masa del ruido umbralizado cae cerca del centro del escaneo)
+            cut = self._step_cut()
+            if cut:
+                self._step_invalid("deriva", cut)
+                return
             if center_mass and len(center_mass) >= 2:
+                verdict, pixel = self._check_drift(image, center_mass)
+                if not verdict.ok:
+                    self._step_rejected("deriva", verdict.reason, always_pause=verdict.always_pause)
+                    return
+                if self._drift_ref is None:
+                    amp, width = spot_amplitude_width(np.asarray(image, dtype=float), pixel or (1.0, 1.0))
+                    self._drift_ref = DriftReference(amp, width)
+                self._last_drift_t = time.time()
+                self._step_rejections.pop((int(self.i_global), "deriva"), None)
                 # Actualizar posición absoluta real del ancla (Partícula 0)
                 self.startX = float(center_mass[0])
                 self.startY = float(center_mass[1])
@@ -3075,7 +3253,7 @@ class Backend(QObject):
             time.sleep(0.1)
             up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia para el autofoco in-situ
             print(f"[Measurements] 🔍 [Etapa 3/4] Disparando Autofoco Z in-situ en nodo {self.i_global} ({target_insitu_x:.3f}, {target_insitu_y:.3f}) µm...")
-            self.grid_autofocusSignal.emit(self.mode_printing)
+            self._emit_autofocus()
             return
 
         # Si estamos en Modo 3, procesar reescalado de confocal raw
@@ -3467,7 +3645,7 @@ class Backend(QObject):
             pi.MOV([1, 2], [self.startX, self.startY])
             time.sleep(0.05)
             up_flipper(); time.sleep(0.5)
-            self.grid_autofocusSignal.emit(self.mode_printing)
+            self._emit_autofocus()
         else:
             target_x = self.grid_x[self.i_global] + self.startX
             target_y = self.grid_y[self.i_global] + self.startY
@@ -3476,7 +3654,7 @@ class Backend(QObject):
             self.autofocus_stage = "insitu_autofocus"
             up_flipper(); time.sleep(0.5)
             print(f"[Healing Pass] 🔍 Autofoco in-situ en nodo {self.i_global} ({target_x:.3f}, {target_y:.3f}) µm...")
-            self.grid_autofocusSignal.emit(self.mode_printing)
+            self._emit_autofocus()
 
     def _finalize_grid_measurement(self):
         set_routine_running(f"grilla {self.mode_arg}", False)

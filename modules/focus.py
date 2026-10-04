@@ -30,6 +30,9 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
 from PyQt6.QtGui     import QShortcut, QKeySequence
 
 from config  import pi, SHUTTERS, PI_STAGE_RANGE_UM, PI_Z_RANGE_UM, wait_on_target
+from nidaq   import get_close_epoch, is_emergency_stopped
+from core.grid_state import AutofocusResult
+from core.step_plausibility import check_autofocus
 from nidaq   import (open_shutter, close_shutter, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, RATE_MULTICHANNEL, PD_CHANNELS,
                      PD_CHANS_LIST)
@@ -396,6 +399,10 @@ class Backend(QObject):
     @pyqtSlot(str)
     @_focus_routine
     def focus_autocorr_lin_x2(self, mode_printing: str):
+        # El contexto lo deja la grilla antes de pedir el autofoco; se consume acá (R4-17 fase 5)
+        ctx = getattr(self, "step_context", None)
+        self.step_context = None
+        z0 = float(pi.qPOS()["3"])
         if not self.locked_focus:
             msg = "[Focus] ⚠️ No había perfil axial bloqueado previo (Lock focus) — Ejecutando auto-lock en Z actual..."
             try:
@@ -411,7 +418,10 @@ class Backend(QObject):
                 except UnicodeEncodeError:
                     print(msg.encode("ascii", "replace").decode("ascii"))
                 self.autofinishSignal.emit(mode_printing)
-                self.autofocusFinished.emit(mode_printing, None)
+                cut = self._af_cut(ctx)
+                self.autofocusFinished.emit(mode_printing, self._af_result(
+                    ctx, not cut, False, cut or "no se pudo fijar el perfil de referencia del foco", z0, z0, None, {},
+                    failed=() if cut else ("lock",)))
                 return
 
         if not open_shutter(self.laser):
@@ -419,31 +429,84 @@ class Backend(QObject):
             # las rampas darían una corrección de Z a partir de la oscuridad. No se hace el autofoco.
             print("[Focus] ⚠️ El obturador no abrió: no se hace el autofoco y Z no se corrige.")
             self.autofinishSignal.emit(mode_printing)
-            self.autofocusFinished.emit(mode_printing, None)
+            self.autofocusFinished.emit(mode_printing, self._af_result(
+                ctx, False, False, "la apertura del autofoco fue rechazada", z0, z0, None, {}, open_ok=False))
             return
-        ok = True
+        ok, valid, accepted, reason, dz2, values, failed = True, True, True, "", None, {}, ()
+        z_cur = z0
         try:
-            for _ in range(2):
-                if self.abort_event.is_set():
-                    # La parada entre las dos rampas (o antes): no se sigue ni se corrige Z
-                    raise RuntimeError("[Focus] ABORT autofoco: parada de emergencia.")
+            for it in (1, 2):
+                cut = self._af_cut(ctx)
+                if cut:
+                    valid, reason = False, cut
+                    break
                 heartbeat_shutter(30.0)
-                self._focus_autocorr_lin()
+                target, m = self._autocorr_target()
+                # La validez y los topes se evalúan ANTES de mover (R4-17 fase 5, DEC-050): un corte durante la rampa
+                # o un perfil no plausible no llevan Z al máximo de una correlación del ruido (E-6)
+                cut = self._af_cut(ctx)
+                if cut:
+                    valid, reason = False, cut
+                    break
+                if ctx is not None:
+                    dz2 = (target - z_cur) if it == 2 else None
+                    dz_last = (target - ctx.z_last_um) if (it == 2 and ctx.z_last_um is not None) else None
+                    dt = (time.time() - ctx.t_last) if ctx.t_last else None
+                    verdict = check_autofocus(m["profile"], m["lock"], m["corr"], m["i_max"], dz2, dz_last, dt,
+                                              ctx.limits)
+                    values = verdict.values
+                    if not verdict.ok:
+                        accepted, reason, failed = False, verdict.reason, verdict.failed
+                        break
+                self._move_z(target)
+                z_cur = target
         except (RuntimeError, TimeoutError) as e:
             print(str(e))
             ok = False
+            cut = self._af_cut(ctx)
+            if cut:
+                valid, reason = False, cut
+            else:
+                accepted, reason, failed = False, str(e), ("rampa",)
         finally:
             close_shutter(self.laser)
 
-        if ok:
+        if ok and valid and accepted:
             self.plot_autoSignal.emit(self.new_profile_filter,
                                       self.z_profile_lock_filter,
                                       self.correlation_filter)
             self.autodoneSignal.emit()
+        elif ctx is not None:
+            print(f"[Focus] ⚠️ Autofoco {'inválido' if not valid else 'no plausible'}: {reason}. Z no se corrige; la "
+                  f"grilla lo restituye.")
         # Se emite siempre, éxito o abort: la máquina de estados de impresión/dímeros
         # (grid_finish_autofoco) espera este callback y quedaría colgada sin él (ANOM-FOCUS-01).
         self.autofinishSignal.emit(mode_printing)
-        self.autofocusFinished.emit(mode_printing, None)
+        self.autofocusFinished.emit(mode_printing, self._af_result(
+            ctx, valid, valid and accepted and ok, reason, z0, z_cur, dz2, values, failed=failed))
+
+    # ── Validez y resultado del autofoco de la grilla (R4-17 fase 5, DEC-050) ──
+    def _af_cut(self, ctx) -> str:
+        """Un corte invalida el autofoco: la parada, o (con contexto de la grilla) una época de cierre distinta de la
+        del comienzo del paso ("Cerrar todos", un botón, el watchdog, un interlock)."""
+        if self.abort_event.is_set() or is_emergency_stopped():
+            return "parada de emergencia"
+        if ctx is not None:
+            ep = get_close_epoch()
+            if ep.epoch != ctx.epoch0:
+                return f"corte durante el autofoco ({getattr(ep.cause, 'value', ep.cause)})"
+        return ""
+
+    @staticmethod
+    def _af_result(ctx, valid, accepted, reason, z0, z_after, dz2, values, open_ok=True, failed=()):
+        """Sin contexto (el F10 manual, o un autofoco fuera de la grilla) no hay resultado: None, como antes."""
+        if ctx is None:
+            return None
+        return AutofocusResult(bool(valid), bool(accepted), str(reason), float(z0), float(z_after),
+                               None if dz2 is None else float(dz2), float(values.get("F2_pearson", float("nan"))),
+                               float(values.get("F2_snr", float("nan"))),
+                               float(values.get("F5_argmax_frac", float("nan"))), int(ctx.epoch0), bool(open_ok),
+                               tuple(failed))
 
     @pyqtSlot()
     def focus_autocorr_lin(self):
@@ -453,6 +516,12 @@ class Backend(QObject):
             print(str(e))
 
     def _focus_autocorr_lin(self):
+        target, _ = self._autocorr_target()
+        self._move_z(target)
+
+    def _autocorr_target(self):
+        """Una rampa y su correlación con el perfil bloqueado: devuelve el Z del máximo y lo que miran los topes, SIN
+        mover a ese Z (R4-17 fase 5). Al terminar, la platina queda en el comienzo de la rampa."""
         pos     = pi.qPOS()
         z_before = pos["3"]
         self.zo  = self._clamped_zo(z_before)
@@ -471,10 +540,10 @@ class Backend(QObject):
         dz     = self.range / self.Nz
         z_gone = np.linspace(z_before - self.range/2 + dz/2,
                              z_before + self.range/2 - dz/2, len(new_f))
-        self._move_z(z_gone[i_max])
 
         self.new_profile_filter  = new_f
         self.correlation_filter  = corr
+        return float(z_gone[i_max]), {"profile": new_f, "lock": lock_f, "corr": corr, "i_max": int(i_max)}
 
     # ── Rampa lineal PI (idéntica al original) ────────────────────────────────
 

@@ -1056,6 +1056,7 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
   - 60 s a baja potencia sobre un lugar vacío, sin que se imprima nada (verificar con la cámara);
   - matriz de confusión de 20 nodos cortados con "Cerrar todos", contra la cámara. Ningún nodo impreso puede quedar como "no la ve".
 - **C, ruido de los pasos entre nodos:** ruido del centro de masa de la deriva y del autofoco, y qué dan el escaneo y el autofoco con el obturador cerrado. Fija los topes de plausibilidad provisorios (pregunta 7).
+  - Los topes ya están en el código con sus valores provisorios (`core/step_plausibility.py::StepLimits`, `DEC-050`): T2 S/R ≥ 10 y 0.5-2 × la referencia, T3 0.7-1.5 ×, T4 0.27 µm, T5 50 nm + 2 nm/s·Δt (techo 500 nm), T6 3 µm; F2 Pearson ≥ 0.8 y S/R ≥ 10, F3 50 nm, F4 100 nm + 2 nm/s·Δt (techo 300 nm), F5 10 % de la rampa. Anotá, para cada uno, el valor medido con luz y con el obturador cerrado: con eso se ajustan.
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-66 — Parada de emergencia de PyPrinting de punta a punta (C-01 Ronda 4, R4-17)
@@ -1078,7 +1079,7 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 
 ### ☐ BANCO-67 — "Cerrar todos" durante una grilla con `legacy_timer` (C-01 Ronda 4, N-4)
 - **Qué se prueba:** con el backend por defecto, "Cerrar todos" durante un nodo deja el nodo como "interrumpido" y en revisión, y no como "timeout". El Healing Pass no lo reexpone, y la grilla sigue con el nodo siguiente después de la espera visible de 3 s. Un segundo "Cerrar todos" no pausa (pregunta 6).
-- **También:** "Cerrar todos" durante el autofoco o la deriva entre nodos. El paso no se aplica, se restituye la posición y se repite (P-a).
+- **También:** "Cerrar todos" durante el autofoco o la deriva entre nodos. El paso no se aplica, se restituye la posición y se repite (P-a). Implementado en la fase 5 de R4-17 (`DEC-050`): en la consola, "Autofoco inválido…" y "Paso restituido: Z = …"; con el osciloscopio, ninguna apertura durante los 3 s.
 - **Láseres apagados**: se observa el log de escrituras DO y los rótulos de los nodos.
 - **Con la fase 3 de R4-17** (`DEC-046`) ya se puede correr. En la consola: "Nodo N interrumpido (operator)" y "La grilla sigue con el nodo N+1 en 3.0 s". Con el osciloscopio en `line11`, mirá que la reapertura llegue ≥ 3 s después del cierre.
 - **Agregados de la Ronda 2 de R4-17:**

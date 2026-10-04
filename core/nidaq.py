@@ -55,8 +55,13 @@ class _MockNITask:
     def read(self, samps: int = None):
         n = samps or self._samps
         # Canales de fotodiodo: nivel base 0.5 V + ruido pequeño
-        channels = [list(0.5 + 0.02 * np.random.randn(n))
-                    for _ in range(self._n_ch - 1)]
+        base = 0.5 + 0.02 * np.random.randn(self._n_ch - 1, n)
+        # Una tarea configurada como rampa (autofoco en Z, escaneo confocal en X/Y; `channels_triggers`) ve un pico
+        # gaussiano en el centro de la ida y de la vuelta, como una NP en foco (R4-17 fase 5): así el autofoco y la
+        # corrección de deriva simulados pasan los topes de plausibilidad. La traza no configura rampa: no cambia.
+        if getattr(self, "_ramp_axis", None):
+            base = base + _synthetic_ramp_peaks(n)
+        channels = [list(row) for row in base]
         # Último canal = trigger sintético con dos pulsos (ida y vuelta)
         trigger = _synthetic_trigger(n)
         channels.append(list(trigger))
@@ -81,6 +86,18 @@ class _UnavailableNITask(_MockNITask):
     def read(self, samps: int = None):
         n = samps or self._samps
         return [[float("nan")] * n for _ in range(self._n_ch)]
+
+
+def _synthetic_ramp_peaks(n: int) -> np.ndarray:
+    """Un pico gaussiano (1 V) en el centro de cada ventana del trigger sintético (ida y vuelta)."""
+    out = np.zeros(n, dtype=float)
+    if n < 4:
+        return out
+    for a, b in ((int(n * 0.15), int(n * 0.45)), (int(n * 0.55), int(n * 0.85))):
+        c, sigma = 0.5 * (a + b), max(1.0, (b - a) / 25.0)
+        idx = np.arange(a, b)
+        out[a:b] = np.exp(-0.5 * ((idx - c) / sigma) ** 2)
+    return out
 
 
 def _synthetic_trigger(n: int) -> np.ndarray:
@@ -1276,8 +1293,11 @@ def channels_photodiodos(rate: float, samps_per_chan: int, continuous: bool = Fa
 
 
 def channels_triggers(task, axis: str) -> None:
-    """Agrega el canal de trigger. En SAFE_MODE el _MockNITask ya lo incluye."""
-    if SAFE_MODE or isinstance(task, _MockNITask):
+    """Agrega el canal de trigger. En SAFE_MODE el _MockNITask ya lo incluye (y marca la tarea como rampa)."""
+    if isinstance(task, _MockNITask):
+        task._ramp_axis = axis
+        return
+    if SAFE_MODE:
         return
     try:
         ch = TRIGGER_CHANNELS[axis]

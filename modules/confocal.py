@@ -482,6 +482,7 @@ class Backend(QObject):
         self.file_path         = str(DEFAULT_DATA_PATH)
         self.name              = "confocal"
         self._estop_abort      = False           # la parada de emergencia (R4-17 fase 4b)
+        self.last_open_ok      = True            # si la última apertura de un escaneo tuvo éxito (R4-17 fase 5)
         self.scan_mode_option  = SCAN_MODES[0]
         self.psf_mode_option   = PSF_MODES[0]
         self.image_scan_option = SCAN_IMAGE[0]
@@ -795,7 +796,7 @@ class Backend(QObject):
             self.matrix_scan_spiral = [to_spiral(gx, "cw"), to_spiral(gy, "cw")]
         except Exception:
             self.matrix_scan_spiral = [xs, ys]
-        open_shutter(self.laser); time.sleep(0.05)
+        self.last_open_ok = bool(open_shutter(self.laser)); time.sleep(0.05)  # R4-17 fase 5
         self.PDtimer_stepxy.start(0)
 
     def _scan_step_xy(self):
@@ -880,25 +881,25 @@ class Backend(QObject):
     def _start_ramp_xy(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_x(self.x_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampxy.start(0)
 
     def _start_ramp_xz(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_x(self.x_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampxz.start(0)
 
     def _start_ramp_yx(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_y(self.y_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampyx.start(0)
 
     def _start_ramp_yz(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_y(self.y_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampyz.start(0)
 
     def _configure_ramp_x(self, x_pos: float):

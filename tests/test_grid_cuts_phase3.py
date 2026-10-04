@@ -156,11 +156,14 @@ def test_a_close_right_before_a_focus_opening_holds_it_and_z_is_not_corrected(ri
     opens = rec.line_opens(_laser_line(rig), after_t=t_cut)
     assert opens and opens[0] - t_cut >= HOLD_S
     assert [_decisions(rec)[i] for i in range(11)] == EXPECTED
-    # Sólo las dos rampas del lock (bajar al inicio y volver), o su vuelta si no pudo abrir: ninguna rampa del
-    # autofoco y ninguna corrección de Z sobre la oscuridad
-    assert [m for m in rec.moves if len(m) == 1] == [(6.25,), (10.0,)], rec.moves
-    # con el lock retenido, el foco no queda fijado sobre un perfil oscuro; con el lock bueno, sí queda fijado
-    assert rig.backend.focusWorker.locked_focus is (which == 2)
+    # Durante la retención, ninguna corrección de Z sobre la oscuridad: sólo bajar al comienzo de una rampa (6.25)
+    # o volver a la Z de partida (10.0). Desde la fase 5 (DEC-050) el paso cortado se restituye y se REPITE cuando
+    # vence la retención: el autofoco (y el auto-lock) se hacen después, con luz
+    held = [m for t, m, ok in rec.move_results if len(m) == 1 and t < t_cut + HOLD_S]
+    assert set(held) <= {(6.25,), (10.0,)}, held
+    later = [m for t, m, ok in rec.move_results if len(m) == 1 and t >= t_cut + HOLD_S]
+    assert (10.0017,) in later, rec.moves                     # el autofoco repetido, con su corrección
+    assert rig.backend.focusWorker.locked_focus is True
 
 
 # ── 4: la Pausa durante la exposición ────────────────────────────────────────────────────────

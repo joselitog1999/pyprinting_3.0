@@ -1622,6 +1622,63 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Bench:** BANCO-68 first (it fixes `ESTOP_LOCK_TIMEOUT_S`). Then BANCO-66 end to end and BANCO-71, all with the lasers off.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-050: R4-17 Phase 5 — Between-Node Steps (Autofocus, Drift on P0): Validity Before Applying, Restore, Provisional Plausibility Caps, One Repeat Then Pause (2026-10-03)
+* **Context:** the approved design (`ronda2_architecture.md` §4.7, §5.5; `c01_ronda4/experimentalist.md` §5).
+  * **Operator answers:** Round 1 answer 7 (an implausible step after a repeat pauses the grid, with provisional caps) and [INV-R4] 6.
+  * **The defect in autofocus:** a cut during the second autofocus ramp let the stage go to the argmax of a correlation of noise (up to ±3 µm in Z, E-6).
+  * **The defect in drift:** a dark drift scan moved the anchor to the center of mass of thresholded noise, and fed an absurd drift speed into the adaptive autofocus interval.
+* **Decision, `core/step_plausibility.py` (new, numpy only):** `StepLimits` (all provisional until BANCO-65 C), `DriftReference`, `PlausibilityVerdict`, `check_drift_correction` and `check_autofocus`. T1 and F1 need the BS and are left out ([INV-R4] 7).
+  * **Drift caps:**
+    * **T2 amplitude:** on the **raw** image, peak S/N ≥ 10 (MAD) and 0.5-2 × the first accepted P0 scan of the grid;
+    * **T3 width:** 0.7-1.5 × the reference;
+    * **T4 edge:** center ≥ 0.27 µm from the scan box;
+    * **T5 step:** per axis ≤ 50 nm + 2 nm/s·Δt, ceiling 500 nm;
+    * **T6 cumulative:** ≤ 3 µm from the reference. T6 always pauses.
+  * **Autofocus caps:**
+    * **F2:** Pearson of the shifted profile with the locked one ≥ 0.8, and peak S/N ≥ 10;
+    * **F3:** |Δz₂| ≤ 50 nm;
+    * **F4:** |Δz| against the last accepted autofocus ≤ 100 nm + 2 nm/s·Δt, ceiling 300 nm;
+    * **F5:** argmax outside the outer 10 % of the ramp.
+  * `STEP_MAX_REJECTIONS = 1`.
+* **Decision, `core/grid_state.py`:** `StepSnapshot` (Z, the anchor, `last_af_*`, the stage, the closing epoch and the stop generation), `StepContext` and `AutofocusResult`.
+* **Decision, `modules/focus.py`:**
+  * The grid's autofocus receives a `StepContext` (epoch, last accepted Z and time, limits).
+  * `_autocorr_target()` runs the ramp and returns the target **without moving**. Validity (stop, or a changed epoch) and the caps are checked **before** each `_move_z`. An invalid or implausible iteration does not move to its target.
+  * `autofocusFinished(str, object)` carries an `AutofocusResult`.
+  * The manual F10 (no context) is unchanged: result `None`, no caps.
+  * A ramp exception counts as a rejection, unless a cut explains it.
+* **Decision, `modules/measurements.py`:**
+  * **`_emit_autofocus()`** takes the snapshot and hands the focus its context, at every autofocus of the chain: the node, the anchor, after the drift, and the Healing Pass.
+  * **`last_af_time` / `last_af_index`** are assigned when the autofocus is **accepted**, no longer before it.
+  * **`_start_drift_scan()`** takes the drift step's snapshot. The confocal now records `last_open_ok` at every scan start.
+  * **`on_scan_finished("drift_scan")`** checks validity (the epoch, the scan's opening), then T2-T6, **before** touching `startX/startY`, `drift_history_xy` or `_update_drift_velocity`. The first accepted P0 scan sets the reference.
+  * **An invalid step** (a cut) is not applied and does not count as a failure.
+    * With "Cerrar todos" (the grid goes on), the snapshot is restored at once (Z by `MOV`, the anchor, `last_af_*`) and the step is repeated when the hold expires.
+    * With a pause, a stop or any other cut, the restore is **deferred**: zero MOVs until Play.
+  * **At Play:** after the low-power gate and before anything else, the deferred restore is applied, and the step is repeated through a forced refocus (through the anchor with drift correction).
+  * **An implausible step** is restored and repeated once. The second rejection (or T6 at once) pauses with `stepRejectedSignal(int node, str step, str reason)`.
+  * **The printing panel** keeps the notice ("Corrección de deriva no plausible en P0: …" or "Autofoco no plausible en el nodo N: …") until Play.
+  * **Not in scope:** the dimers' centering and pre-scans only get the process safety, as decided in Round 2.
+  * **A Pause during an autofocus that completed with light** keeps that autofocus. The grid stops at its next guard; at Play, more than 60 s stopped forces a refocus.
+* **Decision, the simulator (`core/nidaq.py`, SAFE_MODE only):**
+  * A mock task configured as a ramp by `channels_triggers` (autofocus in Z, confocal scans in X/Y) now sees a Gaussian peak at the center of each ramp window. Before, it was pure noise, which every cap would rightly reject.
+  * The trace does not configure a ramp and is unchanged.
+  * The argmax stays at the center, so the golden baseline's Z moves are identical.
+* **Tests:**
+  * **`tests/test_grid_steps_phase5.py` (15):**
+    * every drift and autofocus cap on its own case, and T5 growing with Δt up to its ceiling;
+    * E-6 (a close in the second ramp: no noise Z, Z back to before the step, `last_af_*` untouched, the step repeated after the hold);
+    * a dark drift scan (anchor, history and speed untouched; repeated once, then paused with T2);
+    * a T5 break (one repeat, then pause);
+    * T6 (pauses with no repeat);
+    * a stop during the autofocus (zero MOVs until Play, then the Z restore first);
+    * the panel notice.
+  * **Mutations:** 12, all caught (m12b, m13, m55-m63), each checked unmutated. m12 (the restore without `last_af_*`) is **equivalent**, because `last_af_*` now change only on acceptance; m12b guards that.
+  * **Deliberate contract change:** the phase 3 test of a close right before a focus opening now expects the step to be **repeated** after the hold, with no Z correction during it. Before, the autofocus was skipped.
+  * **The golden baseline** is identical.
+* **Bench:** BANCO-65 C fixes the caps. BANCO-67 covers "Cerrar todos" during the autofocus or the drift.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

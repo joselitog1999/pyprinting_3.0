@@ -500,6 +500,10 @@ class Backend(QObject):
         for worker in (self.printingWorker, self.dimersWorker, self.traceWorker, self.focusWorker,
                        self.confocalWorker):
             coordinator.register(worker)
+        # Los pasos entre nodos de la grilla (R4-17 fase 5): el foco y el confocal del proceso, de sólo lectura
+        for worker in (self.printingWorker, self.dimersWorker):
+            worker.focus_ref = self.focusWorker
+            worker.confocal_ref = self.confocalWorker
 
     def _connect_backends(self):
         # Vincular focus worker a confocal worker para escaneo con corrección dinámica de inclinación Z
