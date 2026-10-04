@@ -233,6 +233,19 @@ except ImportError:
 
 STAGE_INTERLOCK = "Platina PI"
 
+# Retención de movimiento durante la parada de emergencia (R4-17 fase 4, DEC-047; respuesta 4 del 2026-10-02): hasta
+# Rearmar no sale ningún MOV, MVR ni WGO, tampoco los manuales. Se lee un Event, sin candado ni E/S. connect() y
+# disconnect() quedan fuera: son acciones del operador y cierran los obturadores antes de mover (DEC-036).
+from core import estop_state as _estop_state
+_MOTION_HELD_COMMANDS = ("MOV", "MVR", "WGO")
+
+
+def _motion_held(cmd: str, detail) -> bool:
+    if _estop_state.is_active():
+        print(f"[PI] {cmd} retenido por la parada de emergencia: {detail}")
+        return True
+    return False
+
 
 def _is_stage_comm_error(exc: Exception) -> bool:
     """True si la excepción es una falla de comunicación o de la interfaz, no un rechazo del
@@ -318,6 +331,8 @@ class _MockPI:
 
     def MOV(self, axes, targets):
         with self._lock:
+            if _motion_held("MOV", (axes, targets)):
+                return False
             if isinstance(axes, int):
                 axes    = [axes]
                 targets = [targets]
@@ -340,7 +355,9 @@ class _MockPI:
     # ── Wave generator (no-op) ────────────────────────────────────────────────
 
     def WOS(self, *a, **k):  pass
-    def WGO(self, *a, **k):  pass
+    def WGO(self, *a, **k):
+        if _motion_held("WGO", a):
+            return False
     def WGC(self, *a, **k):  pass
     def WTR(self, *a, **k):  pass
     def WAV_LIN(self, *a, **k): pass
@@ -604,6 +621,10 @@ class _PIController:
 
     def MOV(self, axes, targets):
         with self._lock:
+            # Antes de escribir por USB y dentro del candado de la PI: no toca la posición en caché ni llama a
+            # _stage_fault (no es una falla de la platina)
+            if _motion_held("MOV", (axes, targets)):
+                return False
             if isinstance(axes, int):
                 axes_list = [axes]
                 targets_list = [targets]
@@ -670,6 +691,8 @@ class _PIController:
                 if callable(attr):
                     def _locked_call(*args, **kwargs):
                         with self._lock:
+                            if name in _MOTION_HELD_COMMANDS and _motion_held(name, args):
+                                return False
                             return attr(*args, **kwargs)
                     return _locked_call
                 return attr

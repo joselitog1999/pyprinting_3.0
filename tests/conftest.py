@@ -191,6 +191,20 @@ def _isolate_open_hold():
     yield
     nidaq._open_hold_until = 0.0
     nidaq._routines_running.clear()
+    # La parada de emergencia (R4-17 fase 4) también es del proceso: un test que la dejó activa rechazaría todas
+    # las aperturas y los movimientos de los siguientes. Los participantes que registró se van con él.
+    from core import estop_state, emergency_stop
+    if estop_state.is_active():
+        estop_state._reset_for_tests()
+        nidaq._shutter_interlocks.pop(nidaq.ESTOP_INTERLOCK, None)
+    with nidaq._closer_cv:
+        nidaq._closer_done_epoch = max(nidaq._closer_done_epoch, nidaq._closer_target_epoch)
+    nidaq._close_listeners.clear()
+    coordinator = emergency_stop.get_emergency_coordinator()
+    for p in coordinator.participants():
+        coordinator.unregister(p)
+    with coordinator._lock:
+        coordinator._listeners.clear()
 
 
 @pytest.fixture(autouse=True)

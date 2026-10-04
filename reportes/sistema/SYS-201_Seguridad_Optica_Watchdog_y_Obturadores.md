@@ -225,6 +225,31 @@ Sirven para que una rutina sepa que alguien cortó mientras exponía, sin tener 
   - la grilla espera ese mismo plazo con un `QTimer` preciso, nunca con `sleep`, y después sigue con el nodo siguiente (`core/grid_state.py::CAUSE_POLICY`).
 - **Provisorio:** el registro de rutinas que corren vive en `nidaq` hasta que lo tome el coordinador de la parada (fase 4), y el cierre de `request_close_all` todavía es sincrónico (el hilo cerrador también es de la fase 4).
 
+### 4.6 Parada de emergencia del proceso (R4-17 fase 4, `DEC-047`)
+
+- **El estado** vive en `core/estop_state.py`, un módulo hoja que leen `nidaq` y el driver de la platina sin ciclo:
+  - es un `threading.Event` que se lee sin candado, con generación, fuente y hora;
+  - es uno por proceso, así que en modo satélite PySpectrum y PyPrinting ven la misma parada.
+- **El disparo** (`request_emergency_stop`, por medio de `core/emergency_stop.py::EmergencyCoordinator.trigger`) no toma ningún candado de hardware, en este orden:
+  1. el evento: desde ese instante, `open_shutter` rechaza sin pedir el candado y `MOV`/`MVR`/`WGO` no salen;
+  2. la época (`ESTOP`);
+  3. despertar al cerrador.
+- **El cerrador** (`ShutterCloser`) es un hilo por proceso:
+  - toma la placa con un plazo de 0.25 s (provisorio, `BANCO-68`) y cierra los cuatro en una escritura;
+  - sella un `CloseResult` y avisa fuera del candado;
+  - sube el filtro a baja potencia;
+  - si no consigue la placa, avisa una vez "placa tomada por otro hilo" y reintenta sin límite. Nunca escribe sin el candado.
+- **Durante la parada,** el latido no arma el watchdog.
+- **Rearmar** (`rearm(gen)`) exige:
+  - un cierre del cerrador confirmado para esa generación;
+  - ningún obturador abierto ni sin confirmar;
+  - que todas las rutinas participantes estén quietas;
+  - la generación vigente.
+
+  Nunca llama a `pi.connect()`.
+- **La compuerta de baja potencia** (`low_power_settle_remaining_s`) es la hora del último `up_flipper` confirmado, con un piso de 100 ms antes de abrir. La usa la grilla al reanudar (fase 4b).
+- **"Confirmado" significa que la placa aceptó la escritura** (`DEC-036`), no que el servo se movió. La única parada independiente del software es la llave del láser.
+
 ---
 
 ## 5. 🔬 Solución del Problema de la Traza y Alineación Óptica

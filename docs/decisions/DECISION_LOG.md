@@ -1434,6 +1434,62 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * **Mutation m10** (the trace reopens in printing mode) is caught by `test_the_trace_does_not_reopen_the_shutter_in_printing_mode`.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-047: R4-17 Phase 4a — The Emergency-Stop Engine: Stop Event, Closer Thread, Silent Heartbeat, Motion Hold, Rearm and the Low-Power Gate (2026-10-02)
+* **Context:** the approved Round 2 design (`ronda2_architecture.md` §4.1.2-§4.1.6, §4.2; `ronda2_instrumentation.md` §1, §4). Operator answers:
+  * **Question 4:** until Rearm, every stage move is blocked, including the manual ones.
+  * **Question 7:** PySpectrum's E-STOP becomes the process stop (wired in phase 4c).
+* **Phase 4 is split in three commits:**
+  * **4a** is the engine, with no production caller yet: nothing triggers it until 4c;
+  * **4b** is the grid as a participant;
+  * **4c** is the keys, the GUI, PySpectrum and the satellite.
+* **Decision, `core/estop_state.py` (new leaf module, no `config` or `nidaq` import):**
+  * the process stop is a `threading.Event`, read with no lock, with a generation, a source and the trigger time;
+  * `trip()` is idempotent, so three presses are one episode with the first time;
+  * `clear(gen)` only clears the current generation;
+  * it registers itself under both names (`estop_state` and `core.estop_state`), like `nidaq`. A second copy would be a second stop nobody else sees.
+* **Decision, `core/nidaq.py`:**
+  * **`request_emergency_stop(source)`** runs with no hardware lock, no print, in < 1 ms. In this order: the Event (the functional interlock), the epoch (`ESTOP`), then wake the closer.
+  * **`open_shutter`** rejects during the stop **before** asking for the lock (a routine never waits for the board) and again inside it, without writing or arming the watchdog.
+  * **`heartbeat_shutter()`** does nothing during the stop.
+  * **The closer thread** (`ShutterCloser`, one per process, never ends) takes the board with `ESTOP_LOCK_TIMEOUT_S` = 0.25 s (provisional, fixed by BANCO-68).
+    * It closes the four in one write, with the existing retries, and sets the cosmetic `"E-STOP"` interlock.
+    * It releases the lock, then seals a `CloseResult` and notifies listeners outside it.
+    * After a confirmed close it raises the filter to low power (`up_flipper(lock_timeout_s)`).
+    * If it cannot get the board, it seals one `"placa tomada por otro hilo"` result per episode and retries every `ESTOP_RETRY_INTERVAL_S`. It never writes without the lock.
+  * **The close-all body** moved to `_close_all_under_lock()`, which does no printing inside the lock (H9). The closer and the synchronous path share it.
+  * **`clear_emergency_stop(gen)`** requires all of:
+    * the current generation;
+    * a confirmed close of the closer for that generation;
+    * no shutter open or unconfirmed;
+    * the board within its timeout.
+  * **`get_emergency_state()`** returns `EStopState`; listeners register with `register_close_listener`.
+  * **The low-power gate:** `up_flipper` and `down_flipper` take an optional lock timeout. A confirmed up records its time and a down or any failure clears it. `low_power_settle_remaining_s(LOW_POWER_SETTLE_S = 0.10)` is the 100 ms floor (used by the grid in 4b).
+* **Decision, `config.py` (the motion hold, answer 4):**
+  * `_PIController.MOV` and the passthrough `MVR` and `WGO` check the stop inside the PI lock, before writing to USB. If it is active, they write nothing, leave the cached position alone and do not call `_stage_fault`. They print "retenido" and return `False`.
+  * `_MockPI.MOV` and `WGO` do the same (SAFE_MODE parity).
+  * `connect()` and `disconnect()` stay outside the hold.
+* **Decision, `core/emergency_stop.py` (new, no Qt):** `EmergencyCoordinator`, one per process (`get_emergency_coordinator()`, both module names).
+  * **`trigger(source)`:** nidaq first, then the participants' flags, then the listeners.
+  * **`operator_close_all`**.
+  * **`rearm_check(gen)`** is instantaneous and requires: a closer confirmation, nothing open, every participant `is_quiescent()`, and the current generation. Its `reason` names the laser key when the board did not confirm.
+  * **`rearm(gen)`** never calls `pi.connect()`.
+  * `ESTOP_QUIESCENCE_TIMEOUT_S` = 12 s is the GUI's polling deadline (4c).
+* **Tests:** `tests/test_emergency_stop_engine.py` (10).
+  * the board held by a hung thread: `trigger` < 20 ms, a rejected open < 20 ms, one "board busy" result in ≤ 0.35 s even after retries, and the close once released;
+  * E-1 under 1000 triggers;
+  * an opening waiting for the lock when the stop lands;
+  * one episode for three presses;
+  * Rearm with the board absent (F-5), without a closer close, with an old generation and with a busy participant;
+  * the silent heartbeat;
+  * no stage move, by hand included;
+  * the low-power gate.
+* **Mutations:**
+  * nine caught: m2, m2b, m5, m6b, m14, m26 (no motion hold), m27 (clear without a closer close), m28 (the closer does not raise the filter) and m29 ("board busy" on every retry);
+  * m6 (nidaq's own generation check) is equivalent, because `estop_state.clear` checks again.
+* **Test isolation:** `tests/conftest.py` clears the stop, the closer's target, the close listeners and the coordinator's participants and listeners between tests.
+* **Bench:** BANCO-68 before using the stop with the lasers on (it fixes `ESTOP_LOCK_TIMEOUT_S`); BANCO-66 after 4c.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background
