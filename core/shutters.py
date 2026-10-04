@@ -47,6 +47,13 @@ except ImportError:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+
+# "Cerrar todos" no detiene la grilla (gui_design_v2.md §5.2; R4-17 fases 3 y 4c)
+CLOSE_ALL_TOOLTIP = ("<b>Cerrar todos los obturadores</b><br>Cierra los cuatro ahora. <b>No detiene la grilla</b>: el "
+                     "nodo en curso termina como \"interrumpido\" y el siguiente vuelve a abrir a los 3 s.<br>Para "
+                     "detener todo: <b>PARADA DE EMERGENCIA</b> (Ctrl+E / F12). Para detener sólo la grilla: "
+                     "<b>Pausa</b> (F2).")
+
 class Frontend(QFrame):
 
     shutter0_signal          = pyqtSignal(bool)
@@ -310,6 +317,16 @@ class Frontend(QFrame):
         self.autoclose_timeout_signal.emit(to)
         self._update_security_status()
 
+    def _refresh_close_all_label(self):
+        try:
+            from core.emergency_stop import get_emergency_coordinator
+            running = get_emergency_coordinator().any_routine_running()
+        except Exception:
+            running = False
+        text = "Cerrar todos · la grilla sigue" if running else "Cerrar Todos"
+        if self.btn_close_all.text() != text:
+            self.btn_close_all.setText(text)
+
     def _close_all_shutters_clicked(self):
         """Cierra los cuatro y desmarca sólo si la placa lo confirmó (R4-17 fase 1). Antes desmarcaba primero e
         ignoraba el resultado: un cierre fallido quedaba como si nada. Si falla, los avisos de DEC-036 dejan cada
@@ -317,7 +334,8 @@ class Frontend(QFrame):
 
         Es un corte del operador (R4-17 fase 3): con una grilla corriendo, el nodo en exposición queda
         "interrumpido" y las aperturas se retienen `OPERATOR_HOLD_S`; la grilla sigue después."""
-        epoch = operator_close_all("Cerrar todos")
+        from core.emergency_stop import get_emergency_coordinator
+        epoch = get_emergency_coordinator().operator_close_all("Cerrar todos")
         if is_close_confirmed(epoch):
             for btn in (self.shutter0button, self.shutter1button, self.shutter2button, self.shutter3button):
                 if btn is not None and btn.isChecked():
@@ -391,8 +409,16 @@ class Frontend(QFrame):
 
         self.btn_close_all = QPushButton("Cerrar Todos")
         self.btn_close_all.setStyleSheet("color: #f38ba8; font-weight: bold; font-size: 8pt; padding: 3px;")
-        self.btn_close_all.setToolTip("Cierra inmediatamente todos los shutters ópticos")
+        self.btn_close_all.setToolTip(CLOSE_ALL_TOOLTIP)
         self.btn_close_all.clicked.connect(self._close_all_shutters_clicked)
+        # La parada de emergencia al lado de "Cerrar todos": la vecindad enseña la diferencia (gui_design_v2.md
+        # §5.1-§5.2). Con una rutina corriendo, el rótulo dice que la grilla sigue (R4-17 fase 4c).
+        from core.ui.emergency_widgets import EmergencyStopButton
+        self.btn_estop = EmergencyStopButton(source="dock de obturadores", compact=True)
+        self._close_all_label_timer = QTimer(self)
+        self._close_all_label_timer.setInterval(500)
+        self._close_all_label_timer.timeout.connect(self._refresh_close_all_label)
+        self._close_all_label_timer.start()
 
         # ── Layout Superior ───────────────────────────────────────────────────
         grid.addWidget(self.shutter0button,  0, 0)
@@ -403,6 +429,7 @@ class Frontend(QFrame):
         grid.addWidget(self.powerbutton,     0, 1)
         grid.addWidget(self.notch532button,  1, 1)
         grid.addWidget(self.btn_close_all,   2, 1)
+        grid.addWidget(self.btn_estop,       3, 1)
 
         main_layout.addLayout(grid)
 

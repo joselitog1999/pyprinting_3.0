@@ -678,6 +678,12 @@ El investigador prioriza que PySpectrum 3.0 quede funcional para el banco. La v2
 - **8.** La grilla de PyPrinting toma la sesión de hardware (`hardware_session`) mientras corre.
 - **9.** La base de la confirmación a baja potencia es la meseta previa a la captura, dividida por la atenuación medida en la sesión. Queda sujeta a BANCO-65 y a una revisión de metrología.
 
+**C-01, Ronda 4 — R4-17, conciliación de la fase 4c (2026-10-03).** Se aceptan las cuatro recomendaciones.
+- **1.** Se aprueba el cambio de la fase 3 en `confocal.stop_scan`: sólo vuelve al inicio del escaneo si había un escaneo corriendo, así la Pausa no mueve la platina.
+- **2.** La parada de PySpectrum muestra **sólo un banner, no modal**: se quita el `QMessageBox`.
+- **3.** La grilla de PyPrinting conserva la sesión de hardware en pausa y detenida, y la suelta al terminar o al reiniciar.
+- **4.** Arrancar una grilla de PyPrinting pausa el Live de PySpectrum (se reanuda al soltar la sesión).
+
 ## Decisiones que siguen abiertas después de la segunda ronda
 
 - **Offsets:** resuelto en R4-G, que reemplaza a R4-3: valen los guardados en el equipo (150 → 87, 1200 → 195, espejo → 60, detector → 0). Falta definir el protocolo del detector.

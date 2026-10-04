@@ -9,6 +9,7 @@ resiliencia ante E-STOP con liberación limpia de sesiones de hardware.
 from __future__ import annotations
 import os
 import tempfile
+from core.emergency_stop import get_emergency_coordinator
 import unittest
 
 import numpy as np
@@ -281,7 +282,8 @@ class TestGlobalKeyboardShortcuts(unittest.TestCase):
             dialog.activateWindow()
             QApplication.processEvents()
             try:
-                with mock.patch.object(hardware_session, "emergency_stop") as estop:
+                # Desde R4-17 fase 4c la tecla dispara la parada del proceso (el coordinador), no la de la sesión
+                with mock.patch.object(get_emergency_coordinator(), "trigger") as estop:
                     QTest.keyClick(dialog, key, modifier)
                     QApplication.processEvents()
                 self.assertEqual(estop.call_count, 1,
@@ -299,13 +301,14 @@ class TestGlobalKeyboardShortcuts(unittest.TestCase):
         self.win.show()
         self.win.activateWindow()
         QApplication.processEvents()
-        with mock.patch.object(hardware_session, "emergency_stop") as estop:
+        with mock.patch.object(get_emergency_coordinator(), "trigger") as estop:
             QTest.keyClick(self.win, Qt.Key.Key_F12)
             QApplication.processEvents()
         self.assertEqual(estop.call_count, 1)
 
-    def test_estop_key_ignored_in_unrelated_windows(self):
-        """Una ventana ajena a PySpectrum en el mismo proceso no dispara su E-STOP."""
+    def test_estop_key_fires_once_in_any_window_of_the_process(self):
+        """Desde R4-17 fase 4c ([DA] F-2, DEC-049) el filtro es del proceso: cualquier ventana dispara la parada, una
+        vez por pulsación. Antes, una ventana ajena a PySpectrum (como el satélite de PyPrinting) no la disparaba."""
         from unittest import mock
         from PyQt6.QtCore import Qt
         from PyQt6.QtTest import QTest
@@ -316,10 +319,10 @@ class TestGlobalKeyboardShortcuts(unittest.TestCase):
         other.activateWindow()
         QApplication.processEvents()
         try:
-            with mock.patch.object(hardware_session, "emergency_stop") as estop:
+            with mock.patch.object(get_emergency_coordinator(), "trigger") as estop:
                 QTest.keyClick(other, Qt.Key.Key_F12)
                 QApplication.processEvents()
-            self.assertEqual(estop.call_count, 0)
+            self.assertEqual(estop.call_count, 1)
         finally:
             other.close()
             other.deleteLater()

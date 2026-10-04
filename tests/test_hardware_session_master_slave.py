@@ -11,6 +11,7 @@ autónomo, arbitraje exclusivo + E-STOP, y el módulo puente de soporte óptico
 from __future__ import annotations
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -259,6 +260,12 @@ class TestGlobalBusWiring(unittest.TestCase):
         self.assertFalse(satellite.nanoWidget.StepEdit.isEnabled())
 
         self.win._on_emergency_stop_clicked()
+        # Desde R4-17 fase 4c la parada es la del proceso y no espera la placa: el cerrador cierra en su hilo y la
+        # sesión se libera en el hilo GUI, fuera del filtro de teclas. Se bombea el bucle con espera acotada.
+        t_end = time.monotonic() + 3.0
+        while time.monotonic() < t_end and (get_open_shutter_names() or hardware_session.is_busy):
+            QtWidgets.QApplication.processEvents()
+            time.sleep(0.01)
         self.assertEqual(get_open_shutter_names(), [])
         self.assertFalse(hardware_session.is_busy)
         self.assertTrue(satellite.nanoWidget.StepEdit.isEnabled())

@@ -384,6 +384,9 @@ class Frontend(QFrame):
         pg_lo.addWidget(self.trace_laser2)
         pg_lo.addWidget(self.btn_fft_l2)
         pg_lo.addWidget(self.traceButton)
+        from core.ui.emergency_widgets import EmergencyStopButton
+        self.btn_estop = EmergencyStopButton(source="traza", compact=True)   # R4-17 fase 4c
+        pg_lo.addWidget(self.btn_estop)
         pg_lo.addWidget(self.PointLabel)
         pg_lo.addWidget(self.saveButton)
         pg_lo.addWidget(self.setPowerBSButton)

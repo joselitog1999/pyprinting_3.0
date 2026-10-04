@@ -97,6 +97,9 @@ def test_the_pause_click_marks_the_grid_before_grid_pause_runs(grid):
     _KEEP_ALIVE.append(worker_thread)
     pw.moveToThread(worker_thread)
     pw.make_connection(fe)
+    from core.grid_state import GridRunState
+    pw.run_state = GridRunState.RUNNING              # Pausa se habilita sólo con la grilla corriendo (R4-17 fase 4c)
+    assert fe.pause_button.isEnabled()
     fe.pause_button.click()
     assert pw.grid_halted()                           # sin procesar eventos
     log.append("PAUSE")

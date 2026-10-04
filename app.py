@@ -95,8 +95,26 @@ class Frontend(QMainWindow):
         self.resize(1440, 900)
         self._current_master_name = "PySpectrum 3.0"
         self._setup_menu()
+        self._setup_estop_bar()
         self._setup_docks()
         self._setup_subjugation_bus()
+
+    def _setup_estop_bar(self):
+        """La parada de emergencia del proceso, arriba de todo (R4-17 fase 4c, gui_design_v2.md §5.1): el botón, y
+        en una fila propia el banner con Rearmar. No es modal."""
+        from PyQt6.QtWidgets import QToolBar
+        from core.ui.emergency_widgets import EmergencyBanner, EmergencyStopButton
+        bar = QToolBar("Parada de emergencia", self)
+        bar.setMovable(False)
+        self.btn_estop = EmergencyStopButton(source="PyPrinting")
+        bar.addWidget(self.btn_estop)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
+        banner_bar = QToolBar("Banner de la parada", self)
+        banner_bar.setMovable(False)
+        self.estop_banner = EmergencyBanner()
+        banner_bar.addWidget(self.estop_banner)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, banner_bar)
 
     # ── Subyugación Master-Slave (Fase 5, DEC-019) ────────────────────────────
 
@@ -134,6 +152,13 @@ class Frontend(QMainWindow):
             )
         for w in (self.nanoWidget, self.confocalWidget, self.shuttersWidget, self.focusWidget):
             w.set_actuators_enabled(not subjugated)
+
+    @staticmethod
+    def _stop_detail(backend) -> str:
+        for name, w in (("de impresión", backend.printingWorker), ("de dímeros", backend.dimersWorker)):
+            if getattr(getattr(w, "run_state", None), "value", "") == "stopped":
+                return f"La grilla {name} quedó DETENIDA en el nodo {w.i_global}."
+        return ""
 
     def _add_action(self, menu, label, slot, shortcut=None):
         a = QAction(label, self)
@@ -308,6 +333,7 @@ class Frontend(QMainWindow):
             event.ignore()
 
     def make_connection(self, backend: Backend):
+        self.estop_banner.detail_provider = lambda: self._stop_detail(backend)
         backend.nanoWorker.make_connection(self.nanoWidget)
         backend.shuttersWorker.make_connection(self.shuttersWidget)
         backend.focusWorker.make_connection(self.focusWidget)
@@ -746,6 +772,21 @@ def create_app_satellite(parent=None, host: HostContext | None = None):
             t.wait(3000)
 
     gui.closeSignal.connect(_on_satellite_close)
+
+    # Teclas de la parada para todo el proceso (R4-17 fase 4c): Ctrl+E y F12 desde cualquier ventana, y F2 pausa la
+    # grilla que corre. Idempotente: en el satélite, PySpectrum ya lo instaló y acá sólo se suma el manejador de F2.
+    from core.ui.emergency_keys import install_emergency_key_filter
+    from core.grid_state import GridRunState
+
+    def _pause_running_grid() -> bool:
+        for w in (worker.printingWorker, worker.dimersWorker):
+            if w.run_state == GridRunState.RUNNING:
+                w.request_pause()
+                QMetaObject.invokeMethod(w, "grid_pause", Qt.ConnectionType.QueuedConnection)
+                return True
+        return False
+    key_filter = install_emergency_key_filter(QApplication.instance(), pause_handler=_pause_running_grid)
+    gui.closeSignal.connect(lambda: key_filter.remove_pause_handler(_pause_running_grid))
 
     return gui, worker, threads
 

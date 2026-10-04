@@ -581,6 +581,23 @@ def test_lab_invariants_file_exists():
     )
 
 
+def test_process_emergency_keys_match_lab_invariants():
+    """Las filas ✅ de la parada y de la pausa de `core/ui/emergency_keys.py` (R4-17 fase 4c): el filtro de teclas del
+    proceso dispara la parada con exactamente las teclas que dice la tabla (las mismas que PySpectrum), y `F2` pausa."""
+    from PyQt6.QtCore import Qt
+    from core.ui import emergency_keys as ek
+    body = _strip_code_fences(_INVARIANTS_FILE.read_text(encoding="utf-8", errors="ignore"))
+    rows = {}
+    for line in body.splitlines():
+        if "core/ui/emergency_keys.py::" in line and "✅" in line:
+            sym = re.search(r"core/ui/emergency_keys\.py::(\w+)", line).group(1)
+            rows[sym] = {t.lower() for t in re.findall(r"`((?:Ctrl\+)?(?:F\d{1,2}|[A-Z]))`", line)}
+    names = {Qt.Key.Key_F12: "f12", Qt.Key.Key_E: "e", Qt.Key.Key_F2: "f2"}
+    actual = {("ctrl+" if m == Qt.KeyboardModifier.ControlModifier else "") + names[k] for k, m in ek.ESTOP_KEYS}
+    assert rows.get("ESTOP_KEYS") == actual, (rows, actual)
+    assert rows.get("PAUSE_KEY") == {names[ek.PAUSE_KEY]}, rows
+
+
 def test_lab_invariants_match_code():
     """Cada fila ✅ de lab-invariants.md coincide con el símbolo real del código.
 

@@ -1542,6 +1542,86 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * the grid's `hardware_session` lease (answer 8), which is an interaction with PySpectrum and is tested with the satellite.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-049: R4-17 Phase 4c — One Emergency Stop per Process in the GUI: Process-Wide Keys, Banner and Rearm, Grid Controls, PySpectrum and the Satellite (2026-10-03)
+* **Context:** the approved design (`ronda2_architecture.md` §4.3, §4.9; `gui_design_v2.md` §5.1-§5.2, §6.7). Before any code, the Round 4 reconciliation of the engine and GUI contracts was written in `c01_ronda4/ronda4_conciliacion_fase4c.md`: 17 rows, no parameter discrepancy left.
+* **Operator answers** (`RESPUESTAS_INVESTIGADOR.md`, 2026-10-03):
+  1. the phase 3 `stop_scan` change is approved;
+  2. the PySpectrum stop shows only a non-modal banner;
+  3. the grid keeps the hardware session while paused or stopped, and releases it at the end or on reset;
+  4. starting a grid pauses PySpectrum's Live.
+  * Earlier answer 7: the PySpectrum E-STOP is the process stop.
+  * Earlier answer 8: the grid takes the session.
+* **Decision, `core/ui/emergency_keys.py` (new):**
+  * **`EmergencyKeyFilter`**, one per process, installed on the `QApplication` (idempotent, attached to the app).
+    * `F12` and `Ctrl+E` trigger `coordinator.trigger("tecla")` once per press, from **any** window: modal dialogs, non-native file dialogs and the PyPrinting satellite included ([DA] F-2).
+    * It consumes the `ShortcutOverride` and the `KeyPress` that follows, and ignores autorepeat.
+    * `F2` goes to the pause handlers. If none handles it, the key goes on, so the trace's own `F2` shortcut still stops a manual trace.
+    * `ESTOP_KEYS` and `PAUSE_KEY` are rows ✅ of `lab-invariants` §4, checked by `test_process_emergency_keys_match_lab_invariants`.
+  * **`EmergencyBridge`**, one per process, in the GUI thread. It turns closer results (from the closer thread) and coordinator events into queued signals.
+    * It runs the banner's own 0.5 s confirmation deadline (`CLOSE_CONFIRM_DEADLINE_S`), which does not depend on the closer reporting.
+    * Rearm polls `rearm_check` every 100 ms for up to `ESTOP_QUIESCENCE_TIMEOUT_S` (12 s), reporting who it waits for. When the deadline passes, it says the routine did not respond.
+    * It never opens a modal.
+* **Decision, `core/ui/emergency_widgets.py` (new):**
+  * **`EmergencyStopButton`**, in red.
+  * **`EmergencyBanner`**, non-modal, with its own Rearm button:
+    * "confirmada" only on an `ok` `CloseResult` of the closer for that stop;
+    * otherwise "PARADA SIN CONFIRMAR … cortá la emisión con la llave del láser";
+    * green "Rearmado … Play para seguir" after Rearm.
+* **Decision, PyPrinting:**
+  * **The main window:** the stop button and the banner at the top. The banner details which grid stopped and at which node.
+  * **The printing panel:**
+    * a safety row with the stop button, the banner, the grid state and the "Cerrar todos" countdown;
+    * the Peach 20 s "Cerraste los obturadores en el nodo N…" notice;
+    * the Play, Pause and Next-index buttons follow `runStateChanged`.
+  * **The trace:** a compact stop button.
+  * **The shutter dock:** a compact stop button next to "Cerrar todos". Its label reads "Cerrar todos · la grilla sigue" while a routine runs, it has the §5.2 tooltip, and it goes through `coordinator.operator_close_all`.
+  * **`create_app_satellite`** installs the process filter (idempotent) with a pause handler for the running grid, and removes the handler on close.
+  * **The grid's hardware session** (only with PySpectrum in the process) is taken on Play in the GUI thread, because the Live pauses touch widgets. It is released when the grid goes idle or finished. If another routine holds the session, Play does not start and the panel says so.
+* **Decision, PySpectrum:**
+  * **The E-STOP button and its shortcuts** call `coordinator.trigger("PySpectrum")`. There is no `QMessageBox`. The banner sits in its own toolbar row, and "Rearmar Sistema" calls the process Rearm through the bridge.
+  * **The per-window `_EmergencyKeyFilter` is replaced** by the process filter. The window's `QShortcut`s stay as a backup.
+  * **`HardwareSessionManager` is a permanent participant.**
+    * On a stop it only sets flags. The camera abort and the EM gain to 0, re-read, run in an `EStopCamera` thread. The Live pauses run in the GUI thread through a queued call, outside the key filter.
+    * That queued call runs only while the stop that requested it is still active. Otherwise, after a quick Rearm, it would pause the Live views and release the session of a routine started after the stop. The first full suite exposed this: three order-dependent failures plus a stray legacy stop in a later test.
+    * The stop releases the session of a PySpectrum routine, but not the PyPrinting grid's (answer 3).
+    * It is quiescent with no PySpectrum routine holding the session and the camera work done.
+    * `is_emergency_stopped` is the process stop, or the instance's legacy flag.
+  * **Legacy API, kept** for the orderly shutdown, the routines and about 100 uses in the tests:
+    * `emergency_stop()` triggers the process stop and still closes, does the camera work and the GUI part synchronously;
+    * `clear_emergency(timeout_s)` rearms when possible.
+  * **Shutdown:** parking the stage on close is an operator-confirmed action, like `disconnect()`. So `_park_after_stop` lifts the stop first, with the shutters already confirmed closed and the routines and guests stopped. If it cannot, the stage does not move and the report says so.
+* **Coordinator:** `register(p, permanent=False)`. The suite forgets only the per-test participants (`_forget_transient_for_tests`).
+* **Tests:**
+  * **`tests/test_emergency_gui_phase4c.py` (16):**
+    * the keys from every window, with a modal and a non-native dialog open;
+    * one stop for the satellite and PySpectrum, with an opening from a PyPrinting routine refused;
+    * the banner, confirmed and with the board held, and its own deadline;
+    * the PySpectrum button without a modal;
+    * Rearm waiting and reporting who, and its deadline;
+    * the grid controls and the hardware session;
+    * the countdown and the notice;
+    * `F2`, both handled and passed through;
+    * the "Cerrar todos" label;
+    * the session participant: the camera off the GUI thread, the Live pauses in the GUI thread, the grid session kept;
+    * PyPrinting's `F2` handler installed and removed;
+    * queued stop work never lands on a routine started after Rearm.
+  * **Mutations:** 14, all caught (m15, m42-m54), each checked unmutated.
+  * **Deliberate contract changes:**
+    * the PySpectrum key tests count `coordinator.trigger`;
+    * a window outside PySpectrum now **does** fire the stop ([DA] F-2), so the test "ignored in unrelated windows" became "fires once in any window";
+    * the satellite test waits, with a bounded pump, for the asynchronous close and session release;
+    * the pause-click test sets the grid RUNNING, because Pause is enabled only then.
+  * **Test isolation:**
+    * the 4c tests hide their PySpectrum windows and stop the satellite threads. A live window loads the event loop, and a later timing test (a 5 ms stop on a one-node luminescence grid) then missed its window;
+    * they are hidden, not closed, because PySpectrum's close sequence shuts the simulated camera and Shamrock, which the rest of the process still uses.
+* **Docs:**
+  * the MANUAL: the process stop, the four cuts side by side, the "Cerrar todos" label and notice, the grid controls and session, and the shutdown order;
+  * `lab-invariants` §4;
+  * SYS-201 §4.6;
+  * BANCO-66.
+* **Bench:** BANCO-68 first (it fixes `ESTOP_LOCK_TIMEOUT_S`). Then BANCO-66 end to end and BANCO-71, all with the lasers off.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

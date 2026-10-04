@@ -1059,7 +1059,7 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **Resultado:** fecha — / observaciones —
 
 ### ☐ BANCO-66 — Parada de emergencia de PyPrinting de punta a punta (C-01 Ronda 4, R4-17)
-- **Qué se prueba:** la parada propia de PyPrinting, cuando exista. Láseres apagados y osciloscopio en las líneas de los obturadores (`Dev1/port0/line8` a `line11`).
+- **Qué se prueba:** la parada del proceso (`DEC-047` a `DEC-049`), que ya existe con la fase 4c: es una sola para PyPrinting y PySpectrum. Láseres apagados y osciloscopio en las líneas de los obturadores (`Dev1/port0/line8` a `line11`). **Antes, BANCO-68**: fija el plazo del cerrador.
 - **Procedimiento:**
   - `Ctrl+E` y `F12` desde cada ventana de PyPrinting: principal, impresión, dímeros, cámara y Láser 532;
   - lo mismo con un diálogo modal abierto, incluido un `QFileDialog` nativo de Windows (guardar imagen de la cámara);

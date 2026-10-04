@@ -883,7 +883,13 @@ class Frontend(QFrame):
         self.grid_save_info_button.clicked.connect(self._get_grid_info)
 
         # ── Layout principal ──────────────────────────────────────────────────
-        hbox      = QHBoxLayout(self)
+        # Arriba, la fila de seguridad (R4-17 fase 4c, gui_design_v2.md §5.1-§5.2): la parada, su banner, el estado
+        # de la grilla, la cuenta de "Cerrar todos" y el aviso de un nodo interrumpido
+        outer     = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._build_safety_row())
+        hbox      = QHBoxLayout()
+        outer.addLayout(hbox, 1)
         dock_area = DockArea()
 
         # Reference widget
@@ -1283,8 +1289,130 @@ class Frontend(QFrame):
         except ValueError: pass
 
     def _get_grid_measurement(self):
+        if not self._acquire_hardware_session():
+            return
         self._emit_parameters()
         self.gridSignal.emit()
+
+    # ── Seguridad: parada, estado de la grilla, "Cerrar todos" (R4-17 fase 4c, DEC-049) ──
+    def _build_safety_row(self) -> QWidget:
+        from core.ui.emergency_widgets import EmergencyBanner, EmergencyStopButton
+        row = QWidget()
+        lay = QVBoxLayout(row)
+        lay.setContentsMargins(6, 6, 6, 0)
+        top = QHBoxLayout()
+        self.btn_estop = EmergencyStopButton(source="PyPrinting")
+        self.lbl_run_state = QLabel("Sin grilla")
+        self.lbl_run_state.setToolTip("Estado de la grilla. DETENIDA: después de la parada de emergencia; nada se "
+                                      "abre ni se mueve hasta Rearmar y después Play.")
+        self.lbl_run_state.setStyleSheet("font-weight: bold; padding: 2px 8px;")
+        self.lbl_countdown = QLabel("")
+        self.lbl_countdown.setStyleSheet(f"color: #fab387; font-weight: bold;")
+        top.addWidget(self.btn_estop)
+        top.addWidget(self.lbl_run_state)
+        top.addWidget(self.lbl_countdown, 1)
+        lay.addLayout(top)
+        self.estop_banner = EmergencyBanner(detail_provider=self._stop_detail)
+        lay.addWidget(self.estop_banner)
+        self.lbl_cut_notice = QLabel("")
+        self.lbl_cut_notice.setWordWrap(True)
+        self.lbl_cut_notice.setStyleSheet("color: #1e1e2e; background-color: #fab387; font-weight: bold; "
+                                          "padding: 4px 8px; border-radius: 4px;")
+        self.lbl_cut_notice.hide()
+        lay.addWidget(self.lbl_cut_notice)
+        self._cut_notice_timer = QTimer(self)
+        self._cut_notice_timer.setSingleShot(True)
+        self._cut_notice_timer.timeout.connect(self.lbl_cut_notice.hide)
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(200)
+        self._countdown_timer.timeout.connect(self._tick_countdown)
+        self._countdown = (0, 0.0)
+        self._run_state = "idle"
+        self._session_owner = f"PyPrinting: grilla de {'impresión' if self.mode == 'printing' else 'dímeros'}"
+        self._session_held = False
+        return row
+
+    def _stop_detail(self) -> str:
+        be = getattr(self, "_backend_ref", None)
+        if be is None:
+            return ""
+        state = getattr(getattr(be, "run_state", None), "value", "")
+        if state == "stopped":
+            return f"La grilla quedó DETENIDA en el nodo {be.i_global}."
+        return ""
+
+    _RUN_STATE_TEXT = {"idle": ("Sin grilla", "#cdd6f4"), "running": ("CORRIENDO", "#a6e3a1"),
+                       "paused": ("EN PAUSA", "#f9e2af"), "stopped": ("DETENIDA — Rearmar y después Play", "#f38ba8"),
+                       "finished": ("Terminada", "#cdd6f4")}
+
+    @pyqtSlot(str)
+    def on_run_state(self, state: str):
+        """Los controles según el estado de la grilla (gui_design_v2.md §6.7): Play deshabilitado corriendo y
+        detenida; Pausa sólo corriendo; "Next index" deshabilitado detenida. El motor también rechaza (defensa)."""
+        self._run_state = state
+        text, color = self._RUN_STATE_TEXT.get(state, (state, "#cdd6f4"))
+        self.lbl_run_state.setText(text)
+        self.lbl_run_state.setStyleSheet(f"font-weight: bold; padding: 2px 8px; color: {color};")
+        self.play_button.setEnabled(state not in ("running", "stopped"))
+        self.pause_button.setEnabled(state == "running")
+        self.next_button.setEnabled(state != "stopped")
+        if state != "running":
+            self._countdown_timer.stop()
+            self.lbl_countdown.setText("")
+        if state in ("idle", "finished"):
+            self._release_hardware_session()
+
+    @pyqtSlot(int, float)
+    def on_countdown(self, node: int, t_end_wall: float):
+        self._countdown = (int(node), float(t_end_wall))
+        self._tick_countdown()
+        self._countdown_timer.start()
+
+    def _tick_countdown(self):
+        node, t_end = self._countdown
+        rem = t_end - time.time()
+        if rem <= 0:
+            self._countdown_timer.stop()
+            self.lbl_countdown.setText("")
+            return
+        self.lbl_countdown.setText(f"⏳ La grilla sigue con el nodo {node} en {rem:.1f} s")
+
+    @pyqtSlot(int, str, float)
+    def on_node_interrupted(self, node: int, cause: str, t_exp: float):
+        if cause == "operator":
+            text = (f"Cerraste los obturadores en el nodo {node}. La grilla sigue con el nodo {node + 1}. "
+                    f"Para detenerla: Pausa (F2) o PARADA DE EMERGENCIA (Ctrl+E / F12).")
+        else:
+            text = f"El nodo {node} quedó interrumpido ({cause}) después de {t_exp:.1f} s de exposición: en revisión."
+        self.lbl_cut_notice.setText(text)
+        self.lbl_cut_notice.show()
+        self._cut_notice_timer.start(20000)
+
+    def _hardware_session(self):
+        """La sesión de hardware de PySpectrum, sólo si PySpectrum está en este proceso (modo satélite)."""
+        mod = sys.modules.get("pyspectrum.modules.hardware_session")
+        return getattr(mod, "hardware_session", None) if mod is not None else None
+
+    def _acquire_hardware_session(self) -> bool:
+        """Respuestas 3, 4 y 8: la grilla toma la sesión de hardware al arrancar (pausa el Live de PySpectrum) y la
+        conserva en pausa y detenida. Se hace acá, en el hilo GUI, porque las pausas de los Live tocan widgets."""
+        hs = self._hardware_session()
+        if hs is None or self._session_held:
+            return True
+        if hs.acquire_session(self._session_owner, auto_pause_live=True):
+            self._session_held = True
+            return True
+        owner = getattr(hs, "current_owner", "") or "la parada de emergencia"
+        self.lbl_cut_notice.setText(f"No se puede arrancar la grilla: {owner} tiene la sesión de hardware.")
+        self.lbl_cut_notice.show()
+        self._cut_notice_timer.start(20000)
+        return False
+
+    def _release_hardware_session(self):
+        hs = self._hardware_session()
+        if hs is not None and self._session_held:
+            hs.release_session(self._session_owner, restore_live=True)
+        self._session_held = False
 
     def _emit_parameters(self):
         color = self.grid_laser.currentIndex()
@@ -1549,6 +1677,11 @@ class Frontend(QFrame):
             backend.gridRangeErrorSignal.connect(self._show_grid_range_error)
         if hasattr(backend, "stageDisconnectedSignal"):
             backend.stageDisconnectedSignal.connect(self._show_stage_disconnected_dialog)
+        if hasattr(backend, "runStateChanged"):
+            backend.runStateChanged.connect(self.on_run_state)
+            backend.countdownSignal.connect(self.on_countdown)
+            backend.nodeInterruptedSignal.connect(self.on_node_interrupted)
+            self.on_run_state(backend.run_state.value)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

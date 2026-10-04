@@ -60,18 +60,29 @@ class EmergencyCoordinator:
     def __init__(self):
         self._lock = threading.Lock()          # hoja: sólo protege las listas
         self._participants: list = []
+        self._permanent: list = []             # los del proceso (p. ej. hardware_session), que no se van
         self._listeners: list[Callable[[str, int], None]] = []
 
     # ── registro ──
-    def register(self, participant) -> None:
+    def register(self, participant, permanent: bool = False) -> None:
         with self._lock:
             if participant not in self._participants:
                 self._participants.append(participant)
+            if permanent and participant not in self._permanent:
+                self._permanent.append(participant)
+
+    def _forget_transient_for_tests(self) -> None:
+        """Sólo para la suite: quita los participantes de cada test (workers) y conserva los del proceso."""
+        with self._lock:
+            self._participants = [p for p in self._participants if p in self._permanent]
+            self._listeners.clear()
 
     def unregister(self, participant) -> None:
         with self._lock:
             if participant in self._participants:
                 self._participants.remove(participant)
+            if participant in self._permanent:
+                self._permanent.remove(participant)
 
     def participants(self) -> list:
         with self._lock:

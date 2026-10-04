@@ -200,11 +200,10 @@ def _isolate_open_hold():
     with nidaq._closer_cv:
         nidaq._closer_done_epoch = max(nidaq._closer_done_epoch, nidaq._closer_target_epoch)
     nidaq._close_listeners.clear()
-    coordinator = emergency_stop.get_emergency_coordinator()
-    for p in coordinator.participants():
-        coordinator.unregister(p)
-    with coordinator._lock:
-        coordinator._listeners.clear()
+    emergency_stop.get_emergency_coordinator()._forget_transient_for_tests()
+    hs = sys.modules.get("pyspectrum.modules.hardware_session")
+    if hs is not None and hasattr(hs.hardware_session, "_reset_estop_for_tests"):
+        hs.hardware_session._reset_estop_for_tests()
 
 
 @pytest.fixture(autouse=True)

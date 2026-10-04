@@ -166,6 +166,8 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | Acción | Atajo | Fuente autoritativa | Gate |
 | :--- | :--- | :--- | :--- |
 | **Parada de emergencia** | `Ctrl+E`, `F12` | `pyspectrum/window.py::_setup_shortcuts` | ✅ |
+| **Parada de emergencia (todo el proceso, R4-17 fase 4c)** | `Ctrl+E`, `F12` | `core/ui/emergency_keys.py::ESTOP_KEYS` | ✅ |
+| Pausa de la grilla de PyPrinting (si corre; si no, la tecla sigue) | `F2` | `core/ui/emergency_keys.py::PAUSE_KEY` | ✅ |
 | Alternar vista en vivo | `Ctrl+Space` | `pyspectrum/window.py::_setup_shortcuts` | 📄 |
 | Disparar medición | `Ctrl+R` | idem | 📄 |
 | Espejo rápido: entrar / volver | `Ctrl+0` | idem | 📄 |

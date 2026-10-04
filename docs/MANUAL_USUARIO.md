@@ -402,6 +402,7 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
       - cerrar el obturador del láser de la grilla con su botón cuenta igual que "Cerrar Todos";
       - si cae justo antes de un autofoco, el autofoco no se hace y Z queda donde estaba: no se barre ni se corrige el foco con el obturador cerrado.
     - Sin una grilla corriendo, "Cerrar Todos" cierra y no retiene nada.
+    - **Con una grilla corriendo, el botón dice "Cerrar todos · la grilla sigue"** (R4-17 fase 4c). En el panel de impresión aparecen un aviso naranja por 20 s ("Cerraste los obturadores en el nodo N…") y la cuenta "La grilla sigue con el nodo N+1 en S s". Al lado está el botón de la parada de emergencia: la vecindad enseña la diferencia.
   - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos de obturador, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
 
 > [!IMPORTANT]
@@ -571,6 +572,8 @@ Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquet
   - la grilla sigue en el **primer nodo que nunca se expuso**: uno que llegó a abrir no se vuelve a exponer, tenga o no decisión. Vale igual para la Pausa, para la reconexión de la platina y para la parada de emergencia;
   - antes de moverse, sube el filtro de densidad (baja potencia) y espera 100 ms. Si la placa no confirma el filtro, la grilla queda en pausa;
   - si la grilla estuvo quieta **más de un minuto**, antes del primer nodo vuelve a enfocar (con corrección de deriva, pasa por el ancla).
+- **Los controles siguen el estado de la grilla** (R4-17 fase 4c), que se ve al lado del botón de parada: Play está deshabilitado mientras corre y mientras está **DETENIDA** (hasta Rearmar), Pausa sólo con la grilla corriendo, y "Next index" deshabilitado detenida. `F2` pausa la grilla que corre desde cualquier ventana.
+- **En modo satélite** la grilla toma la sesión de hardware de PySpectrum al arrancar: el Live de PySpectrum se pausa, y ninguna rutina de PySpectrum puede arrancar en el medio. La conserva en pausa y detenida, y la suelta al terminar o al reiniciar. Si una rutina de PySpectrum tiene la sesión, Play no arranca y lo avisa.
 - **La Pausa no mueve la platina** (R4-17 fase 3). Hasta este arreglo, la Pausa llevaba la platina al inicio del último escaneo confocal (o a (50, 50) µm, si no había habido ninguno), aunque no hubiera ningún escaneo en curso.
 - **Otros cortes durante la exposición:** si el watchdog, un interlock o la falla de la placa cierran el obturador a mitad de un nodo, el nodo queda "interrumpido" y la grilla **pausa**. `Play ►` sigue con el nodo siguiente.
 
@@ -1001,7 +1004,7 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
    `🔒 SUBJUGADO A PYSPECTRUM 3.0 (MODO SOLO MONITOREO)`
 3. **Bloqueo Selectivo de Actuadores**: Se deshabilitan los botones de movimiento manual de nanoposicionamiento, foco y obturación láser vía `set_actuators_enabled(False)`.
 4. **Excepciones Críticas de Seguridad Inviolables**:
-   - El botón **`Cerrar Todos (btn_close_all)`** permanece **siempre habilitado** para que el operador pueda cortar la emisión láser desde cualquier ventana.
+   - El botón **`Cerrar Todos (btn_close_all)`** permanece **siempre habilitado** en el dock de obturadores. Es un botón, no un atajo: el atajo de todas las ventanas es el de la parada de emergencia (`Ctrl+E` / `F12`).
    - Los botones de detención y guardado confocal permanecen activos.
 5. **Telemetría Continua**: Las lecturas en vivo de posición XYZ de la platina PI y la señal del fotodiodo vía NI-DAQmx continúan transmitiéndose sin colisiones de hilos.
 6. **PyPrinting y el contrapropagante como huéspedes (paso 13, `DEC-040`; R4-J):** el contrapropagante abierto desde PySpectrum tampoco conecta la platina al abrirse. Lo siguiente vale para PyPrinting. El PyPrinting que se abre desde el menú de PySpectrum usa la platina, las tareas de la placa y el espejo de detección de PySpectrum, pero no los administra:
@@ -1015,9 +1018,26 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
 
 ### 4.5 Interlocks de Seguridad Física y Óptica
 
-1. **Parada de Emergencia Global (🚨 E-STOP)**:
-   - Accionable mediante el botón de cabecera o los atajos `Ctrl+E` / `F12`.
-   - Cierra instantáneamente todos los obturadores láser (`close_all_shutters()`), aborta la adquisición del sensor Andor CCD, libera la sesión de hardware y desbloquea las ventanas satélites.
+1. **Parada de Emergencia (🚨 E-STOP) — la del proceso entero (R4-17 fase 4c, `DEC-049`)**:
+   - **Dónde:** el botón de la barra superior de PySpectrum; en PyPrinting, el botón rojo "■ PARADA DE EMERGENCIA · Ctrl+E · F12" arriba de la ventana principal y del panel de impresión, y uno chico en la traza y en el dock de obturadores. Los atajos `Ctrl+E` / `F12` funcionan desde **cualquier** ventana del programa, también con un diálogo abierto y desde la ventana del satélite.
+   - **Es una sola para los dos programas:** con PyPrinting abierto desde PySpectrum, una parada en cualquiera de los dos detiene a los dos, y hay un solo Rearmar.
+   - **Qué hace, sin esperar a nada:**
+     - desde ese instante **ningún obturador se puede abrir y la platina no se mueve**, tampoco con las flechas del panel, hasta Rearmar;
+     - un hilo aparte cierra los cuatro obturadores y después sube el filtro de densidad (baja potencia);
+     - se detienen las rutinas (la grilla queda **DETENIDA**, distinta de "en pausa"), la traza, el autofoco y los escaneos;
+     - se aborta la cámara Andor y la ganancia EM va a 0 y se relee.
+   - **El banner rojo**, no modal, dice la hora y si la placa confirmó el cierre de los cuatro. Si no lo confirma en medio segundo, o la placa está tomada, dice **"PARADA SIN CONFIRMAR … cortá la emisión con la llave del láser"**: la llave es la única parada física que no depende del programa. Ya no aparece el diálogo de antes.
+   - **Rearmar** (en el banner, o "🔄 Rearmar Sistema") se habilita con el cierre confirmado. Rearma cuando todas las rutinas terminaron de detenerse, con un plazo de 12 s; mientras espera, dice a quién. La grilla queda **en pausa**: seguir es un **Play** aparte, en el primer nodo que nunca se expuso.
+
+   **Los cuatro cortes, lado a lado** (`gui_design_v2.md` §5.2):
+
+   | | Pausa (`F2`) | Cerrar todos | Parada de emergencia (`Ctrl+E`, `F12`) |
+   |---|---|---|---|
+   | Qué cierra | el obturador de impresión | los cuatro | los cuatro, y bloquea toda apertura y todo movimiento |
+   | La grilla | queda **en pausa** | **sigue** a los 3 s | queda **detenida** |
+   | El nodo en curso | interrumpido, en revisión | interrumpido, en revisión | interrumpido, en revisión |
+   | Para volver a abrir | Play | nada: el nodo siguiente abre solo | Rearmar y después Play |
+   | Alcance del atajo | todas las ventanas (si la grilla corre; si no, `F2` detiene la traza manual) | sólo el botón | todas las ventanas |
 2. **Espejo rápido e interlock especular (paso 7, `DEC-040`)**:
    - **Condición especular:** orden cero, la red espejo (posición 3 de la torreta) o una λc bajo el umbral $(1 + 0.10)\cdot W/2$ (56.7 nm con 150 l/mm, 6.4 nm con 1200 l/mm; PROVISORIO hasta BANCO-42). Un estado del Shamrock que no se puede leer cuenta como especular.
    - **Entrar:** `🪞 Orden cero (red actual)`, `Ctrl+0`, `Red espejo`, o `Ir a λ` con un destino bajo el umbral (el botón pasa a "Ir (espejo rápido)"). No hay diálogo. Antes de girar se detiene la cámara, la ganancia EM va a 0 y se relee, se fija la exposición de orden cero (la primera de la sesión, 0.1 s; después la última usada) y se cierran todos los obturadores con confirmación. Si un paso falla, **la red no se mueve** y el panel muestra qué paso falló y en qué estado quedó cada recurso.
@@ -1031,7 +1051,7 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
 5. **Cierre de PySpectrum (paso 13, `DEC-040`)**:
    - **Una sola pregunta:** "Se cierran todos los obturadores, la platina va a (50, 50, 10) µm y la cámara se cierra: el enfriador queda como lo deje el SDK al cerrar". Desde R4-L, 3.0 no fija qué hace el enfriador al cerrar, igual que el legado; BANCO-57 lo mide. La posición es `config.PI_HOME_POS` (R4-B 6): así, al volver a conectarse, la platina no se mueve. Si hay un satélite abierto, la misma pregunta avisa que también se cierra, sin mover la platina. El satélite no pregunta por su cuenta.
    - **Orden:**
-     1. E-STOP;
+     1. E-STOP (desde R4-17 fase 4c, la parada del proceso; el cierre la levanta antes de mover la platina, porque estacionarla es una acción que el operador confirmó con la pregunta);
      2. las rutinas y sus hilos, incluido un barrido de Step & Glue en curso;
      3. los satélites;
      4. los obturadores, con el cierre confirmado;

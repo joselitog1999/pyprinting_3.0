@@ -253,6 +253,11 @@ Sirven para que una rutina sepa que alguien cortó mientras exponía, sin tener 
   - En el disparo sólo ponen banderas. Cada hilo se detiene en su próxima consulta, sin mover y sin abrir.
   - Están quietos (`is_quiescent`) cuando no tienen ninguna etapa, rampa ni escaneo en curso; Rearmar los espera.
   - Rearmar deja la grilla en pausa, y Play la retoma en el primer nodo que nunca se expuso, después de la compuerta de baja potencia.
+- **Interfaz** (fase 4c, `DEC-049`):
+  - `core/ui/emergency_keys.py` instala un filtro de teclas por proceso: `Ctrl+E` y `F12` desde cualquier ventana, y `F2` para la pausa;
+  - el puente lleva los resultados del cerrador al hilo GUI;
+  - el banner (`core/ui/emergency_widgets.py`) dice "confirmada" sólo con el cierre del cerrador; si no, nombra la llave del láser. No es modal;
+  - PySpectrum (su botón, sus atajos y la sesión de hardware como participante) y PyPrinting comparten la misma parada y el mismo Rearmar.
 
 ---
 

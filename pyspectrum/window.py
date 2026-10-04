@@ -42,7 +42,6 @@ import os
 import sys
 import time
 from pathlib import Path
-import weakref
 from typing import Optional
 
 from PyQt6 import QtCore, QtGui, QtWidgets
@@ -56,6 +55,9 @@ from core.shutters import Frontend as ShuttersFrontend, Backend as ShuttersBacke
 from pyspectrum.drivers.shamrock_driver import get_shamrock
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
 from pyspectrum.modules.hardware_session import hardware_session
+from core.emergency_stop import get_emergency_coordinator
+from core.ui.emergency_keys import get_emergency_bridge, install_emergency_key_filter
+from core.ui.emergency_widgets import EmergencyBanner
 from pyspectrum.modules.spectroscopy_context import spectroscopy_context
 from pyspectrum.ui.left_hardware_panel import LeftHardwarePanel
 from pyspectrum.ui.exploration_tab import ExplorationTabWidget, ExplorationWorker
@@ -84,79 +86,9 @@ TAB_CONFOCAL = 5
 TAB_LUMINESCENCE = 6
 
 
-class _EmergencyKeyFilter(QtCore.QObject):
-    """Dispara la E-STOP con F12 o Ctrl+E aunque un diálogo modal tape la ventana (H-01 / C-30).
-
-    Hay UN solo filtro por proceso, instalado sobre la aplicación. Cada `PySpectrumWindow` se
-    registra con `register()` (referencia débil), así que un filtro por ventana no se acumula ni
-    encarece cada evento de Qt.
-    - Actúa sobre las teclas que llegan a una ventana registrada o a un diálogo modal que dependa
-      de ella, y no sobre otras ventanas del proceso (p. ej. el satélite PyPrinting).
-    - Consume el `ShortcutOverride`, así que el `QShortcut` de la ventana no se dispara también, y
-      consume el `KeyPress` que lo sigue: una pulsación, una E-STOP.
-    """
-
-    _instance: "Optional[_EmergencyKeyFilter]" = None
-    _TYPES = (QtCore.QEvent.Type.ShortcutOverride, QtCore.QEvent.Type.KeyPress)
-
-    def __init__(self):
-        super().__init__(QtWidgets.QApplication.instance())
-        self._windows: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
-        self._armed_by_override = False
-
-    @classmethod
-    def register(cls, window: QtWidgets.QWidget, trigger) -> "_EmergencyKeyFilter":
-        if cls._instance is None:
-            cls._instance = cls()
-            QtWidgets.QApplication.instance().installEventFilter(cls._instance)
-        # WeakMethod: guardar el método ligado mantendría viva la ventana (el valor la referencia).
-        cls._instance._windows[window] = weakref.WeakMethod(trigger)
-        return cls._instance
-
-    @staticmethod
-    def _is_estop_key(event) -> bool:
-        key = event.key()
-        mods = event.modifiers() & ~QtCore.Qt.KeyboardModifier.KeypadModifier
-        return ((key == QtCore.Qt.Key.Key_F12 and mods == QtCore.Qt.KeyboardModifier.NoModifier)
-                or (key == QtCore.Qt.Key.Key_E and mods == QtCore.Qt.KeyboardModifier.ControlModifier))
-
-    def _owner_trigger(self, obj):
-        """La acción de E-STOP de la ventana registrada a la que pertenece `obj`, o None."""
-        if not isinstance(obj, QtWidgets.QWidget):
-            return None
-        top = obj.window()
-        candidates = [top]
-        if isinstance(top, QtWidgets.QDialog) and top.isModal():
-            parent = top.parentWidget()
-            while parent is not None:
-                candidates.append(parent.window())
-                parent = parent.window().parentWidget()
-        for candidate in candidates:
-            try:
-                ref = self._windows.get(candidate)
-            except TypeError:
-                ref = None
-            trigger = ref() if ref is not None else None
-            if trigger is not None and not sip.isdeleted(candidate):
-                return trigger
-        return None
-
-    def eventFilter(self, obj, event):
-        if event.type() not in self._TYPES or not self._is_estop_key(event) or event.isAutoRepeat():
-            return False
-        trigger = self._owner_trigger(obj)
-        if trigger is None:
-            return False
-        if event.type() == QtCore.QEvent.Type.ShortcutOverride:
-            self._armed_by_override = True
-            event.accept()
-            trigger()
-            return True
-        if self._armed_by_override:  # el KeyPress de la misma pulsación
-            self._armed_by_override = False
-            return True
-        trigger()
-        return True
+# El filtro de teclas de la parada vivía acá y actuaba sólo sobre las ventanas registradas de PySpectrum (H-01 / C-30).
+# Desde R4-17 fase 4c es uno por proceso y actúa sobre toda ventana, también el satélite de PyPrinting
+# (`core/ui/emergency_keys.py::EmergencyKeyFilter`, DEC-049).
 
 
 class PySpectrumWindow(QtWidgets.QMainWindow):
@@ -365,6 +297,17 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         toolbar.addSeparator()
 
+        # Banner de la parada del proceso (R4-17 fase 4c): no modal, en una fila propia bajo la barra
+        self.estop_banner = EmergencyBanner()
+        self._estop_bridge = get_emergency_bridge()
+        self._estop_bridge.stopTriggered.connect(self._on_process_stop)
+        self._estop_bridge.rearmed.connect(self._on_process_rearmed)
+        self.addToolBarBreak(QtCore.Qt.ToolBarArea.TopToolBarArea)
+        banner_bar = QtWidgets.QToolBar("Parada de emergencia", self)
+        banner_bar.setMovable(False)
+        banner_bar.addWidget(self.estop_banner)
+        self.addToolBar(QtCore.Qt.ToolBarArea.TopToolBarArea, banner_bar)
+
         # Badge de Estado de Sesión de Hardware
         self.lbl_hw_status = QtWidgets.QLabel("🟢 Sesión: Hardware Disponible")
         self.lbl_hw_status.setStyleSheet("""
@@ -457,7 +400,13 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         toolbar.addWidget(btn_quick_hw)
 
     def _on_emergency_stop_clicked(self):
-        hardware_session.emergency_stop()
+        """La parada del PROCESO (respuesta 7, R4-17 fase 4c): también detiene PyPrinting en modo satélite y bloquea
+        toda apertura y todo movimiento hasta Rearmar. No espera la placa ni abre un modal (respuesta 2 del
+        2026-10-03): el banner dice si el cierre se confirmó."""
+        get_emergency_coordinator().trigger("PySpectrum")
+        self._on_process_stop()
+
+    def _on_process_stop(self, *args):
         self.lbl_hw_status.setText("🚨 E-STOP ACTIVO (Láseres cerrados)")
         self.lbl_hw_status.setStyleSheet("""
             QLabel {
@@ -471,18 +420,17 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
             }
         """)
         self.btn_reset_estop.setEnabled(True)
-        QtWidgets.QMessageBox.critical(
-            self,
-            "🚨 PARADA DE EMERGENCIA",
-            "Se ha ejecutado la PARADA DE EMERGENCIA GLOBAL:\n\n"
-            "• Todos los obturadores láser han sido cerrados de inmediato.\n"
-            "• Las adquisiciones de la cámara Andor CCD han sido abortadas.\n"
-            "• Todas las rutinas activas han sido canceladas.\n\n"
-            "Para continuar, verifique la seguridad física y presione 'Rearmar Sistema'."
-        )
 
     def _on_reset_estop_clicked(self):
-        hardware_session.clear_emergency()
+        """El Rearmar del proceso: uno solo para PySpectrum y PyPrinting. Se rearma cuando el cierre está confirmado y
+        todas las rutinas quietas; el progreso y el motivo, si no se puede, salen en el banner."""
+        from core import estop_state
+        if estop_state.is_active():
+            self._estop_bridge.request_rearm(estop_state.generation())
+        else:
+            self._on_process_rearmed()
+
+    def _on_process_rearmed(self, *args):
         self.lbl_hw_status.setText("🟢 Sesión: Hardware Disponible")
         self.lbl_hw_status.setStyleSheet("""
             QLabel {
@@ -697,7 +645,10 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         # Con un diálogo modal abierto, Qt bloquea los atajos de esta ventana en cualquier
         # contexto, y la E-STOP por teclado quedaba muerta justo cuando el operador confirma algo
         # sobre el equipo (H-01 / C-30). El filtro de aplicación la dispara igual.
-        self._estop_key_filter = _EmergencyKeyFilter.register(self, self._on_emergency_stop_clicked)
+        # Desde R4-17 fase 4c el filtro es el del proceso: alcanza a toda ventana (también al satélite de PyPrinting)
+        # y dispara la parada del proceso. Los QShortcut de arriba quedan de respaldo: el filtro consume el
+        # ShortcutOverride antes, así que no hay doble disparo.
+        self._estop_key_filter = install_emergency_key_filter(QtWidgets.QApplication.instance())
 
         self.shortcuts_tabs = []
         for i in range(self.tabs_workflow.count()):
@@ -1043,7 +994,18 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
 
         return sd.ShutdownCoordinator(estop=hardware_session.emergency_stop, routines=routines, guests=guests,
                                       close_shutters=close_all_shutters, devices=devices,
-                                      park=lambda: sd.park_stage(pi, PI_HOME_POS), mirror=mirror_down)
+                                      park=lambda: self._park_after_stop(sd, pi, PI_HOME_POS), mirror=mirror_down)
+
+    @staticmethod
+    def _park_after_stop(sd, pi, home):
+        """Estacionar la platina al cerrar es una acción que el operador confirmó, como `disconnect()`. La parada
+        del proceso (R4-17 fase 4c) retiene todo movimiento hasta Rearmar, así que el cierre la levanta antes: los
+        obturadores ya están confirmados cerrados y las rutinas e invitados, detenidos. Si no puede levantarla, no
+        mueve la platina y lo informa."""
+        from core import estop_state
+        if estop_state.is_active() and not hardware_session.clear_emergency(timeout_s=3.0):
+            return sd.ShutdownStep("platina", False, "no se movió: no se pudo levantar la parada de emergencia")
+        return sd.park_stage(pi, home)
 
     def closeEvent(self, event):
         from config import PI_HOME_POS
