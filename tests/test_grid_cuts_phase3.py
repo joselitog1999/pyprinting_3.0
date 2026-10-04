@@ -267,3 +267,24 @@ def test_stop_scan_without_a_running_scan_does_not_move_the_stage(monkeypatch):
     be.stop_scan()                                     # la Pausa de la grilla lo llama por grid_scan_stopSignal
     assert moves == []
 
+
+# ── 3b: la traza no reabre con un modo de impresión ──────────────────────────────────────────
+
+def test_the_trace_does_not_reopen_the_shutter_in_printing_mode(monkeypatch):
+    """La apertura del nodo es de la grilla, que anota la época y mira si abrió. Una segunda apertura en
+    `trace._start` reabría el láser si un "Cerrar todos" caía entre las dos (R4-17 fase 3b, DEC-046). La traza manual
+    (sin modo de impresión) abre como siempre."""
+    import config
+    import modules.trace as trace_mod
+    opens = []
+    monkeypatch.setattr(trace_mod, "open_shutter", lambda name, *a, **k: opens.append(name) or True)
+    be = trace_mod.Backend()
+    _KEEP_ALIVE.append(be)
+    be.trace_configuration(config.SHUTTERS[0], "printing")
+    be.stop()
+    assert opens == []
+    be.mode_printing = "none"
+    be.laser1, be.laser2 = config.SHUTTERS[0], "None"
+    be._start()
+    be.stop()
+    assert opens == [config.SHUTTERS[0]]

@@ -11,6 +11,11 @@ cambiaron los `MOV` en Z; decisiones, ticks y log DO quedaron iguales. Cada fase
 - las transiciones de las líneas de los obturadores (cambios de nivel con su orden), idénticas;
 - el log DO crudo, idéntico salvo el delta enumerado de la fase 3 (la apertura redundante de `trace._start`).
 
+Fase 3b (DEC-046): la traza ya no reabre el obturador en modo de impresión. En la línea de base esa escritura figura
+con el nombre de la envoltura del banco que la registraba (`open_and_reset`), una por nodo, y escribe el mismo
+arreglo que la apertura de `_grid_trace` que la precede: no cambia ningún nivel. El test la quita de la línea de base
+(`REMOVED_IN_PHASE_3B`) y exige que el resto del log crudo y las transiciones sean idénticos.
+
 Para volver a grabar (sólo si una fase cambia la línea de base a propósito, con su entrada en DECISION_LOG):
 `PYPRINTING_GOLDEN_RECORD=1 pytest tests/test_legacy_timer_golden.py`.
 """
@@ -28,6 +33,7 @@ from PyQt6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(["pytest"])
 GOLDEN = Path(__file__).resolve().parent / "golden" / "legacy_timer_chain.json"
+REMOVED_IN_PHASE_3B = "open_and_reset"      # la reapertura de `trace._start`, una por nodo (fase 3b, DEC-046)
 _KEEP_ALIVE = []
 
 
@@ -64,5 +70,12 @@ def test_legacy_timer_matches_the_golden_baseline(record):
     # carrera desde dos hilos y la línea de base guarda uno de esos órdenes; desde la fase 2 (DEC-045) el orden es
     # fijo (primero la traza, que se detiene en forma sincrónica, y después el criterio).
     assert [t[:2] for t in data["transitions"]] == [t[:2] for t in golden["transitions"]]
-    assert [w[0] for w in data["do_writes"]] == [w[0] for w in golden["do_writes"]]
-    assert Counter(w[1] for w in data["do_writes"]) == Counter(w[1] for w in golden["do_writes"])
+    # El delta enumerado de la fase 3b: sólo desaparece la reapertura redundante de la traza, una por nodo, y cada
+    # una repetía el arreglo de la escritura anterior (ningún nivel cambia)
+    removed = [k for k, w in enumerate(golden["do_writes"]) if w[1] == REMOVED_IN_PHASE_3B]
+    assert len(removed) == len(golden["decisions"])
+    assert all(golden["do_writes"][k][0] == golden["do_writes"][k - 1][0] for k in removed)
+    expected = [w for w in golden["do_writes"] if w[1] != REMOVED_IN_PHASE_3B]
+    assert REMOVED_IN_PHASE_3B not in {w[1] for w in data["do_writes"]}
+    assert [w[0] for w in data["do_writes"]] == [w[0] for w in expected]
+    assert Counter(w[1] for w in data["do_writes"]) == Counter(w[1] for w in expected)

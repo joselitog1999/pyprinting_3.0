@@ -346,7 +346,15 @@ class GridChainRig:
         pw = self.backend.printingWorker
         pw.patternFinishedSignal.connect(lambda *a: setattr(self.record, "finished", True))
         pw.nodeStatusSignal.connect(self._on_status, Qt.ConnectionType.DirectConnection)
+        # El guion cuenta las lecturas desde que arranca la traza del nodo. Desde la fase 3b la traza no reabre el
+        # obturador en modo de impresión, así que el contador se reinicia acá, cuando la grilla arranca la traza
+        # (directa: corre antes del primer tick, que llega en una vuelta posterior del bucle de confocalThread).
+        pw.grid_traceSignal.connect(self._reset_reads, Qt.ConnectionType.DirectConnection)
         return self
+
+    def _reset_reads(self, *a):
+        with self._lock:
+            self._reads_since_open = 0
 
     def __exit__(self, *exc):
         from core.nidaq import close_all_shutters

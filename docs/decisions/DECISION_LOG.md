@@ -1426,6 +1426,12 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * the visible countdown;
   * telling the GUI that the grid paused itself after a watchdog or interlock cut. Until then, the console and the node glyph say it.
 * **Bench:** BANCO-67 can run. BANCO-70 now expects Play to go to the next node and the stage not to move.
+* **Phase 3b** (a separate commit, because it is the only change to the raw DO log):
+  * **`modules/trace.py::_start`** no longer opens the shutter when the trace has a printing mode. The opening belongs to the grid, which records the epoch and checks whether the shutter opened. The second opening reopened the laser when a "Cerrar todos" fell between the two (H11 of instrumentation). The manual trace (F1, mode "none") opens as before.
+  * **`I_old`** is an explicit `NaN` while the old window is empty (`n == M`). The criterion's behaviour is unchanged: a comparison with `NaN` is false, as before. The only difference is that numpy's "Mean of empty slice" warning is gone (DEC-043, finding 3).
+  * **Golden baseline:** the enumerated delta removes one redundant opening write per node (11). Each repeated the array of the grid's opening just before it, so no level changes. The rest of the raw DO log, the transitions, the decisions, the ticks and the moves are identical.
+  * **Rig:** the script's read counter is reset when the grid starts the trace (`grid_traceSignal`, direct), no longer by the trace's own opening.
+  * **Mutation m10** (the trace reopens in printing mode) is caught by `test_the_trace_does_not_reopen_the_shutter_in_printing_mode`.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat

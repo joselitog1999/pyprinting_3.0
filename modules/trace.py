@@ -582,10 +582,14 @@ class Backend(QObject):
             self.pointtimer = QTimer(self)
             self.pointtimer.timeout.connect(self._trace_update)
 
-        if hasattr(self, 'laser1') and self.laser1 != "None":
-            open_shutter(self.laser1)
-        if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
-            open_shutter(self.laser2)
+        # Con un modo de impresión, la apertura es de la grilla (`_grid_trace`, que anota la época de cierre y mira
+        # si abrió): la traza no vuelve a abrir. Esa segunda apertura reabría el láser si un "Cerrar todos" caía
+        # entre las dos (R4-17 fase 3, H11 de instrumentación; DEC-046). La traza manual (F1) abre como siempre.
+        if self.mode_printing == "none":
+            if hasattr(self, 'laser1') and self.laser1 != "None":
+                open_shutter(self.laser1)
+            if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
+                open_shutter(self.laser2)
         heartbeat_shutter(30.0)
 
         self._n           = 0
@@ -720,7 +724,10 @@ class Backend(QObject):
                 I_old = float(np.mean(self.intensity_l1[:n - M2])) if (n - M2) > 0 else float(self.intensity_l1[0])
         else:
             I_new = float(np.mean(self.intensity_l1[n - M:n]))
-            I_old = float(np.mean(self.intensity_l1[max(0, n - M - M2):n - M]))
+            # Con n == M la ventana vieja está vacía: no hay línea de base todavía. NaN explícito (el criterio no
+            # decide por cociente ni por caída con NaN, como antes), sin el "Mean of empty slice" de numpy.
+            old_win = self.intensity_l1[max(0, n - M - M2):n - M]
+            I_old = float(np.mean(old_win)) if len(old_win) else float("nan")
 
         med2 = I_old
         med  = I_new
