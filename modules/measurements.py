@@ -62,6 +62,10 @@ from core.grid_state import (GridRunState, NodeMeta, PAUSE_CAUSE, INTERRUPTED, p
 from core.step_plausibility import (DEFAULT_LIMITS, STEP_MAX_REJECTIONS, DriftReference,
                                     check_drift_correction, spot_amplitude_width)
 from core import estop_state as _estop_state
+from core.confirm_read import (ConfirmBase, ConfirmConfig, ConfirmOutcome, base_from_high_plateau,
+                               classify as classify_confirmation)
+from config import PD_CHANNELS, PD_CHANS_LIST, RATE_MULTICHANNEL
+from nidaq import channels_photodiodos
 
 ESTOP_CAUSE = "estop"
 
@@ -281,6 +285,7 @@ class InteractiveGridWidget(QFrame):
             "success":  "#a6e3a1",
             "timeout":  "#f38ba8",
             "interrupted": "#f38ba8",  # expuesto sin decisión: en revisión (gui_design_v2.md §5.3)
+            "printed":  "#a6e3a1",  # impresa, confirmada a baja potencia (R4-17 fase 6)
         }
 
         spots = []
@@ -1848,6 +1853,13 @@ class Backend(QObject):
         self._drift_ref: DriftReference | None = None
         self._last_af_z: float | None = None
         self._last_drift_t: float | None = None
+        # Confirmación a baja potencia (R4-17 fase 6, DEC-051): APAGADA hasta BANCO-65 A y B. La meseta de alta
+        # potencia de cada nodo interrumpido (la base, opción (b) de Q-5), los nodos por confirmar y las lecturas
+        self.confirm_cfg = ConfirmConfig()
+        self.node_plateau: dict = {}
+        self.node_confirm: dict = {}
+        self._confirm_pending: set = set()
+        self._confirm_reads: dict = {}
         # El nodo en exposición (R4-17 fase 3): la época de cierre que se anotó antes de abrir, cuándo abrió y si
         # ya tiene decisión (del criterio o de la interrupción). Una sola decisión por nodo.
         self._node_epoch: int | None   = None
@@ -2393,6 +2405,10 @@ class Backend(QObject):
         self._drift_ref           = None
         self._last_af_z           = None
         self._last_drift_t        = None
+        self.node_plateau         = {}
+        self.node_confirm         = {}
+        self._confirm_pending     = set()
+        self._confirm_reads       = {}
         self.is_healing_pass      = False
         self.healing_failed_queue = []
         self.healing_index_in_queue = 0
@@ -2844,11 +2860,98 @@ class Backend(QObject):
             target_y = self.grid_y[self.i_global] + self.startY
             pi.MOV([1, 2], [target_x, target_y])
             time.sleep(0.1)
+            if getattr(self, "is_healing_pass", False) and int(self.i_global) in self._confirm_pending:
+                # Un nodo interrumpido: primero la lectura a baja potencia, todavía con el filtro arriba (fase 6)
+                self.autofocus_stage = "idle"
+                self._confirm_node()
+                return
             down_flipper(); time.sleep(0.5)  # Conmutar estrictamente a ALTA potencia para la traza de impresión
             print(f"[Measurements] 🎯 [Etapa 4/4] Posicionado en nodo {self.i_global} ({target_x:.3f}, {target_y:.3f}) µm. Iniciando traza a ALTA potencia...")
             self.autofocus_stage = "idle"
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
+
+    # ── Confirmación a baja potencia (R4-17 fase 6, DEC-051; ronda2_architecture.md §4.8) ──
+    def _confirm_node(self):
+        """La lectura de confirmación es un paso entre nodos: compuerta de baja potencia (≥ 100 ms con el filtro arriba
+        confirmado), oscuro, apertura, bloques, cierre; un corte la invalida."""
+        if self._halted("la confirmación a baja potencia"):
+            return
+        self._after_low_power(self._confirm_read)
+
+    def _read_pd_blocks(self, total_ms: float, block_ms: float) -> np.ndarray:
+        """Medias por bloque (V) del fotodiodo del láser, en una lectura finita."""
+        n_blocks = max(1, int(round(total_ms / block_ms)))
+        spb = max(1, int(RATE_MULTICHANNEL * block_ms / 1000.0))
+        task = channels_photodiodos(RATE_MULTICHANNEL, n_blocks * spb)
+        try:
+            data = task.read(n_blocks * spb)
+            try:
+                task.wait_until_done()
+            except Exception:
+                pass
+        finally:
+            task.close()
+        ch = PD_CHANNELS.get(self.laser, PD_CHANS_LIST[0])
+        idx = PD_CHANS_LIST.index(ch) if ch in PD_CHANS_LIST else 0
+        row = np.asarray(data[idx], dtype=float)[:n_blocks * spb]
+        return row.reshape(n_blocks, -1).mean(axis=1)
+
+    @_stage
+    def _confirm_read(self):
+        i, cfg = int(self.i_global), self.confirm_cfg
+        if self._halted("la confirmación a baja potencia"):
+            return
+        epoch0 = get_close_epoch().epoch
+        dark = float(np.median(self._read_pd_blocks(cfg.dark_read_ms, cfg.block_ms)))   # obturador cerrado
+        if not open_shutter(self.laser):
+            self._confirm_invalid(i, "la apertura de la lectura fue rechazada")
+            return
+        try:
+            heartbeat_shutter()
+            time.sleep(cfg.settle_after_open_ms / 1000.0)
+            blocks = self._read_pd_blocks(cfg.read_ms, cfg.block_ms)
+        finally:
+            close_shutter(self.laser)
+        if get_close_epoch().epoch != epoch0 or self.grid_halted():
+            self._confirm_invalid(i, "corte durante la lectura")
+            return
+        v_base = (base_from_high_plateau(self.node_plateau.get(i), dark, cfg.attenuation)
+                  if cfg.base_source == ConfirmBase.HIGH_PLATEAU_SCALED else None)
+        reading = classify_confirmation(blocks, dark, v_base, cfg)
+        n = self._confirm_reads[i] = self._confirm_reads.get(i, 0) + 1
+        self.node_confirm[i] = reading
+        print(f"[Measurements] 🔎 Confirmación del nodo {i} (lectura {n}): {reading.outcome.value}, "
+              f"R = {reading.ratio:.2f}, s_R = {reading.spread:.3f}. {'; '.join(reading.reasons)}")
+        if reading.outcome == ConfirmOutcome.SEEN:
+            self._confirm_pending.discard(i)
+            self.node_results[i] = "printed"
+            self.nodeStatusSignal.emit(i, "printed")
+            self._grid_detect()                          # impresa: no se reexpone, sigue el Healing Pass
+        elif reading.outcome == ConfirmOutcome.NOT_SEEN:
+            self._confirm_pending.discard(i)
+            down_flipper(); time.sleep(0.5)              # no está: se reimprime (regla P4)
+            self._grid_trace()
+        elif n < cfg.max_reads:
+            self._confirm_read()                         # "no sé": una segunda lectura
+        else:
+            self._confirm_pending.discard(i)
+            self.nodeStatusSignal.emit(i, INTERRUPTED)   # "no sé" dos veces: en revisión
+            self._grid_detect()
+
+    def _confirm_invalid(self, i: int, reason: str):
+        """Un corte invalida la lectura: no clasifica nada y el nodo queda en revisión. La grilla sigue (con la
+        retención de "Cerrar todos", después de los 3 s) o queda en pausa, según quién cortó."""
+        print(f"[Measurements] ✋ Confirmación del nodo {i} inválida: {reason}. Queda en revisión.")
+        self._confirm_pending.discard(i)
+        if self.grid_halted():
+            return
+        ep = get_close_epoch()
+        policy = policy_for(getattr(ep.cause, "value", ep.cause))
+        if policy.run_state == GridRunState.RUNNING and policy.continue_after_hold:
+            self._schedule_after_hold(self._grid_detect, next_node=i)
+        else:
+            self._pause_for(getattr(ep.cause, "value", str(ep.cause)))
 
     def _grid_trace(self):
         # Última barrera antes de abrir a alta potencia (C-01 Ronda 4): ni en pausa ni sin modo de impresión,
@@ -2927,6 +3030,8 @@ class Backend(QObject):
             print(f"[Measurements] ⚠️ Cierre del nodo interrumpido: {e}")
         i = self.i_global
         self.timer_real = round(t_exp, 2)
+        early = [float(v) for v in list(self.data1)[:5]]
+        self.node_plateau[i] = float(np.median(early)) if early else None
         self.node_results[i] = INTERRUPTED
         self.node_meta[i] = NodeMeta(str(cause), float(t_exp), int(get_close_epoch().epoch),
                                      1 if getattr(self, "is_healing_pass", False) else 0, True)
@@ -3596,6 +3701,10 @@ class Backend(QObject):
             # Fin del pase principal: verificar si se activa Healing Pass para nodos no impresos
             if getattr(self, "auto_complete_enabled", False):
                 failed_nodes = [idx for idx, status in self.node_results.items() if status == "timeout"]
+                if self.confirm_cfg.enabled:
+                    to_confirm = [idx for idx, status in self.node_results.items() if status == INTERRUPTED]
+                    self._confirm_pending = set(to_confirm)
+                    failed_nodes = sorted(set(failed_nodes) | set(to_confirm))
                 if failed_nodes:
                     print(f"[Healing Pass] 🔄 Iniciando reintento de {len(failed_nodes)} nodos no impresos: {failed_nodes}")
                     self.is_healing_pass = True

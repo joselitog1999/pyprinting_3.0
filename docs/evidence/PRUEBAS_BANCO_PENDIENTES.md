@@ -1046,6 +1046,7 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 ### ☐ BANCO-65 — Confirmación a baja potencia (C-01 Ronda 4, R4-3) ⚠️ 532 a baja potencia, con aprobación
 - **Qué se prueba:** si una lectura con el filtro de densidad en baja potencia distingue una NP impresa de un lugar vacío, sin imprimir nada (`c01_ronda4/experimentalist.md`; respuestas del 2026-10-01).
 - **Sin BS:** el BS no está habilitado, así que la magnitud es R = (V − D)/(V_base − D), sin normalizar por el BS. D es el oscuro con el obturador cerrado y las mismas luces.
+- **Para qué sirve ahora:** la confirmación a baja potencia ya está en el código y **apagada** (`core/confirm_read.py`, `DEC-051`). Para habilitarla hacen falta la atenuación medida acá (A), la separación de poblaciones (B), la revisión de metrología y otra entrada en el DECISION_LOG.
 - **A, sin coloide:**
   - **OD del filtro casero** (pregunta 12, se revisa acá): potencia a la salida con el filtro en alta y en baja. Hace falta una atenuación de al menos 10 (OD ≥ 1); si es menor, la lectura a baja potencia vuelve a deliberación.
   - **Tránsito del filtro:** cuánto tarda en quedar en baja potencia después de la orden. Valida los ≈ 100 ms que pidió el investigador antes del autofoco (pregunta 4).

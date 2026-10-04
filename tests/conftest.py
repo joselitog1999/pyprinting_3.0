@@ -199,6 +199,11 @@ def _isolate_open_hold():
         nidaq._shutter_interlocks.pop(nidaq.ESTOP_INTERLOCK, None)
     with nidaq._closer_cv:
         nidaq._closer_done_epoch = max(nidaq._closer_done_epoch, nidaq._closer_target_epoch)
+    # Un intento del cerrador que ya había empezado termina acá, no en medio del test siguiente (escribiría en su placa)
+    import time as _time
+    t_end = _time.monotonic() + 2.0
+    while nidaq._closer_active and _time.monotonic() < t_end:
+        _time.sleep(0.01)
     nidaq._close_listeners.clear()
     emergency_stop.get_emergency_coordinator()._forget_transient_for_tests()
     hs = sys.modules.get("pyspectrum.modules.hardware_session")

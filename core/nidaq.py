@@ -250,6 +250,7 @@ _estop_low_power_ok: bool = False
 _close_listeners: list[Callable[[CloseResult], None]] = []
 # Compuerta de baja potencia: hora monotónica del último up_flipper que la placa confirmó (None: sin confirmar)
 _low_power_confirmed_at: Optional[float] = None
+_closer_active: bool = False             # el cerrador está en medio de un intento (para el aislamiento de los tests)
 
 
 def _bump_close_epoch(cause: CloseCause, detail: str = "") -> int:
@@ -438,12 +439,17 @@ def _closer_attempt() -> None:
 
 
 def _closer_loop() -> None:
+    global _closer_active
     while True:
         try:
             with _closer_cv:
                 while not _closer_has_work():
                     _closer_cv.wait(timeout=1.0)
-            _closer_attempt()
+            _closer_active = True
+            try:
+                _closer_attempt()
+            finally:
+                _closer_active = False
             if _closer_has_work():
                 time.sleep(ESTOP_RETRY_INTERVAL_S)       # la placa tomada o una escritura fallida: se reintenta
         except Exception as e:                            # el cerrador no termina nunca

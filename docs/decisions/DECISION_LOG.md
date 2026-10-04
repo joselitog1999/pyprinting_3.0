@@ -1679,6 +1679,51 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Bench:** BANCO-65 C fixes the caps. BANCO-67 covers "Cerrar todos" during the autofocus or the drift.
 * **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
 
+### DEC-051: R4-17 Phase 6 — Low-Power Confirmation of Interrupted Nodes, Implemented and Disabled (2026-10-03)
+* **Context:** the approved design (`ronda2_architecture.md` §4.8, §5.6; `c01_ronda4/experimentalist.md` §2-§3).
+  * **Operator answer Q-5 (b):** the base is the high-power plateau before the capture, divided by the density-filter attenuation measured in the session. It is subject to BANCO-65 and to a metrology review.
+  * **Answer 6:** every filter verification is disabled for now.
+  * **Answer 9:** an "unknown" after two reads goes to review, in every preset.
+* **Decision, `core/confirm_read.py` (new, numpy only):**
+  * `ConfirmConfig` with **`enabled = False`**; `ConfirmBase` (`HIGH_PLATEAU_SCALED`, the chosen one); `ConfirmOutcome`; `ConfirmReading`; `base_from_high_plateau()`; `classify()`.
+  * **The ratio, without the BS:** B = V − D, and R = median of the 20 ms blocks of B / B_base. The dispersion is s_R = IQR/1.35.
+  * **The outcomes:**
+    * **SEEN:** R ≥ u_c (1.20) and s_R ≤ 0.05;
+    * **NOT_SEEN:** R ≤ 1 + δ, with δ = max(3σ_R, 0.05), s_R ≤ 0.05 and R ≥ 0.85;
+    * **UNKNOWN:** anything else, including no base.
+  * "Unknown" is never treated as "not seen": a false "not seen" reprints over a fixed NP.
+  * **Defaults** follow §5.6: 100 ms in 5 blocks of 20 ms, a 100 ms dark read, a 50 ms settle, `max_reads = 2`. `attenuation = None` until BANCO-65 A, so there is no base and every outcome is UNKNOWN.
+* **Decision, `modules/measurements.py`:**
+  * **The base:** each interrupted node stores its high-power plateau, the median of its first trace samples, before any step.
+  * **With confirmation enabled,** the Healing Pass also takes the interrupted nodes. At such a node, after the in-situ autofocus and before going to high power, `_confirm_node()` runs as a between-node step:
+    1. the low-power gate (filter up, confirmed, ≥ 100 ms);
+    2. the dark read with the shutter closed;
+    3. the opening and the settle;
+    4. the blocks;
+    5. the close.
+  * **The outcomes:**
+    * SEEN → `"printed"` (green in the map), never re-exposed;
+    * NOT_SEEN → reprinted;
+    * UNKNOWN → a second read; UNKNOWN twice → review.
+  * **A cut during the read** (a changed epoch, a refused opening, a pause or a stop) classifies nothing. The node stays in review, and the grid goes on after the hold or pauses, per `CAUSE_POLICY`.
+  * **Disabled (the default),** nothing changes: interrupted nodes stay in review, and the Healing Pass takes only "timeout".
+* **Enabling it needs** BANCO-65 A (the attenuation and the filter transit) and B (the separation of populations), the metrology review, and a new DECISION_LOG entry. The entry must set `attenuation` and, from the in-session calibration of §3.2, u_c and σ_R.
+* **Tests:**
+  * **`tests/test_confirm_phase6.py` (15):**
+    * `classify` at every edge (u_c and 1 + δ included, the 0.85 floor, the dispersion, no base, σ_R);
+    * the base;
+    * disabled by default, with the interrupted node in review;
+    * enabled, in the rig: SEEN (printed, not re-exposed), NOT_SEEN (reprinted), UNKNOWN twice (review after two reads), and a cut during the read (no classification).
+  * **Mutations:** 9, all caught (m64-m72), each checked unmutated.
+* **Test isolation, found by the full suite:**
+  * `test_watchdog_retry_confirms_the_close_later` waited only for the "unconfirmed" set to clear, then read the notes at once. The watchdog retry clears that set inside the board lock but dispatches its notes **after** releasing it, so a UI callback can never block the board. Under load the test read in between.
+    * This race predates R4-17, and the extra background threads made it more frequent (two failures in four full runs).
+    * A 0.1 s delay before the dispatch makes the old assertion fail every time.
+    * The test now also waits for the note;
+  * as a defensive measure, the closer flags an attempt in flight (`_closer_active`), and `tests/conftest.py` waits for it at teardown, so a closer write cannot land in the next test;
+  * the phase 5 stop-during-autofocus test now waits for the autofocus result and the focus to be quiescent, not only for the grid to be quiescent. The grid is quiet while the focus still finishes its ramp. In production, Rearm also waits for the focus.
+* **Outcome:** **ACCEPTED, disabled** (see the full-suite result in the commit).
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

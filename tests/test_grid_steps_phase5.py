@@ -252,7 +252,9 @@ def test_a_stop_during_the_autofocus_defers_the_restore_to_play(rig, monkeypatch
     rig.configure()
     pw = rig.backend.printingWorker
     _ramp_hook(rig, monkeypatch, 3, rig.estop)
-    rig.run_grid(timeout_s=60, until=lambda: pw.run_state == GridRunState.STOPPED and pw.is_quiescent())
+    # Detenida, y con el resultado del autofoco ya recibido: la grilla está quieta mientras el foco termina su rampa
+    rig.run_grid(timeout_s=60, until=lambda: pw.run_state == GridRunState.STOPPED and pw._pending_restore is not None
+                 and rig.backend.focusWorker.is_quiescent())
     rec = rig.record
     t_stop = rec.cut_times[0]
     assert pw._pending_restore is not None

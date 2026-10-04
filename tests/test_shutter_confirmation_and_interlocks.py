@@ -179,7 +179,9 @@ def test_watchdog_retry_confirms_the_close_later(daq):
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
     nidaq.close_shutter(LASER)
     assert _wait(lambda: not nidaq.get_unconfirmed_shutters()), "El watchdog no confirmó el cierre"
-    assert (LASER, "cierre confirmado en un reintento", True) in daq.events
+    # El aviso sale DESPUÉS de soltar el candado (un callback de la interfaz no puede bloquear la placa): con la
+    # máquina cargada llega un instante después de que se limpian los "sin confirmar", así que se lo espera
+    assert _wait(lambda: (LASER, "cierre confirmado en un reintento", True) in daq.events), daq.events
     assert daq.writes[-1][nidaq.SHUTTERS.index(LASER)] == _closed(LASER)
     assert nidaq._watchdog_deadline is None and nidaq._retry_due is None
 
