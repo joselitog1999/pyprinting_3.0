@@ -53,7 +53,7 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | :--- | :--- | :--- | :--- | :--- |
 | Límite de recorrido de la platina, ejes X e Y | `100.0` µm | `config.py::PI_STAGE_RANGE_UM` | RESPALDADO (código) | ✅ |
 | Límite de recorrido de la platina, eje Z | `20.0` µm | `config.py::PI_Z_RANGE_UM` | RESPALDADO (código) | ✅ |
-| Modelo de la platina y del controlador | PI P-517.3CD (100 × 100 × 20 µm) con controlador E-517 | `README.md` (l. 99) y `DEC-036`; la hoja de datos de PI **no** está en `docs/bibliografia/`. La P-545 de 200 µm de las tesis es la de CIBION ([G17] p. 49) | EXPERIMENTAL hasta BANCO-17 (`qIDN`, `qTMN`/`qTMX`; `tools/bench/pi_stage_probe.py`) | 📄 |
+| Modelo de la platina y del controlador | PI P-517.3CD (100 × 100 × 20 µm) con controlador E-517 | `README.md` (l. 99) y `DEC-036`; la hoja de datos de PI **no** está en `docs/bibliografia/`. La P-545 de 200 µm de las tesis es la de CIBION ([G17] p. 49) | X e Y = 100 µm confirmado por el investigador (2026-11-19; BANCO-17 respondida). Z = 20 µm según la hoja de datos; `tools/bench/pi_stage_probe.py` queda como control opcional | 📄 |
 | Incertidumbre del piezo en lazo cerrado | **sin valor** | El 1.50 nm de CAT-203 §3.1 no tiene datos, método ni tipo GUM (L5-203-06). Medir: lectura del sensor a posición fija durante ≥ 10 min, desviación estándar con sus grados de libertad (Tipo A) | SIN FUENTE | 📄 |
 | Deadline por defecto del watchdog de obturadores (sólo rutinas, `DEC-052`) | `30.0` s | `core/nidaq.py::_default_timeout_s` | RESPALDADO (código) | ✅ |
 | Intervalo de poll del hilo `ShutterWatchdog` | `0.1` s (100 ms) | `core/nidaq.py::_watchdog_loop` (`time.sleep`) | RESPALDADO (código) | ✅ |

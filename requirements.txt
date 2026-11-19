@@ -1,88 +1,79 @@
 # ==============================================================================
-# PyPrinting 3.0 — UNSAM Nanofotónica
-# Requerimientos de Dependencias y Entorno Python
+# PyPrinting 3.0 / PySpectrum 3.0 — UNSAM Nanofotónica
+# Dependencias de Python
 # ==============================================================================
 #
-# RANGO DE VERSIONES DE PYTHON COMPATIBLES:
-#   Python >= 3.10, < 3.14  (Soportado y verificado en Python 3.10, 3.11, 3.12 y 3.13)
-#   Recomendación:
-#     - Windows 10/11 (Lab PC): Python 3.11, 3.12 o 3.13 (64-bit)
-#     - macOS (Intel x86_64 / Apple Silicon): Python 3.11 (64-bit) [Máxima disponibilidad de wheels]
+# PYTHON
+#   - PC del banco: **Python 3.11 de 64 bits, obligatorio.** pylablib 1.4.3 trae la extensión compilada
+#     de la cámara Andor (pylablib/devices/Andor/utils.cp311-win_amd64.pyd) sólo para 3.11. Con otra
+#     versión `from pylablib.devices.Andor import AndorSDK2Camera` falla y PySpectrum 3.0 no ve la cámara.
+#   - PC de desarrollo sin hardware: sirve cualquier 3.11–3.13 en modo seguro (PYPRINTING_SAFE=1); los
+#     tests usan una cámara falsa.
 #
-# INSTRUCCIONES DE INSTALACIÓN RÁPIDA (Luego de git pull / git clone):
+# INSTALACIÓN
+#   En el banco, usar el instalador, que hace todo lo de abajo y verifica el resultado:
+#       powershell -ExecutionPolicy Bypass -File tools\install\instalar.ps1
+#   A mano (mismos pasos):
+#       py -3.11 -m venv .venv
+#       .venv\Scripts\python -m pip install --upgrade pip
+#       .venv\Scripts\python -m pip install -r requirements.txt
+#       .venv\Scripts\python -m pip install --no-deps pylablib==1.4.3
 #
-# 1. Crear entorno virtual:
-#    python -m venv .venv
+# POR QUÉ pylablib VA APARTE, CON --no-deps
+#   pylablib 1.4.3 declara como dependencias pyft232 y pyqt5. pyft232 sin el driver FTDI rompe la
+#   importación de pylablib con un AttributeError que pylablib no atrapa, y PyQt5 no debe convivir con
+#   PyQt6. La cámara no usa ninguno de los dos. Las dependencias de pylablib que sí hacen falta están en
+#   este archivo (numpy, scipy, pandas, numba, rpyc, pyvisa, pyserial, pyusb, pyqtgraph).
 #
-# 2. Activar entorno virtual:
-#    - Windows (PowerShell): .\.venv\Scripts\Activate.ps1
-#    - macOS / Linux (bash/zsh): source .venv/bin/activate
+# OPCIONALES
+#   requirements-opcional.txt: picasso (localización sub-píxel en la Suite de Cámara). Trae muchas
+#   dependencias (streamlit, tables, PyImarisWriter, …) y sus versiones recientes exigen PyQt6 >= 6.10.2,
+#   fuera de la serie fijada abajo; el código funciona sin él.
 #
-# 3. Actualizar pip e instalar dependencias:
-#    python -m pip install --upgrade pip
-#    pip install -r requirements.txt
+# NO INSTALAR 'pyqt-tools', 'pyqt5-tools' ni 'pyqt6-tools': fuerzan PyQt5, que choca con PyQt6.
 #
-# NOTA IMPORTANTE SOBRE 'pyqt-tools':
-#   NO instale 'pyqt-tools', 'pyqt5-tools' ni 'pyqt6-tools'.
-#   PyPrinting 3.0 está programado íntegramente en Python puro con PyQt6 y NO utiliza
-#   archivos de interfaz (.ui) generados por Qt Designer en tiempo de ejecución.
-#   Instalar pyqt-tools/pyqt5-tools rompe el entorno al forzar versiones antiguas de
-#   PyQt5 que colisionan con PyQt6 en memoria. Si necesita Qt Designer, instálelo
-#   de forma externa e independiente (ej. en macOS: 'brew install qt').
-#
-# NOTA SOBRE EJECUCIÓN EN LAPTOPS O SIN HARDWARE (macOS / Linux):
-#   PyPrinting 3.0 cuenta con simulación nativa completa. En 'config.py', configure:
-#   SAFE_MODE = True
-#   Esto activa los mocks de hardware (DAQmx, platina PI, láseres y cámara) y permite
-#   utilizar todas las suites de análisis, visualización y procesamiento sin instrumentación física.
-#
-# 4. Ejecutar Lanzador Principal ("Bienvenidos al printing"):
-#    python main.py
-#
-# 5. Ejecutar Módulos Individuales:
-#    python app.py               # Microscopio Derecho (Suite Completa)
-#    python contrapropagante.py  # Microscopio Contrapropagante (Excitación Dual)
-#    python camera.py            # Suite de Cámara Réflex Canon EOS (EDSDK) & Microfotónica
-#    python psf_analyzer.py      # Caracterización 2D de PSF (Gaussiana / Donut LG01)
-#    python image_analyzer.py    # Analizador de Imágenes Estáticas & Tracking
+# MODO SEGURO (sin hardware): variable de entorno PYPRINTING_SAFE=1, o la casilla del lanzador
+#   (python main.py). No se edita config.py.
 # ==============================================================================
 
-# ── Interfaz Gráfica y Gráficos en Tiempo Real ────────────────────────────────
-PyQt6>=6.6.0,<7.0.0
+# ── Interfaz gráfica ──────────────────────────────────────────────────────────
+# Fijado a la serie 6.6, la que corre toda la suite (verificado el 2026-11-19 en un Python 3.11 limpio).
+# Con PyQt6 >= 6.7, QtWebEngine exige importarse antes de crear la QApplication y la wiki científica de
+# ayuda pierde MathJax en silencio (la importa al abrirse). Subir de serie sólo después de correr la suite.
+PyQt6>=6.6.1,<6.7
+PyQt6-Qt6>=6.6.1,<6.7
+PyQt6-WebEngine>=6.6.0,<6.7      # wiki científica con fórmulas (MathJax)
+PyQt6-WebEngine-Qt6>=6.6.0,<6.7
 pyqtgraph>=0.13.4
+markdown>=3.5.0          # Markdown -> HTML para ScientificWikiBrowserDialog
 
-# ── Visión por Computadora y Procesamiento de Imágenes ────────────────────────
+# ── Imágenes y visión por computadora ─────────────────────────────────────────
 opencv-python>=4.9.0
 Pillow>=10.2.0
 scikit-image>=0.22.0
-tifffile>=2024.1.0       # Manejo de imágenes TIFF de metrología
-trackpy>=0.6.0          # Motor de seguimiento y localización Crocker-Grier
-picassosr>=0.10.0       # Motor de localización sub-píxel Picasso (SMLM / DNA-PAINT)
+tifffile>=2024.1.0
+trackpy>=0.6.0           # Localización Crocker-Grier
 pandas>=2.0.0
-markdown>=3.5.0          # Renderizado Markdown->HTML para ScientificWikiBrowserDialog (analysis/scientific_wiki_browser.py)
 
-# ── Aceleración JIT (Numba / LLVM) ───────────────────────────────────────────
-# En macOS Intel (x86_64), Numba > 0.62.1 y llvmlite > 0.45.1 ya no publican wheels
-# precompiladas y obligan a compilar C++/LLVM desde código fuente (lo cual suele fallar).
-# Los siguientes markers PEP 508 fijan versiones con binarios precompilados en Intel Mac:
+# ── Numba / LLVM ──────────────────────────────────────────────────────────────
+# En macOS Intel (x86_64), Numba > 0.62.1 y llvmlite > 0.45.1 ya no publican wheels precompiladas.
 llvmlite<=0.45.1; sys_platform == "darwin" and platform_machine == "x86_64"
 numba>=0.59.0,<=0.62.1; sys_platform == "darwin" and platform_machine == "x86_64"
 numba>=0.59.0; sys_platform != "darwin" or platform_machine != "x86_64"
 
-# ── Análisis Numérico y Ajustes Espectroscópicos ─────────────────────────────
+# ── Análisis numérico y archivos de datos ─────────────────────────────────────
 numpy>=1.26.0,<2.3.0
 scipy>=1.12.0
 matplotlib>=3.8.0
-sif-parser>=0.3.6       # Decodificación y lectura nativa de espectros SIF (Andor Solis)
+h5py>=3.10.0             # Contenedores .h5: mapas, calibración de λ, Exploración, SIF
+sif-parser>=0.3.6        # Lectura de espectros .sif de Andor Solis
 
-# ── Abstracción de Hardware (HAL) ──────────────────────────────────────────────
-# nidaqmx solo es funcional en Windows con drivers NI-DAQmx instalados; en macOS/Linux opera en SAFE_MODE.
+# ── Hardware ──────────────────────────────────────────────────────────────────
+# nidaqmx sólo funciona en Windows con el driver NI-DAQmx instalado.
 nidaqmx>=1.0.0; sys_platform == "win32"
-pipython>=2.11.0         # API GCS para platinas piezoeléctricas Physik Instrumente
-# Cámara Andor iXon3 (R4-F, DEC-040): por ahora con pylablib, como el PySpectrum legado. Se fija la
-# versión del banco (1.4.3). pip instala además pyft232, que sin el driver FTDI rompe la importación de
-# pylablib con un AttributeError que pylablib no atrapa; la cámara no lo usa, así que si falla la
-# importación: pip uninstall pyft232.
-pylablib==1.4.3
-pyserial>=3.5            # Comunicación Serie RS-232 / USB
-pyusb>=1.2.1             # Control USB de bajo nivel
+pipython>=2.11.0         # Platina PI (necesita además la DLL GCS2 de PI instalada)
+pyserial>=3.5
+pyusb>=1.2.1
+# Dependencias de pylablib que sí se usan (pylablib se instala aparte con --no-deps, ver arriba).
+rpyc>=5.0
+pyvisa>=1.6
