@@ -420,6 +420,7 @@ class _MockAndorCCD:
     def set_single_track(self, center: int, height: int) -> int:
         self._track_center = max(1, min(self.height, int(center)))
         self._track_height = max(1, min(self.height, int(height)))
+        self._read_mode = READ_MODE_SINGLE_TRACK      # como el driver real (andor_pylablib.set_single_track)
         return DRV_SUCCESS
 
     def get_single_track(self) -> Tuple[int, int]:

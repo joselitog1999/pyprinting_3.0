@@ -927,8 +927,9 @@ class ExplorationTabWidget(QtWidgets.QWidget):
         spec = getattr(self._live_source, "spectrometer", None)
         if mode == "first_order" and spec is not None:
             try:
-                ret, arr = spec.ShamrockGetCalibration(DEVICE, int(width))
-                lam = np.asarray(arr, dtype=float) if ret == 20202 else None
+                from pyspectrum.services.spectral_axis import spectral_axis   # una sola fuente (DEC-054)
+                ax = spectral_axis(spec, int(width))
+                lam = ax.nm if ax is not None else None
             except Exception:
                 lam = None
         return ea.profile_axis(mode, lam, int(width))

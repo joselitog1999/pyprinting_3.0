@@ -577,12 +577,14 @@ class GrowthKineticsBackend(QtCore.QObject):
                                down_flipper=nidaq.down_flipper, flipper_notch532=nidaq.flipper_notch532)
 
     def _wave_axis(self):
-        ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-        axis = np.asarray(axis, dtype=np.float64)
-        if ret != 20202 or axis.size != 1004 or not np.all(np.isfinite(axis)):
-            print(f"[{type(self).__name__}] Eje λ no confiable: código {ret}, {axis.size} puntos")
+        # Una sola fuente del eje λ en PySpectrum: la EEPROM, con GetCalibration de respaldo (DEC-054)
+        from pyspectrum.services.spectral_axis import spectral_axis
+        ax = spectral_axis(self.spectrometer, 1004)
+        if ax is None:
+            print(f"[{type(self).__name__}] Eje λ no confiable: ni la EEPROM ni GetCalibration dan un eje válido")
             return None
-        return axis
+        self.wave_axis_source = ax.source
+        return ax.nm
 
     @staticmethod
     def _fit(wave, spec):
@@ -727,7 +729,7 @@ class GrowthKineticsBackend(QtCore.QObject):
                         runner.set_mirror("up")
                         runner.laser(laser, True)              # el centrado ve la semilla con el láser
                         try:
-                            run_confocal_centering(range_um=1.0)
+                            run_confocal_centering(range_um=1.0, laser=laser)
                         except StageNotOnTarget as e:
                             raise GridSafetyPause(str(e))
                         finally:
@@ -806,7 +808,7 @@ class GrowthKineticsBackend(QtCore.QObject):
             if use_lambda_stop and lambda_target is not None and lmax >= float(lambda_target):
                 stop = True
             if use_photodiode_stop and photodiode_drop_pct is not None:
-                level = read_photodiode_level()
+                level = read_photodiode_level(laser=cfg.get("laser"))   # el fotodiodo de ESTE láser (DEC-054)
                 if i0 is None:
                     i0 = level if level > 0 else 1e-9
                 elif level <= i0 * (1.0 - float(photodiode_drop_pct) / 100.0):

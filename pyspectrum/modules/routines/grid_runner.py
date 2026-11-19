@@ -32,6 +32,43 @@ MIRROR_SETTLE_S = 0.15        # legado: 0.15 s después del pulso del espejo
 LASER_SETTLE_S = 0.5          # legado: 0.5 s después de abrir el láser
 
 
+class FiberROI:
+    """Las filas de la fibra en el detector, como el legado: fila central `center_row` (desde 0, la fila de la
+    imagen que entrega pylablib) y `height` filas. Legado: 438 y 25 → filas 426..450 (StepandGlue_ps.py:138-152).
+
+    Se lee en Single-Track: la cámara suma esas filas antes de leer (un solo ruido de lectura). El SDK cuenta las
+    filas desde 1, así que el centro del SDK es `center_row + 1` (DEC-054)."""
+
+    __slots__ = ("center_row", "height")
+
+    def __init__(self, center_row: int = 438, height: int = 25):
+        from pyspectrum.drivers.andor_ccd_driver import DETECTOR_HEIGHT_PX
+        c, h = int(center_row), int(height)
+        if h < 1 or c < 0 or c >= DETECTOR_HEIGHT_PX:
+            raise ValueError(f"ROI de la fibra inválido: fila {c}, alto {h}")
+        if c - h // 2 < 0 or c + (h - 1) // 2 >= DETECTOR_HEIGHT_PX:
+            raise ValueError(f"El ROI de la fibra (fila {c}, alto {h}) sale del detector "
+                             f"(0..{DETECTOR_HEIGHT_PX - 1})")
+        self.center_row, self.height = c, h
+
+    @property
+    def sdk_track(self) -> Tuple[int, int]:
+        """(centro, alto) en las coordenadas de `set_single_track` del driver (filas desde 1)."""
+        return (self.center_row + 1, self.height)
+
+    @property
+    def rows(self) -> Tuple[int, int]:
+        """Primera y última fila (desde 0, inclusivas)."""
+        return (self.center_row - self.height // 2, self.center_row + (self.height - 1) // 2)
+
+    def __eq__(self, other):
+        return isinstance(other, FiberROI) and (self.center_row, self.height) == (other.center_row, other.height)
+
+    def __repr__(self):
+        a, b = self.rows
+        return f"FiberROI(fila {self.center_row}, alto {self.height}: filas {a}..{b})"
+
+
 class GridAbort(Exception):
     """Stop del operador o E-STOP."""
 
@@ -183,6 +220,17 @@ class GridRunner:
         if mode != READ_MODE_FVB:
             self.camera.set_read_mode(READ_MODE_FVB)
         return (1004,), ("FVB" if mode == READ_MODE_FVB else "FVB (la cámara estaba en otro modo)"), READ_MODE_FVB
+
+    def use_fiber_roi(self, roi: FiberROI) -> None:
+        """Pone la cámara en Single-Track sobre las filas de la fibra. Después, `prepare_1d`/`spectrum_1d` y el
+        fondo miden en ese modo. Si la cámara no lo acepta, la corrida no sigue: medir en otro modo daría otro
+        espectro que el pedido."""
+        from pyspectrum.drivers.andor_ccd_driver import DRV_SUCCESS
+        self.check()
+        center, height = roi.sdk_track
+        ret = self.camera.set_single_track(center, height) if hasattr(self.camera, "set_single_track") else None
+        if ret != DRV_SUCCESS:
+            raise GridAbort(f"La cámara no aceptó el Single-Track de la fibra ({roi!r}; código {ret}).")
 
     def spectrum_1d(self, exposure_s: float) -> Tuple[np.ndarray, str]:
         """Un espectro 1D con una exposición real (modo de `prepare_1d`). Devuelve (espectro, modo)."""

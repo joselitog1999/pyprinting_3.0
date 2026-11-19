@@ -550,6 +550,31 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
 - **Luminiscencia, crecimiento y dímeros:** en `RoutineThread`, con las fases de §12.17 y §12.19 corregidas según R4-K (P3: potencia y láser del centrado como el legado; P4: serie de exposiciones; P5: sin espectro final de dímeros; P6: nodo fallido; P7: la pausa cierra el láser).
 - **Sentido del espejo:** abajo = espectrómetro (confirmado por el investigador para el crecimiento, R4-K). El legado del crecimiento lo ponía arriba (`Growth_ps.py:788`); lo confirma BANCO-59.
 
+### 12.22 Paridad con el legado — luminiscencia completa y bases comunes (`DEC-054`)
+
+**Luminiscencia en grilla.** La pestaña repite por nodo la secuencia de `Luminescence_ps.py`:
+1. autofoco con el lock del satélite;
+2. centrado con el confocal por fotodiodo del satélite (TIFF `NPscan` crudos);
+3. mini-mapa hiperespectral en Single-Track sobre la fibra, con el BS por píxel;
+4. centro de masa del mapa y corrección opcional del origen.
+
+El motor está en `pyspectrum/modules/routines/luminescence_grid.py` (sin Qt). El panel tiene los grupos Autofoco, Centrado, Mini-mapa y Referencia, cuatro gráficos y un banner con lo que impide arrancar.
+
+| Pieza | Módulo | Qué hace |
+| :--- | :--- | :--- |
+| Eje λ único | `pyspectrum/services/spectral_axis.py` | Usa la EEPROM ($\lambda(p) = a + bp + cp^2 + dp^3$, 1004 puntos) y `GetCalibration` sólo como respaldo. Nunca inventa un eje y devuelve la fuente. La usan luminiscencia, crecimiento, dímeros, el mapa hiperespectral y la exploración |
+| Fotodiodo por láser | `optical_support.read_photodiode_level(laser=…)`, `read_bs_level()` | Lee `config.PD_CHANNELS[laser]`; antes leía siempre `ai0` |
+| Fila de la fibra | `grid_runner.FiberROI`, `GridRunner.use_fiber_roi` | Single-Track; legado 438 ± 12 → SDK centro 439, alto 25 |
+| Foco y confocal del satélite | `pyspectrum/services/satellite_optics.py` | Un solo lock por proceso. Restaura el panel del satélite después del centrado |
+| Archivos del legado | `pyspectrum/services/legacy_files.py` | `NPscan` crudos, `wavelength_*.txt`, `Spectrum_i_j.txt`, el TIFF del mapa, `Trace_BS.txt`, `Info.txt` |
+
+El TIFF `NPscan` de PyPrinting también pasó a float crudo. Antes se normalizaba a uint16 y se perdía la intensidad absoluta.
+
+**Límites:**
+- `Trace_BS.txt` tiene una muestra por píxel, no una traza continua.
+- El mini-mapa no hace dλ: es la suma en la banda, como el legado.
+- La comparación de Single-Track contra la suma por software del cuadro Image es BANCO-74.
+
 ## 13. 🔗 Referencias Cruzadas
 - [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|📘 SYS-301: Shamrock 500i, iXon3 y Óptica Confocal]]
 - [[SYS-302_Calibracion_Espectral_y_Sincronizacion_Flippers|📑 SYS-302: Calibración Espectral, Offsets Ctypes y Flippers]]

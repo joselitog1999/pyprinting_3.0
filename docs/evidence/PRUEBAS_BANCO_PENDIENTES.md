@@ -200,6 +200,7 @@ Fuentes (locales en `docs/bibliografia/` salvo que se indique):
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-73 | ¿El Growth del legado (REC Kinetics) funciona en el banco? | Paridad legado ↔ 3.0 (2026-11-19) | Legado, tapa puesta, sin láser | ☐ |
+| BANCO-74 | Luminiscencia de 3.0 con la secuencia del legado; Single-Track contra la suma del cuadro Image | `DEC-054` | Lámpara sin láser; ⚠️ 532 a baja potencia, con aprobación | ☐ |
 
 ---
 
@@ -432,6 +433,24 @@ estable si la prueba adquiere datos.
   los `Line_Spectrum_step_####.txt`. En la consola del legado anotar también
   `import pylablib; pylablib.__version__` y la ruta de `StepandGlue_ps.py` que corre.
 - **Aceptación**: cualquier resultado sirve; se anota.
+- **Resultado**: —
+
+### ☐ BANCO-74 — Luminiscencia de 3.0 con la secuencia del legado (`DEC-054`)
+- **Verifica**: la grilla de luminiscencia de 3.0 de punta a punta en el equipo, y que la lectura Single-Track de la
+  fibra da el mismo espectro que la suma por software del cuadro Image que hacía el legado.
+- **Procedimiento**:
+  1. **Sin láser, con la lámpara** al mínimo: en Exploración, un cuadro en Image y uno en Single-Track (fila 438,
+     alto 25) con la misma exposición. Sumar las filas 426–450 del cuadro Image y comparar con el Single-Track: mismo
+     perfil y mismo valor medio. Anotar el ruido de cada uno en una zona sin señal (se espera menor en Single-Track).
+  2. **⚠️ 532 a baja potencia, con aprobación**: satélite Microscopio Derecho abierto con el lock de foco; grilla
+     2 × 2 con centrado (2 µm, 34 px), mini-mapa 5 × 5 a 0.5 s, banda que contenga la emisión. Verificar el orden:
+     autofoco → centrado (láser abierto sólo durante la rampa) → espejo abajo → mapa (láser abierto todo el mapa) →
+     láser cerrado → espejo arriba. Revisar los archivos: TIFF `NPscan` crudos, `Slow_Confocal_Spectrum_Col_001_NP_000`
+     con 25 `Spectrum_i_j.txt` de 1004 filas, el TIFF del mapa y `Trace_BS.txt`, `Info.txt` y el `.h5`.
+  3. Abrir un `Spectrum_i_j.txt` y un `NPscan` con los scripts de análisis que se usan con el legado.
+- **Aceptación**: el perfil del paso 1 coincide; la secuencia del paso 2 es la indicada; los archivos se leen con los
+  análisis del legado sin cambios.
+- **Si falla**: no corregir en el momento; anotar y reabrir `DEC-054`.
 - **Resultado**: —
 
 ---

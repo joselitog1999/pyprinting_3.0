@@ -1855,6 +1855,63 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Bench:** `BANCO-19` adds a check that switching the servo on at connect does not jolt the stage (lasers off).
 * **Outcome:** **ACCEPTED**.
 
+### DEC-054: Parity with the Legacy PySpectrum — Full Luminescence Sequence and Its Shared Foundations (2026-11-19)
+* **Context:** A three-way read-only comparison of the legacy PySpectrum (`pyspectrum-legacy/`, the program in daily use) against 3.0 found three groups of differences.
+  * **3.0 defects:**
+    * the PySpectrum grid autofocus built a new `FocusBackend` per node, which re-locked at the current Z and corrected nothing;
+    * the routines always read `ai0`, whatever the laser;
+    * the PyPrinting NPscan TIFF was min-max normalised to uint16, losing absolute intensity.
+  * **Missing behaviour:** 3.0 luminescence took one exposure per node. It had no photodiode centring and no hyperspectral mini-map.
+  * **Format and axis differences:**
+    * the legacy writes one-column `.txt` and raw TIFF;
+    * 3.0 had two λ-axis sources depending on the module (EEPROM cubic vs `GetCalibration`).
+  * The `NP_xxx.txt` and power-calibration defects were fixed separately (`ea418cf`).
+* **Deliberation (Rounds 1–3, researcher's answers 2026-11-19):**
+  * **Files:** write both formats, legacy and new.
+  * **λ axis:** EEPROM, 1004 px, in every module.
+  * **Priority:** full luminescence first, then Luminescence Step & Glue.
+  * **Focus and centring:** PySpectrum grids use the **Microscopio Derecho satellite's** focus and confocal, and do not start without it.
+  * **Readout:** Single-Track over the fibre rows.
+  * **No focus lock:** with autofocus requested and no lock, the grid does not start.
+  * **NPscan TIFF:** raw float32.
+  * **Defaults not objected to:**
+    * the legacy fibre ROI (438 ± 12);
+    * PySpectrum dimers to be retired in favour of PyPrinting dimers (not yet done);
+    * the cooler stays at automatic −60 °C.
+  * The legacy Growth is not touched until `BANCO-73` says whether its REC Kinetics runs on pylablib 1.4.3.
+* **Decision (foundations):**
+  * **`pyspectrum/services/spectral_axis.py::spectral_axis(spectrometer, n)`** returns `SpectralAxis(nm, source)`.
+    * EEPROM first; `GetCalibration` only as a fallback.
+    * Requires a strictly monotonic finite axis, never invents one, and returns None otherwise.
+    * Used by luminescence, growth, dimers, the hyperspectral map (source in the `.h5`) and exploration.
+  * **`optical_support.photodiode_index(laser)`, `read_photodiode_level(laser=…)`, `read_bs_level()`.** Growth's photodiode-drop stop, dimers' print trace and `run_confocal_centering` now read the chosen laser's photodiode.
+  * **`grid_runner.FiberROI(center_row=438, height=25)`** (rows 426–450, SDK track 439/25) and `GridRunner.use_fiber_roi()`. The mock camera now enters Single-Track on `set_single_track`, like the real driver.
+  * **`pyspectrum/services/satellite_optics.py::SatelliteOptics`** wraps the satellite's `focusWorker` and `confocalWorker` through cross-thread invocations, waiting with heartbeat and abort.
+    * `autofocus()` refuses without the operator's lock.
+    * `center_scan()` runs a ramp x/y with the routine's range, pixels and threshold, and restores the satellite panel's settings afterwards.
+    * `PySpectrumWindow._satellite_optics` provides it.
+  * **`pyspectrum/services/legacy_files.py`** writes the legacy names and columns.
+  * **PyPrinting** `_save_scan` and the `.h5` export write the NPscan TIFF as raw float32.
+* **Decision (luminescence):** `pyspectrum/modules/routines/luminescence_grid.py` (no Qt) holds `MiniMapSpec`, `LuminescenceGridParams`, the legacy computations and the engine.
+  * **Legacy computations:**
+    * the band value is the sum inside the band, without dλ;
+    * the map geometry is $x_i = c_x - r/2 + i\,r/n_x$;
+    * the centre of mass normalises min–max and zeroes values below 0.7;
+    * names follow `Col_%03d_NP_%03d`.
+  * **`LuminescenceRunWriter`** writes `<ts>_Luminescence_<grid>/` with the legacy files and one `.h5`. The `.h5` holds the raw cube, maps, scans, BS, the axis and its source, the dark and the spectral correction.
+  * **`LuminescenceGridEngine`** runs the sequence described in `MOD-06` §12.22.
+  * **Backend preflight** (no laser opened before it passes): satellite present, focus lock if autofocus > 0, Single-Track available, axis, dark. The grid dark's conditions are Single-Track over the configured ROI (`conditions_fn`).
+* **Decision (GUI, Round 3):**
+  * **Groups:** Autofocus, Centring (checkable), Mini-map (checkable; Nx/Ny lock, band, CM threshold, fibre row and height with the SDK translation, scattering), and Reference.
+  * **Feedback:** a time estimate and [📖 Ayuda] to MOD-06.
+  * **Plots, 2×2:** the grid; the photodiode scan with its centre; the mini-map, where a click shows that pixel's spectrum; and the spectrum, with a draggable band synced to the spinboxes under `blockSignals`.
+  * A red preflight banner shows why the grid will not start.
+* **Tests:**
+  * `tests/test_luminescence_legacy_sequence.py` (16): axis source and fallback; photodiode per laser; ROI; legacy formats; raw PyPrinting TIFF; band, geometry and centre of mass against the legacy; satellite centring settings and restoration; autofocus needs the lock; preflight refusals; the full sequence writing both formats; Stop mid-map keeps the data as interrupted; refresh reference; GUI ↔ engine contract with 0 discrepancies.
+  * Adapted to the new contract (single-exposure mode where the old tests assumed it): `test_luminescence_and1`, `test_procedure_background_routines`, `test_pyspectrum_luminescence_and_calibration`, `test_spectrum_correction_metadata`.
+* **Bench:** `BANCO-74` (new): a low-power 2×2 luminescence grid end to end, and Single-Track against the software sum of the Image frame on the lamp.
+* **Outcome:** **ACCEPTED**.
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

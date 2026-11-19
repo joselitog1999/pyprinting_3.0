@@ -3980,15 +3980,10 @@ class Backend(QObject):
             except Exception:
                 pass
 
-            if arr_tr.dtype != np.uint8 and arr_tr.dtype != np.uint16:
-                arr_min = float(np.min(arr_tr))
-                arr_max = float(np.max(arr_tr))
-                rng = max(1e-9, arr_max - arr_min)
-                arr_norm = (arr_tr - arr_min) / rng
-                arr_uint = (arr_norm * 65535).astype(np.uint16)
-            else:
-                arr_uint = arr_tr
-            Image.fromarray(arr_uint).save(os.path.join(folder, f"{suffix}.tiff"))
+            # TIFF crudo en float32, como el legado (Printing_ps.py:800-816). Antes se normalizaba a uint16 por
+            # imagen sin guardar el mínimo ni el máximo, y se perdía la intensidad absoluta (DEC-054).
+            arr_tif = arr_tr if arr_tr.dtype in (np.uint8, np.uint16) else np.asarray(arr_tr, dtype=np.float32)
+            Image.fromarray(np.ascontiguousarray(arr_tif)).save(os.path.join(folder, f"{suffix}.tiff"))
 
     def _save_rescaled_scan(self, image_scaled: np.ndarray):
         ts   = f"NPscan_rescaled_{int(self.i_global):03d}"

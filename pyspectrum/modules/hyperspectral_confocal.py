@@ -361,15 +361,15 @@ class Backend(QtCore.QObject):
         self.ys = np.arange(ymin, ymax + step * 0.5, step)
         self.nx, self.ny = len(self.xs), len(self.ys)
 
-        ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-        axis = np.asarray(axis, dtype=np.float64)
-        if ret != SHAMROCK_SUCCESS or axis.size != 1004 or not np.all(np.isfinite(axis)):
+        from pyspectrum.services.spectral_axis import spectral_axis   # una sola fuente del eje λ (DEC-054)
+        ax = spectral_axis(self.spectrometer, 1004)
+        if ax is None:
             hardware_session.release_session(self.SESSION)
-            print(f"[Mapeo Confocal] Eje λ no confiable: código {ret}, {axis.size} puntos, "
-                  f"finito={bool(np.all(np.isfinite(axis))) if axis.size else False}")
-            self.statusSignal.emit(f"⛔ No se pudo leer el eje λ del Shamrock (código {ret}): el mapa no arranca.")
+            print("[Mapeo Confocal] Eje λ no confiable: ni la EEPROM ni GetCalibration dan un eje válido")
+            self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: el mapa no arranca.")
             return
-        self.wave_axis = axis
+        self.wave_axis = ax.nm
+        self.wave_axis_source = ax.source
         self._datacube = np.full((self.nx, self.ny, 1004), np.nan, dtype=np.float32)
         self._failed = np.zeros((self.nx, self.ny), dtype=bool)
         self.map_2d = np.zeros((self.nx, self.ny), dtype=np.float32)
@@ -460,6 +460,7 @@ class Backend(QtCore.QObject):
                 f.create_dataset("x_um", data=self.xs)
                 f.create_dataset("y_um", data=self.ys)
                 f.create_dataset("wavelength_nm", data=self.wave_axis)
+                f.attrs["wavelength_source"] = str(vars(self).get("wave_axis_source", "?"))   # DEC-054
                 f.attrs["exposure_s"] = self._exp_time
                 f.attrs["read_mode"] = "FVB"
                 f.attrs["complete"] = bool(self._complete)

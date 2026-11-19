@@ -1010,7 +1010,24 @@ La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y d
 - **Sub-pestaña "Monitoreo Puntual"**: Seguimiento temporal clásico $I(\lambda, t)$ e intensidad integrada $I(t)$ bajo excitación láser en un punto fijo.
 - **Sub-pestaña de grilla:**
   - **Espejo de detección:** los botones que decían "Insertar / Retirar Notch" mueven el **espejo de detección** (línea 7). "Notch" era un error de notación heredado del legado. Ahora dicen "Bajar espejo (espectrómetro)" y "Subir espejo (confocal / cámara)".
-  - **Por nodo (AND-1):** la platina confirma la llegada; autofoco cada $N$ nodos con el espejo arriba; espejo abajo y el láser abierto **sólo durante la exposición**.
+  - **Secuencia del legado (`DEC-054`).** Por nodo hace lo mismo que `Luminescence_ps` del PySpectrum legado:
+    1. mueve la platina con confirmación; si "Corregir el origen" está activo, la corre por (centro del mapa − nodo nominal) del nodo anterior;
+    2. hace el autofoco cada $N$ nodos (0 = nunca) con el **lock de foco del satélite**, con un corrimiento x/y opcional;
+    3. centra con el confocal por fotodiodo del satélite, con la **rampa x/y** (2 µm y 34 px por defecto) y el **fotodiodo del láser elegido**, guarda el trío de TIFF `NPscan` crudos y va al centro de masa. Los parámetros del panel del satélite vuelven a como estaban al terminar;
+    4. baja el espejo y toma el **mini-mapa hiperespectral**: nx × ny exposiciones alrededor del centro (1 µm, 20 × 20 y 2 s por defecto), con el láser abierto durante todo el mapa y una muestra del BS por píxel. El valor de cada píxel es la suma del espectro dentro de la banda λ (540–580 nm por defecto), que se arrastra en el gráfico del espectro;
+    5. cierra el láser, calcula el centro de masa del mapa (umbral 0.7) y sube el espejo.
+
+    Sin mini-mapa, toma **una exposición en el centro**, con el láser abierto sólo durante la exposición. Con "Láser apagado (scattering)" no abre ningún láser durante el mapa.
+  - **Necesita el satélite PyPrinting (Microscopio Derecho) abierto** si centra o enfoca, y el **lock de foco** fijado en el satélite si el autofoco no es 0. Si falta algo, la grilla no abre ningún láser y un banner rojo dice qué hacer.
+  - **La fila de la fibra** se lee en **Single-Track**: la cámara suma esas filas antes de leer. Por defecto son la fila 438 y 25 filas (426–450), como el legado. El fondo de la grilla se toma en ese mismo modo.
+  - **Archivos, en los dos formatos.** Van en `<fecha>_Luminescence_<grilla>/`:
+    - los TIFF `NPscan_xxx`, `gone_` y `back_`;
+    - por nodo, la carpeta `Slow_Confocal_Spectrum_Col_xxx_NP_xxx/`, con `wavelength_<fecha>.txt`, un `Spectrum_iXXXX_jXXXX.txt` por píxel, el TIFF del mapa y `Trace_BS.txt`, todos con el formato del legado;
+    - un `Info.txt`;
+    - un `.h5` con todo: el cubo crudo, los mapas, los escaneos, el BS, el eje λ y su fuente, el fondo y la corrección espectral.
+
+    Diferencias con el legado: los espectros tienen **1004 puntos** con el eje de la **EEPROM**, y `Trace_BS.txt` tiene una muestra por píxel del mapa (el legado guardaba una traza continua).
+  - El panel derecho tiene cuatro gráficos: la grilla, el escaneo del fotodiodo, el mini-mapa (clic en un píxel: su espectro) y el espectro. Arriba se ve una estimación del tiempo por NP y del total. [📖 Ayuda] abre MOD-06.
 - **Monitoreo puntual:** una exposición real por cuadro.
   - **Antes de iniciar** hay que elegir en "Espejo de detección ahora" dónde está el espejo. No tiene sensor. La rutina lo mueve sola según la fase y al terminar lo devuelve a esa posición (R4-K). La elección no se recuerda: se confirma en cada corrida.
   - **Corre en su propio hilo:** la ventana responde durante cada exposición, y [Detener], la pausa y el E-STOP actúan enseguida.

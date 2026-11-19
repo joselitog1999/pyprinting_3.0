@@ -148,21 +148,22 @@ def test_text_savers_write_the_header(tmp_path, corrected):
 
 def test_luminescence_growth_and_glued_spectra_headers(tmp_path, corrected):
     from pyspectrum.modules.routines import growth_kinetics, luminescence
-    lum = luminescence.LuminescenceBackend.__new__(luminescence.LuminescenceBackend)
-    lum.spectrometer = corrected
-    lum.run_dark = None
-    lum.grid_dark = type("D", (), {"header_text": lambda self, d, folder: "background_id: ninguno"})()
-    lum._save_node_result(0, np.arange(3.0), np.ones(3), str(tmp_path / "lum"), "FVB")
+    # Luminiscencia (DEC-054): la corrección va en los atributos del .h5 de la corrida; los archivos del legado
+    # no llevan encabezado, como en el legado
+    import h5py
+    from pyspectrum.calibration.repository import spectrum_software_correction
+    from pyspectrum.modules.routines import luminescence_grid as lg
+    w = lg.LuminescenceRunWriter(str(tmp_path / "lum"), lg.LuminescenceGridParams(laser="532 nm (green)"),
+                                 np.arange(3.0) + 500.0, "EEPROM", correction=spectrum_software_correction(corrected))
+    with h5py.File(w.h5_path, "r") as f:
+        assert f.attrs["c_sw_status"] == "APLICADA"
     gro = growth_kinetics.GrowthKineticsBackend.__new__(growth_kinetics.GrowthKineticsBackend)
     gro.spectrometer = corrected
     gro.run_dark = None
     gro.grid_dark = type("D", (), {"header_text": lambda self, d, folder: "background_id: ninguno"})()
     gro._save_node_result(0, np.arange(3.0), np.ones(3), [0.0], [600.0], str(tmp_path / "gro"))
-    for p in (tmp_path / "lum" / "LuminescenceNode_000_spectrum.txt",
-              tmp_path / "gro" / "GrowthNode_000_final_spectrum.txt"):
-        assert "c_sw_status: APLICADA" in p.read_text(encoding="utf-8"), p
-    np.testing.assert_allclose(np.loadtxt(tmp_path / "lum" / "LuminescenceNode_000_spectrum.txt"),
-                               np.column_stack([np.arange(3.0), np.ones(3)]))   # el dato no cambia
+    p = tmp_path / "gro" / "GrowthNode_000_final_spectrum.txt"
+    assert "c_sw_status: APLICADA" in p.read_text(encoding="utf-8"), p
 
 
 def test_raman_2d_export_and_exploration_h5(tmp_path, corrected):

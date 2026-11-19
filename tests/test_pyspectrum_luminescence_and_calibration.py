@@ -93,7 +93,9 @@ class TestLuminescenceNotchFlipperAndGrid(unittest.TestCase):
         luminescence.close_shutter = lambda name: (shutter_events.append(("close", name)), orig_close(name))[-1]
 
         try:
-            config_dict = {"laser": "532 nm (green)", "exp_time": 0.02, "autofocus_every": 1, "save_dir": tempfile.mkdtemp(),
+            # una exposición por nodo, sin centrado ni autofoco: no hace falta el satélite (DEC-054)
+            config_dict = {"laser": "532 nm (green)", "exp_time": 0.02, "autofocus_every": 0, "center_enabled": False,
+                           "minimap_enabled": False, "save_dir": tempfile.mkdtemp(),
                            "mirror": "down"}  # AND-1: el operador confirma el espejo
             self.backend.start_grid(config_dict)
             _wait_for_signal(self.backend.gridFinishedSignal, timeout_s=10.0)

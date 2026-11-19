@@ -439,12 +439,12 @@ class DimersBackend(QtCore.QObject):
     # ── polarización manual: una exposición real (AND-1) ──
     @pyqtSlot(str, float)
     def acquire_polarization(self, mode: str, exp_time: float):
-        ret, axis = self.spectrometer.ShamrockGetCalibration(DEVICE, 1004)
-        axis = np.asarray(axis, dtype=np.float64)
-        if ret != 20202 or axis.size != 1004 or not np.all(np.isfinite(axis)):
+        from pyspectrum.services.spectral_axis import spectral_axis   # una sola fuente del eje λ (DEC-054)
+        ax = spectral_axis(self.spectrometer, 1004)
+        if ax is None:
             self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock.")
             return
-        self.wave_axis = axis
+        self.wave_axis = ax.nm
         refusal = self.pol_dark.check_start(float(exp_time))
         if refusal:
             self.statusSignal.emit(f"⛔ {refusal}")
@@ -466,7 +466,7 @@ class DimersBackend(QtCore.QObject):
                 self.spec_perp = spec
                 if self.spec_par is not None and len(self.spec_par) == len(spec):
                     diff = self.spec_par - self.spec_perp
-            self.dimerDataSignal.emit(mode, axis, spec, diff)
+            self.dimerDataSignal.emit(mode, ax.nm, spec, diff)
             return "done"
 
         err = self.pol_thread.start(body, camera=self.camera, spectrometer=self.spectrometer, mirror=None,
@@ -509,7 +509,7 @@ class DimersBackend(QtCore.QObject):
         runner.set_power("low")
         runner.laser(laser, True)
         try:
-            return run_confocal_centering(range_um=1.0)
+            return run_confocal_centering(range_um=1.0, laser=laser)
         except StageNotOnTarget as e:
             raise GridSafetyPause(str(e))
         finally:
@@ -519,18 +519,18 @@ class DimersBackend(QtCore.QObject):
         runner.set_power("high")
         runner.laser(laser, True)
         try:
-            return self._monitor_print_trace(runner, threshold_ratio, max_s)
+            return self._monitor_print_trace(runner, threshold_ratio, max_s, laser=laser)
         finally:
             runner.laser(laser, False)
 
-    def _monitor_print_trace(self, runner, threshold_ratio: float, max_s: float) -> bool:
+    def _monitor_print_trace(self, runner, threshold_ratio: float, max_s: float, laser: str = None) -> bool:
         """Salto de la traza del fotodiodo (I_new > I_old × umbral), como `Dimers_ps.py::grid_trace_detect`.
         True si detectó el evento; False si se agotó el tiempo."""
         t0 = time.monotonic()
         i_old = None
         while True:
             runner.check()
-            level = read_photodiode_level()
+            level = read_photodiode_level(laser=laser)   # el fotodiodo de ESTE láser (DEC-054)
             if i_old is None:
                 i_old = level if level > 0 else 1e-9
             elif level > i_old * threshold_ratio:

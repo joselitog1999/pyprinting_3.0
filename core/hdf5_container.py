@@ -326,12 +326,8 @@ class BatchHDF5Container:
                         scan_arr = ng["confocal_scan"][:]
                         tif_path = os.path.join(output_folder, f"NPscan_{n_name.replace('node_', '')}.tiff")
                         
-                        arr_min = float(np.min(scan_arr))
-                        arr_max = float(np.max(scan_arr))
-                        rng = max(1e-9, arr_max - arr_min)
-                        arr_norm = (scan_arr - arr_min) / rng
-                        arr_uint16 = (arr_norm * 65535).astype(np.uint16)
-                        Image.fromarray(arr_uint16).save(tif_path)
+                        # Crudo en float32, como el legado y como _save_scan (DEC-054)
+                        Image.fromarray(np.ascontiguousarray(np.asarray(scan_arr, dtype=np.float32))).save(tif_path)
 
             # 3. Exportar telemetría de deriva desde /telemetry
             if "telemetry" in f:

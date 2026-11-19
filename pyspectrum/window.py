@@ -744,6 +744,8 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.calib_backend.statusSignal.connect(lambda msg: self.statusBar().showMessage(msg, 4000))
 
         self.lumin_backend = LuminescenceBackend(self.camera, self.spectrometer)
+        # Foco y confocal del satélite Microscopio Derecho (DEC-054): sin satélite, la grilla no arranca
+        self.lumin_backend.optics_provider = self._satellite_optics
         self.lumin_backend.make_connection(self.lumin_widget)
 
         self.growth_backend = GrowthKineticsBackend(self.camera, self.spectrometer)
@@ -915,6 +917,13 @@ class PySpectrumWindow(QtWidgets.QMainWindow):
         self.microscopio_derecho_satellite.show()
         self.microscopio_derecho_satellite.raise_()
         self.microscopio_derecho_satellite.activateWindow()
+
+    def _satellite_optics(self):
+        """El foco y el confocal del satélite Microscopio Derecho, o None si no está abierto (DEC-054)."""
+        from pyspectrum.services.satellite_optics import satellite_optics_from
+        if getattr(self, "microscopio_derecho_satellite", None) is None:
+            return None
+        return satellite_optics_from(getattr(self, "_microscopio_derecho_backend", None))
 
     def _forget_microscopio_derecho(self):
         """El operador cerró el satélite (ya se liberó y terminó sus hilos): reabrirlo crea uno nuevo."""
