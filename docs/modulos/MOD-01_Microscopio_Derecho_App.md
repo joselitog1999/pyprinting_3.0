@@ -67,17 +67,17 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 │  Láser: [532 nm ▼]   Modo: [2D Fast ▼]  Rango: [ 5.0 ] µm  N: [ 50 ] │  Láser: [532 nm ▼]  Freq: [ 10000 ] Hz    │
 │  [ ▶ Start Scan ]  [ ⏹ Stop ]  [ 🎯 Go to Max ]  [ 📊 Fit PSF ]       │  [ ▶ Live Trace ]  [ 💾 Save Trace ]       │
 ├───────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
-│  DOCK: FOCUS Z (Autofoco Axial)                                       │  DOCK: SHUTTERS / FLIPPER (Watchdog)     │
+│  DOCK: FOCUS Z (Autofoco Axial)                                       │  DOCK: SHUTTERS / FLIPPER (manual)       │
 │  ┌─────────────────────────────────────────────────────────────────┐ │  Láseres: [ 532 ON ] [ 637 ] [ 592 ] [ 808]│
 │  │  Curva Axial I(z):              Pico: z = +14.250 µm            │ │  Flippers: [ Low/High ] [ Notch Mirror ]  │
-│  │  4.0|        /\                                                 │ │  [X] Auto-cierre: [ 30s ▼ ] [🚨 Cerrar]   │
-│  │  0.0└───────/──\──────────────── z (µm)                         │ │  Estado: [ 🛡️ ACTIVO (28s) ]              │
+│  │  4.0|        /\                                                 │ │  Seguridad: sin auto-cierre [🚨 Cerrar]   │
+│  │  0.0└───────/──\──────────────── z (µm)                         │ │  (watchdog sólo de rutinas, DEC-052)      │
 │  └─────────────────────────────────────────────────────────────────┘ ├──────────────────────────────────────────┤
 │  Rango Z: [ 2.0 ] µm  Puntos: [ 40 ]  [ 🔍 Autofoco Z ] [ 🔒 Lock ]   │  DOCK: NANOPOSITIONING (Platina PI)      │
 │                                                                       │  X: [ 25.400 ] µm  [ ◄ ] [ ► ] Step: 1.0 │
 │                                                                       │  Y: [ 30.120 ] µm  [ ▲ ] [ ▼ ] Step: 1.0 │
 │                                                                       │  Z: [ 15.000 ] µm  [ ▲ ] [ ▼ ] Step: 0.1 │
-│                                                                       │  [ 📍 Set Ref P0 ]  [ 🔌 Reconectar ]     │
+│                                                                       │  [ 📍 Set Ref P0 ] [ ⌂ Home ] [ 🔌 Reconectar ] │
 ├───────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
 │  🟢 PyPrinting listo | Ejes PI: X=25.400 µm, Y=30.120 µm, Z=15.000 µm | DAQ: Dev1 Conectado | FPS: 30 Hz        │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -126,9 +126,8 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 | `532 / 637 / 592 / 808` | `QCheckBox` | `ON / OFF` | Conmutadores directos de los 4 obturadores digitales TTL en `Dev1/port0/line11` (532 nm, activo en BAJO), `line8`, `line9` y `line10`, gestionados con matriz de polaridades (`config.SHUTTER_CHANNELS` / `SHUTTER_POLARITY`, DEC-036). |
 | `Power Flipper` | `QCheckBox` | `Low / High power` | Actuador biestable que conmuta el filtro de densidad neutra (atenuador OD) con pulsos de $5\ \text{V} \times 100\ \text{ms}$ en `Dev1/ao0`/`ao1`. Conectado a `clicked` para interacción de usuario, desacoplado del watchdog de obturadores y con auto-recuperación de tareas zombi DAQ. |
 | `Notch 532 Flipper` | `QCheckBox` | `Mirror Up / Down` | Inserta o retira el espejo de desviación hacia el filtro Notch de 532 nm vía `Dev1/port0/line7` (`set_notch532`). |
-| `Auto-cierre Check` | `QCheckBox` | `True / False` | Habilita o inhabilita el temporizador de auto-apagado de seguridad. |
-| `Selector Timeout` | `QComboBox` | `30s`, `60s`, `5m`, `10m`, `Sin límite` | Define el tiempo de radiación máxima continua antes de cierre automático. |
-| `Estado Seguridad` | `QLabel` | Dinámico | Visualiza cuenta regresiva (`⏱️ Auto-cierre en: Xs`), modo seguro o modo alineación continua. |
+| `Estado Seguridad` | `QLabel` | Fijo | "Operación manual: sin auto-cierre"; en naranja con un láser abierto. Desde `DEC-052` (2026-11-18) la operación manual no tiene plazo: la casilla "Auto-cierre" y el selector de tiempo se quitaron de este dock. |
+| `Watchdog de rutinas` (Control Panel de impresión) | `QComboBox` | `30 s`, `60 s`, `300 s`, `600 s`, `Sin límite` | Plazo del watchdog **sólo para las rutinas** (`core/ui/routine_watchdog_widget.py`): si una rutina con un láser abierto deja de latir, se cierran los cuatro obturadores. Muestra la rutina en curso y la cuenta regresiva. |
 | `🚨 Cerrar Todos` | `QPushButton` | Corte | Fuerza el apagado inmediato de los 4 obturadores digitales preservando el estado del atenuador. |
 
 ### Dock Nanopositioning (Platina Piezoeléctrica PI)
@@ -139,7 +138,8 @@ El **Microscopio Derecho (`app.py`)** es la estación central de control y adqui
 | `Botones de Paso` | `QPushButton` | $\pm 0.1$, $\pm 1.0$, $\pm 10.0\ \mu\text{m}$ | Incrementos relativos discretos sobre los ejes de la platina. |
 | `Navegación con Flechas`| Teclado | $\uparrow, \downarrow, \leftarrow, \rightarrow, \text{PgUp}, \text{PgDn}$ | Permite mover la platina paso a paso de a 1 unidad ($\pm \text{Step X-Y}$ o $\pm \text{Step Z}$) con el teclado al enfocar el dock. |
 | `Set Reference` | `QPushButton` | Origen $P_0$ | Fija las coordenadas actuales como origen de referencia experimental. |
-| `🔌 Reconectar` | `QPushButton` | Hot-plug | Restablece en caliente el socket de comunicación con la controladora E-517/E-736. |
+| `🔌 Reconectar` | `QPushButton` | Hot-plug | Restablece en caliente la conexión USB con la controladora E-517. Cierra los obturadores y lee la posición: **no mueve la platina** (`DEC-053`). |
+| `⌂ Home (50, 50, 10) µm` | `QPushButton` | Home explícito | Única acción que lleva la platina a `PI_HOME_POS`. Cierra los obturadores con confirmación, respeta la parada de emergencia y avisa si la platina no confirma la llegada (`DEC-053`). |
 
 ---
 

@@ -1,0 +1,9 @@
+# Dependencias opcionales de PyPrinting 3.0.
+# El código funciona sin ellas: cada importación está protegida y la función queda deshabilitada.
+#
+# picasso: localización sub-píxel (SMLM / DNA-PAINT) en la Suite de Cámara y el analizador de imágenes.
+# Trae muchas dependencias (streamlit, tables, PyImarisWriter, sqlalchemy, …). Sus versiones recientes
+# exigen PyQt6 >= 6.10.2, fuera de la serie 6.6 que fija requirements.txt: pip instalará una versión de
+# picasso compatible o avisará el conflicto. Instalar sólo si se usa esa localización:
+#     .venv\Scripts\python -m pip install -r requirements.txt -r requirements-opcional.txt
+picassosr>=0.10.0

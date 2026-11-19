@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
 from PyQt6.QtGui     import QFont, QKeyEvent
 from pyqtgraph.dockarea import DockArea, Dock
 
-from config import (pi, PI_AXES, wait_on_target,
+from config import (pi, PI_AXES, PI_HOME_POS, wait_on_target,
                     DEFAULT_NANO_STEP_XY, DEFAULT_NANO_STEP_Z,
                     DEFAULT_NANO_GOTO_X, DEFAULT_NANO_GOTO_Y, DEFAULT_NANO_GOTO_Z,
                     REGIME_LEGACY, REGIME_LASER_REF, REGIME_SAMPLE_REF, DEFAULT_COORDINATE_REGIME)
@@ -217,6 +217,7 @@ class Frontend(QFrame):
     go_to_pos_signal       = pyqtSignal(list)
     set_reference_signal   = pyqtSignal()
     reconnect_signal       = pyqtSignal()
+    home_signal            = pyqtSignal()     # home explícito (DEC-053): conectar ya no mueve la platina
     regime_changed_signal  = pyqtSignal(str)
 
     DIRECTION_MAP = {
@@ -341,7 +342,8 @@ class Frontend(QFrame):
         for w in (self.xUpButton, self.xUp2Button, self.xDownButton, self.xDown2Button,
                   self.yUpButton, self.yUp2Button, self.yDownButton, self.yDown2Button,
                   self.zUpButton, self.zUp2Button, self.zDownButton, self.zDown2Button,
-                  self.StepEdit, self.zStepEdit, self.gotoButton, self.set_ref_button):
+                  self.StepEdit, self.zStepEdit, self.gotoButton, self.set_ref_button,
+                  self.home_button):
             w.setEnabled(enabled)
 
     # ── Gestión de Régimen de Coordenadas ─────────────────────────────────────
@@ -628,7 +630,8 @@ class Frontend(QFrame):
 
         self.reconnect_button = QPushButton("🔌 Reconectar")
         self.reconnect_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.reconnect_button.setToolTip("Reintenta conectar la platina física si fue encendida o reconectada por USB.")
+        self.reconnect_button.setToolTip("Reintenta conectar la platina física si fue encendida o reconectada por USB.\n"
+                                         "Conectar no mueve la platina: lee su posición y la deja donde está.")
         self.reconnect_button.setStyleSheet("""
             QPushButton {
                 background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
@@ -639,9 +642,21 @@ class Frontend(QFrame):
         """)
         self.reconnect_button.clicked.connect(self.reconnect_signal.emit)
 
+        hx, hy, hz = (f"{float(v):g}" for v in PI_HOME_POS)
+        self.home_button = QPushButton(f"⌂ Home ({hx}, {hy}, {hz}) µm")
+        self.home_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.home_button.setToolTip(
+            f"Cierra todos los obturadores y lleva la platina a ({hx}, {hy}, {hz}) µm.\n"
+            "Conectar ya no mueve la platina (DEC-053): el home es sólo este botón.\n"
+            "No mueve si la placa no confirma el cierre, si la platina está desconectada\n"
+            "o con la parada de emergencia activa.")
+        self.home_button.setStyleSheet(self.reconnect_button.styleSheet())
+        self.home_button.clicked.connect(self.home_signal.emit)
+
         status_bar = QHBoxLayout()
         status_bar.setSpacing(6)
         status_bar.addWidget(self.conn_status_label, stretch=1)
+        status_bar.addWidget(self.home_button)
         status_bar.addWidget(self.reconnect_button)
 
         # ── Selector de Régimen de Coordenadas & Atajos de Teclado ─────────
@@ -705,6 +720,10 @@ class Frontend(QFrame):
         backend.reference_signal.connect(self.get_go_to_reference)
         backend.connection_status_signal.connect(self.update_connection_status)
         self.reconnect_signal.connect(backend.reconnect)
+        # Una sola vez: Backend.make_connection hace la misma conexión y un home no debe correr dos veces.
+        if not getattr(self, "_home_wired", False):
+            self.home_signal.connect(backend.go_home)
+            self._home_wired = True
         self.regime_changed_signal.connect(backend.set_regime)
         is_phys = hasattr(pi, "is_physically_connected") and pi.is_physically_connected()
         txt = f"PI Física ({pi.qIDN().strip().split()[0]})" if is_phys else "Modo Virtual (Desconectada)"
@@ -722,7 +741,8 @@ class Backend(QObject):
         super().__init__(*args, **kwargs)
         self.current_regime = DEFAULT_COORDINATE_REGIME
         # connect_stage=False: satélite huésped (paso 13, V11). La platina es del anfitrión: conectarla
-        # acá haría home y liberaría su interlock. "Reconectar" sigue siendo la acción del operador.
+        # acá liberaría su interlock. "Reconectar" sigue siendo la acción del operador. Conectar no
+        # mueve la platina (DEC-053).
         if connect_stage:
             self.reconnect()
 
@@ -742,6 +762,17 @@ class Backend(QObject):
             txt = "Modo Virtual (Desconectada)"
         self.connection_status_signal.emit(is_phys, txt)
         self.read_pos()
+
+    @pyqtSlot()
+    def go_home(self) -> bool:
+        """Botón Home del dock (DEC-053): cierra los obturadores con confirmación y lleva la platina
+        a PI_HOME_POS esperando on-target. Si no llega, se trata como cualquier movimiento sin
+        confirmar."""
+        ok = bool(pi.go_home()) if hasattr(pi, "go_home") else False
+        if not ok:
+            self._on_move_not_confirmed("home")
+        self.read_pos()
+        return ok
 
     @pyqtSlot()
     def read_pos(self) -> tuple[float, float, float]:
@@ -806,6 +837,9 @@ class Backend(QObject):
         frontend.set_reference_signal.connect(self.set_reference)
         frontend.go_to_pos_signal.connect(self.goto)
         frontend.reconnect_signal.connect(self.reconnect)
+        if not getattr(frontend, "_home_wired", False):   # una sola vez (ver Frontend.make_connection)
+            frontend.home_signal.connect(self.go_home)
+            frontend._home_wired = True
         self.read_pos_signal.connect(frontend.read_pos_list)
         self.reference_signal.connect(frontend.get_go_to_reference)
         self.connection_status_signal.connect(frontend.update_connection_status)

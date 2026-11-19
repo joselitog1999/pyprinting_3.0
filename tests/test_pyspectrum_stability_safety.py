@@ -50,6 +50,10 @@ from pyspectrum.calibration.halogen_lamp import HalogenLampCalibration, glue_ste
 from pyspectrum.calibration.fit_polynomial import fit_signal_polynomial
 from pyspectrum.window import PySpectrumWindow
 
+# Los paneles con gráficos de pyqtgraph quedan vivos hasta el final de la sesión: si el recolector destruye
+# uno en medio de otro test, sip borra sus ejes y un repintado pendiente aborta (visto el 2026-10-01).
+_KEEP_ALIVE = []
+
 
 class TestPySpectrumStability(unittest.TestCase):
     """Pruebas de estabilidad, resiliencia bajo carga y ciclo de vida de componentes."""
@@ -372,17 +376,23 @@ class TestPySpectrumSafety(unittest.TestCase):
         self.assertEqual(nidaq._shutter_signal[idx], not SHUTTER_POLARITY[laser])
 
     def test_heartbeat_watchdog_renewed_during_acquisition(self):
-        """Verifica que se arme el watchdog al abrir obturador y se desarme al cerrar."""
-        heartbeat_shutter(30.0)
-        self.assertTrue(is_watchdog_armed())
-        rem = get_watchdog_remaining_time()
-        self.assertIsNotNone(rem)
-        self.assertGreater(rem, 25.0)
-        self.assertLessEqual(rem, 30.0)
+        """Dentro de una rutina (DEC-052), el latido arma el plazo del panel con un láser abierto, y cerrar todo lo
+        desarma. Sin rutina, el mismo latido no arma nada."""
+        from core.nidaq import routine_watchdog
+        open_shutter(SHUTTERS[0])
+        heartbeat_shutter()
+        self.assertFalse(is_watchdog_armed(), "sin rutina, el latido no arma el plazo")
+        with routine_watchdog("adquisición de prueba"):
+            heartbeat_shutter()
+            self.assertTrue(is_watchdog_armed())
+            rem = get_watchdog_remaining_time()
+            self.assertIsNotNone(rem)
+            self.assertGreater(rem, 25.0)
+            self.assertLessEqual(rem, 30.0)
 
-        close_all_shutters()
-        self.assertFalse(is_watchdog_armed())
-        self.assertIsNone(get_watchdog_remaining_time())
+            close_all_shutters()
+            self.assertFalse(is_watchdog_armed())
+            self.assertIsNone(get_watchdog_remaining_time())
 
     def test_window_close_failsafe_shutter_sweep(self):
         """Verifica que el cierre de la ventana principal ejecute barrido fail-safe (close_all_shutters)."""
@@ -613,6 +623,7 @@ class TestPySpectrumSafety(unittest.TestCase):
         # carga ya no escribe los offsets al Shamrock (DEC-040), así que la relectura trae los del
         # equipo. Antes este test pasaba porque el arranque escribía el 12 y después lo releía.
         fe = calibration_dock.CalibrationFrontend()
+        _KEEP_ALIVE.extend([fe, be])
         be.make_connection(fe)
         _, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
         _, device_grating_offset = self.spectrometer.ShamrockGetGratingOffset(DEVICE, grating)
@@ -655,6 +666,7 @@ class TestPySpectrumSafety(unittest.TestCase):
 
         # 1. CalibrationFrontend
         fe_calib = calibration_dock.CalibrationFrontend()
+        _KEEP_ALIVE.append(fe_calib)
         self.assertTrue(len(fe_calib.btn_zero_order.toolTip()) > 10)
         self.assertTrue(len(fe_calib.spin_slit_width.toolTip()) > 10)
         self.assertTrue(len(fe_calib.btn_auto_slit.toolTip()) > 10)

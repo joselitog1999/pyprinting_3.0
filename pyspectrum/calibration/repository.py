@@ -15,6 +15,8 @@ R2-arq §2.5, reconciliado en la Ronda 4 (D-03, D-04) y con las respuestas R4-A-
   salida). Un orden distinto en la torreta no aplica un offset a la red equivocada.
 - **Referencia:** el APPLIED(CONFIRMED) más reciente por clave; si no hay, el MANUAL_ENTRY más reciente.
   El detector se compara contra 0 por convención (R4-A-2).
+- **SLIT_CENTER** (R4-N 1a): el centro de la ranura en orden cero, aplicado desde el dock (autocalibración o a
+  mano), EXPERIMENTAL. Sin clave de red: la serie y los puertos van en los valores.
 - **Al arrancar** (`observe_spectrograph`): se lee con Get* y se registra OBSERVED. Después se compara y
   se informa. **Nunca se escribe al equipo** (R4-B-1: "leer al inicio" es cargar y comparar).
 """
@@ -34,7 +36,7 @@ from typing import Any, Dict, List, Optional
 
 SCHEMA_VERSION = 1
 LINES_PER_MM_TOL = 0.5
-KINDS = ("OBSERVED", "MANUAL_ENTRY", "PROPOSED", "PRE_WRITE", "APPLIED", "SOFTWARE_CORRECTION")
+KINDS = ("OBSERVED", "MANUAL_ENTRY", "PROPOSED", "PRE_WRITE", "APPLIED", "SOFTWARE_CORRECTION", "SLIT_CENTER")
 OUTCOMES = ("CONFIRMED", "MISMATCH", "WRITE_FAILED", "READBACK_FAILED")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]

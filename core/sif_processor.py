@@ -21,6 +21,7 @@ import io
 import math
 import os
 import re
+from pathlib import Path
 import warnings
 import numpy as np
 from scipy import signal, ndimage
@@ -162,6 +163,7 @@ class SifSpectrum:
     channels_count: int = 1
     is_master: bool = False
     ref_is_bg_corrected: bool = False
+    live_is_bg_corrected: bool = False   # Solis ya restó el fondo del canal live (p. ej. un Raman con señal y fondo)
 
     @property
     def num_frames(self) -> int:
@@ -193,6 +195,124 @@ class SifSpectrum:
 
 
 # ==============================================================================
+# CASILLEROS DEL .SIF (investigador, 2026-10-02)
+# ==============================================================================
+# Un .sif de Andor Solis tiene casilleros fijos, en este orden: Señal, Referencia, Fondo, Live y Fuente. Antes de
+# cada uno hay una bandera de presencia ("1" o "0"); el primer bloque va después de "65538 1". Cada canal declara
+# su tipo (DataType: "Counts", "Counts (Bg Corrected)", "Transmittance"). Leer por casillero, y no por la posición
+# del bloque, evita rotular mal un archivo con menos canales: un Raman con señal y fondo se leía como
+# "transmitancia + live".
+SIF_SLOTS = ("signal", "reference", "background", "live", "source")
+_SIF_MAGIC = b"Andor Technology Multi-Channel File\n"
+_SIF_BLOCK_MAGIC = _SIF_MAGIC + b"65538 1\n"
+
+
+@dataclass
+class SifSlot:
+    """Un casillero presente de un .sif: los datos (cuadros, filas, columnas) y lo que declara."""
+    name: str
+    data: np.ndarray
+    data_type: str
+    exposure_s: Optional[float]
+    info: Dict[str, Any]
+
+
+def _decode(v) -> str:
+    if isinstance(v, bytes):
+        return v.decode("latin-1", errors="replace").strip()
+    return str(v).strip() if v is not None else ""
+
+
+def _read_block(content: bytes, pos: int):
+    """Lee el bloque que empieza en `pos`. Devuelve (datos, info, posición siguiente)."""
+    from sif_parser.sif_open import _open
+    stream = io.BytesIO(_SIF_BLOCK_MAGIC + content[pos:])
+    tile, size, n_img, info = _open(stream)
+    if not tile:
+        raise ValueError("bloque sin datos")
+    w, h = int(size[0]), int(size[1])
+    frames, end = [], 0
+    for t in tile:
+        off = int(t[2])
+        stream.seek(off)
+        frames.append(np.frombuffer(stream.read(w * h * 4), dtype="<f4").reshape(h, w))
+        end = max(end, off + w * h * 4)
+    return np.stack(frames).astype(np.float64), info, pos + end - len(_SIF_BLOCK_MAGIC)
+
+
+def _read_flag(content: bytes, pos: int):
+    while pos < len(content) and content[pos:pos + 1] in (b" ", b"\n", b"\r"):
+        pos += 1
+    if pos < len(content) and content[pos:pos + 1] in (b"0", b"1"):
+        nxt = content[pos + 1:pos + 2]
+        if nxt in (b"\n", b"\r", b" "):
+            return int(content[pos:pos + 1]), pos + 1
+    return None, pos
+
+
+def read_sif_slots(filepath) -> Dict[str, SifSlot]:
+    """Los casilleros presentes de un .sif, en orden. Lanza ValueError si el archivo no tiene la estructura."""
+    content = Path(filepath).read_bytes()
+    if not content.startswith(_SIF_MAGIC):
+        raise ValueError(f"{filepath}: no es un archivo .sif de Andor")
+    line2_end = content.index(b"\n", len(_SIF_MAGIC))
+    parts = content[len(_SIF_MAGIC):line2_end].split()
+    if len(parts) < 2 or parts[0] != b"65538" or parts[1] not in (b"0", b"1"):
+        raise ValueError(f"{filepath}: cabecera .sif desconocida ({content[:60]!r})")
+    flag, pos = int(parts[1]), line2_end + 1
+    slots: Dict[str, SifSlot] = {}
+    for name in SIF_SLOTS:
+        if flag is None:
+            break
+        if flag == 1:
+            data, info, pos = _read_block(content, pos)
+            exp = info.get("ExposureTime")
+            slots[name] = SifSlot(name, data, _decode(info.get("DataType")),
+                                  float(exp) if exp is not None else None, info)
+        flag, pos = _read_flag(content, pos)
+    if "signal" not in slots:
+        raise ValueError(f"{filepath}: el .sif no tiene el casillero de la señal")
+    return slots
+
+
+def _is_bg_corrected(data_type: str) -> bool:
+    t = data_type.lower()
+    return "bg corrected" in t or "background corrected" in t
+
+
+def live_is_bg_corrected(slots: Dict[str, SifSlot]) -> bool:
+    """True si el canal que el analizador llama "live" ya viene con el fondo restado por Solis. Es la señal
+    cuando no hay casillero Live (un Raman con fondo); el casillero Live guarda cuentas crudas."""
+    if "live" in slots:
+        return _is_bg_corrected(slots["live"].data_type) and "trans" not in slots["live"].data_type.lower()
+    sig = slots.get("signal")
+    return bool(sig) and "trans" not in sig.data_type.lower() and _is_bg_corrected(sig.data_type)
+
+
+def _slots_to_named(slots: Dict[str, SifSlot]) -> Tuple[Dict[str, np.ndarray], int, bool]:
+    """Los nombres que usa el analizador de transmitancia, por casillero."""
+    named: Dict[str, np.ndarray] = {}
+    sig = slots["signal"]
+    if "trans" in sig.data_type.lower():
+        named["transmittance"] = sig.data
+    elif "live" in slots:
+        named["signal"] = sig.data
+    else:
+        named["live"] = sig.data                     # la señal es la muestra (p. ej. Raman con fondo)
+    if "reference" in slots:
+        named["reference"] = slots["reference"].data
+    if "background" in slots:
+        named["dark"] = slots["background"].data
+    if "live" in slots:
+        named["live"] = slots["live"].data
+    if "source" in slots:
+        named["source"] = slots["source"].data
+    ref = slots.get("reference")
+    ref_bg = bool(ref) and ("bg corrected" in ref.data_type.lower() or "background corrected" in ref.data_type.lower())
+    return named, len(slots), ref_bg
+
+
+# ==============================================================================
 # LECTURA Y DESEMPAQUETADO MULTI-CANAL SIF
 # ==============================================================================
 def parse_all_sif_channels(filepath: str, return_details: bool = False) -> Any:
@@ -211,6 +331,15 @@ def parse_all_sif_channels(filepath: str, return_details: bool = False) -> Any:
     """
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"No se encontró el archivo: {filepath}")
+
+    # Por casillero (2026-10-02). Si la estructura no se reconoce, la lectura vieja por posición.
+    try:
+        named, n, ref_bg = _slots_to_named(read_sif_slots(filepath))
+        if return_details:
+            return named, n, ref_bg
+        return named, n
+    except Exception:
+        pass
 
     with open(filepath, 'rb') as f:
         content = f.read()
@@ -330,6 +459,10 @@ def read_sif_file(filepath: str, custom_calib_coeffs: Optional[List[float]] = No
         channels_count = 1
 
     is_master = (channels_count == 4)
+    try:
+        live_bg = live_is_bg_corrected(read_sif_slots(filepath))
+    except Exception:
+        live_bg = False
 
     return SifSpectrum(
         raw_data=data,
@@ -341,7 +474,8 @@ def read_sif_file(filepath: str, custom_calib_coeffs: Optional[List[float]] = No
         channels=channels,
         channels_count=channels_count,
         is_master=is_master,
-        ref_is_bg_corrected=ref_is_bg_corr
+        ref_is_bg_corrected=ref_is_bg_corr,
+        live_is_bg_corrected=live_bg
     )
 
 
@@ -1930,3 +2064,122 @@ def export_sif_session_to_hdf5(filepath: str, session_data: Dict[str, Any]) -> s
 
     print(f"[HDF5 FAIR/NeXus] Sesión del Analizador SIF exportada en: {filepath}")
     return filepath
+
+
+# ==============================================================================
+# .SIF RAMAN (investigador, 2026-10-02)
+# ==============================================================================
+@dataclass
+class RamanSifData:
+    wavelengths: np.ndarray          # nm, de la calibración del SIF; sin ella, píxeles
+    counts: np.ndarray               # lo que se analiza: la señal, o señal − fondo
+    raw_signal: np.ndarray           # la señal del casillero, reducida a 1D
+    background: Optional[np.ndarray] # el fondo ("ruido"), reducido igual, o None
+    signal_bg_corrected: bool        # Solis ya restó el fondo de la señal
+    subtracted: bool                 # counts = señal − fondo
+    axis_from_calibration: bool
+    n_frames: int
+    n_rows: int
+    note: str
+    metadata: Dict[str, str]
+    slots: Tuple[str, ...]
+    per_second: bool = False         # la señal está en cuentas por segundo; el fondo se pasó a la misma unidad
+
+
+def _reduce(data: np.ndarray, frame: Optional[int], rows: Optional[Tuple[int, int]]) -> np.ndarray:
+    n_frames, n_rows, _ = data.shape
+    if frame is None:
+        cube = data.mean(axis=0)
+    else:
+        if not 0 <= int(frame) < n_frames:
+            raise ValueError(f"cuadro {frame} fuera de rango (hay {n_frames})")
+        cube = data[int(frame)]
+    r0, r1 = (0, n_rows) if rows is None else (int(rows[0]), int(rows[1]))
+    if not (0 <= r0 < r1 <= n_rows):
+        raise ValueError(f"filas [{r0}, {r1}) fuera de rango (hay {n_rows})")
+    return cube[r0:r1].mean(axis=0)
+
+
+def read_raman_sif(filepath, *, frame: Optional[int] = None, rows: Optional[Tuple[int, int]] = None,
+                   subtract: bool = True) -> RamanSifData:
+    """Un .sif Raman reducido a un espectro.
+
+    - Si la señal dice "Counts (Bg Corrected)", Solis ya restó el fondo: no se resta otra vez (aunque se pida).
+    - Si dice "Counts", con `subtract` se analiza señal − fondo, sólo si el fondo tiene la misma forma y la misma
+      exposición; si no, se analiza la señal y la nota dice por qué.
+    - Varias filas: el promedio del rango `rows` (por defecto todas). Varios cuadros: el promedio, o `frame`.
+    - El eje λ sale de la calibración del SIF; sin ella, píxeles. El láser no se toma del SIF (lo pone el usuario).
+    """
+    slots = read_sif_slots(filepath)
+    sig = slots["signal"]
+    bg_slot = slots.get("background")
+    n_frames, n_rows, width = sig.data.shape
+    raw = _reduce(sig.data, frame, rows)
+    notes: List[str] = []
+    per_second = "per second" in sig.data_type.lower()
+
+    background = None
+    bg_ok, why = False, ""
+    if bg_slot is not None:
+        if bg_slot.data.shape[1:] != sig.data.shape[1:]:
+            why = f"el fondo tiene otra forma ({bg_slot.data.shape[1:]} contra {sig.data.shape[1:]})"
+        else:
+            bg_frame = None if (frame is None or bg_slot.data.shape[0] != n_frames) else frame
+            background = _reduce(bg_slot.data, bg_frame, rows)
+            if per_second and "per second" not in bg_slot.data_type.lower():
+                # La señal está en cuentas por segundo y el fondo en cuentas de la exposición: se lleva el fondo
+                # a cuentas por segundo para que sean comparables (investigador, 2026-10-02).
+                if bg_slot.exposure_s and bg_slot.exposure_s > 0:
+                    background = background / bg_slot.exposure_s
+                    notes.append(f"El fondo se pasó a cuentas por segundo (÷ {bg_slot.exposure_s:g} s), como la señal.")
+                else:
+                    why = "la señal está en cuentas por segundo y el fondo no dice su exposición"
+                    background = None
+            if (sig.exposure_s is not None and bg_slot.exposure_s is not None
+                    and abs(sig.exposure_s - bg_slot.exposure_s) > 1e-6 * max(sig.exposure_s, 1e-9)):
+                why = f"el fondo tiene otra exposición ({bg_slot.exposure_s:g} s contra {sig.exposure_s:g} s)"
+            else:
+                bg_ok = True
+
+    corrected = "bg corrected" in sig.data_type.lower() or "background corrected" in sig.data_type.lower()
+    subtracted = False
+    counts = raw.copy()
+    if corrected:
+        notes.append("Solis ya restó el fondo de la señal: no se resta otra vez" +
+                     ("; el fondo queda para ver." if background is not None else "."))
+    elif bg_slot is None:
+        notes.append("El SIF no trae fondo.")
+    elif not bg_ok:
+        notes.append(f"No se restó el fondo: {why}.")
+    elif subtract:
+        counts = raw - background
+        subtracted = True
+        notes.append("Se muestra señal − fondo (el fondo del mismo SIF).")
+    else:
+        notes.append("Se muestra la señal cruda; el fondo está disponible para restar.")
+
+    wl = _extract_wavelength_axis(sig.info, width)
+    axis_cal = not np.array_equal(wl, np.arange(width, dtype=np.float64))
+    if not axis_cal:
+        notes.append("El SIF no trae calibración: el eje está en píxeles.")
+
+    info = sig.info
+    meta: Dict[str, str] = {"Formato": "Andor Solis .sif",
+                            "Casilleros": ", ".join(slots),
+                            "Tipo de la señal": sig.data_type or "desconocido"}
+    if bg_slot is not None:
+        meta["Tipo del fondo"] = bg_slot.data_type or "desconocido"
+    for key, label in (("ExposureTime", "Exposure Time (secs)"), ("AccumulatedCycles", "Number of Accumulations"),
+                       ("DetectorTemperature", "Temperature (C)"), ("NumberOfFrames", "Number of Frames"),
+                       ("GainDAC", "Gain DAC"), ("GratingBlaze", "Grating Blaze"), ("FrameAxis", "Frame Axis")):
+        if info.get(key) is not None:
+            meta[label] = _decode(info.get(key))
+    meta["Unidades"] = "cuentas/s" if per_second else "cuentas"
+    meta["Filas"] = str(n_rows)
+    meta["Cuadros"] = str(n_frames)
+    if info.get("RamanExWavelength") is not None:
+        meta["RamanExWavelength del SIF (no se usa)"] = _decode(info.get("RamanExWavelength"))
+    meta["Fondo"] = " ".join(notes)
+
+    return RamanSifData(np.asarray(wl, dtype=np.float64), counts, raw, background, corrected, subtracted, axis_cal,
+                        n_frames, n_rows, " ".join(notes), meta, tuple(slots), per_second)

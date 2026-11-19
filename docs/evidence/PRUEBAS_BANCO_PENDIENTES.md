@@ -3,7 +3,8 @@
 **Laboratorio**: Nanofotónica — Instituto de Nanosistemas (INS-UNSAM / CONICET)
 **Ubicación**: `docs/evidence/PRUEBAS_BANCO_PENDIENTES.md`
 **Vinculado a**: `docs/evidence/EVIDENCE_LEDGER.md`, `docs/decisions/DECISION_LOG.md`, [[SYS-301]], [[SYS-303]], [[MOD-06]]
-**Última actualización**: 2026-09-30 (revisión con la regla de la cámara por pylablib, R4-F)
+**Última actualización**: 2026-10-04 (revisión contra las hojas de datos y depuración de lo ya respondido; ver
+"Revisión del 2026-10-04" y "Retiradas" al final)
 
 ---
 
@@ -36,7 +37,36 @@ la platina ni el espectrógrafo:
 - `andor_acquisition_mode_probe.py`: la cámara por ctypes, sola. **Archivada por la regla de abajo**
   (BANCO-03).
 - `pi_stage_probe.py`: sólo lectura de la platina, sin servo (BANCO-17).
-- `daq_buffer_probe.py`: sólo entradas analógicas (BANCO-26).
+- `daq_buffer_probe.py`: sólo entradas analógicas. BANCO-26 se respondió con la documentación de NI (2026-10-04);
+  la sonda queda como control opcional.
+
+## Revisión del 2026-10-04: lo que responden las hojas de datos
+
+Fuentes (locales en `docs/bibliografia/` salvo que se indique):
+- [DS-iXon]: `Andor_iXon3_885_Specifications.pdf`;
+- [DS-Shamrock]: `andor-shamrock-500-specifications.pdf`;
+- [SDK]: `Software Development Kit.pdf`, Andor SDK 2.104;
+- [DS-NI6353]: NI 6353 Device Specifications, 374592D (`download.ni.com/support/manuals/374592d.pdf`);
+- [NI-KB-buffer]: NI, "DAQmx Buffer Size Allocation for Finite or Continuous Acquisition" (`knowledge.ni.com`, id kA00Z000000P9PkSAK);
+- [MFF101]: Thorlabs, *MFF101 and MFF102 Motorized Filter Flippers User Guide*, HA0305T Rev H (2017);
+- [DS-Excelsior]: Spectra-Physics, *Excelsior Series Datasheet* (`spectra-physics.com`).
+
+| Pregunta | Respuesta de la hoja de datos | Prueba afectada |
+| :--- | :--- | :--- |
+| Buffer automático de una tarea continua a 10 000 S/s | Tabla de NI: 101–10 000 S/s → **10 kS**; 10 001–1 000 000 S/s → 100 kS. La regla no es ambigua en 10 000. Un buffer explícito (`DAQmx Configure Input Buffer`) reemplaza al automático [NI-KB-buffer] | BANCO-26 **retirada**: el defecto de C-01 desbordaba a ≈ 1 s |
+| Pull-down de las líneas DIO de la PCIe-6353 | 50 kΩ típico, 20 kΩ mínimo [DS-NI6353 p. 9] | BANCO-16: confirma la premisa; la posición del servo sigue siendo de banco |
+| Modo de entrada del MFF101 | Dos modos: *Toggle Position* (cada flanco LO→HI invierte la posición) y *Go To Position* (LO→HI va a POS 1 y HI→LO a POS 2) [MFF101 p. 26]. Lo observado en BANCO-21 (cada orden lo lleva a la posición opuesta) es *Toggle Position* | BANCO-21 **retirada** (lo que faltaba pasa a BANCO-57 y BANCO-64) |
+| Posición del MFF101 sin alimentación | "puede quedar en la misma posición o, por gravedad, ir al límite inferior" [MFF101 p. 17] | BANCO-64: agregado |
+| Tiempo de giro del MFF101 | 500–2800 ms (Apéndice B); configurable entre 300 y 2800 ms [MFF101 pp. 26, 28] | BANCO-59: `MIRROR_SETTLE_S` = 0.15 s es **menor** que el giro mínimo. Ver el hallazgo en BANCO-59 |
+| Láser de 532 nm | Excelsior 532 de 150 mW = modelo *Single Mode*, **DPSS**; λ "532 nm" **sin tolerancia publicada**; ancho de línea < 10 MHz (< 0.01 pm); deriva < 50 MHz/°C; calentamiento < 5 min [DS-Excelsior p. 3] | BANCO-22: tipo y λ nominal respondidos; la λ absoluta sigue siendo de banco. BANCO-71: calentamiento |
+| ADC del iXon3 885 | **14 bit** a 35, 27 y 13 MHz, las tres por el amplificador EMCCD; saturación 16 383 [DS-iXon p. 2] | BANCO-50: confirmado |
+| Velocidades de la cámara | lectura 35, 27 y 13 MHz, sólo amplificador EMCCD; reloj vertical 0.5–1.9 µs; ganancia EM 1–1000× (RealGain) [DS-iXon p. 2] | BANCO-38: valores esperados |
+| Rango de ganancia EM por defecto | `SetEMGainMode` modo 0 = DAC 0–255, "Default mode" [SDK p. 270] | BANCO-38: coincide con el rango fijo 0–255 del panel (R4-L) |
+| `SetEMCCDGain` durante una adquisición | devuelve `DRV_ACQUIRING` [SDK p. 269] | BANCO-41: cita corregida (era p. 270); la prueba sigue |
+| Obturador interno del iXon3 | opcional de fábrica: código "S" (obturador) o "0" (sin obturador) [DS-iXon p. 4]. La hoja no dice cuál se compró | BANCO-22 → BANCO-38 (`IsInternalMechanicalShutter`) o la etiqueta del cabezal |
+| Ancho de la ventana por red | 150 l/mm (blaze 800): 12.83 nm/mm; 1200 l/mm (blaze 500): 1.44 nm/mm [DS-Shamrock p. 6]. Con 1004 × 8 µm = 8.032 mm: **103.0 nm** y **11.57 nm** | BANCO-05: nominal confirmado; queda la variación con λ |
+| Modo del enfriador al cerrar | `SetCoolerMode` documenta los modos 0 y 1 pero **no** el valor por defecto [SDK p. 246] | BANCO-57, paso 5: sigue siendo de banco |
+| ¿`ShamrockSetWavelength` bloquea? | No está en el material disponible: el [SDK] es el de la cámara, sin el manual del Shamrock | BANCO-08 y BANCO-39 siguen |
 
 ## Regla: la cámara, sólo por pylablib (R4-F; revisión del 2026-09-30)
 
@@ -71,8 +101,8 @@ la platina ni el espectrógrafo:
 | Prueba | Veredicto de la revisión | Qué cambió |
 | :--- | :--- | :--- |
 | BANCO-01 | vale | ya se leyó por pylablib |
-| BANCO-02 | vale sólo para el legado | la parte que falta no bloquea a 3.0; `observar_live()` ya usa el contador de pylablib (2026-09-30) |
-| BANCO-03 | **archivada** | la sonda habla con la DLL por ctypes; sus preguntas T1-T4 pasan a BANCO-55 con pylablib |
+| BANCO-02 | vale sólo para el legado (**retirada el 2026-10-04**) | la parte que falta no bloquea a 3.0; `observar_live()` ya usa el contador de pylablib (2026-09-30) |
+| BANCO-03 | **archivada** (retirada el 2026-10-04) | la sonda habla con la DLL por ctypes; sus preguntas T1-T4 pasan a BANCO-55 con pylablib |
 | BANCO-09 | vale, ajustada | el camino TTL es `setup_shutter` de pylablib |
 | BANCO-10 | vale, ajustada | la regla de "cero = falla" era del driver propio; queda como control del bias |
 | BANCO-11 | vale, ajustada | el rechazo lo da `get_status` de pylablib |
@@ -102,10 +132,8 @@ la platina ni el espectrógrafo:
 | ID | Verifica | Depende de | Requisitos | Estado |
 | :--- | :--- | :--- | :--- | :--- |
 | BANCO-01 | Pitch, tamaño y modelo del detector leídos del hardware | `DEC-033`, `SW-003` | Legado abierto (sólo lectura) | ✅ 2026-09-28 |
-| BANCO-02 | Por qué el Live del legado se congelaba | Protocolo de adquisición | Legado abierto (sólo lectura) | ◐ 2026-09-28 (parcial) |
-| BANCO-03 | Protocolo de adquisición del iXon3 (T0–T4) por ctypes | `DEC-032`, protocolo de adquisición | — | 🗄 archivada (R4-F; pasa a BANCO-55) |
 | BANCO-04 | El Shamrock acepta y relee la geometría del detector | `DEC-033` | PySpectrum 3.0 en hardware | ☐ |
-| BANCO-05 | Ancho real de la ventana espectral por red | `DEC-033` | PySpectrum 3.0 en hardware | ☐ |
+| BANCO-05 | Variación con λ del ancho de la ventana por red (el nominal ya lo da [DS-Shamrock]) | `DEC-033` | PySpectrum 3.0 en hardware | ☐ |
 | BANCO-06 | Exactitud del eje λ con líneas conocidas | `DEC-033`, `SYS-303` | 3.0 en hardware + lámpara de calibración | ☐ |
 | BANCO-07 | Step & Glue sin huecos ni saltos | `DEC-033` | 3.0 en hardware + lámpara halógena | ☐ |
 | BANCO-08 | Asentamiento real de la red tras mover λ | `SW-002` | 3.0 en hardware + lámpara de calibración | ☐ |
@@ -115,18 +143,17 @@ la platina ni el espectrógrafo:
 | BANCO-12 | Imagen 2D con ROI: forma y filas correctas | `DEC-030` | 3.0 en hardware | ☐ |
 | BANCO-13 | Banda de ranura objetivo en Orden Cero | `DEC-031`, `DEC-033` | 3.0 en hardware | ☐ |
 | BANCO-14 | Corrimiento del eje del legado (1002 vs 1004 px) | `SW-004` | Legado y 3.0 + lámpara de calibración | ◐ premisa confirmada |
-| BANCO-15 | Mapeo línea DAQ ↔ servo de cada obturador y polaridad | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
+| BANCO-15 | Mapeo línea DAQ ↔ servo de cada obturador y polaridad | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ◐ procedimiento del operador (2026-11-19) |
 | BANCO-16 | Posición del servo de 532 nm al encender, reiniciar NI y cerrar el programa | `DEC-036` | **Láseres apagados** | ☐ |
-| BANCO-17 | Modelo y recorrido real de la platina (qCST, qTMN/qTMX) | `DEC-036` | PyPrinting cerrado; `tools/bench/pi_stage_probe.py` | ☐ |
+| BANCO-17 | Modelo y recorrido real de la platina (qCST, qTMN/qTMX) | `DEC-036` | PyPrinting cerrado; `tools/bench/pi_stage_probe.py` | ✅ 2026-11-19 (investigador) |
 | BANCO-18 | Aviso de "cierre sin confirmar" ante una falla real de la placa | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
+| BANCO-72 | Watchdog sólo de rutinas: la apertura manual no se corta; una rutina larga sana tampoco | `DEC-052` | **Láseres apagados** | ☐ |
 | BANCO-19 | Pérdida de comunicación con la platina durante una rutina | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
 | BANCO-20 | Qué está conectado en `ai3`: trigger Z de la E-517 o fotodiodo de 808 nm | C-44, R2-6 | Inspección del cableado | ✅ 2026-09-28 (reabre C-44) |
-| BANCO-21 | Posición del espejo de detección (`line7`) al encender y tras un cierre forzado | C-08, R2-4/5 | **Láseres apagados** | ◐ 2026-09-28 (parcial) |
-| BANCO-22 | Inventario: placa en NI MAX, BNC-2110 ↔ líneas, fotodiodos, láseres, flipper, iXon | R1-1, D-11, C-01 R1 | Inspección, NI MAX | ◐ 2026-09-28 (parcial) |
+| BANCO-22 | Inventario que falta: placa (serie, BNC de P0.8–P0.11), fotodiodos (ganancia, `ai`), referencia de λ, desmontaje de la cámara, circuito de los obturadores | R1-1, D-11, C-01 R1 | Inspección, NI MAX | ◐ 2026-10-04 (resto respondido) |
 | BANCO-23 | Versiones de software en la PC del banco | C-01 R1 | Consola | ◐ 2026-09-28 (parcial) |
 | BANCO-24 | Δt entre filas y filas tras el escalón en `NP_xxx.txt` del legado y de 3.0 | C-01 R1 | Archivos ya guardados | ◐ 2026-09-28 (reabre C-01) |
 | BANCO-25 | Offsets del Shamrock leídos del equipo | C-04, R2-9 | Legado abierto (sólo lectura) | ✅ 2026-09-28 (**difiere de lo anotado**) |
-| BANCO-26 | Tamaño real del buffer DAQmx de una tarea continua a 10 kS/s | C-01 | Sin láser; sólo entradas analógicas | ☐ |
 | BANCO-27 | La traza sigue en tiempo real a una señal conocida | C-01, `DEC-037` | Generador o LED en un AI libre | ☐ |
 | BANCO-28 | Cadencia real de la traza y costo de cada lectura | C-01 | Sin láser | ☐ |
 | BANCO-29 | Latencia escalón → línea DO del obturador (eléctrica) | C-01, Ronda 1 | Osciloscopio, LED o generador | ☐ |
@@ -162,8 +189,18 @@ la platina ni el espectrógrafo:
 | BANCO-60 | Live de 3.0 sobre pylablib: velocidad, cambios en vivo y pausa por una rutina | PySpectrum, paquete 1 de R4-M | Sin láser | ☐ |
 | BANCO-61 | Herramientas de Exploración: regla, eje λ, ajuste, fondo, traza y guardado | PySpectrum, paquete 2 de R4-M | Lámpara, sin láser | ☐ |
 | BANCO-62 | El fondo en los procedimientos: obturador, reutilización, todo apagado y sustrato | PySpectrum, R4-N | Lámpara; láser sólo en un punto, con aprobación | ☐ |
+| BANCO-63 | Centro de la ranura en orden cero: una gaussiana por fila | PySpectrum, R4-N 1a | Lámpara, sin láser | ☐ |
+| BANCO-64 | Espejo de detección entre sesiones y resincronización | PySpectrum y PyPrinting, R4-N 3 | **Láseres apagados** | ☐ |
+| BANCO-65 | Confirmación a baja potencia: OD del filtro, oscuro, ruido y separación de poblaciones | C-01 Ronda 4, R4-3 | ⚠️ 532 a baja potencia, con aprobación | ☐ |
+| BANCO-66 | Parada de emergencia de PyPrinting de punta a punta, con modales y en modo satélite | C-01 Ronda 4, R4-17 | Láseres apagados; osciloscopio en las líneas | ☐ |
+| BANCO-67 | "Cerrar todos" durante una grilla con `legacy_timer` | C-01 Ronda 4, N-4 | Láseres apagados | ☐ |
+| BANCO-68 | Cuánto tiempo se retiene `_nidaq_lock` | C-01 Ronda 4, N-2 | Láseres apagados | ☐ |
+| BANCO-70 | Pausa en cada etapa de la grilla de PyPrinting 3.0 (con la cadena en un hilo, `DEC-045`) | C-01 Ronda 4, `DEC-041` | **Láseres apagados**; osciloscopio en la línea del 532 | ☐ |
+| BANCO-71 | La llave del láser como única parada física | C-01 Ronda 4, R4-17 | Sin accionar nada | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
+| BANCO-73 | ¿El Growth del legado (REC Kinetics) funciona en el banco? | Paridad legado ↔ 3.0 (2026-11-19) | Legado, tapa puesta, sin láser | ☐ |
+| BANCO-74 | Luminiscencia de 3.0 con la secuencia del legado (mini-mapa y S&G); Single-Track contra la suma del cuadro Image | `DEC-054`, `DEC-055` | Lámpara sin láser; ⚠️ 532 a baja potencia, con aprobación | ☐ |
 
 ---
 
@@ -195,75 +232,6 @@ como registro.
   - **Pasa**: coincide con [DS-iXon] y con `DEC-033`. Lo leyó pylablib, no el SDK directo: la línea
     `C.sdk` no salió porque la sonda buscaba `atmcd64d.dll` y el legado tiene cargada
     `atmcd64d_legacy.dll`. La sonda ya prueba los dos nombres.
-
-### ◐ BANCO-02 — Por qué el Live del legado se congelaba
-- **Verifica**: la hipótesis de que "REC Liveview Kinetics" (Step & Glue) deja la cámara en modo
-  cinético y ninguna restauración posterior funciona, porque `set_acquisition_mode = '...'`
-  tapa el método de pylablib en vez de llamarlo.
-- **Procedimiento**: correr la sonda (secciones A y B). Con el Live del legado encendido,
-  ejecutar además `observar_live()`. Idealmente repetir antes y después de usar REC Liveview
-  Kinetics.
-- **Aceptación de la hipótesis**: A dice `TAPADO`; B dice `kinetic` después de haber usado
-  REC Liveview Kinetics; `observar_live()` dice `NO AVANZA` en ese estado.
-- **Si no se confirma**: la causa del Live congelado es otra. Anotarlo antes de diseñar la
-  Ronda 2 del protocolo de adquisición.
-- **Revisión R4-F (2026-09-30):** vale sólo para el legado. 3.0 fija el modo en cada exposición
-  (`setup_acquisition`) y no hereda el defecto. Lo que falta no bloquea a 3.0. `observar_live()` usa ctypes:
-  si se repite, con `cam.get_frames_status()` de pylablib (propuesta de la regla).
-- **Resultado (2026-09-28, parcial; `reserva/PRUEBAS_BANCO_28-09-2026.md`):**
-  - con el Live apagado y sin haberlo usado: A intacto, modo `cont`, estado `idle`, exposición 1.0 s,
-    temperatura 23.9 °C (enfriador apagado);
-  - con el Live encendido: A **`TAPADO`** (la instancia tiene `set_acquisition_mode = 'cont'`, un
-    `str`), modo `cont`, estado `acquiring`, exposición 0.1 s. La **temperatura no se puede leer**:
-    `GetTemperatureF raised error 20072 (DRV_ACQUIRING)`.
-  - Queda confirmado que la asignación del legado tapa el método de pylablib ya desde el Live, no
-    sólo desde REC Liveview Kinetics. Falta: repetir después de REC Liveview Kinetics (¿`kinetic`?) y
-    correr `observar_live()`, que falló por el mismo motivo que `C.sdk` (ya corregido en la sonda).
-  - **Consecuencia en 3.0 (ya implementada):** mientras la cámara adquiere, `get_temperature`
-    devuelve la última lectura con `DRV_ACQUIRING`, y el panel y el módulo de cámara la muestran como
-    "⏸ última lectura; adquiriendo", nunca como "Estabilizado"
-    (`tests/test_andor_pylablib_backend.py`).
-
----
-
-## Grupo B — Con el legado y Solis CERRADOS, cámara a temperatura ambiente
-
-### 🗄 BANCO-03 — Protocolo de adquisición del iXon3 (sonda T0–T4) — ARCHIVADA (R4-F, 2026-09-30)
-- **Por qué se archiva:** la sonda habla con la DLL de la cámara por ctypes, fuera de la regla de pylablib. Con
-  pylablib, las preguntas se responden en el camino que usan el legado y 3.0:
-  - T0 ya lo respondió BANCO-01;
-  - T1 no importa, porque 3.0 fija el modo en cada adquisición (`setup_acquisition`);
-  - T2, T3 y T4 pasan a BANCO-55: exposición real, un cuadro que no se repite, `single` y `cont`.
-- Se conserva el texto original y el intento del 2026-09-28, que encontró la causa del "0 cámaras".
-- **Texto original:**
-- **Verifica**: cuatro supuestos de los que depende el rediseño pendiente del protocolo de
-  adquisición y la premisa de `DEC-032` sobre el orden de arranque.
-- **Requisitos**: cerrar el PySpectrum legado, Solis y PySpectrum 3.0 (la cámara admite un solo
-  proceso). Enfriador apagado: la sonda se niega a seguir por debajo de −20 °C.
-- **Procedimiento**: `python tools\bench\andor_acquisition_mode_probe.py` (o con la ruta de la DLL
-  como argumento). Hace `Initialize`, exposiciones cortas y `AbortAcquisition` + `ShutDown` en
-  `finally`.
-- **Lectura del resultado**:
-
-  | Prueba | Pregunta | Qué cambia según la respuesta |
-  | :--- | :--- | :--- |
-  | T0 | Modelo, tamaño y pitch | Contraste independiente de BANCO-01 |
-  | T1 | Modo por defecto tras `Initialize` (nadie en 3.0 lo fija) | Si es *single scan*, el Live de 3.0 mostraría un único cuadro |
-  | T2 | ¿La exposición arranca en `StartAcquisition()` o al leer? | Si arranca en `StartAcquisition`, el primer cuadro de Live integra en parte con el obturador cerrado: `DEC-032` se basó en que no |
-  | T3 | ¿Releer el buffer devuelve el cuadro viejo o `NO_NEW_DATA`? | Riesgo de datos viejos con aspecto válido en `acquire_single()` |
-  | T4 | ¿Funcionan *Run Till Abort* y *Single* + `WaitForAcquisition`? | Base técnica del rediseño |
-- **Resultado**: pegar el bloque `RESUMEN`.
-  - **Intento del 2026-09-28 (no concluyente, se repite):** con sólo la terminal abierta y el
-    espectrómetro reiniciado, la sonda informó `Initialize falló: 0`, que no es un código del SDK.
-  - Diagnóstico manual con la DLL del legado (`C:\Users\PRINTING\Desktop\PySpectrum\atmcd64d.dll`):
-    `GetAvailableCameras` → 20002 con **0 cámaras**, y `Initialize("")` → 0. El SDK no veía ninguna
-    cámara, así que el problema está en la conexión PC ↔ cámara (alimentación, USB, driver o un
-    proceso que la retiene), no en la sonda.
-  - Además, en la copia clonada `C:\PyPrinting3_banco` faltaba `pyspectrum\drivers\libs\atmcd64d.dll`,
-    aunque está en `origin/main`: clon incompleto o DLL en cuarentena del antivirus.
-  - La sonda se corrigió después: `Initialize` con cadena vacía, como pylablib, e informe previo de
-    `GetAvailableCameras`.
-  - **Causa encontrada (2026-09-28):** el legado carga `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`, que pylablib busca primero. La sonda usaba `atmcd64d.dll`. Ahora busca en el mismo orden que pylablib; mientras tanto se corre pasándole esa ruta como argumento.
 
 ---
 
@@ -328,6 +296,11 @@ estable si la prueba adquiere datos.
   espectral después de adquirir (eje real).
 - **Aceptación**: 150 l/mm ≈ 103 nm y 1200 l/mm ≈ 11.6 nm, dentro de ±5 %; la variación entre
   centros de una misma red, por debajo del solapamiento mínimo (10 %).
+- **Ya respondido (2026-10-04):**
+  - el nominal sale de la hoja de datos: 12.83 nm/mm (150 l/mm, blaze 800) y 1.44 nm/mm (1200 l/mm, blaze 500)
+    por 8.032 mm de detector dan 103.0 nm y 11.57 nm [DS-Shamrock p. 6];
+  - un punto medido: 103.7 nm con 150 l/mm en λc = 863.5 nm, con los coeficientes del equipo (BANCO-25).
+  - Lo que queda es la variación entre centros.
 - **Resultado**: tabla red × centro → ancho medido.
 
 ### ☐ BANCO-06 — Exactitud del eje λ con líneas conocidas
@@ -447,6 +420,45 @@ estable si la prueba adquiere datos.
   `ShamrockGetNumberPixels = 1002` y `ShamrockGetPixelWidth = 8.0` µm, mientras que la cámara tiene
   1004 columnas. La premisa de `SW-004` queda confirmada; falta la medición con la lámpara.
 
+### ☐ BANCO-73 — ¿El Growth del legado (REC Kinetics) funciona en el banco?
+- **Origen**: revisión de paridad legado ↔ 3.0 (2026-11-19). El investigador no sabe si funciona.
+- **Por qué importa**: decide si la rutina de crecimiento de 3.0 copia lo que el legado **hace** o lo que
+  **quería** hacer. Leyendo el código, con pylablib 1.4.3 el REC Kinetics debería fallar:
+  `StepandGlue_ps.py:1646, 1653` asignan `self.myAndor.set_acquisition_mode = 'kinetic'` como atributo, lo que
+  tapa el método; `setup_kinetic_mode` de pylablib lo llama por dentro (`AndorSDK2.py:750`) y recibiría un
+  string (`TypeError`). Además `read_newst_image` (`:1672`) no existe en pylablib 1.4.3.
+- **Procedimiento** (cámara con la tapa puesta, **sin láser**, Solis cerrado): en el legado, pestaña
+  "Measurment spectrum", exposición 0.1 s, "Number of Kinetics Serial" 20, pulsar "REC/STOP Kinetics".
+  Anotar el traceback de la consola si aparece, y si se crea la carpeta `<ts>_Kinetics_Liveview_Spectrum` con
+  los `Line_Spectrum_step_####.txt`. En la consola del legado anotar también
+  `import pylablib; pylablib.__version__` y la ruta de `StepandGlue_ps.py` que corre.
+- **Aceptación**: cualquier resultado sirve; se anota.
+- **Resultado**: —
+
+### ☐ BANCO-74 — Luminiscencia de 3.0 con la secuencia del legado (`DEC-054`)
+- **Verifica**: la grilla de luminiscencia de 3.0 de punta a punta en el equipo, y que la lectura Single-Track de la
+  fibra da el mismo espectro que la suma por software del cuadro Image que hacía el legado.
+- **Procedimiento**:
+  1. **Sin láser, con la lámpara** al mínimo: en Exploración, un cuadro en Image y uno en Single-Track (fila 438,
+     alto 25) con la misma exposición. Sumar las filas 426–450 del cuadro Image y comparar con el Single-Track: mismo
+     perfil y mismo valor medio. Anotar el ruido de cada uno en una zona sin señal (se espera menor en Single-Track).
+  2. **⚠️ 532 a baja potencia, con aprobación**: satélite Microscopio Derecho abierto con el lock de foco; grilla
+     2 × 2 con centrado (2 µm, 34 px), mini-mapa 5 × 5 a 0.5 s, banda que contenga la emisión. Verificar el orden:
+     autofoco → centrado (láser abierto sólo durante la rampa) → espejo abajo → mapa (láser abierto todo el mapa) →
+     láser cerrado → espejo arriba. Revisar los archivos: TIFF `NPscan` crudos, `Slow_Confocal_Spectrum_Col_001_NP_000`
+     con 25 `Spectrum_i_j.txt` de 1004 filas, el TIFF del mapa y `Trace_BS.txt`, `Info.txt` y el `.h5`.
+  3. Abrir un `Spectrum_i_j.txt` y un `NPscan` con los scripts de análisis que se usan con el legado.
+  4. **Luminiscencia S&G (`DEC-055`), con la lámpara y sin láser** ("Láser apagado (scattering)"): grilla de 2 nodos,
+     medición "Step & Glue", 500–700 nm, 20 %, 0.1 s. Verificar el orden potencia baja → (centrado) → potencia alta →
+     espejo abajo → ventanas → espejo arriba, y que `Line_Spectrum_step_N.txt` y `Background_Line_Spectrum_step_N.txt`
+     tengan N × 1004 valores con la fibra por encima del fondo. Medir lo mismo con el legado (Luminescence Steps and
+     Glue) y comparar los perfiles de cada ventana.
+- **Aceptación**: el perfil del paso 1 coincide; la secuencia del paso 2 es la indicada; los archivos se leen con los
+  análisis del legado sin cambios; en el paso 4 las ventanas de 3.0 y del legado tienen la misma forma (los centros
+  difieren: 3.0 usa el ancho medido).
+- **Si falla**: no corregir en el momento; anotar y reabrir `DEC-054` o `DEC-055`.
+- **Resultado**: —
+
 ---
 
 ## Grupo E — PyPrinting 3.0 con los LÁSERES APAGADOS (bloque de seguridad, DEC-036)
@@ -455,10 +467,18 @@ Requisito común: **todos los láseres apagados** (llave o interlock de emisión
 láser), de modo que abrir un obturador no emita luz. Estas pruebas verifican la lógica de
 control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarlas.
 
-### ☐ BANCO-15 — Mapeo línea DAQ ↔ servo de cada obturador y polaridad
+### ◐ BANCO-15 — Mapeo línea DAQ ↔ servo de cada obturador y polaridad
+- **Pasa a procedimiento del operador (investigador, 2026-11-19).** La polaridad no hace falta
+  conocerla de antemano: se configura por línea (`config.SHUTTER_POLARITY`) y los obturadores son
+  intercambiables. Al instalar o al cambiar un obturador, el operador prueba la polaridad y la fija.
+  No bloquea el despliegue; se hace con los láseres apagados en la misma visita que el resto del
+  Grupo E.
 - **Verifica**: que cada obturador responde a la línea que el código le asigna. `config.py`
   dice 532 nm → `port0/line11` (activo en BAJO), 637 nm → `line8`, 592 nm → `line9`,
   808 nm → `line10`. La documentación anterior decía `line0:3`.
+  - Ojo: la copia de `pyspectrum-legacy` del 2026-08-20 tiene el mapa anterior (`[9, 10, 11, 12]` para
+    532/594/637/808). R2-1 dice que ese era un cableado anterior. Al hacer esta prueba, anotar también qué
+    copia del legado corre en el banco y con qué mapa.
 - **Procedimiento**: desde el panel de obturadores, abrir y cerrar cada uno por separado;
   observar qué servo se mueve y en qué posición queda en cada caso.
 - **Aceptación**: cada casilla mueve su propio servo; "abierto" y "cerrado" coinciden con la
@@ -468,8 +488,9 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
 
 ### ☐ BANCO-16 — Posición del servo de 532 nm sin la línea manejada
 - **Verifica**: el riesgo que abre la polaridad invertida del 532 nm. La placa PCIe-6353 tiene
-  un pull-down de 50 kΩ (hoja de datos NI 6353): con la línea sin manejar queda en BAJO, que
-  para el 532 nm significa "abrir".
+  un pull-down de 50 kΩ típico, 20 kΩ mínimo ([DS-NI6353 p. 9], verificado el 2026-10-04): con la línea sin manejar queda en BAJO, que
+  para el 532 nm significa "abrir". La hoja confirma la premisa; la posición del servo depende de su circuito y
+  sólo se ve en el banco.
 - **Procedimiento**: observar la posición del servo de 532 nm (a) al encender la PC,
   (b) al reiniciar la placa desde NI MAX ("Reset Device"), (c) al cerrar PyPrinting
   normalmente y (d) al terminarlo desde el Administrador de tareas.
@@ -479,7 +500,9 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
   de 532 nm sólo se enciende con PyPrinting ya iniciado.
 - **Resultado**: posición en (a), (b), (c) y (d).
 
-### ☐ BANCO-17 — Modelo y recorrido real de la platina
+### ✅ BANCO-17 — Modelo y recorrido real de la platina
+- **Respondida (investigador, 2026-11-19):** el recorrido es 100 × 100 µm en X e Y. Z queda en 20 µm
+  según la hoja de datos de la P-517.3CD. La sonda queda como control opcional.
 - **Verifica**: que la platina es la P-517.3CD que declaran README y METACONTEXT (hoja de datos
   de PI: 100 × 100 × 20 µm) y que el límite de 20 µm en Z que adoptó `DEC-036` es el correcto.
 - **Procedimiento**: `python tools\bench\pi_stage_probe.py`, con PyPrinting y PIMikroMove
@@ -490,12 +513,25 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
 - **Resultado**: pegar el bloque `RESUMEN`.
 
 ### ☐ BANCO-18 — Aviso de "cierre sin confirmar" ante una falla real de la placa
-- **Verifica**: que un cierre que la placa no confirma se trata como abierto, con el watchdog
-  reintentando y el banner persistente.
+- **Verifica**: que un cierre que la placa no confirma se trata como abierto, con el hilo del
+  watchdog reintentando y el banner persistente. Desde `DEC-052` el reintento sigue igual pero no
+  hay plazo en la operación manual: un obturador abierto desde el panel no se cierra solo.
 - **Procedimiento**: con un obturador abierto desde el panel, reiniciar la placa desde NI MAX
   ("Reset Device") para invalidar la tarea; luego cerrarlo desde el panel.
 - **Aceptación**: el panel muestra "CIERRE SIN CONFIRMAR" en rojo y la casilla sigue marcada;
   la consola registra los reintentos; al reiniciar PyPrinting el obturador cierra.
+- **Resultado**: —
+
+### ☐ BANCO-72 — Watchdog sólo de rutinas (`DEC-052`; láseres apagados)
+- **Verifica**: que la operación manual no tiene plazo y que una rutina sí.
+- **Procedimiento** (llave de los láseres apagada; mirar el servo o el LED de la placa):
+  1. con el Watchdog de rutinas en 30 s, abrir el 532 desde el dock y esperar 60 s; repetir desde la
+     ventana Láser 532;
+  2. con el 637 abierto a mano, correr un escaneo confocal corto con el 532 y dejarlo terminar;
+  3. elegir 30 s y correr un Step & Glue con una exposición de 40 s por ventana.
+- **Aceptación**: (1) el obturador sigue abierto y la casilla marcada; (2) al terminar el escaneo el
+  637 sigue abierto; (3) el barrido **no** se corta (late durante la exposición). Si se corta,
+  anotar en qué ventana: el latido no llega desde el hilo de la adquisición.
 - **Resultado**: —
 
 ### ☐ BANCO-19 — Pérdida de comunicación con la platina durante una rutina
@@ -505,6 +541,15 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
   controlador E-517 a mitad de camino.
 - **Aceptación**: la rutina se detiene, los obturadores quedan cerrados, la platina no se
   mueve a (50, 50, 10) µm y reconectar requiere una acción del operador desde el Dashboard.
+- **Agregado (`DEC-053`, 2026-11-19): conectar y soltar no mueven la platina.** Con la platina en una
+  posición distinta de home (p. ej. (20, 70, 5) µm):
+  1. pulsar `🔌 Reconectar`: la posición mostrada no cambia y el servo enciende **sin salto** (mirar la
+     imagen en vivo o la posición durante 2 s). Es el supuesto de `DEC-053`: la E-517 toma como destino
+     la posición actual al encender el servo;
+  2. reconectar y reanudar la grilla: la platina va directo al nodo pendiente, sin pasar por home;
+  3. cerrar PyPrinting: la platina queda donde estaba, ya no va a (0, 0, 0);
+  4. pulsar `⌂ Home`: los obturadores se cierran y la platina llega a (50, 50, 10) µm.
+  - Si el servo salta al encenderse, no corregir en el momento: anotar el salto y reabrir `DEC-053`.
 - **Resultado**: —
 
 ---
@@ -528,68 +573,55 @@ obturador ni se mueve nada.
   `PD_CHANNELS` como está anotado en PyPrinting. El conflicto no tiene efecto mientras el 808 no esté
   conectado. Al conectarlo, hay que asignarle un `ai` libre.
 
-### ◐ BANCO-21 — Espejo de detección (`line7`) al encender y tras un cierre forzado
-- **Verifica**: el espejo es un conmutador (el mismo pulso cambia de posición) y el software no
-  conoce su posición real (R2-5). El espectrómetro sólo recibe luz con el espejo abajo (R2-4).
-- **Procedimiento**: con los láseres apagados, anotar la posición física del espejo (a) al
-  encender todo, (b) después de cerrar PyPrinting normalmente, (c) después de terminarlo desde
-  el Administrador de tareas; y comparar con lo que muestra el rótulo "Mirror" al reabrir.
-- **Resuelve**: el diseño de la persistencia y la resincronización del espejo (fase 6.3 del plan).
-- **Resultado (2026-09-28, investigador, parcial):**
-  - el espejo es un conmutador **Thorlabs MFF101**;
-  - al encender, **conserva la posición** en la que estaba;
-  - el checkbox del programa lo mueve a la posición **opuesta**, sin respetar si el rótulo dice
-    arriba o abajo. Confirma R2-5: el software no conoce la posición real.
-  - Falta: (b) y (c), la posición después de un cierre normal y de uno forzado; y el modo de
-    entrada configurado en el MFF101 (conmutación por flanco o posición por nivel).
-
 ### ◐ BANCO-22 — Inventario de hardware
-Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
-- [ ] **Placa**: modelo y número de serie en NI MAX (se espera PCIe-6353); qué BNC-2110 va al
-  conector 0 y cuál al conector 1, y en cuál están P0.7–P0.11 (R1-1).
-- [ ] **Fotodiodos**: modelo y ganancia de cada uno, y a qué `ai` va (C-01, Ronda 1, pregunta 8).
-- [ ] **Láseres**: modelos del 637, 592 y 808 nm (el verde es Excelsior-532-150-CDRH) (D-11).
-- [ ] **Flipper del filtro de densidad**: ¿es un Thorlabs MFF101? Fuente de alimentación y modo
-  de entrada (pregunta 9 de la Ronda 2 del verificador).
-- [ ] **iXon3 885**: opción de enfriamiento DV o DU y temperatura alcanzable (`lab-invariants` §3).
-- [ ] **Láser de 532 nm**: el investigador dice que es **de diodo** (R4-A-8), pero acá figura
-  Excelsior-532-150-CDRH, que es DPSS. Leer la etiqueta. El tipo define cuán estable es su λ como
-  referencia de la calibración automática.
-- [ ] **Obturadores ópticos del espectrómetro**: ¿el Shamrock tiene obturador propio? ¿El iXon3
-  tiene el obturador interno opcional? ¿Hay un cable TTL de la cámara al Shamrock? (Ronda 1 del
-  bloque A, D-3.)
-- [ ] **Referencia absoluta de λ** (R4-B-11):
+**Falta anotar** (modelo leído de la etiqueta o de NI MAX):
+- [ ] **Placa**: número de serie en NI MAX, y en qué BNC-2110 y conector están P0.8–P0.11 (R1-1). En la
+  BNC-2110 "A" están P0.0–P0.7.
+- [ ] **Fotodiodos** (Thorlabs PDA36A): la ganancia de cada uno, que es un selector del equipo, y a qué `ai` va
+  cada uno (C-01, Ronda 1, pregunta 8).
+- [ ] **Referencia absoluta de λ** (R4-B-11). La hoja de datos da "532 nm" **sin tolerancia** [DS-Excelsior p. 3],
+  así que la λ absoluta del láser no se puede tomar de ahí:
   - ¿hay una λ medida del láser de 532?
-  - ¿se puede acercar un tubo fluorescente (Hg 546.07 nm, que cae en el mismo cuadro que el 532 con
-    la red de 150) a la entrada del espectrómetro?
+  - ¿se puede acercar un tubo fluorescente a la entrada del espectrómetro? La línea Hg 546.07 nm cae en el
+    mismo cuadro que el 532 con la red de 150, cuya ventana es de 103 nm;
   - una vez, comparar la posición del pico de 532 visto a través del notch con la del 532
     atenuado sin notch (láser en baja, filtro de densidad, ganancia EM 0).
 - [ ] **Cámara desmontada alguna vez** (R4-A-7): anotar la fecha si se sabe. Un desmontaje puede
   mover el corrimiento común a las dos redes.
 - [ ] **Obturadores de fabricación propia**: ¿la línea TTL entra a un microcontrolador que
   genera el PWM del servo? Anotar el circuito (C-01, Ronda 2, pregunta 15).
-- **Resultado (2026-09-28, investigador, parcial):**
-  - **Placa:** PCIe-6353. En la BNC-2110 "A" están P0.0–P0.7. Falta dónde están P0.8–P0.11 y el
-    número de serie.
-  - **Fotodiodos:** Thorlabs **PDA36A**. Falta la ganancia de cada uno y a qué `ai` va cada uno.
-  - **Láseres:** el verde es el **Excelsior** (revisado en la etiqueta), es decir DPSS, no de
-    diodo: se corrige R4-A-8. Los modelos del resto quedan pendientes; el investigador los considera
-    no relevantes por ahora.
-  - **Flippers:** el del filtro de densidad es **de fabricación casera**; el del espejo up/down es
-    el Thorlabs MFF101.
-  - **iXon3 885:** opción de enfriamiento **DU**, llega a **−80 °C** (el valor con aire de
-    [DS-iXon] para DU).
-  - **Obturador del espectrómetro:** hay un **cable TTL de la cámara al Shamrock**. Suena un solo
-    obturador, y por el sonido parece comandado por la cámara; según el investigador, el único
-    obturador es el del Shamrock. Es decir: `SetShutter` de la cámara acciona el obturador del
-    Shamrock a través de ese TTL. Falta confirmar si el iXon3 tiene además obturador interno.
-  - Pendientes: la referencia absoluta de λ, la fecha de desmontaje de la cámara y el circuito de
-    los obturadores de fabricación propia.
+
+**Respondido** (investigador el 2026-09-28; hojas de datos el 2026-10-04):
+- **Placa:** PCIe-6353.
+- **Láseres:**
+  - el verde es el **Excelsior 532** de 150 mW (etiqueta). Según la hoja de datos es el modelo *Single Mode*,
+    **DPSS**, con ancho de línea < 10 MHz (< 0.01 pm), deriva < 50 MHz/°C y calentamiento < 5 min
+    [DS-Excelsior p. 3]. Se corrige R4-A-8, que lo daba como de diodo. Como referencia de la calibración
+    automática, su λ es estable muy por debajo de un píxel (0.1 nm); lo que no se conoce es su valor absoluto;
+  - los modelos del 637, 592 y 808: **retirado**, el investigador los considera no relevantes por ahora.
+- **Flippers:** el del filtro de densidad es **de fabricación casera**; el del espejo up/down es el Thorlabs
+  MFF101, en modo *Toggle Position* (BANCO-21, retirada).
+- **iXon3 885:** opción de enfriamiento **DU**, llega a **−80 °C** con aire [DS-iXon p. 2].
+- **Obturador del espectrómetro:**
+  - hay un **cable TTL de la cámara al Shamrock**;
+  - suena un solo obturador, y según el investigador es el del Shamrock: el `SetShutter` de la cámara lo
+    acciona a través de ese TTL. El obturador del Shamrock es un accesorio de fábrica, "no actualizable"
+    [DS-Shamrock p. 8].
+  - Si el iXon3 tiene además el obturador interno opcional ([DS-iXon p. 4]: código "S" con obturador, "0"
+    sin él) no lo dice la hoja. Se responde con `IsInternalMechanicalShutter` en BANCO-38 o con el código de
+    la etiqueta del cabezal.
 
 ### ◐ BANCO-23 — Versiones de software en la PC del banco
 - **Procedimiento**: en la consola del entorno de PyPrinting, anotar la versión del driver
   NI-DAQmx (NI MAX → Software) y las de `nidaqmx`, `pipython`, `PyQt6` y `numpy`
   (`python -m pip show nidaqmx pipython PyQt6 numpy`). Python ya se sabe: 3.11.13.
+  - **Desde el 2026-11-19 lo hace el instalador**: `tools\install\instalar.ps1` deja en
+    `logs\instalacion_<fecha>.log` el commit, Python, la versión del driver NI-DAQmx, la DLL de PI
+    y `pip freeze`. Basta con pegar ese informe acá.
+  - Las DLL de la cámara y del Shamrock son las que el investigador entregó en el repositorio,
+    compatibles con pylablib (2026-11-19). El `atmcd64d.dll` del repositorio es idéntico byte a byte al
+    de la carpeta del legado. Por defecto pylablib carga `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`,
+    igual que el legado; `PYSPECTRUM_ANDOR_DLL_DIR` apunta a otra carpeta si se quiere.
 - **Resultado (2026-09-28, investigador, parcial):**
   - pylablib 1.4.3 en el entorno del legado;
   - el resto, "son las de `requirements.txt`" según el investigador. Queda como dato EXPERIMENTAL
@@ -668,27 +700,11 @@ Anotar para cada ítem el modelo leído de la etiqueta o de NI MAX:
 
 ## Grupo G — Traza de impresión (C-01): adquisición y latencia
 
-Validan la reversión de `DEC-037` y dan los datos para la Ronda 2 de C-01. Las pruebas
-BANCO-26 a BANCO-31 no usan láser: la señal la da un generador de funciones o un LED
+Validan la reversión de `DEC-037` y dan los datos para la Ronda 2 de C-01. BANCO-26 se retiró el 2026-10-04:
+la documentación de NI fija el buffer automático a 10 000 S/s en 10 kS, así que el defecto de C-01 desbordaba a
+≈ 1 s. Las pruebas BANCO-27 a BANCO-31 no usan láser: la señal la da un generador de funciones o un LED
 conectado a un canal analógico libre (el investigador confirmó que hay canales libres).
 El detalle de cada una está en `auditoria_2026-09-27/c01_ronda1/instrumentation.md` §3.
-
-### ☐ BANCO-26 — Tamaño real del buffer de una tarea continua a 10 kS/s
-- **Verifica**: la regla de NI es ambigua justo en 10 kS/s: el buffer puede ser de 10 000 o de
-  100 000 muestras por canal, y eso decide si el defecto de C-01 desbordaba a ≈ 1 s o a ≈ 10 s.
-- **Procedimiento**:
-  - **Requisitos:** PyPrinting, el PySpectrum legado y Solis cerrados, o al menos sin ninguna lectura de fotodiodos en curso, porque si otro programa tiene las entradas NI-DAQmx da −50103.
-  - **Ejecutar:** `python tools\bench\daq_buffer_probe.py`, que sólo usa entradas analógicas. La sonda:
-    - crea la tarea continua que tenía la traza en C-01: `Dev1/ai0, ai1, ai2, ai3, ai6`, 10 000 S/s por canal, `samps_per_chan = 1000`;
-    - la confirma con un commit, que es cuando NI-DAQmx asigna el buffer, sin arrancar ninguna adquisición;
-    - lee `input_buf_size` con el buffer automático y con uno explícito de 100 000 muestras;
-    - cierra la tarea.
-  - **Resultado:** pegar el bloque `RESUMEN BANCO-26`.
-- **Aceptación e interpretación:**
-  - buffer automático = 10 000 → el defecto de C-01 desbordaba a ≈ 1 s;
-  - buffer automático = 100 000 → desbordaba a ≈ 10 s;
-  - el buffer explícito tiene que quedar en 100 000, que es lo que necesita la opción E de C-01.
-- **Resultado**: —
 
 ### ☐ BANCO-27 — La traza sigue en tiempo real a una señal conocida
 - **Procedimiento**: una onda cuadrada de 1 Hz en un AI libre, mirada con la traza de
@@ -765,6 +781,7 @@ encender nada. Resuelve preguntas de la Ronda 2 de C-01
   PyPrinting 3.0, (a) accionar desde cada programa cada botón de obturador y
   anotar qué servo se mueve; (b) correr la traza de PyPrinting mientras PySpectrum lee un
   fotodiodo, y anotar errores de cada consola.
+- **Mientras no se pruebe (respuesta del 2026-10-01, C-01 Ronda 4, pregunta 15):** no correr PySpectrum legacy y PyPrinting 3.0 a la vez durante una grilla. Cada programa escribe las cuatro líneas con su propio estado, y ninguna parada sabe lo que abrió el otro (`c01_ronda4/devil_advocate.md`).
 - **Combinación 3.0 + 3.0 (R4-2b, 2026-09-28)**: PyPrinting 3.0 se abre **sólo desde el menú
   Herramientas de PySpectrum 3.0**, como ventana satélite en el mismo proceso. En modo laboratorio,
   el lanzador bloquea abrir los dos por separado. Verificar además que:
@@ -792,13 +809,13 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 
 | ID | Qué resuelve | Procedimiento resumido | ¿Acciona algo? | ¿Aprobación? |
 | :--- | :--- | :--- | :--- | :--- |
-| BANCO-36 | Accesorios, límites y ejes del Shamrock | sonda, sólo getters: `GetDetectorOffsetEx` ×4, `Port2`, `GetWavelengthLimits(1..3)`, `AtZeroOrder`, `FlipperMirrorIsPresent`/`GetFlipperMirror(1,2)`, `AutoSlitIsPresent`/`GetAutoSlitWidth(1..4)`, `GetSlitZeroPosition`, `ShutterIsPresent`/`GetShutter`, `EepromGetOpticalParams`, `GetNumberGratings`/`GetGratingInfo`; `GetCalibration(1002)` y `(1004)` frente al cúbico en el mismo estado | No | No |
+| BANCO-36 | Accesorios, límites y ejes del Shamrock | sonda, sólo getters: `GetDetectorOffsetEx` ×4, `Port2`, `GetWavelengthLimits(1..3)`, `AtZeroOrder`, `FlipperMirrorIsPresent`/`GetFlipperMirror(1,2)`, `AutoSlitIsPresent`/`GetAutoSlitWidth(1..4)`, `GetSlitZeroPosition`, `ShutterIsPresent`/`GetShutter`, `EepromGetOpticalParams`, `GetNumberGratings`/`GetGratingInfo`; `GetCalibration(1002)` y `(1004)` frente al cúbico en el mismo estado. **Ya leído en BANCO-25** (2026-09-28): las redes (150/800, 1200/500 y el espejo), sus offsets, el offset del detector y los ceros de ranura; no hace falta repetirlo | No | No |
 | BANCO-37 | Persistencia de los offsets vigentes | leer; apagar y encender el Shamrock; releer; fecha y contenido de `SPECTROG.INI` | No (ciclo de energía, sin escrituras) | No |
 | BANCO-37b | Persistencia de un offset **escrito** | la primera escritura real (1200 l/mm) con §3.3; leer en Solis; ciclo de energía; releer | **Sí** (escritura y posible giro, §3.1) | **Sí**, y BANCO-25 hecho |
-| BANCO-38 | Tablas y capacidades de la cámara | legado abierto, cámara IDLE, **sólo getters de pylablib** (R4-F), desde la consola del legado: `cam.get_all_amp_modes()` (amplificadores, velocidades HS y preamps), `cam.get_all_vsspeeds()` (qué índice es 1.9 µs), `cam.get_EMCCD_gain()`, `cam.get_temperature_range()` (DV o DU), `cam.is_cooler_on()`, `cam.get_capabilities()` (modos de ganancia, `AC_FEATURES_SHUTTEREX`), `cam.get_max_vsspeed()` (`GetFastestRecommendedVSSpeed`), `cam.get_min_shutter_times()` (`GetShutterMinTimes`). Sin método de alto nivel en pylablib 1.4.3, por su capa baja `cam._lib`: `GetEMGainRange` e `IsInternalMechanicalShutter` | No | No |
+| BANCO-38 | Tablas y capacidades de la cámara | legado abierto, cámara IDLE, **sólo getters de pylablib** (R4-F), desde la consola del legado: `cam.get_all_amp_modes()` (amplificadores, velocidades HS y preamps), `cam.get_all_vsspeeds()` (qué índice es 1.9 µs), `cam.get_EMCCD_gain()`, `cam.get_temperature_range()` (DV o DU), `cam.is_cooler_on()`, `cam.get_capabilities()` (modos de ganancia, `AC_FEATURES_SHUTTEREX`), `cam.get_max_vsspeed()` (`GetFastestRecommendedVSSpeed`), `cam.get_min_shutter_times()` (`GetShutterMinTimes`). Sin método de alto nivel en pylablib 1.4.3, por su capa baja `cam._lib`: `GetEMGainRange` e `IsInternalMechanicalShutter`. **Esperado por [DS-iXon p. 2]:** un solo amplificador (EMCCD) con 35, 27 y 13 MHz, 14 bit; reloj vertical 0.5–1.9 µs (1.9 µs es el más lento). **Por [SDK p. 270]:** modo de ganancia 0 = DAC 0–255 por defecto, el rango fijo del panel (R4-L); `GetEMGainRange` lo confirma. DV o DU ya está respondido (DU, BANCO-22): `get_temperature_range()` queda como control | No | No |
 | BANCO-39 | ¿Bloquean `SetWavelength`, `SetGrating` y `SetAutoSlitWidth`? | duración de cada llamada para saltos de 20, 200 y 500 nm, cambio de red, y ranura 50 → 100 → 50 µm; relectura al volver | **Sí** (torreta y ranura) | **Sí** (sin láser, EM 0, cámara IDLE) |
 | BANCO-40 | Pasos por píxel y signo del offset de red | con la fuga de 532 (filtro de densidad en baja, EM 0) y cada red: leer O₀, escribir O₀ ± 10 y ± 20, medir el corrimiento, **restaurar O₀ y releer**; anotar si la torreta gira y si hace falta repetir `SetWavelength` | **Sí** (escritura reversible, láser de 532 atenuado) | **Sí**, y BANCO-25 hecho |
-| BANCO-41 | `SetEMCCDGain` durante una adquisición | tapa puesta, ganancia 0: con Live activo, pedir la ganancia 0 desde el panel (`set_EMCCD_gain` de pylablib). Se espera `DRV_ACQUIRING` [SDK p.270]: pylablib lo levanta como excepción, el wrapper lo devuelve como código y el panel deja el pedido pendiente hasta que la cámara quede IDLE (`CameraControlService`) | No (sin luz, pide 0) | No |
+| BANCO-41 | `SetEMCCDGain` durante una adquisición | tapa puesta, ganancia 0: con Live activo, pedir la ganancia 0 desde el panel (`set_EMCCD_gain` de pylablib). Se espera `DRV_ACQUIRING` [SDK p. 269]: pylablib lo levanta como excepción, el wrapper lo devuelve como código y el panel deja el pedido pendiente hasta que la cámara quede IDLE (`CameraControlService`) | No (sin luz, pide 0) | No |
 | BANCO-42 | Umbral especular por red | lámpara al mínimo, EM 0, 1 ms: con 150 l/mm λc = 70, 60, 55, 50, 45 nm; con 1200 l/mm λc = 8, 7, 6, 5 nm; anotar dónde aparece la imagen especular. Se espera ≈ W/2 (51.5 y 5.8 nm) [I] | **Sí** (torreta) | **Sí** |
 | BANCO-43 | Exposición y ranura seguras en orden cero; píxel de referencia | láseres cerrados, EM 0, lámpara al mínimo: 1 ms en orden cero y en espejo con cada red; cuentas por ms y centro de la imagen de la ranura | **Sí** (torreta) | **Sí** |
 | BANCO-44 | Un cuadro nuevo por ventana, sin ceros | Step & Glue corregido con la fuga de 532 en un rango que la ponga en ventanas conocidas; con pylablib, `cam.get_frames_status()` antes y después de cada ventana (un cuadro nuevo por ventana) y marca de tiempo por ventana; dos cuadros oscuros seguidos no son idénticos bit a bit | **Sí** (torreta; 532 atenuado) | **Sí** |
@@ -807,15 +824,15 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 | BANCO-47 | Un solo camino al orden cero | λc = 30 nm con 150 l/mm, combo "Espejo", Step & Glue con un centro bajo el umbral, `Ctrl+0`, y `set_emccd_gain(50)` en condición especular: todo pasa por el servicio (log) y la ganancia queda en 0 | **Sí** (torreta) | **Sí** (EM 0, láseres cerrados) |
 | BANCO-48 | Repetibilidad e histéresis de la torreta | 10 ciclos 532 → 600 → 532 y 150 → 1200 → 150 desde abajo; 5 desde abajo contra 5 desde arriba | **Sí** | **Sí** (532 atenuado) |
 | BANCO-49 | "La línea que camina" | con la fuga de 532 (no hay lámpara de calibración, R4-A 8): λc = 532 − 0.35 W, 532, 532 + 0.35 W por red; la línea tiene que caer en la misma λ ± 1 px; comparar el eje de `GetCalibration` con el cúbico | **Sí** | **Sí** (532 atenuado) |
-| BANCO-50 | Linealidad y saturación en la calibración | exposiciones T, 2T, 4T con la línea en 15-50 % del ADC (16 383) | **Sí** (532 atenuado) | **Sí** |
+| BANCO-50 | Linealidad y saturación en la calibración | exposiciones T, 2T, 4T con la línea en 15-50 % del ADC (16 383: 14 bit a las tres velocidades, [DS-iXon p. 2]) | **Sí** (532 atenuado) | **Sí** |
 | BANCO-51 | Deriva del eje λ en la sesión | la línea de 532 cada 5 min durante 2 h desde el encendido, con la temperatura de la sala y del CCD | **Sí** (532 atenuado) | **Sí** |
 | BANCO-52 | Línea contra ancho de ranura | centroide del 532 con 10, 25, 50, 100 y 200 µm; se espera ≤ 0.5 px porque la ranura es bilateral (R4-A 8) | **Sí** (ranura) | **Sí** |
 | BANCO-53 | Uniones de Step & Glue con la lámpara | 500-900 nm al 20 % y al 10 % con 150 l/mm, ventana repetida al final y barrido invertido; 800-900 nm con 1200 l/mm | **Sí** | **Sí** |
 | BANCO-54 | Tiempo de reenfriado a −60 °C después de "Reconectar cámara", que ejecuta `ShutDown` y apaga el enfriador (R4-B-7) | Con la cámara estable a −60 °C, pulsar Reconectar (con pylablib: `close()` y una apertura nueva, R4-F) y registrar la temperatura cada 10 s (`get_temperature` y `get_temperature_status` de pylablib) hasta "stabilized", con la temperatura de la sala | Sí (reinicia la cámara; sin luz) | No |
 
 **Ampliaciones de ítems existentes:**
-- **BANCO-09:** agregar `ShamrockShutterIsPresent`, y averiguar si el `SetShutter` de la cámara también mueve el obturador del espectrógrafo. El legado dice "abre shutter camera y shamrock".
-- **BANCO-22:** la λ nominal del láser de 532 y su tolerancia.
+- **BANCO-09:** agregar `ShamrockShutterIsPresent`. ~~Averiguar si el `SetShutter` de la cámara también mueve el obturador del espectrógrafo~~: **respondido** en BANCO-22 (investigador): hay un TTL de la cámara al Shamrock y un solo obturador, el del Shamrock. Lo que queda es BANCO-09 (a)-(c): cuál de los dos caminos manda.
+- ~~**BANCO-22:** la λ nominal del láser de 532 y su tolerancia.~~ **Respondido** (2026-10-04): 532 nm sin tolerancia publicada, ancho de línea < 10 MHz [DS-Excelsior p. 3]. La λ absoluta queda en BANCO-22 (referencia absoluta).
 - **BANCO-23:**
   - las versiones de `atmcd64d.dll`, `ShamrockCIF.dll` y `atshamrock.dll`, y la de pylablib si está instalado;
   - que exista `C:\Program Files\Andor SOLIS\SPECTROG.INI`, que usan el legado y 3.0 para inicializar el Shamrock.
@@ -835,13 +852,18 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
 - **Requisitos:** Solis cerrado, láseres cerrados, tapa puesta; BANCO-23 revisado; Grupo E hecho.
 - **Procedimiento:**
   1. **Con el legado abierto**, desde su consola:
-     - anotar `pylablib.__version__`, `cam.get_fan_mode()`, `cam.get_vsspeed()`, `cam.get_amp_mode()`,
-       `cam.get_EMCCD_gain()`, `cam.get_temperature()` y `cam.get_read_mode()`;
+     - correr la sonda del legado y guardar lo leído con `guardar_info(r"C:\ruta\legado.json")` (lee
+       `pylablib.__version__`, ventilador, VS, amplificador, ganancia EM, temperatura, modo de lectura y
+       `get_full_info`);
      - tomar 10 cuadros de 0.1 s en Image con ganancia 0: `start_acquisition` / `wait_for_frame` /
        `read_oldest_image`;
      - guardarlos y anotar el tiempo por cuadro.
-  2. **Cerrar el legado** y abrir PySpectrum 3.0. Anotar lo que muestra el panel izquierdo para esos
-     mismos parámetros:
+  2. **Cerrar el legado.** Con la sonda de 3.0 (`tools/bench/pyspectrum_camera_probe.py`, R4-N 2b; ver
+     `tools/bench/INSTRUCCIONES.txt` §5), sin y con `--estado-base`, guardar los JSON y anotar las
+     "Diferencias con el legado" de cada corrida. La de `--estado-base` es la que corresponde a 3.0 ya
+     arrancado.
+
+     Después abrir PySpectrum 3.0 y anotar lo que muestra el panel izquierdo para esos mismos parámetros:
      - [L] es leído;
      - [E] es enviado, porque pylablib sólo devuelve el valor guardado (preamp, velocidad HS).
 
@@ -861,31 +883,6 @@ fusionando las pruebas A1-A9 del experimentalista, P0-P11 del abogado del diablo
   - el Live vuelve después de una exposición única.
 - **Si falla:** anotar la diferencia. Como las dos corridas usan la misma biblioteca, una diferencia está
   en cómo 3.0 la configura (el estado base o el wrapper), no en el SDK.
-- **Resultado:** fecha — / versión de pylablib — / valores —
-
-**Versión anterior, archivada (R4-E, "driver propio contra pylablib"):** quedó sin objeto con R4-F mientras
-el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto original:
-
-- **Verifica:** que el driver propio de 3.0 (`andor_ccd_driver.py` + `single_exposure`) se comporta como pylablib, que es la referencia probada en el banco porque el legado la usa (R4-E, `pyspectrum_A_ronda4/ANALISIS_pylablib_vs_DLL.md`).
-- **Requisitos:**
-  - Solis cerrado, láseres cerrados, tapa puesta;
-  - BANCO-25 hecho;
-  - PySpectrum 3.0 en condiciones de abrirse contra el equipo (pasos del bloque A).
-- **Procedimiento:**
-  1. **Con el legado abierto:** anotar la versión de pylablib (`pylablib.__version__`, BANCO-23). Desde su consola, con la cámara ya conectada:
-     - leer `get_fan_mode()`, `get_vsspeed()`, `get_amp_mode()`, `get_EMCCD_gain()`, `get_temperature()` y `get_read_mode()`;
-     - tomar 10 cuadros de 0.1 s en modo Image con ganancia 0, con `snap()` o con `start_acquisition` / `wait_for_frame` / `read_oldest_image`;
-     - guardar los cuadros y anotar el tiempo por cuadro.
-  2. **Cerrar el legado** y abrir PySpectrum 3.0. Tomar los mismos 10 cuadros con `single_exposure`: Image (1002 × 1004), 0.1 s, ganancia 0, la misma velocidad vertical y el mismo amplificador. Repetir en FVB (1004).
-  3. **Comparar:**
-     - tamaño y orientación del cuadro;
-     - nivel de bias (mediana);
-     - ruido de lectura (desviación entre cuadros consecutivos);
-     - exposición real (`GetAcquisitionTimings`);
-     - que dos cuadros consecutivos nunca sean idénticos;
-     - tiempo por cuadro.
-- **Aceptación:** mismo tamaño y orientación; bias y ruido que coincidan dentro de la dispersión entre cuadros; exposición real igual; ningún cuadro repetido ni de ceros.
-- **Si falla:** anotar la diferencia. Si no se sabe corregir en el driver propio, se evalúa pasar la cámara a pylablib (opción C del análisis) con esa diferencia ya identificada.
 - **Resultado:** fecha — / versión de pylablib — / valores —
 
 ### ◐ BANCO-56 — Orientación de la imagen del Andor en orden cero frente a la cámara
@@ -928,7 +925,7 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
      - la posición final de la platina (se espera 50, 50, 10);
      - el espejo de detección: tiene que quedar abajo (R4-J);
      - si apareció el aviso final.
-  5. Abrir Solis o el PySpectrum legado: la cámara y el Shamrock tienen que estar libres (`ShamrockClose` y, para la cámara, `close()` de pylablib, que hace `ShutDown`; BANCO-23). Anotar la temperatura del CCD al abrir, a los 0, 2 y 5 min. Desde R4-L 3.0 no fija el modo del enfriador al cerrar: esto dice qué hace el SDK por defecto (si sigue enfriando o vuelve a ambiente).
+  5. Abrir Solis o el PySpectrum legado: la cámara y el Shamrock tienen que estar libres (`ShamrockClose` y, para la cámara, `close()` de pylablib, que hace `ShutDown`; BANCO-23). Anotar la temperatura del CCD al abrir, a los 0, 2 y 5 min. Desde R4-L 3.0 no fija el modo del enfriador al cerrar: esto dice qué hace el SDK por defecto (si sigue enfriando o vuelve a ambiente). El manual no lo responde: `SetCoolerMode` describe los modos 0 (vuelve a ambiente) y 1 (mantiene la temperatura) sin decir cuál es el valor por defecto [SDK p. 246].
   6. Abrir PySpectrum 3.0 otra vez: al conectar, la platina **no** debe moverse, porque ya está en home.
 - **Aceptación:** ningún movimiento de la platina fuera de los pasos 4 y 6; el cierre termina sin aviso; los equipos quedan libres.
 - **Resultado:** fecha — / tiempo de cierre — / posición final — / observaciones —
@@ -957,6 +954,14 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **Potencia (P3):** anotar el pulso de baja antes del centrado y el de alta antes del crecimiento o la impresión, y medir la potencia en la muestra en cada caso.
 - **Centrado:** el centrado confocal ahora abre el láser, en potencia baja. Confirmar que la imagen del fotodiodo muestra la partícula.
 - **Tiempos:** anotar cuánto tarda un nodo, contando los asentamientos del legado (0.5 s, 2 s en dímeros, 0.15 s del espejo y 0.5 s del láser).
+- **Hallazgo de la hoja de datos (2026-10-04): el espejo puede no haber llegado.**
+  - `grid_runner.MIRROR_SETTLE_S` = 0.15 s, tomado del legado. El MFF101 tarda en girar entre 500 y 2800 ms
+    (Apéndice B) y su tiempo de tránsito se configura entre 300 y 2800 ms [MFF101 pp. 26, 28]. Además ignora
+    un pulso que llega antes de terminar el giro anterior [MFF101 p. 17].
+  - Si nada más espera después del pulso, la primera adquisición podría empezar con el espejo en movimiento.
+  - Anotar el *Transit Time* configurado en el MFF101 (Kinesis o APT) y, con la lámpara, si el primer espectro
+    después de bajar el espejo sale completo.
+  - No se cambia el código hasta tener el dato: es un tiempo de asentamiento, y su cambio va por deliberación.
 - **Mapa hiperespectral:** un mapa de 3 × 3 con la exposición mínima útil. Comprobar que cada píxel es distinto y que el HDF5 queda en la carpeta de trabajo.
 - **Resultado:** fecha — / observaciones —
 
@@ -1002,6 +1007,121 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **Raman:** tomar un fondo, adquirir y guardar. El `.txt` tiene que tener la columna `Background_Counts`, y el espectro mostrado tiene que bajar en el nivel del fondo.
 - **Resultado:** fecha — / observaciones —
 
+### ☐ BANCO-63 — Centro de la ranura en orden cero (R4-N 1a; lámpara, sin láser)
+- **Qué se prueba:** la autocalibración del centro de la ranura del dock de Calibraciones, con la cámara y el Shamrock reales (`DEC-040`).
+- **Preparación:** orden cero, ranura en 50 µm, lámpara sobre la ranura y el ROI vertical de Exploración sobre su imagen.
+- **Repetibilidad:** 5 mediciones seguidas con 1 cuadro. La dispersión de los centros entre mediciones tiene que ser del orden de la u que informa cada una. Si es mucho mayor, la u de las filas subestima. Anotar las dos.
+- **Contra el legado:** comparar el centro con el que usa el legado (`SLIT_CENTER_PIXEL_X`, ≈ 500 según el investigador) y con el que se ve en Exploración con la regla.
+- **Inclinación:** anotar mpx/fila. Si aparece TILT, la ranura no está paralela a las columnas del sensor. Con TILT, el centro depende de las filas del ROI: correr el ROI hacia arriba y hacia abajo y anotar cuánto cambia.
+- **FWHM:** a 20, 50 y 100 µm de ranura, anotar la FWHM en µm y compararla con el ancho mecánico. Es el mismo dato que el punto "Ajuste en orden cero" de BANCO-61.
+- **Rechazos:** con la exposición alta, tiene que rechazar por saturación. Con la lámpara tapada, tiene que decir que no ve la línea. En primer orden, no tiene que arrancar. En los tres casos, sin guardar nada.
+- **Modo de la cámara:** con el Live de Exploración en Single-Track antes de medir, al terminar tiene que volver a Single-Track con el mismo track.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-64 — Espejo de detección entre sesiones y resincronización (R4-N 3; láseres apagados)
+- **Qué se prueba:** que el último estado guardado del espejo sirve al reabrir, y que la resincronización corrige una creencia equivocada (`DEC-040`; sigue a BANCO-21).
+- **Persistencia:**
+  1. con PySpectrum 3.0, bajar el espejo y cerrar el programa;
+  2. reabrirlo: el panel tiene que decir "abajo · último conocido (…), sin confirmar";
+  3. una rutina tiene que pedir confirmación igual;
+  4. mirar el espejo y anotar si coincide.
+- **Compartido:** abrir PyPrinting 3.0 después y verificar que usa el mismo `detection_mirror.json`: al mover el espejo desde PyPrinting, PySpectrum lo muestra al reabrir.
+- **Resincronización:**
+  1. con el espejo arriba a la vista, apretar [Está abajo]; el espejo no se tiene que mover;
+  2. ordenar "arriba" desde una rutina: como el software cree que está abajo, pulsa y el espejo baja. Así se ve qué pasa con una creencia equivocada;
+  3. apretar [Está abajo] (es lo que se ve ahora), ordenar "arriba" y verificar que queda arriba.
+- **Legados:** anotar las rutas de los `flipper_notch532_status.txt` del PyPrinting y del PySpectrum legados y ponerlas en `config.LEGACY_DETECTION_MIRROR_STATUS_FILE`, separadas por `;`. Verificar que "el legado dice" coincide con cada archivo ("0" arriba, "1" abajo; TRIAGE_SISTEMA_VS_LEGADO, C-08).
+- **Cierre forzado:** terminar 3.0 desde el Administrador de tareas justo después de mover el espejo. Al reabrir, el último conocido tiene que ser el de ese movimiento.
+- **Encendido y corte de alimentación** (de BANCO-21, retirada):
+  - al encender, el MFF101 conservó su posición (2026-09-28);
+  - según el manual, sin alimentación "puede quedar en la misma posición o, por gravedad, ir al límite
+    inferior" [MFF101 p. 17]. Apagar y encender la fuente del MFF101 y anotar si se movió. Si puede moverse,
+    el último conocido no vale después de un corte, y conviene que el panel lo diga.
+- **Modo de entrada:** el MFF101 está en *Toggle Position*. Cada flanco LO→HI invierte la posición, y por eso
+  el software no puede saber dónde está (R2-5). El modo *Go To Position* fijaría la posición por el flanco:
+  LO→HI va a POS 1 y HI→LO a POS 2 [MFF101 p. 26]. Es una alternativa de hardware a la resincronización;
+  cambiarla es otra ronda.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-65 — Confirmación a baja potencia (C-01 Ronda 4, R4-3) ⚠️ 532 a baja potencia, con aprobación
+- **Qué se prueba:** si una lectura con el filtro de densidad en baja potencia distingue una NP impresa de un lugar vacío, sin imprimir nada (`c01_ronda4/experimentalist.md`; respuestas del 2026-10-01).
+- **Sin BS:** el BS no está habilitado, así que la magnitud es R = (V − D)/(V_base − D), sin normalizar por el BS. D es el oscuro con el obturador cerrado y las mismas luces.
+- **Para qué sirve ahora:** la confirmación a baja potencia ya está en el código y **apagada** (`core/confirm_read.py`, `DEC-051`). Para habilitarla hacen falta la atenuación medida acá (A), la separación de poblaciones (B), la revisión de metrología y otra entrada en el DECISION_LOG.
+- **A, sin coloide:**
+  - **OD del filtro casero** (pregunta 12, se revisa acá): potencia a la salida con el filtro en alta y en baja. Hace falta una atenuación de al menos 10 (OD ≥ 1); si es menor, la lectura a baja potencia vuelve a deliberación.
+  - **Tránsito del filtro:** cuánto tarda en quedar en baja potencia después de la orden. Valida los ≈ 100 ms que pidió el investigador antes del autofoco (pregunta 4).
+  - **Oscuro D** con la lámpara de campo oscuro encendida y apagada.
+  - **σ_R** de 20 lecturas de 100 ms (5 bloques de 20 ms) sobre vacío.
+- **B, con coloide:**
+  - r a baja potencia contra r a alta, a 1, 10, 60 y 300 s de la impresión;
+  - 60 s a baja potencia sobre un lugar vacío, sin que se imprima nada (verificar con la cámara);
+  - matriz de confusión de 20 nodos cortados con "Cerrar todos", contra la cámara. Ningún nodo impreso puede quedar como "no la ve".
+- **C, ruido de los pasos entre nodos:** ruido del centro de masa de la deriva y del autofoco, y qué dan el escaneo y el autofoco con el obturador cerrado. Fija los topes de plausibilidad provisorios (pregunta 7).
+  - Los topes ya están en el código con sus valores provisorios (`core/step_plausibility.py::StepLimits`, `DEC-050`): T2 S/R ≥ 10 y 0.5-2 × la referencia, T3 0.7-1.5 ×, T4 0.27 µm, T5 50 nm + 2 nm/s·Δt (techo 500 nm), T6 3 µm; F2 Pearson ≥ 0.8 y S/R ≥ 10, F3 50 nm, F4 100 nm + 2 nm/s·Δt (techo 300 nm), F5 10 % de la rampa. Anotá, para cada uno, el valor medido con luz y con el obturador cerrado: con eso se ajustan.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-66 — Parada de emergencia de PyPrinting de punta a punta (C-01 Ronda 4, R4-17)
+- **Qué se prueba:** la parada del proceso (`DEC-047` a `DEC-049`), que ya existe con la fase 4c: es una sola para PyPrinting y PySpectrum. Láseres apagados y osciloscopio en las líneas de los obturadores (`Dev1/port0/line8` a `line11`). **Antes, BANCO-68**: fija el plazo del cerrador.
+- **Procedimiento:**
+  - `Ctrl+E` y `F12` desde cada ventana de PyPrinting: principal, impresión, dímeros, cámara y Láser 532;
+  - lo mismo con un diálogo modal abierto, incluido un `QFileDialog` nativo de Windows (guardar imagen de la cámara);
+  - en modo satélite: una sola parada para los dos programas;
+  - medir el tiempo entre la tecla y la línea cerrada;
+  - con la grilla en cada etapa (autofoco, ancla, deriva, traza, escaneo posterior): verificar que no se emite ningún movimiento ni apertura después de la parada;
+  - Rearmar habilitado sólo con el cierre confirmado; Play aparte;
+  - después de rearmar: el filtro en baja potencia, ≈ 100 ms de espera antes del autofoco (pregunta 4), y se retoma desde el primer nodo nunca expuesto (pregunta 5).
+- **Agregados de la Ronda 2 de R4-17** (`c01_ronda4/ronda2_instrumentation.md` §7):
+  - (a) con el candado de la placa retenido por una sonda de diagnóstico, el banner "cortá con la llave" aparece en ≤ 0.5 s. En `SAFE_MODE` no hace falta el banco; en la placa, con los láseres apagados;
+  - (b) "Reset Device" de NI MAX con PyPrinting abierto y los láseres apagados, y después la parada. El banner **no** dice "confirmado" hasta una escritura exitosa, y el 532 figura sin confirmar. Anotá la posición física del servo (es el caso (b) de `BANCO-16`);
+  - (c) en el registro de `MOV` de la PI: cero movimientos después de la parada hasta Rearmar, incluido el botón "siguiente índice";
+  - (d) con el osciloscopio en `ao0` y `line11`: después de rearmar, ≥ 100 ms entre el pulso *up* y la apertura del autofoco;
+  - (e) en el satélite, la parada desde PySpectrum bloquea las aperturas y los movimientos de la grilla de PyPrinting, y al revés, con un solo Rearmar.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-67 — "Cerrar todos" durante una grilla con `legacy_timer` (C-01 Ronda 4, N-4)
+- **Qué se prueba:** con el backend por defecto, "Cerrar todos" durante un nodo deja el nodo como "interrumpido" y en revisión, y no como "timeout". El Healing Pass no lo reexpone, y la grilla sigue con el nodo siguiente después de la espera visible de 3 s. Un segundo "Cerrar todos" no pausa (pregunta 6).
+- **También:** "Cerrar todos" durante el autofoco o la deriva entre nodos. El paso no se aplica, se restituye la posición y se repite (P-a). Implementado en la fase 5 de R4-17 (`DEC-050`): en la consola, "Autofoco inválido…" y "Paso restituido: Z = …"; con el osciloscopio, ninguna apertura durante los 3 s.
+- **Láseres apagados**: se observa el log de escrituras DO y los rótulos de los nodos.
+- **Con la fase 3 de R4-17** (`DEC-046`) ya se puede correr. En la consola: "Nodo N interrumpido (operator)" y "La grilla sigue con el nodo N+1 en 3.0 s". Con el osciloscopio en `line11`, mirá que la reapertura llegue ≥ 3 s después del cierre.
+- **Agregados de la Ronda 2 de R4-17:**
+  - un segundo "Cerrar todos" durante la espera no pausa, y la reapertura llega ≥ 3 s después del **primer** cierre: la espera no se reinicia (respuesta a la pregunta 2 del 2026-10-02). Medilo con el osciloscopio;
+  - el botón individual del 532 durante un nodo deja el nodo "interrumpido", igual que "Cerrar todos".
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-68 — Retención de `_nidaq_lock` (C-01 Ronda 4, N-2)
+- **Qué se prueba:** cuánto tiempo retiene el candado de la placa cada operación real (abrir, cerrar con reintentos, pulsos de los flippers, lectura de fotodiodos). Fija el plazo del cerrador de la parada, provisorio en 0.25 s.
+- **Láseres apagados**; un registro de tiempos en la consola durante una grilla corta.
+- **Agregados de la Ronda 2 de R4-17**, a las mediciones:
+  - la escritura del estado del espejo en disco dentro del candado. Si supera 10 ms, sale del candado;
+  - la creación de las tareas DO/AO en la ruta de falla;
+  - la creación de la tarea AI finita de la lectura. Decide si se crea antes de abrir (`ronda2_instrumentation.md` §5.1).
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-70 — Pausa en cada etapa de la grilla (C-01 Ronda 4, `DEC-041`; láseres apagados)
+- **Qué se prueba:** con el arreglo de la Pausa, una grilla corta de PyPrinting 3.0 en `main`, con la llave del láser apagada y el osciloscopio (o el LED de la placa) en `Dev1/port0/line11` (el 532, activo en BAJO).
+- **Procedimiento:** pausar en cada etapa: durante el autofoco en el nodo, durante el autofoco en el ancla, durante el escaneo de deriva, durante la traza y durante el escaneo posterior.
+- **En cada caso**, después de la pausa:
+  - la línea del 532 no se vuelve a abrir;
+  - la platina no se mueve;
+  - el filtro de densidad queda en baja potencia;
+  - la consola dice "Grilla en pausa: … no sigue".
+- **Play:** se sigue con el próximo nodo, tanto si la pausa cayó después de la decisión como si cortó la exposición. Desde la fase 3 de R4-17 (`DEC-046`; respuesta 1 del 2026-10-02), el nodo cortado queda "interrumpido" (triángulo rojo con anillo naranja) y **no** se vuelve a exponer.
+- **La platina no se mueve con la Pausa** (fase 3): antes, la Pausa la llevaba al inicio del último escaneo confocal, o a (50, 50) µm. Anotá la posición antes y después de cada pausa.
+- **Con la cadena en un solo hilo** (R4-17 fase 2, `DEC-045`): esta prueba ya se puede correr, porque la topología es la definitiva. Corrila con un `main` que incluya la fase 2. Agregá:
+  - el Δt medio entre ticks de la traza, para compararlo con los ≈ 47 ms de `DEC-037`. El criterio ahora corre dentro del tick y no debería cambiarlo;
+  - con el hilo GUI ocupado durante la traza (arrastrar la ventana o abrir un diálogo): cada nodo aparece una sola vez en la consola y en la tabla, en orden y sin saltear ninguno. Con la llave apagada no hay captura, así que los nodos terminan por tiempo o por caída;
+  - la interfaz sigue respondiendo durante la grilla: los gráficos de la traza se actualizan y "Pausa" responde.
+- **Resultado:** fecha — / observaciones —
+
+### ☐ BANCO-71 — La llave del láser como única parada física (C-01 Ronda 4, R4-17; sin accionar nada)
+- **Qué se prueba:** el banner de la parada de PyPrinting ("cortá con la llave del láser") nombra la llave como la única parada física (`ronda2_instrumentation.md` §7, [INV-R4] 14). Esta prueba confirma que esa indicación sirve.
+- **Procedimiento:**
+  - anotá dónde está la llave de cada láser (532, 637, 592 y 808) y si se alcanza desde la silla del operador;
+  - cronometrá cuánto tarda en cortar;
+  - anotá si al volver a encender hay que esperar una estabilización o realinear. Para el 532, la hoja da un calentamiento de < 5 min [DS-Excelsior p. 3]; lo que queda es la realineación y los otros tres láseres.
+- **Aceptación:** el manual y el banner nombran la llave correcta de cada láser. Si alguno no tiene llave o no se alcanza, se discute un corte físico (un pulsador en la alimentación) en otra ronda.
+- **Resultado:** fecha — / observaciones —
+
 ### ☐ BANCO-32 — Corte de impresión real a baja potencia ⚠️ requiere láser y aprobación
 - **Procedimiento**: una grilla de 5×5 con campo oscuro grabando, con un control sin coloide.
 - **Aceptación**: cada captura corta en el primer escalón y no hay dobletes.
@@ -1012,3 +1132,22 @@ el driver propio esté fuera de uso. Se retoma si se retoma ese driver. Texto or
 - **Procedimiento**: ≥ 1 h después de termalizar, recentrar una partícula de referencia por
   escaneo confocal a intervalos regulares y registrar la posición.
 - **Resultado**: —
+
+---
+
+## Retiradas (2026-10-04)
+
+Se sacaron de la lista porque ya están respondidas o porque no corresponden a lo que se va a usar. El texto completo
+de cada una está en el historial de git, en el último commit anterior a esta revisión (`25b7d59`). Lo medido en el
+banco se conserva en `reserva/PRUEBAS_BANCO_28-09-2026.md`.
+
+| ID | Qué era | Por qué se retira | Dónde quedó lo que importa |
+| :--- | :--- | :--- | :--- |
+| BANCO-02 | Por qué se congelaba el Live del legado | **No corresponde**: es un defecto del legado que 3.0 no hereda, porque fija el modo en cada exposición (R4-F) | Resultado del 2026-09-28: el legado tapa `set_acquisition_mode` con un `str` ya desde el Live, y la temperatura no se lee mientras adquiere (20072). 3.0 ya muestra "última lectura; adquiriendo" (`tests/test_andor_pylablib_backend.py`) |
+| BANCO-03 | Protocolo de adquisición del iXon3 por ctypes (T0–T4) | **Archivada** por la regla de pylablib (R4-F) | T0 → BANCO-01; T2–T4 → BANCO-55. La causa de "0 cámaras" (el legado carga `atmcd64d_legacy.dll`) está en la regla y en BANCO-23 |
+| BANCO-21 | Posición del espejo de detección (MFF101) al encender y tras un cierre | **Respondida en parte, el resto ya está en otras pruebas.** El modo de entrada es *Toggle Position*: lo observado (cada orden invierte) y el manual [MFF101 p. 26]. Al encender conserva la posición (2026-09-28) | Cierre normal → BANCO-57 paso 4 (tiene que quedar abajo); cierre forzado y corte de alimentación → BANCO-64 |
+| BANCO-26 | Buffer automático de una tarea continua a 10 kS/s | **Respondida por la documentación**: 101–10 000 S/s → 10 kS [NI-KB-buffer]. El defecto de C-01 desbordaba a ≈ 1 s; un buffer explícito reemplaza al automático | `DEC-037`. La sonda `daq_buffer_probe.py` queda como control opcional. El `DECISION_LOG` (entrada de `DEC-037`) todavía dice que la regla es ambigua: se corrige ahí cuando se retome la Ronda 2 de C-01 (opción E) |
+| BANCO-55 (versión R4-E) | Driver propio de la cámara contra pylablib | **No corresponde**: el driver propio está fuera de uso (R4-F) | BANCO-55 redefinida; se retoma si se retoma ese driver |
+| BANCO-22 (parte) | Modelos de los láseres de 637, 592 y 808 nm | **No corresponde por ahora** (investigador, 2026-09-28) | — |
+| BANCO-70 (parte) | Control con `7f5d10a` (antes del arreglo de la Pausa) | **No corresponde**: esa versión no se va a instalar; la prueba es sobre `main` | — |
+| BANCO-69 | El BS como testigo de luz a baja potencia | **En suspenso** desde la Ronda 2 de R4-17: el BS no está habilitado. Nunca entró a esta lista | `c01_ronda4/ronda2_instrumentation.md` (H16) |

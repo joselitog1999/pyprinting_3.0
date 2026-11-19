@@ -95,8 +95,26 @@ class Frontend(QMainWindow):
         self.resize(1440, 900)
         self._current_master_name = "PySpectrum 3.0"
         self._setup_menu()
+        self._setup_estop_bar()
         self._setup_docks()
         self._setup_subjugation_bus()
+
+    def _setup_estop_bar(self):
+        """La parada de emergencia del proceso, arriba de todo (R4-17 fase 4c, gui_design_v2.md §5.1): el botón, y
+        en una fila propia el banner con Rearmar. No es modal."""
+        from PyQt6.QtWidgets import QToolBar
+        from core.ui.emergency_widgets import EmergencyBanner, EmergencyStopButton
+        bar = QToolBar("Parada de emergencia", self)
+        bar.setMovable(False)
+        self.btn_estop = EmergencyStopButton(source="PyPrinting")
+        bar.addWidget(self.btn_estop)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
+        banner_bar = QToolBar("Banner de la parada", self)
+        banner_bar.setMovable(False)
+        self.estop_banner = EmergencyBanner()
+        banner_bar.addWidget(self.estop_banner)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, banner_bar)
 
     # ── Subyugación Master-Slave (Fase 5, DEC-019) ────────────────────────────
 
@@ -134,6 +152,13 @@ class Frontend(QMainWindow):
             )
         for w in (self.nanoWidget, self.confocalWidget, self.shuttersWidget, self.focusWidget):
             w.set_actuators_enabled(not subjugated)
+
+    @staticmethod
+    def _stop_detail(backend) -> str:
+        for name, w in (("de impresión", backend.printingWorker), ("de dímeros", backend.dimersWorker)):
+            if getattr(getattr(w, "run_state", None), "value", "") == "stopped":
+                return f"La grilla {name} quedó DETENIDA en el nodo {w.i_global}."
+        return ""
 
     def _add_action(self, menu, label, slot, shortcut=None):
         a = QAction(label, self)
@@ -308,6 +333,7 @@ class Frontend(QMainWindow):
             event.ignore()
 
     def make_connection(self, backend: Backend):
+        self.estop_banner.detail_provider = lambda: self._stop_detail(backend)
         backend.nanoWorker.make_connection(self.nanoWidget)
         backend.shuttersWorker.make_connection(self.shuttersWidget)
         backend.focusWorker.make_connection(self.focusWidget)
@@ -445,7 +471,7 @@ class Backend(QObject):
 
     def __init__(self, *args, host: HostContext | None = None, **kwargs):
         super().__init__(*args, **kwargs)
-        # Suelto: conecta la platina (home) y fija su perfil, como siempre. Hospedado (paso 13, V2 y V11):
+        # Suelto: conecta la platina (sin moverla, DEC-053) y fija su perfil. Hospedado (paso 13, V2 y V11):
         # ni una cosa ni la otra; si el anfitrión no conectó la platina, el huésped la ve no conectada.
         self.host = host
         self._guest_report: GuestShutdownReport | None = None
@@ -467,6 +493,17 @@ class Backend(QObject):
 
         self.file_path = str(DEFAULT_DATA_PATH)
         self._connect_backends()
+        # Participantes de la parada de emergencia del proceso (R4-17 fase 4b, DEC-048): el coordinador es uno por
+        # proceso, así que en modo satélite PySpectrum y PyPrinting comparten parada y Rearmar
+        from core.emergency_stop import get_emergency_coordinator
+        coordinator = get_emergency_coordinator()
+        for worker in (self.printingWorker, self.dimersWorker, self.traceWorker, self.focusWorker,
+                       self.confocalWorker):
+            coordinator.register(worker)
+        # Los pasos entre nodos de la grilla (R4-17 fase 5): el foco y el confocal del proceso, de sólo lectura
+        for worker in (self.printingWorker, self.dimersWorker):
+            worker.focus_ref = self.focusWorker
+            worker.confocal_ref = self.confocalWorker
 
     def _connect_backends(self):
         # Vincular focus worker a confocal worker para escaneo con corrección dinámica de inclinación Z
@@ -483,20 +520,21 @@ class Backend(QObject):
                     self.dimersWorker.goSignal):
             sig.connect(self.nanoWorker.read_pos)
 
-        # autofinishSignal(mode) → dispatch
-        def _on_autofinish(mode: str):
-            if mode == "printing": self.printingWorker.grid_finish_autofoco()
-            elif mode == "dimers": self.dimersWorker.grid_finish_autofoco()
-        self.focusWorker.autofinishSignal.connect(_on_autofinish)
+        # La cadena de la grilla corre entera en confocalThread (R4-17 fase 2, DEC-045): el fin del autofoco y los
+        # ticks de la traza van a slots de los workers, no a funciones de este Backend (que vive en el hilo GUI).
+        # Cada worker filtra por su modo. El fin del autofoco, encolado: frontera de etapa. La traza, directa (mismo
+        # hilo): el criterio decide dentro del tick y grid_trace_stopSignal → traceWorker.stop es sincrónica.
+        for worker in (self.printingWorker, self.dimersWorker):
+            self.focusWorker.autofocusFinished.connect(worker.on_autofocus_finished,
+                                                       Qt.ConnectionType.QueuedConnection)
+            self.traceWorker.data_printingSignal.connect(worker.on_trace_data)
+            self.traceWorker.traceAbortedSignal.connect(worker.on_trace_aborted)
 
         # scanfinishedSignal unificada
         self.confocalWorker.scanfinishedSignal.connect(
             self.printingWorker.on_scan_finished)
         self.confocalWorker.scanfinishedSignal.connect(
             self.dimersWorker.on_scan_finished)
-
-        # Shared trace cycle (conectado una sola vez para evitar disparos dobles)
-        self.traceWorker.data_printingSignal.connect(self._dispatch_trace)
 
         # Printing cycle
         self.printingWorker.grid_move_finishSignal.connect(
@@ -506,7 +544,8 @@ class Backend(QObject):
         self.printingWorker.grid_traceSignal.connect(
             self.traceWorker.trace_configuration)
         self.printingWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
-        self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan)
+        self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan,
+                                                      Qt.ConnectionType.QueuedConnection)   # frontera de etapa
         self.printingWorker.grid_scanSignal.connect(
             self.confocalWorker.start_scan_routines)
         self.printingWorker.grid_scan_stopSignal.connect(
@@ -525,7 +564,8 @@ class Backend(QObject):
         self.dimersWorker.stepsParametersSignal.connect(
             self.traceWorker.parameters)
         self.dimersWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
-        self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish)
+        self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish,
+                                                    Qt.ConnectionType.QueuedConnection)       # frontera de etapa
         self.dimersWorker.grid_scanSignal.connect(
             self.confocalWorker.start_scan_routines)
         self.dimersWorker.grid_scan_stopSignal.connect(
@@ -552,16 +592,6 @@ class Backend(QObject):
             (self.fileSignal, self.dimersWorker.grid_direction),
         ]:
             sig_slot[0].connect(sig_slot[1])
-
-    def _dispatch_trace(self, data: list):
-        if not data:
-            return
-        mode    = data[-1] if isinstance(data[-1], str) else "none"
-        payload = data[:-1]
-        if mode == "printing":
-            self.printingWorker.grid_trace_detect(payload)
-        elif mode == "dimers":
-            self.dimersWorker.grid_trace_detect(payload)
 
     @pyqtSlot(str)
     def selectDir(self, path: str):
@@ -746,6 +776,21 @@ def create_app_satellite(parent=None, host: HostContext | None = None):
             t.wait(3000)
 
     gui.closeSignal.connect(_on_satellite_close)
+
+    # Teclas de la parada para todo el proceso (R4-17 fase 4c): Ctrl+E y F12 desde cualquier ventana, y F2 pausa la
+    # grilla que corre. Idempotente: en el satélite, PySpectrum ya lo instaló y acá sólo se suma el manejador de F2.
+    from core.ui.emergency_keys import install_emergency_key_filter
+    from core.grid_state import GridRunState
+
+    def _pause_running_grid() -> bool:
+        for w in (worker.printingWorker, worker.dimersWorker):
+            if w.run_state == GridRunState.RUNNING:
+                w.request_pause()
+                QMetaObject.invokeMethod(w, "grid_pause", Qt.ConnectionType.QueuedConnection)
+                return True
+        return False
+    key_filter = install_emergency_key_filter(QApplication.instance(), pause_handler=_pause_running_grid)
+    gui.closeSignal.connect(lambda: key_filter.remove_pause_handler(_pause_running_grid))
 
     return gui, worker, threads
 

@@ -558,6 +558,19 @@ def _em_gain(camera) -> int:
         return -1
 
 
+def _linescan_routine(fn):
+    """El escaneo lineal (referencia, fondo y escaneo) es una rutina del watchdog de rutinas mientras corre
+    (DEC-052): el latido de cada espera renueva el plazo del panel."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(self, *a, **k):
+        from core.nidaq import routine_watchdog
+        with routine_watchdog("escaneo lineal"):
+            return fn(self, *a, **k)
+    return wrapper
+
+
 class LineScanSpectroscopyWorker(QtCore.QObject):
     """Motor de adquisición del escaneo lineal. Vive en un QThread real (moveToThread) —
     ver DEC-006 en docs/decisions/DECISION_LOG.md. Nunca confía en que emergencyStopSignal
@@ -734,6 +747,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         self.backgroundStatusSignal.emit("none", "")
 
     @pyqtSlot(dict)
+    @_linescan_routine
     def acquire_background_only(self, cfg: dict):
         """[Tomar fondo ahora]: sólo el fondo (1D y 2D), con el método elegido. Con "todo apagado" el obturador
         del espectrómetro queda ABIERTO (el camino óptico de la medición) y la luz la apaga el operador."""
@@ -923,6 +937,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         self.previewFrameReadySignal.emit(np.asarray(frame, dtype=np.float32))
 
     @pyqtSlot(dict)
+    @_linescan_routine
     def acquire_reference(self, cfg: dict):
         if not hardware_session.acquire_session("Escaneo Lineal Espectroscópico — Referencia"):
             self.errorSignal.emit("No se pudo tomar el control del hardware (sesión ocupada o E-STOP activo).")
@@ -1036,6 +1051,7 @@ class LineScanSpectroscopyWorker(QtCore.QObject):
         self._cancel_requested = True
 
     @pyqtSlot(dict)
+    @_linescan_routine
     def run_scan(self, cfg: dict):
         if self._reference is None:
             self.errorSignal.emit("Debe adquirir la Referencia (Fase A) antes de iniciar el escaneo.")

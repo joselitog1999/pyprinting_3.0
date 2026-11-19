@@ -43,7 +43,11 @@ from config import (pi, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE, SAFE_MODE,
                     DEFAULT_CONFOCAL_PIXELS_X, DEFAULT_CONFOCAL_PIXELS_Y,
                     DEFAULT_CONFOCAL_FILTER_PERCENT, PI_SERVO_TIME, wait_on_target)
 from nidaq import (open_shutter, close_shutter, close_all_shutters, heartbeat_shutter,
-                   channels_photodiodos, channels_triggers, PD_CHANS_LIST, RATE_MULTICHANNEL)
+                   channels_photodiodos, channels_triggers, PD_CHANS_LIST, RATE_MULTICHANNEL,
+                   RoutineWatchdogLease)
+
+# El escaneo es una rutina del watchdog (DEC-052): se registra al arrancar y se suelta en cada salida.
+_SCAN_WD = RoutineWatchdogLease("escaneo contrapropagante")
 from psf import (center_of_mass, center_of_gauss2D, center_of_donut2D)
 from nanopositioning import Frontend as NanoFrontend, Backend as NanoBackend
 from shutters import Frontend as ShuttersFrontend, Backend as ShuttersBackend
@@ -602,6 +606,7 @@ class ConfocalDualBackend(QObject):
         else:
             configure_fn(self.x_pos)
 
+        _SCAN_WD.begin()
         open_shutter(SHUTTERS[self.top_laser_idx])
         open_shutter(SHUTTERS[self.bot_laser_idx])
         timer.start(0)
@@ -613,6 +618,7 @@ class ConfocalDualBackend(QObject):
             if timer is not None and timer.isActive():
                 timer.stop()
         close_all_shutters()
+        _SCAN_WD.end()
         xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
         yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
         zp = getattr(self, "z_start", getattr(self, "z_pos", 50.0))
@@ -673,6 +679,7 @@ class ConfocalDualBackend(QObject):
             if timer is not None and timer.isActive():
                 timer.stop()
         close_all_shutters()
+        _SCAN_WD.end()
         print("[Contrapropagante] Escaneo ABORTADO por falla de la platina: obturadores cerrados.")
 
     def _wait_axis_settle(self, axes, timeout_s: float = 0.05) -> bool:
@@ -759,6 +766,7 @@ class ConfocalDualBackend(QObject):
         medir CM, volver a la posición de inicio y emitir la señal de fin que corresponda."""
         timer.stop()
         close_all_shutters()
+        _SCAN_WD.end()
         self.measure_CM()
         xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
         yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
@@ -777,7 +785,7 @@ class ConfocalDualBackend(QObject):
             self._finish_ramp_scan(self.PDtimer_rampxy)
             return
 
-        heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+        heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
         dy = self.range_y / self.Ny
         target_y = getattr(self, "y_min", self.y_pos - self.range_y / 2) + dy / 2 + self.i * dy
         pi.MOV(2, target_y)
@@ -1210,6 +1218,11 @@ class Backend(QObject):
         self._connect_backends()
 
     def _connect_backends(self):
+        # Participantes de la parada de emergencia del proceso (R4-17 fase 4b, DEC-048)
+        from core.emergency_stop import get_emergency_coordinator
+        coordinator = get_emergency_coordinator()
+        for worker in (self.printingWorker, self.dimersWorker, self.traceWorker, self.focusWorker):
+            coordinator.register(worker)
         for sig in (self.focusWorker.gotomaxdoneSignal,
                     self.focusWorker.lockdoneSignal,
                     self.focusWorker.autodoneSignal,
@@ -1221,27 +1234,19 @@ class Backend(QObject):
                     self.dimersWorker.goSignal):
             sig.connect(self.nanoWorker.read_pos)
 
-        def _on_autofinish(mode: str):
-            if mode == "printing": self.printingWorker.grid_finish_autofoco()
-            elif mode == "dimers": self.dimersWorker.grid_finish_autofoco()
-        self.focusWorker.autofinishSignal.connect(_on_autofinish)
+        # La cadena de la grilla corre entera en confocalThread, como en app.py (R4-17 fase 2, DEC-045): el fin del
+        # autofoco (encolado, frontera de etapa) y los ticks de la traza (directos, mismo hilo) van a slots de los
+        # workers, que filtran por su modo.
+        for worker in (self.printingWorker, self.dimersWorker):
+            self.focusWorker.autofocusFinished.connect(worker.on_autofocus_finished,
+                                                       Qt.ConnectionType.QueuedConnection)
+            self.traceWorker.data_printingSignal.connect(worker.on_trace_data)
+            self.traceWorker.traceAbortedSignal.connect(worker.on_trace_aborted)
 
         self.confocalDualWorker.gridScanFinishedSignal.connect(
             self.printingWorker.on_scan_finished)
         self.confocalDualWorker.gridScanFinishedSignal.connect(
             self.dimersWorker.on_scan_finished)
-
-        def _dispatch_trace(data: list):
-            if not data:
-                return
-            mode    = data[-1] if isinstance(data[-1], str) else "none"
-            payload = data[:-1]
-            if mode == "printing":
-                self.printingWorker.grid_trace_detect(payload)
-            elif mode == "dimers":
-                self.dimersWorker.grid_trace_detect(payload)
-
-        self.traceWorker.data_printingSignal.connect(_dispatch_trace)
 
         # Printing cycle
         self.printingWorker.grid_move_finishSignal.connect(
@@ -1253,7 +1258,8 @@ class Backend(QObject):
         self.printingWorker.stepsParametersSignal.connect(
             self.traceWorker.parameters)
         self.printingWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
-        self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan)
+        self.printingWorker.grid_detectSignal.connect(self.printingWorker.grid_scan,
+                                                      Qt.ConnectionType.QueuedConnection)   # frontera de etapa
         self.printingWorker.grid_scanSignal.connect(
             self.confocalDualWorker.start_scan_routines)
         self.printingWorker.grid_scan_stopSignal.connect(
@@ -1269,7 +1275,8 @@ class Backend(QObject):
         self.dimersWorker.stepsParametersSignal.connect(
             self.traceWorker.parameters)
         self.dimersWorker.grid_trace_stopSignal.connect(self.traceWorker.stop)
-        self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish)
+        self.dimersWorker.grid_detectSignal.connect(self.dimersWorker.grid_finish,
+                                                    Qt.ConnectionType.QueuedConnection)       # frontera de etapa
         self.dimersWorker.grid_scanSignal.connect(
             self.confocalDualWorker.start_scan_routines)
         self.dimersWorker.grid_scan_stopSignal.connect(

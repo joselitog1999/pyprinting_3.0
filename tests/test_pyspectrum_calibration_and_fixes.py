@@ -29,6 +29,10 @@ from pyspectrum.drivers.shamrock_driver import (
     get_shamrock
 )
 from pyspectrum.drivers.andor_ccd_driver import get_andor_ccd
+
+# Los paneles con gráficos de pyqtgraph quedan vivos hasta el final de la sesión: si el recolector destruye
+# uno en medio de otro test, sip borra sus ejes y un repintado pendiente aborta (visto el 2026-10-01).
+_KEEP_ALIVE = []
 from pyspectrum.modules import step_and_glue
 from pyspectrum.modules import camera_andor
 from pyspectrum.modules.calibration_dock import CalibrationFrontend, CalibrationBackend
@@ -153,6 +157,7 @@ class TestCalibrationDock(unittest.TestCase):
         self.fe = CalibrationFrontend()
         self.be = CalibrationBackend(spectrometer=self.mock_spec)
         self.be.make_connection(self.fe)
+        _KEEP_ALIVE.extend([self.fe, self.be])
 
     def test_connection_and_initial_values(self):
         self.assertIsNotNone(self.fe.spin_slit_width)
@@ -162,18 +167,22 @@ class TestCalibrationDock(unittest.TestCase):
         self.assertIsNotNone(self.fe.spin_slit_zero)
 
     def test_slit_gaussian_fit(self):
-        """Genera un perfil gaussiano artificial con centro en X = 512.4 px y verifica recuperación."""
+        """Perfil gaussiano artificial con centro en X = 512.4 px, en 20 filas: el centro se recupera.
+        Desde R4-N 1a el ajuste es por fila (`pyspectrum/calibration/slit_center.py`); el ajuste viejo, que leía
+        un cuadro sin adquirir y guardaba cualquier resultado, ya no existe."""
+        from pyspectrum.calibration.slit_center import analyze_slit_frames
         x = np.arange(1004, dtype=np.float64)
         true_center = 512.4
         true_sigma = 4.2
+        rng = np.random.default_rng(42)
         y = 5000.0 * np.exp(-((x - true_center) ** 2) / (2.0 * true_sigma ** 2)) + 120.0
-        # Añadir ruido aleatorio
-        np.random.seed(42)
-        y += np.random.normal(0, 15, len(y))
+        frames = y[None, None, :] + rng.normal(0, 15, (1, 20, 1004))
 
-        centroid, fwhm, fit_curve = self.be._fit_gaussian_slit(x, y)
-        self.assertAlmostEqual(centroid, true_center, delta=0.2)
-        self.assertAlmostEqual(fwhm, 2.355 * true_sigma, delta=0.5)
+        res = analyze_slit_frames(frames, (490, 510))
+        self.assertTrue(res.ok, res.reason)
+        self.assertAlmostEqual(res.center_px, true_center, delta=0.2)
+        self.assertAlmostEqual(res.fwhm_px, 2.355 * true_sigma, delta=0.5)
+        self.assertFalse(hasattr(self.be, "_fit_gaussian_slit"))
 
     def test_grating_offset_flow(self):
         # Pasos 9-10 (DEC-040): el dock sólo LEE el offset; escribirlo es de la transacción.
@@ -206,6 +215,7 @@ class TestSlitSynchronization(unittest.TestCase):
         self.be = CalibrationBackend(self.mock_cam, self.mock_spec)
         self.fe = CalibrationFrontend()
         self.be.make_connection(self.fe)
+        _KEEP_ALIVE.extend([self.fe, self.be])
 
     def tearDown(self):
         from pyspectrum.modules.calibration_dock import CALIBRATION_TXT_FILE

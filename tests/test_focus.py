@@ -107,7 +107,7 @@ def test_go_to_maximum_aborts_after_retry_cap_and_closes_shutter_every_attempt(a
     calls = _inject_trigger_not_found(monkeypatch, backend)
 
     close_calls = {"n": 0}
-    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: None)
+    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: True)
     monkeypatch.setattr(focus_mod, "close_shutter",
                          lambda name: close_calls.__setitem__("n", close_calls["n"] + 1))
 
@@ -122,7 +122,7 @@ def test_go_to_maximum_aborts_after_retry_cap_and_closes_shutter_every_attempt(a
 def test_lock_lin_aborts_after_retry_cap_and_resets_locked_focus(app, monkeypatch):
     backend = _make_backend(app)
     calls = _inject_trigger_not_found(monkeypatch, backend)
-    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: None)
+    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: True)
     monkeypatch.setattr(focus_mod, "close_shutter", lambda name: None)
 
     backend.locked_focus = True  # estado previo — debe quedar en False tras el abort
@@ -142,7 +142,7 @@ def test_autocorr_x2_aborts_but_closes_shutter_and_still_unblocks_printing_state
     calls = _inject_trigger_not_found(monkeypatch, backend)
 
     shutter_events = []
-    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: shutter_events.append("open"))
+    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: shutter_events.append("open") or True)
     monkeypatch.setattr(focus_mod, "close_shutter", lambda name: shutter_events.append("close"))
 
     autofinish_calls = []
@@ -176,7 +176,7 @@ def test_ramp_succeeds_within_retry_cap_does_not_abort(app, monkeypatch):
         return np.random.rand(n), np.random.rand(n), False
 
     monkeypatch.setattr(backend, "_ramp_lin", flaky_ramp_lin)
-    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: None)
+    monkeypatch.setattr(focus_mod, "open_shutter", lambda name: True)
     monkeypatch.setattr(focus_mod, "close_shutter", lambda name: None)
 
     done_calls = []

@@ -8,6 +8,19 @@
 
 ---
 
+> [!WARNING]
+> **Actualizado por `DEC-052` (2026-11-18): el watchdog vigila sólo a las rutinas.** Lo que sigue describe la política
+> anterior (un plazo para toda apertura, elegido en el dock de Shutters) y se conserva como historia. Hoy:
+> - la **operación manual** (dock de Shutters, ventana Láser 532, traza F1) **no arma ningún plazo**: un láser abierto a
+>   mano queda abierto hasta que el operador lo cierre;
+> - una **rutina registrada** (`routine_watchdog`, `RoutineWatchdogLease`, `set_routine_running`) con un láser abierto
+>   arma el plazo al abrir o al latir; si deja de latir, se cierran **los cuatro** obturadores, también los manuales;
+> - al terminar la última rutina el plazo se desarma;
+> - el plazo (30 s por defecto, `_default_timeout_s`; `None` = "Sin límite") se elige en el Control Panel de impresión
+>   y en el panel izquierdo de PySpectrum (`core/ui/routine_watchdog_widget.py`); el dock ya no tiene selector;
+> - `open_shutter()` y `heartbeat_shutter()` ya no reciben `timeout_s`;
+> - el hilo `ShutterWatchdog`, su poll de 100 ms y el reintento de los cierres sin confirmar (`DEC-036`) no cambian.
+
 ## 🔗 Matriz de Referencias Cruzadas
 
 - **Reportes de Sistema Conexos:**
@@ -209,6 +222,55 @@ En la arquitectura definitiva de PyPrinting 3.0:
 2. **Puente de Notificación Thread-Safe (`register_flipper_callback`)**: Los cambios de estado de la montura analógica notifican a los observadores registrados mediante una lista protegida por cerrojos reentrantes (`_flipper_lock`).
 3. **Manejo de Eventos en PyQt6 (`clicked` vs `setChecked`)**: En [`core/shutters.py`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/core/shutters.py), la acción del operador se conecta a la señal `powerbutton.clicked`, garantizando que únicamente los clics directos del usuario emitan órdenes al hardware. Para la sincronización de retorno de hardware a GUI, el método `update_power_ui(is_high)` actualiza visualmente el casillero sin disparar recursiones de señal ni bloqueos.
 4. **Referencia Técnica Exhaustiva**: Para el análisis detallado de causas raíz (tareas zombi en NI-DAQmx, trampa de polaridad en 532 nm y ciclo de vida de tareas), consúltese el documento dedicado: [`SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx.md`](file:///c:/Users/josel/Documents/Obsidian_Vault/printing3/reportes/sistema/SYS-202_Actuacion_Flipper_y_Ciclo_Vida_DAQmx.md).
+
+### 4.5 Época de cierre y retención de aperturas (R4-17 fase 3, `DEC-046`)
+
+Sirven para que una rutina sepa que alguien cortó mientras exponía, sin tener que limpiar ninguna bandera después.
+
+- **Época de cierre** (`core/nidaq.py::get_close_epoch()`):
+  - es un contador monótono, con la causa y la hora (`CloseCause`: operador, watchdog, interlock, rutina, salida, platina; la parada de emergencia llega en la fase 4);
+  - la incrementan `close_all_shutters(cause)`, `request_close_all(...)` y los botones del dock (`operator_close_all`, `operator_close_shutter`), **antes** de tomar `_nidaq_lock`;
+  - la grilla la anota antes de abrir el obturador de cada nodo y la compara en cada tick del criterio. Si cambió, el nodo queda `"interrupted"` (expuesto sin decisión) en lugar de decidirse "timeout" con el obturador ya cerrado;
+  - `is_close_confirmed(época)` dice si una escritura exitosa de las cuatro líneas cerradas cubrió ese pedido. La época se lee antes de escribir, así que una escritura sólo confirma pedidos anteriores a ella.
+- **Retención** (`get_open_hold_remaining_s()`):
+  - "Cerrar todos" con una rutina corriendo (`any_routine_running()`) bloquea toda apertura durante `OPERATOR_HOLD_S` = 3 s, por cualquier camino. `open_shutter` la revisa antes de pedir el candado y otra vez adentro; una apertura retenida no escribe ni arma el watchdog;
+  - una retención vigente **no se extiende**: los 3 s cuentan desde el primer cierre (respuesta 2 del investigador, 2026-10-02);
+  - la grilla espera ese mismo plazo con un `QTimer` preciso, nunca con `sleep`, y después sigue con el nodo siguiente (`core/grid_state.py::CAUSE_POLICY`).
+- **Provisorio:** el registro de rutinas que corren vive en `nidaq` hasta que lo tome el coordinador de la parada (fase 4), y el cierre de `request_close_all` todavía es sincrónico (el hilo cerrador también es de la fase 4).
+
+### 4.6 Parada de emergencia del proceso (R4-17 fase 4, `DEC-047`)
+
+- **El estado** vive en `core/estop_state.py`, un módulo hoja que leen `nidaq` y el driver de la platina sin ciclo:
+  - es un `threading.Event` que se lee sin candado, con generación, fuente y hora;
+  - es uno por proceso, así que en modo satélite PySpectrum y PyPrinting ven la misma parada.
+- **El disparo** (`request_emergency_stop`, por medio de `core/emergency_stop.py::EmergencyCoordinator.trigger`) no toma ningún candado de hardware, en este orden:
+  1. el evento: desde ese instante, `open_shutter` rechaza sin pedir el candado y `MOV`/`MVR`/`WGO` no salen;
+  2. la época (`ESTOP`);
+  3. despertar al cerrador.
+- **El cerrador** (`ShutterCloser`) es un hilo por proceso:
+  - toma la placa con un plazo de 0.25 s (provisorio, `BANCO-68`) y cierra los cuatro en una escritura;
+  - sella un `CloseResult` y avisa fuera del candado;
+  - sube el filtro a baja potencia;
+  - si no consigue la placa, avisa una vez "placa tomada por otro hilo" y reintenta sin límite. Nunca escribe sin el candado.
+- **Durante la parada,** el latido no arma el watchdog.
+- **Rearmar** (`rearm(gen)`) exige:
+  - un cierre del cerrador confirmado para esa generación;
+  - ningún obturador abierto ni sin confirmar;
+  - que todas las rutinas participantes estén quietas;
+  - la generación vigente.
+
+  Nunca llama a `pi.connect()`.
+- **La compuerta de baja potencia** (`low_power_settle_remaining_s`) es la hora del último `up_flipper` confirmado, con un piso de 100 ms antes de abrir. La usa la grilla al reanudar (fase 4b).
+- **"Confirmado" significa que la placa aceptó la escritura** (`DEC-036`), no que el servo se movió. La única parada independiente del software es la llave del láser.
+- **Participantes** (fase 4b, `DEC-048`): son la grilla de impresión y la de dímeros, la traza, el foco y el confocal.
+  - En el disparo sólo ponen banderas. Cada hilo se detiene en su próxima consulta, sin mover y sin abrir.
+  - Están quietos (`is_quiescent`) cuando no tienen ninguna etapa, rampa ni escaneo en curso; Rearmar los espera.
+  - Rearmar deja la grilla en pausa, y Play la retoma en el primer nodo que nunca se expuso, después de la compuerta de baja potencia.
+- **Interfaz** (fase 4c, `DEC-049`):
+  - `core/ui/emergency_keys.py` instala un filtro de teclas por proceso: `Ctrl+E` y `F12` desde cualquier ventana, y `F2` para la pausa;
+  - el puente lleva los resultados del cerrador al hilo GUI;
+  - el banner (`core/ui/emergency_widgets.py`) dice "confirmada" sólo con el cierre del cerrador; si no, nombra la llave del láser. No es modal;
+  - PySpectrum (su botón, sus atajos y la sesión de hardware como participante) y PyPrinting comparten la misma parada y el mismo Rearmar.
 
 ---
 

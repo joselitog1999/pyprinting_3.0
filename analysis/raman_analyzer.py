@@ -297,7 +297,7 @@ class RamanAnalyzerWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         self.btn_open_file = QPushButton("Examinar Espectro...")
-        self.btn_open_file.setToolTip("Abrir archivo de Andor Solis (.asc, .txt, .csv, .dat)")
+        self.btn_open_file.setToolTip("Abrir archivo de Andor Solis (.sif, .asc, .txt, .csv, .dat)")
         self.btn_open_file.clicked.connect(self._on_browse_file)
         self.btn_open_file.setStyleSheet("background-color: #89B4FA; color: #11111B; font-weight: bold;")
 
@@ -312,6 +312,46 @@ class RamanAnalyzerWindow(QMainWindow):
         self.lbl_file_info.setStyleSheet("color: #A6ADC8; font-size: 8pt; font-style: italic;")
         self.lbl_file_info.setWordWrap(True)
         file_flo.addWidget(self.lbl_file_info)
+
+        # .sif de Andor Solis (2026-10-02): canales, fondo ("ruido"), filas y cuadros
+        self.sif_box = QGroupBox("Archivo .sif")
+        self.sif_box.setToolTip(
+            "Un .sif trae casilleros fijos: Señal, Referencia, Fondo, Live y Fuente.\n"
+            "Si la señal dice 'Counts (Bg Corrected)', Solis ya restó el fondo: no se resta otra vez.\n"
+            "Si dice 'Counts', se muestra señal − fondo por defecto (con la misma forma y exposición).\n"
+            "El láser no viene en el SIF: elegilo en 'Excitación y Ejes'.")
+        sif_flo = QFormLayout(self.sif_box)
+        self.lbl_sif_info = QLabel("")
+        self.lbl_sif_info.setWordWrap(True)
+        self.lbl_sif_info.setStyleSheet("color: #A6ADC8; font-size: 8pt;")
+        sif_flo.addRow(self.lbl_sif_info)
+        self.chk_sif_subtract = QCheckBox("Restar el fondo del SIF")
+        self.chk_sif_subtract.setChecked(True)
+        self.chk_sif_subtract.setToolTip("Señal − fondo, con el fondo del mismo archivo. Desmarcalo para ver la "
+                                         "señal cruda. Deshabilitado si Solis ya lo restó o si el fondo no "
+                                         "coincide en forma o exposición.")
+        self.chk_sif_subtract.toggled.connect(self._on_sif_options_changed)
+        sif_flo.addRow(self.chk_sif_subtract)
+        self.spin_sif_frame = QSpinBox()
+        self.spin_sif_frame.setRange(-1, 0)
+        self.spin_sif_frame.setSpecialValueText("promedio")
+        self.spin_sif_frame.setValue(-1)
+        self.spin_sif_frame.setToolTip("Con varios cuadros (cinética): el promedio de todos, o uno (desde 0).")
+        self.spin_sif_frame.valueChanged.connect(self._on_sif_options_changed)
+        sif_flo.addRow("Cuadro:", self.spin_sif_frame)
+        rows_row = QHBoxLayout()
+        self.spin_sif_row_min = QSpinBox()
+        self.spin_sif_row_max = QSpinBox()
+        for sp_ in (self.spin_sif_row_min, self.spin_sif_row_max):
+            sp_.setRange(0, 0)
+            sp_.setToolTip("Con varias filas (Image o Multi-Track): se promedian las filas [desde, hasta).")
+            sp_.valueChanged.connect(self._on_sif_options_changed)
+            rows_row.addWidget(sp_)
+        sif_flo.addRow("Filas [desde, hasta):", rows_row)
+        self.sif_box.hide()
+        file_flo.addWidget(self.sif_box)
+        self.sif_path: Optional[Path] = None
+        self.sif_data = None
 
         controls_vlo.addWidget(file_box)
 
@@ -755,6 +795,20 @@ class RamanAnalyzerWindow(QMainWindow):
         self.btn_export_png.clicked.connect(self._on_export_png)
         exp_flo.addWidget(self.btn_export_png)
 
+        # Estudio de Exportación Científica (2026-10-02): uno por gráfico
+        studio_row = QHBoxLayout()
+        self.btn_studio_top = QPushButton("🎨 Estudio: espectro original")
+        self.btn_studio_top.setToolTip("Abre el Estudio de Exportación con el gráfico superior: espectro, línea base "
+                                       "y, si es un .sif, su fondo. Estilos, ejes, tamaño y formato (PNG, SVG, PDF).")
+        self.btn_studio_top.clicked.connect(lambda: self._open_export_studio(self.plot_top, "original"))
+        self.btn_studio_bottom = QPushButton("🎨 Estudio: espectro corregido")
+        self.btn_studio_bottom.setToolTip("Abre el Estudio de Exportación con el gráfico inferior: Raman neto, picos y "
+                                          "ajustes.")
+        self.btn_studio_bottom.clicked.connect(lambda: self._open_export_studio(self.plot_bottom, "corregido"))
+        studio_row.addWidget(self.btn_studio_top)
+        studio_row.addWidget(self.btn_studio_bottom)
+        exp_flo.addLayout(studio_row)
+
         exp_vlo.addWidget(exp_box)
         exp_vlo.addStretch()
 
@@ -852,6 +906,8 @@ class RamanAnalyzerWindow(QMainWindow):
 
         self.curve_raw = self.plot_top.plot(pen=pg.mkPen("#89B4FA", width=1.5), name="Espectro (Crudo)")
         self.curve_baseline = self.plot_top.plot(pen=pg.mkPen("#FAB387", width=2.0, style=Qt.PenStyle.DashLine), name="Línea Base")
+        self.curve_sif_background = self.plot_top.plot(pen=pg.mkPen("#7F849C", width=1.2, style=Qt.PenStyle.DotLine),
+                                                       name="Fondo del SIF")
         self.scatter_spikes = pg.ScatterPlotItem(size=10, pen=pg.mkPen("#F38BA8", width=1.5), symbol="x")
         self.plot_top.addItem(self.scatter_spikes)
 
@@ -896,7 +952,7 @@ class RamanAnalyzerWindow(QMainWindow):
         start_dir = str(Path.home() / "Documents")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Abrir Espectro de Andor Solis", start_dir,
-            "Archivos Espectroscópicos (*.asc *.txt *.csv *.dat);;Todos (*.*)"
+            "Archivos Espectroscópicos (*.sif *.asc *.txt *.csv *.dat);;Todos (*.*)"
         )
         if file_path:
             self.load_spectrum_file(file_path)
@@ -908,10 +964,63 @@ class RamanAnalyzerWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Archivo no encontrado", f"No se encontró el archivo demo en:\n{demo_file}")
 
+    # ── .sif (2026-10-02) ──
+    def _read_sif(self, filepath: Path, reset: bool):
+        """Lee el .sif con las opciones del panel (o las de fábrica si es un archivo nuevo)."""
+        from core.sif_processor import read_raman_sif
+        if reset:
+            r = read_raman_sif(filepath)
+            widgets = (self.chk_sif_subtract, self.spin_sif_frame, self.spin_sif_row_min, self.spin_sif_row_max)
+            for w in widgets:
+                w.blockSignals(True)
+            self.spin_sif_frame.setRange(-1, max(0, r.n_frames - 1))
+            self.spin_sif_frame.setValue(-1)
+            self.spin_sif_frame.setEnabled(r.n_frames > 1)
+            self.spin_sif_row_min.setRange(0, max(0, r.n_rows - 1))
+            self.spin_sif_row_max.setRange(1, r.n_rows)
+            self.spin_sif_row_min.setValue(0)
+            self.spin_sif_row_max.setValue(r.n_rows)
+            for w in (self.spin_sif_row_min, self.spin_sif_row_max):
+                w.setEnabled(r.n_rows > 1)
+            self.chk_sif_subtract.setChecked(True)
+            for w in widgets:
+                w.blockSignals(False)
+        frame = None if self.spin_sif_frame.value() < 0 else self.spin_sif_frame.value()
+        rows = (self.spin_sif_row_min.value(), self.spin_sif_row_max.value())
+        r = read_raman_sif(filepath, frame=frame, rows=rows, subtract=self.chk_sif_subtract.isChecked())
+        can_subtract = (not r.signal_bg_corrected and r.background is not None
+                        and "No se restó" not in r.note)
+        self.chk_sif_subtract.setEnabled(can_subtract)
+        self.sif_path, self.sif_data = filepath, r
+        self.lbl_sif_info.setText(f"Casilleros: {', '.join(r.slots)} · señal: {r.metadata.get('Tipo de la señal')}"
+                                  f" · unidades: {r.metadata.get('Unidades', 'cuentas')}<br>{r.note}")
+        self.sif_box.show()
+        return dict(r.metadata), r.wavelengths, r.counts
+
+    def _on_sif_options_changed(self, *_):
+        if self.sif_path is None or self.sif_data is None:
+            return
+        if self.spin_sif_row_max.value() <= self.spin_sif_row_min.value():
+            self.lbl_sif_info.setText("Filas: 'hasta' tiene que ser mayor que 'desde'.")
+            return
+        try:
+            _meta, _wls, counts = self._read_sif(self.sif_path, reset=False)
+        except Exception as e:
+            self.lbl_sif_info.setText(f"No se pudo releer el .sif: {e}")
+            return
+        self.raw_counts = counts
+        self.active_counts = counts.copy()
+        self._recalculate_all()
+
     def load_spectrum_file(self, filepath: Union[str, Path]):
         try:
             filepath = Path(filepath)
-            metadata, wls, counts = parse_andor_solis_file(filepath)
+            if filepath.suffix.lower() == ".sif":
+                metadata, wls, counts = self._read_sif(filepath, reset=True)
+            else:
+                metadata, wls, counts = parse_andor_solis_file(filepath)
+                self.sif_path, self.sif_data = None, None
+                self.sif_box.hide()
 
             self.filepath = filepath
             self.metadata = metadata
@@ -1651,6 +1760,11 @@ class RamanAnalyzerWindow(QMainWindow):
 
         # Actualizar curvas superiores (Crudo y Línea base)
         self.curve_raw.setData(x_vals, self.active_counts)
+        bg = getattr(self.sif_data, "background", None) if self.sif_data is not None else None
+        if bg is not None and len(bg) == len(self.crop_mask):
+            self.curve_sif_background.setData(x_vals, bg[self.crop_mask])
+        else:
+            self.curve_sif_background.setData([], [])
         if len(self.baseline) == len(x_vals):
             self.curve_baseline.setData(x_vals, self.baseline)
 
@@ -1780,26 +1894,51 @@ class RamanAnalyzerWindow(QMainWindow):
             base_col = self.baseline if len(self.baseline) == len(self.cropped_wls) else np.zeros_like(self.cropped_wls)
             corr_col = self.corrected if len(self.corrected) == len(self.cropped_wls) else self.cropped_raw_counts
 
-            data_matrix = np.column_stack((
-                self.cropped_wls,
-                x_shifts,
-                self.cropped_raw_counts,
-                self.active_counts,
-                base_col,
-                corr_col
-            ))
+            columns = [self.cropped_wls, x_shifts, self.cropped_raw_counts, self.active_counts, base_col, corr_col]
+            names = "Wavelength_nm,Raman_Shift_cm-1,Raw_Counts,Denoised_Counts,Baseline,Corrected_Counts"
+            fmt = "%.5f,%.4f,%.2f,%.2f,%.2f,%.2f"
+            sif_lines = ""
+            if self.sif_data is not None:
+                r = self.sif_data
+                sif_lines = (f"# SIF: casilleros {', '.join(r.slots)}; señal '{r.metadata.get('Tipo de la señal')}'; "
+                             f"unidades {r.metadata.get('Unidades', 'cuentas')}\n"
+                             f"# SIF: {r.note}\n"
+                             f"# SIF: Raw_Counts es {'señal − fondo' if r.subtracted else 'la señal del SIF'}\n")
+                if r.background is not None and len(r.background) == len(self.crop_mask):
+                    columns.append(r.background[self.crop_mask])         # el fondo, aparte
+                    names += ",SIF_Background_Counts_per_s" if r.per_second else ",SIF_Background_Counts"
+                    fmt += ",%.2f"
+            data_matrix = np.column_stack(columns)
 
             header = (
                 f"# RamanAnalyzer 3.0 — Exportación Cuantitativa\n"
                 f"# Archivo Origen: {self.filepath.name if self.filepath else 'Manual'}\n"
                 f"# Láser de Excitación: {self.laser_nm} nm\n"
-                f"Wavelength_nm,Raman_Shift_cm-1,Raw_Counts,Denoised_Counts,Baseline,Corrected_Counts"
+                + sif_lines +
+                names
             )
 
-            np.savetxt(out_path, data_matrix, delimiter=",", header=header, comments="", fmt="%.5f,%.4f,%.2f,%.2f,%.2f,%.2f")
+            np.savetxt(out_path, data_matrix, delimiter=",", header=header, comments="", fmt=fmt, encoding="utf-8")
             QMessageBox.information(self, "Exportación Exitosa", f"Datos exportados correctamente en:\n{out_path}")
         except Exception as e:
             QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar el archivo:\n{e}")
+
+    def _open_export_studio(self, plot_item, which: str):
+        """El Estudio de Exportación sobre uno de los dos gráficos. El estudio lee `.plotItem`; acá los gráficos son
+        PlotItem de un GraphicsLayout, así que se le pasa un envoltorio con ese atributo."""
+        if len(self.raw_wls) == 0:
+            QMessageBox.warning(self, "Sin datos", "Cargá un espectro antes de abrir el Estudio de Exportación.")
+            return
+        import types
+        from analysis.figure_export_studio import FigureExportStudioDialog
+        stem = self.filepath.stem if self.filepath else "spectrum"
+        name = f"Raman_{stem}_{which}"
+        try:
+            dlg = FigureExportStudioDialog(types.SimpleNamespace(plotItem=plot_item), parent=self,
+                                           title=name, default_filename=name)
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Error en el Estudio de Exportación", f"No se pudo abrir el estudio:\n{e}")
 
     def _on_export_png(self):
         if len(self.raw_wls) == 0:

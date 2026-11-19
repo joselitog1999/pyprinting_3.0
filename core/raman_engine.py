@@ -87,6 +87,18 @@ def _split_data_row(line: str, delimiter: Optional[str]) -> List[str]:
     return [t for t in tokens if t]
 
 
+def parse_spectrum_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], np.ndarray, np.ndarray]:
+    """Un espectro de cualquier formato del analizador: `.sif` (con `core.sif_processor.read_raman_sif` y sus
+    reglas por defecto: el fondo se resta sólo si Solis no lo restó) o texto de Andor Solis (.asc, .txt, .csv,
+    .dat). Devuelve (metadatos, λ en nm, cuentas)."""
+    p = Path(filepath)
+    if p.suffix.lower() == ".sif":
+        from core.sif_processor import read_raman_sif
+        r = read_raman_sif(p)
+        return dict(r.metadata), r.wavelengths, r.counts
+    return parse_andor_solis_file(p)
+
+
 def parse_andor_solis_file(filepath: Union[str, Path]) -> Tuple[Dict[str, str], np.ndarray, np.ndarray]:
     """
     Lee un archivo de espectroscopía exportado por Andor Solis (.asc, .txt, .dat, .csv).

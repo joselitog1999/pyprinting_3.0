@@ -478,6 +478,12 @@ def test_a_destroyed_widget_is_not_kept_alive_by_the_global_context():
     ref = weakref.ref(w)
     w.deleteLater()
     del w
+    # Un bucle de eventos real, como en la aplicación: con PyQt6 >= 6.12 el ciclo interno widget → señales de
+    # sus hijos → lambdas sólo se corta cuando Qt destruye el objeto C++, y processEvents() no despacha el
+    # DeferredDelete (con 6.6 alcanzaba el gc). Si el contexto global retuviera el widget, seguiría vivo igual.
+    loop = QtCore.QEventLoop()
+    QtCore.QTimer.singleShot(300, loop.quit)
+    loop.exec()
     for _ in range(3):
         _app.processEvents()
         gc.collect()

@@ -53,11 +53,12 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | :--- | :--- | :--- | :--- | :--- |
 | Límite de recorrido de la platina, ejes X e Y | `100.0` µm | `config.py::PI_STAGE_RANGE_UM` | RESPALDADO (código) | ✅ |
 | Límite de recorrido de la platina, eje Z | `20.0` µm | `config.py::PI_Z_RANGE_UM` | RESPALDADO (código) | ✅ |
-| Modelo de la platina y del controlador | PI P-517.3CD (100 × 100 × 20 µm) con controlador E-517 | `README.md` (l. 99) y `DEC-036`; la hoja de datos de PI **no** está en `docs/bibliografia/`. La P-545 de 200 µm de las tesis es la de CIBION ([G17] p. 49) | EXPERIMENTAL hasta BANCO-17 (`qIDN`, `qTMN`/`qTMX`; `tools/bench/pi_stage_probe.py`) | 📄 |
+| Modelo de la platina y del controlador | PI P-517.3CD (100 × 100 × 20 µm) con controlador E-517 | `README.md` (l. 99) y `DEC-036`; la hoja de datos de PI **no** está en `docs/bibliografia/`. La P-545 de 200 µm de las tesis es la de CIBION ([G17] p. 49) | X e Y = 100 µm confirmado por el investigador (2026-11-19; BANCO-17 respondida). Z = 20 µm según la hoja de datos; `tools/bench/pi_stage_probe.py` queda como control opcional | 📄 |
 | Incertidumbre del piezo en lazo cerrado | **sin valor** | El 1.50 nm de CAT-203 §3.1 no tiene datos, método ni tipo GUM (L5-203-06). Medir: lectura del sensor a posición fija durante ≥ 10 min, desviación estándar con sus grados de libertad (Tipo A) | SIN FUENTE | 📄 |
-| Deadline por defecto del watchdog de obturadores | `30.0` s | `core/nidaq.py::_default_timeout_s` | RESPALDADO (código) | ✅ |
+| Deadline por defecto del watchdog de obturadores (sólo rutinas, `DEC-052`) | `30.0` s | `core/nidaq.py::_default_timeout_s` | RESPALDADO (código) | ✅ |
 | Intervalo de poll del hilo `ShutterWatchdog` | `0.1` s (100 ms) | `core/nidaq.py::_watchdog_loop` (`time.sleep`) | RESPALDADO (código) | ✅ |
-| Política "Sin límite" (modo alineación) | `_default_timeout_s = None` | `core/nidaq.py`; `DEC-010`, `SYS-201` | RESPALDADO (código) | 📄 |
+| Política "Sin límite" (también desarma las rutinas) | `_default_timeout_s = None` | `core/nidaq.py::set_routine_watchdog_timeout`; `DEC-052` | RESPALDADO (código) | 📄 |
+| Plazo de la operación manual (dock de Shutters, Láser 532, traza F1) | **ninguno** | `core/nidaq.py::heartbeat_shutter` (no arma sin rutina registrada); `DEC-052` | RESPALDADO (código) | 📄 |
 
 > El watchdog **no** es de 500 ms. Ese valor viene de `DEC-002` (2026-08-20), superada por
 > `DEC-010` (2026-09-17) y anotada como tal. Ver `DEC-023` para el árbol causal completo.
@@ -66,9 +67,12 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 > pero la P-517.3CD da 20 µm en Z. Se adoptó la cota más restrictiva hasta confirmarla con el
 > controlador.
 >
-> **Política del investigador (R1-10, R2-8):** el watchdog nunca debe cortar una rutina sana. La
-> protección ante una rutina colgada será un latido de vida emitido por la propia rutina; su diseño
-> está pendiente (fase 6.2 del plan, nunca exento) y hasta entonces rige el deadline de la tabla.
+> **Política del investigador (R1-10, R2-8; `DEC-052`, 2026-11-18):** el watchdog vigila sólo a las
+> rutinas y nunca debe cortar una rutina sana. Una rutina se registra (`routine_watchdog`,
+> `RoutineWatchdogLease`, `set_routine_running`) y late en cada iteración desde el hilo que trabaja; si
+> deja de latir durante el plazo del panel, se cierran todos los obturadores, también los abiertos a
+> mano. La operación manual no tiene plazo: si el programa se cuelga con un láser abierto a mano, la
+> parada es la llave del láser (`BANCO-71`).
 
 ## 2. Canales DAQmx y actuadores ópticos
 
@@ -166,6 +170,8 @@ como referencia, no como dato del banco. Las fuentes hechas en el banco de INS-U
 | Acción | Atajo | Fuente autoritativa | Gate |
 | :--- | :--- | :--- | :--- |
 | **Parada de emergencia** | `Ctrl+E`, `F12` | `pyspectrum/window.py::_setup_shortcuts` | ✅ |
+| **Parada de emergencia (todo el proceso, R4-17 fase 4c)** | `Ctrl+E`, `F12` | `core/ui/emergency_keys.py::ESTOP_KEYS` | ✅ |
+| Pausa de la grilla de PyPrinting (si corre; si no, la tecla sigue) | `F2` | `core/ui/emergency_keys.py::PAUSE_KEY` | ✅ |
 | Alternar vista en vivo | `Ctrl+Space` | `pyspectrum/window.py::_setup_shortcuts` | 📄 |
 | Disparar medición | `Ctrl+R` | idem | 📄 |
 | Espejo rápido: entrar / volver | `Ctrl+0` | idem | 📄 |

@@ -153,7 +153,7 @@ def _wait(cond, timeout=3.0):
 # ── 1. Cierre no confirmado ──────────────────────────────────────────────────
 
 def test_close_failure_is_treated_as_open_and_keeps_retrying(daq):
-    assert nidaq.open_shutter(LASER, timeout_s=None) is True
+    assert nidaq.open_shutter(LASER) is True
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
     assert nidaq.close_shutter(LASER) is False
     assert LASER in nidaq.get_unconfirmed_shutters()
@@ -167,7 +167,7 @@ def test_close_failure_is_treated_as_open_and_keeps_retrying(daq):
 
 
 def test_fault_is_reported_once_per_episode(daq):
-    nidaq.open_shutter(LASER, timeout_s=None)
+    nidaq.open_shutter(LASER)
     daq.write_failures = 2 * nidaq.SHUTTER_CLOSE_RETRIES
     nidaq.close_shutter(LASER)
     nidaq.close_shutter(LASER)
@@ -175,32 +175,36 @@ def test_fault_is_reported_once_per_episode(daq):
 
 
 def test_watchdog_retry_confirms_the_close_later(daq):
-    nidaq.open_shutter(LASER, timeout_s=None)
+    nidaq.open_shutter(LASER)
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
     nidaq.close_shutter(LASER)
     assert _wait(lambda: not nidaq.get_unconfirmed_shutters()), "El watchdog no confirmó el cierre"
-    assert (LASER, "cierre confirmado en un reintento", True) in daq.events
+    # El aviso sale DESPUÉS de soltar el candado (un callback de la interfaz no puede bloquear la placa): con la
+    # máquina cargada llega un instante después de que se limpian los "sin confirmar", así que se lo espera
+    assert _wait(lambda: (LASER, "cierre confirmado en un reintento", True) in daq.events), daq.events
     assert daq.writes[-1][nidaq.SHUTTERS.index(LASER)] == _closed(LASER)
     assert nidaq._watchdog_deadline is None and nidaq._retry_due is None
 
 
 def test_any_later_successful_write_confirms_a_pending_close(daq):
-    nidaq.open_shutter(LASER, timeout_s=None)
+    nidaq.open_shutter(LASER)
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
     nidaq.close_shutter(LASER)
     nidaq.WATCHDOG_RETRY_INTERVAL_S = 60.0  # que no se adelante el watchdog
     nidaq._arm_retry()
-    assert nidaq.open_shutter(OTHER, timeout_s=None) is True
+    assert nidaq.open_shutter(OTHER) is True
     assert LASER not in nidaq.get_unconfirmed_shutters()
     assert daq.writes[-1][nidaq.SHUTTERS.index(LASER)] == _closed(LASER)
     nidaq.close_shutter(OTHER)
 
 
 def test_close_all_failure_marks_previously_open_shutters(daq):
-    nidaq.open_shutter(LASER, timeout_s=None)
+    # Desde R4-17 fase 1 (DEC-044): después de una escritura fallida quedan sin confirmar las cuatro, no sólo
+    # la que se creía abierta (respuesta 3 (b) del investigador, 2026-10-02).
+    nidaq.open_shutter(LASER)
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
     assert nidaq.close_all_shutters() is False
-    assert nidaq.get_unconfirmed_shutters() == [LASER]
+    assert nidaq.get_unconfirmed_shutters() == list(nidaq.SHUTTERS)
     assert all(s == _closed(n) for n, s in zip(nidaq.SHUTTERS, nidaq._shutter_signal))
 
 
@@ -208,9 +212,11 @@ def test_close_all_failure_marks_previously_open_shutters(daq):
 
 def test_failed_open_is_not_reported_as_open(daq):
     daq.write_failures = 1
-    assert nidaq.open_shutter(LASER, timeout_s=5.0) is False
-    assert nidaq._shutter_signal[nidaq.SHUTTERS.index(LASER)] == _closed(LASER)
-    assert nidaq.is_watchdog_armed(), "Si llegó a abrirse, el plazo tiene que cerrarlo"
+    # Dentro de una rutina (DEC-052): una apertura fallida arma igual el plazo, por si llegó a abrirse.
+    with nidaq.routine_watchdog("test"):
+        assert nidaq.open_shutter(LASER) is False
+        assert nidaq._shutter_signal[nidaq.SHUTTERS.index(LASER)] == _closed(LASER)
+        assert nidaq.is_watchdog_armed(), "Si llegó a abrirse, el plazo tiene que cerrarlo"
     assert any(e[0] == LASER and not e[2] for e in daq.events)
     nidaq.close_shutter(LASER)
 
@@ -220,23 +226,23 @@ def test_failed_open_is_not_reported_as_open(daq):
 def test_interlock_blocks_every_opening(daq):
     nidaq.set_shutter_interlock("Platina PI", "comunicación perdida")
     n_writes = len(daq.writes)
-    assert nidaq.open_shutter(LASER, timeout_s=None) is False
+    assert nidaq.open_shutter(LASER) is False
     assert len(daq.writes) == n_writes, "Con interlock no debe escribirse nada"
     nidaq.clear_shutter_interlock("Platina PI")
-    assert nidaq.open_shutter(LASER, timeout_s=None) is True
+    assert nidaq.open_shutter(LASER) is True
     nidaq.close_shutter(LASER)
 
 
 def test_trip_interlock_closes_everything(daq):
-    nidaq.open_shutter(LASER, timeout_s=None)
+    nidaq.open_shutter(LASER)
     assert nidaq.trip_shutter_interlock("Platina PI", "prueba") is True
     assert nidaq.get_open_shutter_names() == []
-    assert nidaq.open_shutter(LASER, timeout_s=None) is False
+    assert nidaq.open_shutter(LASER) is False
 
 
 def test_no_simulator_when_the_task_cannot_be_created(daq):
     daq.create_error = RuntimeError("Could not find an installation of NI-DAQmx")
-    assert nidaq.open_shutter(LASER, timeout_s=None) is False
+    assert nidaq.open_shutter(LASER) is False
     assert "NI-DAQmx" in nidaq.get_shutter_interlocks()
     assert daq.writes == []
     assert not isinstance(nidaq._shutter_task, nidaq._MockNITask)

@@ -79,9 +79,11 @@ El archivo `app.py` administra hilos de ejecución independientes (`instrumentTh
   - `confocalWorker.scandoneSignal` $\rightarrow$ `nanoWorker.read_pos` (Actualiza posición capacitiva tras escaneo confocal).
   - `printingWorker.grid_move_finishSignal` $\rightarrow$ `nanoWorker.read_pos` & `printingWorker.grid_autofoco`.
   - `printingWorker.grid_autofocusSignal` $\rightarrow$ `focusWorker.focus_autocorr_lin_x2`.
-  - `focusWorker.autofinishSignal` $\rightarrow$ `printingWorker.grid_finish_autofoco`.
+  - `focusWorker.autofocusFinished(str, object)` $\rightarrow$ `printingWorker.on_autofocus_finished` y `dimersWorker.on_autofocus_finished`, en `QueuedConnection`. Cada worker toma sólo el de su modo y sigue con `grid_finish_autofoco` (`DEC-045`). `autofinishSignal(str)` se conserva para los demás oyentes, por ejemplo `pyspectrum/modules/optical_support.py`.
   - `printingWorker.grid_traceSignal` $\rightarrow$ `traceWorker.trace_configuration`.
-  - `traceWorker.data_printingSignal` $\rightarrow$ `printingWorker.grid_trace_detect`.
+  - `traceWorker.data_printingSignal` $\rightarrow$ `printingWorker.on_trace_data` y `dimersWorker.on_trace_data`. Filtran por `data[-1]` (el modo) y llaman a `grid_trace_detect`. La conexión es directa porque la traza y el criterio viven en `confocalThread`: el criterio decide dentro del tick, y `grid_trace_stopSignal` $\rightarrow$ `traceWorker.stop` es sincrónica (`DEC-045`).
+  - `printingWorker.grid_detectSignal` $\rightarrow$ `printingWorker.grid_scan`, y `dimersWorker.grid_detectSignal` $\rightarrow$ `dimersWorker.grid_finish`, en `QueuedConnection` explícita. Es la frontera de etapa: el nodo siguiente empieza en una vuelta nueva del bucle de eventos.
+  - **La cadena de la grilla corre entera en `confocalThread`** (`DEC-045`, R4-17 fase 2). Hasta el 2026-10-02, el fin del autofoco y el criterio pasaban por funciones del `Backend`, que vive en el hilo GUI. ~~`_on_autofinish`~~ y ~~`_dispatch_trace`~~ ya no existen. `contrapropagante.py` usa las mismas conexiones.
   - `printingWorker.grid_scanSignal` $\rightarrow$ `confocalWorker.start_scan_routines`.
   - `confocalWorker.scanfinishedSignal` $\rightarrow$ `printingWorker.on_scan_finished`.
   - `fileSignal` $\rightarrow$ `printingWorker`, `dimersWorker`, `traceWorker`, `confocalWorker`, `cameraWorker`.

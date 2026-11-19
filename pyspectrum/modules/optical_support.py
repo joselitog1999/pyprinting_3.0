@@ -71,14 +71,26 @@ def run_z_autofocus(laser_color: str = "532 nm (green)", timeout_s: float = 15.0
     return result["ok"]
 
 
-def read_photodiode_level(n_samples: int = 5, channel_index: int = 0) -> float:
-    """Lee n_samples muestras del canal de fotodiodo channel_index y devuelve su promedio.
-    Usa una Task de un solo disparo (continuous=False), correcta para este muestreo puntual
-    punto-a-punto (no un streaming continuo como modules/trace.py). Pública (Fase 6, DEC-020):
-    reutilizada por growth_kinetics.py/dimers.py para los criterios de parada basados en
-    fotodiodo y la detección de eventos de impresión por salto de traza."""
+def photodiode_index(laser: Optional[str]) -> int:
+    """Posición, en la lectura de `channels_photodiodos`, del fotodiodo de `laser` (config.PD_CHANNELS: 532 → ai0,
+    637 → ai2, 592 → ai1, 808 → ai3, "BS" → ai6). Es lo que hace el confocal de PyPrinting. Sin láser: ai0."""
+    from config import PD_CHANNELS, PD_CHANS_LIST
+    if laser is None:
+        return 0
+    if laser not in PD_CHANNELS:
+        raise ValueError(f"Sin fotodiodo configurado para {laser!r} (config.PD_CHANNELS).")
+    return PD_CHANS_LIST.index(PD_CHANNELS[laser])
+
+
+def read_photodiode_level(n_samples: int = 5, channel_index: Optional[int] = None,
+                          laser: Optional[str] = None) -> float:
+    """Promedio de n_samples muestras del fotodiodo de `laser` (o de `channel_index`, la posición en la lectura).
+    Antes leía siempre la posición 0 (ai0, el del 532) aunque la rutina usara otro láser (paridad con el legado,
+    DEC-054). Task de un solo disparo (continuous=False), correcta para este muestreo punto a punto. Pública
+    (Fase 6, DEC-020): la usan crecimiento y dímeros."""
     from core.nidaq import channels_photodiodos
 
+    idx = int(channel_index) if channel_index is not None else photodiode_index(laser)
     task = channels_photodiodos(rate=1000.0, samps_per_chan=n_samples, continuous=False)
     try:
         task.start()
@@ -86,7 +98,12 @@ def read_photodiode_level(n_samples: int = 5, channel_index: int = 0) -> float:
         task.wait_until_done()
     finally:
         task.close()
-    return float(np.mean(data[channel_index]))
+    return float(np.mean(data[idx]))
+
+
+def read_bs_level(n_samples: int = 5) -> float:
+    """Promedio de n_samples muestras del fotodiodo del BS (config.PD_CHAN_BS), la potencia en la muestra."""
+    return read_photodiode_level(n_samples, laser="BS")
 
 
 # Alias retro-compatible (nombre privado original, Fase 5)
@@ -126,7 +143,8 @@ def move_stage_to(x_um: float, y_um: float, z_um: Optional[float] = None, timeou
     return (float(pos["1"]), float(pos["2"]), float(pos["3"]))
 
 
-def run_confocal_centering(range_um: float = 1.0, pixels: int = 20, method: str = "center_of_gauss") -> Tuple[float, float]:
+def run_confocal_centering(range_um: float = 1.0, pixels: int = 20, method: str = "center_of_gauss",
+                           laser: Optional[str] = None) -> Tuple[float, float]:
     """Ejecuta un micro-escaneo confocal rápido (raster pixels×pixels sobre range_um,
     centrado en la posición actual de la platina PI) leyendo el fotodiodo punto a punto,
     aplica center_of_mass (siempre) y opcionalmente refina con center_of_gauss2D
@@ -150,7 +168,7 @@ def run_confocal_centering(range_um: float = 1.0, pixels: int = 20, method: str 
             pi.MOV(1, float(np.clip(x, 0.0, PI_STAGE_RANGE_UM)))
             pi.MOV(2, float(np.clip(y, 0.0, PI_STAGE_RANGE_UM)))
             tick()
-            image[iy, ix] = _read_photodiode_sample()
+            image[iy, ix] = read_photodiode_level(laser=laser)   # el fotodiodo de ESTE láser (DEC-054)
 
     cx, cy = center_of_mass(image)
     if method == "center_of_gauss":

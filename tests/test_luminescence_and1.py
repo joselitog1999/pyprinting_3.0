@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Luminiscencia sobre las primitivas de grilla (AND-1, parte 3; R4-K).
+"""Luminiscencia sobre las primitivas de grilla (AND-1, parte 3; R4-K; secuencia del legado, DEC-054).
 
 - Sin la confirmación del espejo no arranca (ni toma la sesión).
 - Corre en su propio hilo: `start_grid` vuelve enseguida y la GUI sigue respondiendo.
-- Cada nodo: una exposición real; el espejo baja antes de abrir el láser; el láser se abre sólo para la
-  exposición. Al terminar, el espejo vuelve a donde lo confirmó el operador.
+- Sin mini-mapa ni centrado (una exposición por nodo): el espejo baja antes de abrir el láser y el láser se abre
+  sólo para la exposición. Al terminar, el espejo vuelve a donde lo confirmó el operador.
 - Un nodo con la exposición fallida queda FALLIDO (con su archivo) y la grilla sigue (P6).
 - Una platina que no llega pausa la grilla con los obturadores cerrados (DEC-036).
 - Sin carpeta elegida, los datos van a la carpeta de datos de las rutinas, nunca al directorio actual.
@@ -48,9 +48,17 @@ def be(tmp_path, monkeypatch):
 
 
 def _cfg(**kw):
-    c = {"laser": LASER, "exp_time": 0.02, "autofocus_every": 5, "save_dir": "", "mirror": "up"}
+    """Una exposición por nodo, sin centrado ni autofoco: no hace falta el satélite."""
+    c = {"laser": LASER, "exp_time": 0.02, "autofocus_every": 0, "center_enabled": False,
+         "minimap_enabled": False, "save_dir": "", "mirror": "up"}
     c.update(kw)
     return c
+
+
+def _run_dir(tmp_path) -> Path:
+    dirs = [p for p in (tmp_path / "lum").iterdir() if p.is_dir() and "_Luminescence_" in p.name]
+    assert len(dirs) == 1
+    return dirs[0]
 
 
 def test_it_does_not_start_without_the_mirror_confirmation(be):
@@ -78,12 +86,17 @@ def test_it_runs_in_its_own_thread_and_each_node_is_a_real_exposure(be, tmp_path
         if e == ("open", LASER):
             assert log[i + 1] == ("close", LASER)                # abierto sólo para la exposición
     assert log[-1] == ("mirror", "up")                           # vuelve a donde lo confirmó el operador
-    files = sorted(p.name for p in (tmp_path / "lum").iterdir())
-    # el fondo de la grilla, aparte y una sola vez (R4-N, B3), y cada nodo crudo, con su referencia
-    assert files[0].startswith("LuminescenceGrid_background_") and files[0].endswith(".npz")
-    assert files[1:] == ["LuminescenceNode_000_spectrum.txt", "LuminescenceNode_001_spectrum.txt"]
-    dark_id = files[0][len("LuminescenceGrid_background_"):-len(".npz")]
-    assert f"background_id: {dark_id}" in (tmp_path / "lum" / files[1]).read_text(encoding="utf-8")
+    lum = tmp_path / "lum"
+    run = _run_dir(tmp_path)
+    # el fondo de la grilla, aparte y una sola vez (R4-N, B3), con la referencia en el .h5 de la corrida
+    darks = list(run.glob("LuminescenceGrid_background_*.npz"))
+    assert len(darks) == 1
+    import h5py
+    with h5py.File(next(run.glob("*.h5")), "r") as f:
+        assert darks[0].stem[len("LuminescenceGrid_background_"):] in f.attrs["dark_header"]
+        assert f["node_000"]["single_spectrum"].shape == (1004,)
+        assert f["node_001"].attrs["status"] == "done"
+    assert (run / "Info.txt").exists() and str(lum) in str(run)
     assert not hardware_session.is_busy
 
 
@@ -100,7 +113,7 @@ def test_a_failed_exposure_fails_the_node_and_the_grid_goes_on(be, tmp_path, mon
     be.start_grid(_cfg())
     assert be.grid_thread.wait_finished(20)
     assert be.states == [lm.NODE_FAILED, lm.NODE_DONE]
-    assert (tmp_path / "lum" / "LuminescenceNode_000_FAILED.txt").exists()
+    assert (_run_dir(tmp_path) / "LuminescenceNode_000_FAILED.txt").exists()
     assert not nidaq.get_open_shutter_names()
 
 
@@ -151,7 +164,7 @@ def test_the_spectrometer_shutter_opens_for_the_routine_and_closes_at_the_end(be
 
 
 def test_the_laser_is_already_closed_when_the_node_spectrum_is_reported(be):
-    """El láser se abre sólo para la exposición: cuando se informa el espectro del nodo, ya está cerrado."""
+    """Sin mini-mapa, el láser se abre sólo para la exposición: cuando se informa el espectro, ya está cerrado."""
     from PyQt6 import QtCore
     states = []
     be.gridSpectrumUpdateSignal.connect(lambda w, s: states.append(LASER in nidaq.get_open_shutter_names()),

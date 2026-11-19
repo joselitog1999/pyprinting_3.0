@@ -18,7 +18,8 @@ las respuestas R4-A-4, R4-B-5, R4-C-3 y R4-5.
   Stop y E-STOP cortan en el tramo siguiente, y lo adquirido se entrega con `complete=False`. Un
   resultado incompleto no se cose solo (Ronda 3 §4.3).
 - **Latido:** `heartbeat_tick` lo renueva mientras haya algún láser abierto, sin importar quién lo abrió, y
-  **sin argumento** (R4-B-5, R4-C-3, D-09b, C-29). La rutina nunca abre ni cierra un láser.
+  **sin argumento** (R4-B-5, R4-C-3, D-09b, C-29). La rutina nunca abre ni cierra un láser. El barrido se
+  registra en el watchdog de rutinas mientras dura (DEC-052): fuera de él, el latido no hace nada.
 - **Primera ventana sin luz** (G8): se pregunta con `on_no_signal`, sin descartar la ventana. La pausa
   sigue latiendo (D-17): una rutina en curso no se corta por el watchdog.
 - **Cosido:** el de siempre (`sigmoidal_step_and_glue`), sin cambios de fórmula.
@@ -295,7 +296,16 @@ def _save_window(run_dir: Path, w_index: int, center_req: float, center_read: fl
     return path
 
 
-def run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectrometer, *, run_dir: Path,
+def run_windows(*args, **kwargs) -> StepGlueResult:
+    """Recorre las ventanas del plan como una rutina del watchdog de rutinas (DEC-052): mientras corre, el
+    latido de cada tramo renueva el plazo del panel; un láser abierto a mano antes del barrido queda vigilado
+    sólo durante el barrido."""
+    from core.nidaq import routine_watchdog
+    with routine_watchdog("Step & Glue"):
+        return _run_windows(*args, **kwargs)
+
+
+def _run_windows(the_plan: StepGluePlan, request: StepGlueRequest, camera, spectrometer, *, run_dir: Path,
                 should_abort: Callable[[], bool], on_tick: Callable[[], None], is_estopped: Callable[[], bool],
                 get_open: Callable[[], List[str]] = _default_open,
                 on_window: Callable[[WindowResult], None] = lambda w: None,

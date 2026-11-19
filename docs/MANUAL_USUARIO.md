@@ -12,6 +12,7 @@
 
 0. [Biblioteca de Fundamentos Físicos, Electrodinámica y Nanomateriales](#0-biblioteca-de-fundamentos-físicos-electrodinámica-y-nanomateriales)
 1. [Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")](#1-panel-de-inicio-principal-mainpy--bienvenidos-al-printing)
+   - [1.0 Instalación y arranque en la PC del banco](#10-instalación-y-arranque-en-la-pc-del-banco)
    - [1.1 Visión General, Filosofía de Diseño y Arquitectura Multihilo](#11-visión-general-filosofía-de-diseño-y-arquitectura-multihilo)
    - [1.2 Selección Global de Modo Seguro (`SAFE_MODE`) vs. Modo Laboratorio Real](#12-selección-global-de-modo-seguro-safe_mode-vs-modo-laboratorio-real)
    - [1.3 Navegación e Índice de Módulos en Grilla Simétrica $3 \times 3$](#13-navegación-e-índice-de-módulos-en-grilla-simétrica-3-times-3)
@@ -62,6 +63,59 @@
 
 ## 1. Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")
 
+### 1.0 Instalación y arranque en la PC del banco
+
+**Requisitos del sistema** (se instalan una vez, fuera de Python):
+
+| Requisito | Para qué | Si falta |
+| :--- | :--- | :--- |
+| Windows 10/11 de 64 bits | todo | — |
+| **Python 3.11 de 64 bits** (python.org, con el lanzador `py`) | pylablib 1.4.3 trae la extensión de la cámara Andor sólo para 3.11, como el entorno del legado | la cámara Andor no se importa |
+| Driver **NI-DAQmx** | placa PCIe-6353 (`Dev1`): obturadores, flippers, fotodiodos, traza | sólo funciona el modo seguro |
+| Software de **PI** (DLL GCS2, `PI_GCS2_DLL_x64.dll`) | controladora E-517 de la platina | la platina no conecta |
+| **Andor Solis** en `C:\Program Files\Andor SOLIS` | la DLL de la cámara que carga pylablib (`atmcd64d_legacy.dll`, la misma que el legado) y `SPECTROG.INI` del Shamrock | la cámara no conecta; el Shamrock arranca sin su INI |
+| Driver USB de Canon | cámara réflex (EDSDK, incluido en `ESDK_CANON/`) | la Suite de Cámara no ve la réflex |
+
+Las DLL del Shamrock (`ShamrockCIF.dll`, `atshamrock.dll`) vienen en el repositorio, en
+`pyspectrum/drivers/libs/Windows/64/`, y son las mismas que usa el legado.
+
+**Instalar o actualizar** (desde la carpeta del repositorio):
+```powershell
+git pull
+powershell -ExecutionPolicy Bypass -File tools\install\instalar.ps1 -AccesoDirecto
+```
+El instalador no abre ningún instrumento. Hace lo siguiente:
+1. busca Python 3.11 de 64 bits;
+2. crea `.venv`, o lo reutiliza si ya es 3.11;
+3. instala `requirements.txt` y después `pylablib==1.4.3` con `--no-deps`, porque sus dependencias `pyft232` y PyQt5 rompen el entorno;
+4. quita `pyft232` y PyQt5 si quedaron de antes;
+5. comprueba que se importe cada módulo, incluida la cámara Andor;
+6. revisa los requisitos de la tabla y avisa los que faltan;
+7. con `-AccesoDirecto`, crea **PyPrinting 3.0** en el Escritorio;
+8. guarda las versiones en `logs\instalacion_<fecha>.log`, con el commit, la versión del driver NI-DAQmx y `pip freeze`. Es lo que pide BANCO-23.
+
+Con `-Opcional` instala además picasso (localización sub-píxel en la Suite de Cámara). Si el instalador
+termina con **FALLA**, no abrir los programas en modo laboratorio: revisar el informe.
+
+**Iniciar:** con el acceso directo o con `iniciar_pyprinting.bat`, que abre `main.py` con `.venv`. Antes de
+abrir PySpectrum 3.0, cerrar Andor Solis y el PySpectrum legado: la cámara y el Shamrock se abren desde un
+solo programa por vez.
+
+**Variables de entorno** (opcionales; en el banco, normalmente ninguna):
+
+| Variable | Valor por defecto | Uso |
+| :--- | :--- | :--- |
+| `PYPRINTING_SAFE` | `0` (hardware real) | `1` = modo seguro. La pone el lanzador según su casilla (§1.2) |
+| `PYSPECTRUM_ANDOR_BACKEND` | `pylablib` | **No definirla en el banco.** `ctypes` elige el driver propio, fuera de uso (BANCO-23) |
+| `PYSPECTRUM_ANDOR_DLL_DIR` | la búsqueda de pylablib (Andor Solis) | carpeta de otra DLL de la cámara |
+| `PYSPECTRUM_CALIBRATION_PATH` | `%LOCALAPPDATA%\PyPrinting\pyspectrum\shamrock_calibration.jsonl` | archivo de calibraciones del Shamrock |
+| `PYPRINTING_DETECTION_MIRROR_STATE` | junto al archivo de calibraciones | estado del espejo de detección entre sesiones |
+| `PYPRINTING_LEGACY_MIRROR_STATUS` | sin definir | archivos de estado del espejo de los legados, sólo informativos (BANCO-64) |
+| `PYSPECTRUM_ROUTINE_DATA_DIR` | `Documentos\Data_PySpectrum` | carpeta de datos de las rutinas de PySpectrum |
+
+Los datos de PyPrinting van a `C:\Users\PRINTING\Documents\Data_Printing` si esa carpeta existe; si no,
+a `Documentos\Data_Printing` del usuario.
+
 ### 1.1 Visión General, Filosofía de Diseño y Arquitectura Multihilo
 La suite **PyPrinting 3.0** está construida sobre una arquitectura modular desacoplada basada en **Python 3 / PyQt6** y **`pyqtgraph`**. Para evitar cuelgues de la interfaz gráfica durante operaciones de hardware de alta frecuencia (como el escaneo por rampa a $10\ \text{kHz}$ o la transmisión de video réflex), la aplicación utiliza un patrón **Frontend / Backend** con hilos dedicados (`QThread` y `moveToThread`).
 
@@ -79,7 +133,7 @@ graph TD
     App --> UIThread[Hilo Principal GUI PyQt6]
     App --> WorkerThread[Hilo de Control Backend QThread]
 
-    WorkerThread --> PI[Platina Piezo PI E-517/E-736]
+    WorkerThread --> PI[Platina Piezo PI E-517 / P-517.3CD]
     WorkerThread --> NIDAQ[Tarjeta NI-DAQmx Dev1 1.0 MS/s]
     WorkerThread --> Canon[Canon EOS EDSDK 64-bit 25 FPS]
 ```
@@ -94,8 +148,8 @@ En la barra superior del panel principal **`main.py`** se encuentra el selector 
   - Genera ruido gaussiano síncrono con pulsos sintéticos de trigger para simular perfiles confocales 2D/3D y trazas temporales.
   - Habilita una cámara sintética basada en patrones fotónicos móviles para probar la interfaz gráfica sin instrumentos físicos.
 * **Modo Laboratorio Real (`PYPRINTING_SAFE=0`)**:
-  - Inicializa la comunicación por socket C/DLL con la controladora PI E-517/E-736.
-  - Conecta la tarjeta **National Instruments PCIe-6323 / USB-6343** (Dispositivo `Dev1`).
+  - Inicializa la comunicación con la controladora PI E-517 (platina P-517.3CD) por USB, con la DLL GCS2 de PI.
+  - Conecta la tarjeta **National Instruments PCIe-6353** (Dispositivo `Dev1`).
   - Abre la sesión nativa **Canon EDSDK v13.x** para la cámara réflex.
 
 ---
@@ -263,7 +317,7 @@ El desplazamiento óptimo en Z corresponde al máximo de $r(z)$, garantizando en
 > [!NOTE] Especificación Formal de Cinemática y Metadatos
 > Para la deducción matricial completa de las transformaciones afines y la sincronización inter-módulos, consultar el reporte canónico **`[[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica]]`**.
 
-En la plataforma **PyPrinting 3.0**, la muestra se encuentra montada sobre una platina piezoeléctrica triaxial Physik Instrumente (PI E-517/E-736, rango $0.0 - 100.0\ \mu\text{m}$), mientras que el haz láser focalizado se mantiene estático en el espacio del laboratorio.
+En la plataforma **PyPrinting 3.0**, la muestra se encuentra montada sobre una platina piezoeléctrica triaxial Physik Instrumente (controladora PI E-517, platina P-517.3CD: $0$–$100\ \mu\text{m}$ en X e Y, $0$–$20\ \mu\text{m}$ en Z), mientras que el haz láser focalizado se mantiene estático en el espacio del laboratorio.
 
 #### 1. Cinemática de Movimiento Relativo (Muestra vs. Láser)
 Cuando la platina desplaza mecánicamente la muestra con velocidad $\mathbf{v}_{\text{sample}}$, el punto focal del láser respecto al sustrato se mueve con velocidad exactamente opuesta:
@@ -382,20 +436,32 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
   - **Desacoplamiento Estricto del Watchdog**: El flipper de potencia es un atenuador de densidad óptica y **no un obturador de corte de radiación**. Por tanto, el disparo del watchdog cierra los obturadores pero no altera la posición del flipper, preservando la configuración deseada por el operador.
   - **Auto-Recuperación de Tareas Zombi DAQ**: `core/nidaq.py` valida activamente el estado de las tareas de National Instruments (`is_task_done()`) y resetea las referencias a `None` tras `close_all_tasks()`, permitiendo reintentos automáticos sin lanzar excepciones `-200088`.
   - **`Notch 532 Flipper (Mirror up/down)`**: Conmuta el espejo de desviación hacia el filtro Notch de 532 nm mediante la línea digital `Dev1/port0/line7` (`set_notch532`).
-* **Sistema de Auto-Cierre de Seguridad & Watchdog**:
-  - **Casilla `Auto-cierre de seguridad`**: Activa o desactiva la protección contra radiación desatendida mediante un daemon independiente (`daemon=True`) que no se bloquea ante cálculos intensivos en la GUI.
-  - **Selector de Tiempo Máximo**: Menú desplegable con tiempos límite de radiación continua:
-    - `30s (Estándar)`: Protección estricta contra evaporación y foto-daño.
-    - `60s (1 min)`: Procedimientos de inspección rápida.
-    - `300s (5 min)`: Ajustes ópticos intermedios.
-    - `600s (10 min)`: Búsqueda exploratoria extensa.
-    - `Sin límite (Modo Alineación)`: Desactiva el corte por tiempo para sesiones de alineación óptica manual y colimación de cavidades.
-  - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⏱️ Auto-cierre en: Xs`), el modo seguro armado (`⏱️ Auto-cierre activo (Xs)`) o el modo alineación continua (`⚠️ MODO ALINEACIÓN (Sin auto-cierre)`).
+* **Operación manual: sin auto-cierre (desde el 2026-11-18, `DEC-052`)**:
+  - Un obturador abierto desde este dock **queda abierto hasta que lo cierres**. No hay cierre automático por tiempo en la operación manual: tampoco en la ventana **Láser 532** ni en la traza manual (F1).
+  - El recuadro **Seguridad** del dock lo recuerda: "Operación manual: sin auto-cierre", y en naranja mientras haya un láser abierto ("queda abierto hasta que lo cierres").
+  - Ya no hay casilla "Auto-cierre" ni selector de tiempo en este dock: el plazo es sólo de las rutinas y se elige en el **Control Panel** de impresión (ver el recuadro de abajo).
+  - **Si el programa se cuelga con un láser abierto a mano**, cortá con la **llave del láser** antes de cerrar el programa desde el Administrador de tareas: terminarlo a la fuerza no cierra ningún obturador (`BANCO-16`, `BANCO-71`).
   - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores digitales.
-  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos de obturador, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
+    - **Desde el 2026-10-02 (R4-17 fase 1, `DEC-044`):** las casillas se desmarcan **sólo si la placa confirmó el cierre**. Si la escritura falla, los obturadores quedan marcados en rojo con el banner "CIERRE SIN CONFIRMAR", se tratan como abiertos y se sigue reintentando el cierre (el reintento es por la falla, no por tiempo, y vale también en la operación manual).
+    - **Después de cualquier escritura fallida** (abrir, cerrar o "Cerrar Todos") quedan sin confirmar **las cuatro líneas**, porque el estado real de la placa no se conoce. Una línea que tenías abierta a propósito sigue marcada, en rojo, hasta que una escritura buena la confirme.
+    - "Cerrar Todos" no detiene la grilla. Para eso están la Pausa y, cuando exista, la parada de emergencia de PyPrinting (R4-17).
+    - **Durante una grilla (R4-17 fase 3, `DEC-046`):**
+      - el nodo que estaba en exposición queda **"interrumpido"**: un triángulo rojo con anillo naranja en el mapa de la grilla, y "en revisión". No se marca "timeout", el Healing Pass no lo reintenta, y su traza (`NP_xxx.txt`) dice `INTERRUPTED (operator, t_exp = … s)`. Pudo haber impreso: revisalo con la cámara;
+      - **ningún obturador se puede abrir durante 3 s**, por ningún camino (la grilla, la traza, el autofoco ni otra rutina). Un segundo "Cerrar Todos" durante esos 3 s **no** los reinicia: cuentan desde el primero;
+      - después de los 3 s, la grilla **sigue sola** con el nodo siguiente. Para detenerla, usá la Pausa;
+      - cerrar el obturador del láser de la grilla con su botón cuenta igual que "Cerrar Todos";
+      - si cae justo antes de un autofoco, el autofoco no se hace y Z queda donde estaba: no se barre ni se corrige el foco con el obturador cerrado.
+    - Sin una grilla corriendo, "Cerrar Todos" cierra y no retiene nada.
+    - **Con una grilla corriendo, el botón dice "Cerrar todos · la grilla sigue"** (R4-17 fase 4c). En el panel de impresión aparecen un aviso naranja por 20 s ("Cerraste los obturadores en el nodo N…") y la cuenta "La grilla sigue con el nodo N+1 en S s". Al lado está el botón de la parada de emergencia: la vecindad enseña la diferencia.
+  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog de una **rutina** fuerza el cierre porque la rutina dejó de latir, se cierran **los cuatro** obturadores (también los que abriste a mano) y una señal Qt desmarca las casillas del dock, para que la interfaz refleje el hardware real.
 
 > [!IMPORTANT]
-> **El selector de auto-cierre gobierna a TODO el software, no solo a este dock.** Antes, elegir `30s`, `60s`, `300s`, `600s` o `Sin límite (Modo Alineación)` solo afectaba a los 4 obturadores manuales de este panel — cualquier rutina automatizada (Confocal, Impresión, Espectroscopía) que abriera un láser internamente ignoraba la elección y volvía a aplicar 30 s por defecto. Esto ya no ocurre: la política elegida aquí se propaga de inmediato a **todos** los módulos del software en tiempo real, sin necesidad de reiniciar ninguna rutina en curso ni de reabrir ningún dock. Si necesita alinear manualmente durante minutos sin interrupciones, seleccionar `Sin límite (Modo Alineación)` aquí es suficiente — ya no es necesario preocuparse por que una rutina en segundo plano rearme el corte a 30 s.
+> **El watchdog es sólo de las rutinas (`DEC-052`, 2026-11-18).** Antes, toda apertura armaba un plazo de 30 s y un láser abierto a mano se cerraba solo; el selector vivía en este dock.
+> - **Dónde se elige:** fila **"Watchdog de rutinas"** del **Control Panel** de impresión y recuadro **"⏱️ Watchdog de rutinas"** del panel izquierdo de PySpectrum. Es un solo valor por programa: si PyPrinting corre como satélite de PySpectrum, cambiarlo en uno lo cambia en el otro.
+> - **Opciones:** `30 s` (predeterminado), `60 s`, `300 s`, `600 s` y `Sin límite`.
+> - **Qué vigila:** la grilla de impresión y dímeros, el escaneo confocal, el autofoco, el contrapropagante, Step & Glue, el escaneo lineal, las rutinas de grilla de PySpectrum (crecimiento, luminiscencia, dímeros), la calibración de λ y el mapa hiperespectral. Mientras corren con un láser abierto, laten en cada paso; si una deja de latir durante el plazo (por ejemplo, porque se colgó), se cierran **todos** los obturadores y la rutina se aborta.
+> - **Qué muestra:** "sin rutina en curso", o el nombre de la rutina y "cierre en N s si deja de latir".
+> - **Elegí un plazo mayor que el paso más largo de la rutina** (una exposición larga, un asentamiento lento). `Sin límite` desactiva el corte también en las rutinas.
 * **Modulación Analógica de Potencia**: El control de voltaje analógico DAC ($0.0 - 5.0\ \text{V}$, canal `ao2`) para el láser verde se encuentra desacoplado de este panel y se opera desde su ventana especializada **`Laser532Window`** (disponible desde el Lanzador Principal y menú **`Tools → Láser 532`**).
 
 ---
@@ -422,13 +488,14 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
 * **Telemetría y Estado Físico en Tiempo Real**:
   - `🟢 PI Física (SN: 0119048050)`: La controladora física responde activamente mediante health-check periódico basado en el estado de conexión en memoria del lado del host, sin saturar el bus USB con consultas de identidad (`*IDN?`) repetidas durante movimiento activo.
   - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente si el hardware está apagado o desconectado. Con la platina desconectada, los movimientos **se rechazan** (consola: `[PI] MOV rechazado: platina desconectada ...`): no hay desplazamiento simulado en silencio. El movimiento virtual (`[PI VIRTUAL] MOV ...`) existe sólo si el operador aisló la platina a propósito desde el Tablero de Hardware.
-  - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas. Al conectar, el programa **cierra todos los obturadores antes** de llevar la platina a la posición de inicio.
+  - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas. Al conectar, el programa **cierra todos los obturadores**, enciende el servo y **lee la posición: la platina no se mueve** (`DEC-053`). Desconectar tampoco la mueve.
+  - **Botón `⌂ Home (50, 50, 10) µm`**: es la única acción que lleva la platina a la posición de inicio. Cierra todos los obturadores y no mueve si la placa no confirma el cierre, si la platina está desconectada o con la parada de emergencia activa; avisa si la platina no confirma la llegada. Se deshabilita junto con los demás controles de movimiento.
 
 > [!NOTE]
 > **Resiliencia ante rechazos de comando (`SYS-205`)**: un intento de mover la platina a una coordenada fraccionalmente fuera de su recorrido — $0$–$100\ \mu\text{m}$ en X e Y, $0$–$20\ \mu\text{m}$ en Z (platina P-517.3CD) — por ejemplo por una corrección de deriva acumulada, **no** provoca una desconexión: el driver recorta el valor al límite del eje y sigue operando. Una colisión transitoria de lectura durante un movimiento se reintenta automáticamente y no conmuta el indicador por sí sola.
 
 > [!CAUTION]
-> **Pérdida real de comunicación con la platina (`DEC-036`).** Si la comunicación con la controladora se pierde de verdad (cable USB, alimentación), el programa **no reconecta solo**: reconectar lleva la platina a la posición de inicio, y eso no puede ocurrir a mitad de una rutina. En cambio, declara la platina desconectada, **cierra todos los obturadores y no permite abrir ninguno** hasta que el operador reconecte con `🔌 Reconectar` (o `🔌 Reconectar y Reanudar` en Mediciones). La rutina en curso se detiene: los escaneos confocales se abortan y la impresión de grillas se pausa. En el legado esto nunca ocurrió: si pasa, anótelo antes de seguir.
+> **Pérdida real de comunicación con la platina (`DEC-036`).** Si la comunicación con la controladora se pierde de verdad (cable USB, alimentación), el programa **no reconecta solo**: reconectar es una decisión del operador, con los obturadores cerrados y la rutina detenida. En cambio, declara la platina desconectada, **cierra todos los obturadores y no permite abrir ninguno** hasta que el operador reconecte con `🔌 Reconectar` (o `🔌 Reconectar y Reanudar` en Mediciones). La rutina en curso se detiene: los escaneos confocales se abortan y la impresión de grillas se pausa. En el legado esto nunca ocurrió: si pasa, anótelo antes de seguir.
 * **Perfil de Conexión de Inicio (`pyprinting`)**:
   - Al abrir `PyPrinting 3.0` (`app.py`), el sistema aísla el bus USB activando únicamente la **Platina PI** y la **Tarjeta NI-DAQmx**. Los periféricos pesados (cámara réflex Canon y espectrómetros Andor) se mantienen desconectados por defecto y en espera de activación bajo demanda, garantizando un arranque ultrarrápido y previniendo colisiones de puertos USB.
 
@@ -545,6 +612,32 @@ Al finalizar el lote, el diálogo emergente ofrece el botón **`📦 Desempaquet
 > Para consultar el informe técnico completo sobre compresión *lossless* `shuffle+gzip` y benchmarks de velocidad, consulte:  
 > [[CAT-401_Estandar_Serializacion_Jerarquica_Contenedor_HDF5|CAT-401: Estándar de Serialización Jerárquica en Contenedor HDF5 (.h5)]].
 
+#### 3.7.4.1 `Pause` durante una grilla (C-01 Ronda 4, `DEC-041`)
+
+> [!WARNING]
+> **Hasta este arreglo, una Pausa durante el autofoco podía reabrir el 532 a alta potencia sin detección.** El defecto está también en la versión instalada en la PC del banco (`7f5d10a`). No uses PyPrinting 3.0 para grillas hasta desplegar el arreglo; si corrés una, cortá con la llave del láser en vez de pausar.
+
+- **Qué hace `Pause`:**
+  - en el acto, marca la grilla en pausa: desde ese momento, ninguna etapa de la grilla mueve la platina, cambia el filtro de densidad ni abre un obturador;
+  - enseguida cierra el obturador de impresión, sube el filtro (baja potencia) y detiene la traza y el escaneo en curso.
+- **Vale en cualquier etapa:** al terminar el autofoco, al terminar un escaneo (una corrección de deriva que llega en pausa **no se aplica**), en la traza (también si la pausa cae en el medio segundo que espera el filtro), en el paso al nodo siguiente y en el Healing Pass.
+- **`Play ►` reanuda:**
+  - si el nodo ya tenía decisión (por ejemplo, la pausa cayó en el escaneo posterior), la grilla sigue con el **nodo siguiente**: un nodo decidido nunca se vuelve a exponer;
+  - si la pausa cortó la exposición, ese nodo queda **"interrumpido"** (en revisión) y la grilla sigue con el **nodo siguiente**: el nodo cortado nunca se vuelve a exponer, porque pudo haber impreso (R4-17 fase 3, `DEC-046`; respuesta 1 del 2026-10-02). Antes volvía al mismo nodo.
+- **Al reanudar** (R4-17 fase 4b, `DEC-048`):
+  - la grilla sigue en el **primer nodo que nunca se expuso**: uno que llegó a abrir no se vuelve a exponer, tenga o no decisión. Vale igual para la Pausa, para la reconexión de la platina y para la parada de emergencia;
+  - antes de moverse, sube el filtro de densidad (baja potencia) y espera 100 ms. Si la placa no confirma el filtro, la grilla queda en pausa;
+  - si la grilla estuvo quieta **más de un minuto**, antes del primer nodo vuelve a enfocar (con corrección de deriva, pasa por el ancla).
+- **Los controles siguen el estado de la grilla** (R4-17 fase 4c), que se ve al lado del botón de parada: Play está deshabilitado mientras corre y mientras está **DETENIDA** (hasta Rearmar), Pausa sólo con la grilla corriendo, y "Next index" deshabilitado detenida. `F2` pausa la grilla que corre desde cualquier ventana.
+- **En modo satélite** la grilla toma la sesión de hardware de PySpectrum al arrancar: el Live de PySpectrum se pausa, y ninguna rutina de PySpectrum puede arrancar en el medio. La conserva en pausa y detenida, y la suelta al terminar o al reiniciar. Si una rutina de PySpectrum tiene la sesión, Play no arranca y lo avisa.
+- **Los pasos entre nodos** (el autofoco, y con corrección de deriva el escaneo de P0) se revisan **antes** de aplicarse (R4-17 fase 5, `DEC-050`):
+  - si un corte cae durante el paso ("Cerrar todos", la pausa, la parada), la corrección no se aplica y Z y el ancla vuelven a como estaban. Con "Cerrar todos", el paso se repite cuando vencen los 3 s; con la pausa o la parada, al dar Play;
+  - si el resultado no es plausible (un perfil o un escaneo oscuro, un salto demasiado grande, un máximo en el borde), tampoco se aplica: se repite **una vez**, y si vuelve a fallar la grilla queda en **pausa** con el aviso "Autofoco no plausible en el nodo N" o "Corrección de deriva no plausible en P0", y el motivo. Una deriva acumulada de más de 3 µm pausa enseguida;
+  - **los topes son provisorios** hasta medirlos en el banco (BANCO-65 C). Sin el BS, la validez descansa en el registro de cortes y en la forma del perfil o de la imagen.
+- **Confirmación a baja potencia de los nodos interrumpidos** (R4-17 fase 6, `DEC-051`): está implementada pero **apagada**. Hasta habilitarla (después de BANCO-65), un nodo interrumpido queda en revisión y el Healing Pass no lo toca. Cuando esté habilitada, el Healing Pass lo va a leer a baja potencia: si ve la partícula, la marca impresa; si no la ve, la reimprime; si no puede decidir dos veces, la deja en revisión.
+- **La Pausa no mueve la platina** (R4-17 fase 3). Hasta este arreglo, la Pausa llevaba la platina al inicio del último escaneo confocal (o a (50, 50) µm, si no había habido ninguno), aunque no hubiera ningún escaneo en curso.
+- **Otros cortes durante la exposición:** si el watchdog, un interlock o la falla de la placa cierran el obturador a mitad de un nodo, el nodo queda "interrumpido" y la grilla **pausa**. `Play ►` sigue con el nodo siguiente.
+
 #### 3.7.5 Seguridad y Resiliencia ante Fallas de Comunicación con la Platina PI
 
 > 🔩 **Referencia Técnica**: Consultar [[SYS-205_Resiliencia_Platina_PI_y_Tolerancia_Fallas|SYS-205: Resiliencia del Driver de Platina PI E-517 y Tolerancia a Fallas]] para el detalle arquitectónico completo.
@@ -577,7 +670,7 @@ Qué hace el sistema automáticamente, sin intervención del operador, en el ins
 
 Qué debe hacer el operador al ver este diálogo:
 1. Verificar físicamente el cable USB y la alimentación eléctrica de la controladora PI E-517.
-2. Presionar el botón **`🔌 Reconectar y Reanudar`** del propio diálogo. La reconexión lleva la platina a la posición de inicio **con los obturadores cerrados** y libera el bloqueo.
+2. Presionar el botón **`🔌 Reconectar y Reanudar`** del propio diálogo. La reconexión **no mueve la platina** (`DEC-053`): cierra los obturadores, libera el bloqueo y la grilla vuelve directo al nodo pendiente.
 3. Si la reconexión es exitosa, el experimento **continúa automáticamente desde la partícula exacta donde se detuvo** — no es necesario, ni recomendable, volver a crear o cargar la grilla, ni presionar `Play ►` de nuevo.
 4. Si la reconexión falla (el mensaje se repite), revisar la conexión física nuevamente antes de reintentar.
 
@@ -715,6 +808,16 @@ A partir de la renovación arquitectónica integral (Fases 1 a 7, `[[DECISION_LO
 - **Enfriador:** refleja `IsCoolerOn`. Apagarlo pide confirmación con la temperatura actual.
 - **Ventilador:** low o high; "off" no se ofrece.
 - **Entre adquisiciones:** con la cámara adquiriendo (por ejemplo, con el Live), un cambio de setpoint, ventilador o HS queda **pendiente** y se aplica al terminar.
+- **🪞 Espejo de detección (R4-N 3, `DEC-040`).** El espejo no tiene sensor: cada pulso lo cambia de lado y el software sólo sabe lo que ordenó o lo que confirmaste. El renglón dice:
+  - "abajo · confirmado 14:02": lo confirmaste;
+  - "abajo · ordenado 14:02 (sin sensor)": lo movió el software;
+  - "abajo · último conocido (30/09 18:40), sin confirmar": lo que quedó de la sesión anterior;
+  - "desconocido · confirmá dónde está".
+
+  **[Está arriba]** y **[Está abajo]** sólo registran lo que ves: **no mueven el espejo.** Usalos cuando el renglón no coincida con lo que ves, porque el próximo movimiento lo dejaría del lado equivocado.
+  - El estado se guarda en `detection_mirror.json`, junto al archivo de calibraciones, después de cada movimiento y de cada confirmación. Lo comparten PySpectrum 3.0 y PyPrinting 3.0.
+  - Al abrir el programa, el último conocido se muestra **sin confirmar**: las rutinas te siguen pidiendo que confirmes dónde está el espejo antes de medir.
+  - Si en `config.LEGACY_DETECTION_MIRROR_STATUS_FILE` ponés las rutas de los archivos `flipper_notch532_status.txt` de los legados, aparece también "el legado dice: …", sólo como información.
 
 #### Atajos de Teclado Globales (Shortcuts)
 | Atajo | Acción Primaria | Alcance / Pestañas Activas |
@@ -879,7 +982,17 @@ Dos sub-pestañas: **Calibración de λ (automática)** (paso 14, `DEC-040`) y *
 - **Si no se ve la línea:** la rutina se detiene. Un clic sobre la línea en el perfil fija dónde buscar, y [Reintentar con la semilla] corre esa red otra vez. El registro queda marcado "semilla del operador".
 
 La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y del sensor Andor:
-1. **Ranura de Entrada & Pixel X Central**: Apertura motorizada (10 a 2500 µm), movimiento a Orden Cero (0.0 nm) y auto-calibración con ajuste gaussiano sub-píxel del centroide del slit.
+1. **Ranura de Entrada & Pixel X Central**: Apertura motorizada (10 a 2500 µm) y movimiento a Orden Cero (0.0 nm).
+   - **Centro de la ranura (R4-N 1a, `DEC-040`):**
+     1. pasá a orden cero, poné luz sobre la ranura y definí en Exploración el ROI vertical sobre su imagen;
+     2. elegí la exposición y los cuadros (1 por defecto) y apretá **`🔍 Auto-Calibrar Centro de la Ranura`**.
+   - **Qué hace:** toma cuadros nuevos de las filas del ROI, ajusta una gaussiana en cada fila y promedia la posición del máximo. Esa columna, cruzada con el ROI, es la zona de trabajo.
+     - Abre el obturador del espectrómetro sólo mientras mide y no toca láseres.
+     - Una fila que se aparta (un rayo cósmico) se descarta.
+   - **Resultado:** centro ± u (de las filas), FWHM en px y µm, la dispersión y la inclinación de la ranura sobre el sensor. **TILT** avisa que el centro corre más de 1 px de punta a punta del ROI.
+   - **No se mide** si no está en orden cero o sin ROI. **No sirve** si la imagen satura (80 % del ADC), si no se ve la línea o si menos de la mitad de las filas la muestran. En esos casos no se guarda nada y la línea dice por qué.
+   - **Nada cambia hasta `✔ Aplicar como centro de ranura`.** Al aplicar, el centro queda en el archivo de calibración del programa y se registra en el archivo de calibraciones como `SLIT_CENTER` (EXPERIMENTAL). `💾 Guardar Pixel X`, a mano, también queda registrado.
+   - Los cuadros crudos de una medición buena quedan en `carpeta de trabajo/calibration/slit_center_<fecha>.h5`.
 2. **Offsets de red y detector (leídos del Shamrock)**: se muestran con la hora de lectura; una lectura fallida dice "desconocido". No se escriben desde botones. [Registrar lo leído en el archivo] guarda los valores actuales en el archivo de calibraciones local (sólo se agregan entradas; historial visible). Al arrancar, PySpectrum compara el equipo con ese archivo y avisa si difieren, sin escribir nada. La escritura de un offset es una transacción con respaldo, tecleo del número de líneas de la red (y 3.ª confirmación si el cambio supera 50 pasos) y relectura; sin restauración desde el historial (R4-C-4). Ver MOD-06 §8.2.
 3. **Calibración Cúbica EEPROM**: Lectura de los coeficientes de dispersión $\lambda(p) = a + bp + cp^2 + dp^3$.
 4. **Respuesta Radiométrica (Lámpara Halógena)**: Carga y normalización con curvas de calibración NIST.
@@ -897,7 +1010,36 @@ La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y d
 - **Sub-pestaña "Monitoreo Puntual"**: Seguimiento temporal clásico $I(\lambda, t)$ e intensidad integrada $I(t)$ bajo excitación láser en un punto fijo.
 - **Sub-pestaña de grilla:**
   - **Espejo de detección:** los botones que decían "Insertar / Retirar Notch" mueven el **espejo de detección** (línea 7). "Notch" era un error de notación heredado del legado. Ahora dicen "Bajar espejo (espectrómetro)" y "Subir espejo (confocal / cámara)".
-  - **Por nodo (AND-1):** la platina confirma la llegada; autofoco cada $N$ nodos con el espejo arriba; espejo abajo y el láser abierto **sólo durante la exposición**.
+  - **Secuencia del legado (`DEC-054`).** Por nodo hace lo mismo que `Luminescence_ps` del PySpectrum legado:
+    1. mueve la platina con confirmación; si "Corregir el origen" está activo, la corre por (centro del mapa − nodo nominal) del nodo anterior;
+    2. hace el autofoco cada $N$ nodos (0 = nunca) con el **lock de foco del satélite**, con un corrimiento x/y opcional;
+    3. centra con el confocal por fotodiodo del satélite, con la **rampa x/y** (2 µm y 34 px por defecto) y el **fotodiodo del láser elegido**, guarda el trío de TIFF `NPscan` crudos y va al centro de masa. Los parámetros del panel del satélite vuelven a como estaban al terminar;
+    4. baja el espejo y toma el **mini-mapa hiperespectral**: nx × ny exposiciones alrededor del centro (1 µm, 20 × 20 y 2 s por defecto), con el láser abierto durante todo el mapa y una muestra del BS por píxel. El valor de cada píxel es la suma del espectro dentro de la banda λ (540–580 nm por defecto), que se arrastra en el gráfico del espectro;
+    5. cierra el láser, calcula el centro de masa del mapa (umbral 0.7) y sube el espejo.
+
+    Sin mini-mapa, toma **una exposición en el centro**, con el láser abierto sólo durante la exposición. Con "Láser apagado (scattering)" no abre ningún láser durante el mapa.
+  - **Medición en cada NP (`DEC-055`):** el combo elige entre **Mini-mapa**, **Step & Glue** y **Espectro único**.
+    - **Step & Glue** repite `Luminescence_steps_ps` del legado:
+      1. enfoca y centra a potencia baja;
+      2. pasa a potencia alta, baja el espejo (espectrómetro, R1-2) y abre el láser, salvo en scattering;
+      3. recorre las ventanas entre λ inicial y λ final con el motor de la pestaña Step & Glue (por defecto 400–800 nm, 20 % de solape y 1 s), en modo **Image**;
+      4. de cada ventana guarda el **promedio** de las filas de la fibra y de las del fondo (por defecto 200 y 25 filas: 188–212), como el legado.
+    - **Archivos.** Van en `<fecha>_Luminescence_Steps_<grilla>/Spectrum_luminescence_Col_xxx_NP_xxx/`:
+      - en el formato del legado: `<fecha>_Calibration_Shamrock_Spectrum_step_N.txt`, `<fecha>_Picture_Andor_Spectrum_step_N.tiff` (los cuadros uno al lado del otro), `Line_Spectrum_step_N.txt` y `Background_Line_Spectrum_step_N.txt`, con las N ventanas **concatenadas sin coser**;
+      - en el formato de 3.0: los `.npz` de cada ventana (en `ventanas_3.0/`) y, en el `.h5`, la fibra y el fondo de cada ventana más el **espectro cosido**.
+    - **Espacio en disco:** ~50 MB por NP con 5 ventanas.
+    - El gráfico del mini-mapa pasa a mostrar las ventanas del NP actual, y el del espectro, el cosido.
+    - Si el rango cae en condición especular, la grilla no arranca.
+  - **Necesita el satélite PyPrinting (Microscopio Derecho) abierto** si centra o enfoca, y el **lock de foco** fijado en el satélite si el autofoco no es 0. Si falta algo, la grilla no abre ningún láser y un banner rojo dice qué hacer.
+  - **La fila de la fibra** se lee en **Single-Track**: la cámara suma esas filas antes de leer. Por defecto son la fila 438 y 25 filas (426–450), como el legado. El fondo de la grilla se toma en ese mismo modo.
+  - **Archivos, en los dos formatos.** Van en `<fecha>_Luminescence_<grilla>/`:
+    - los TIFF `NPscan_xxx`, `gone_` y `back_`;
+    - por nodo, la carpeta `Slow_Confocal_Spectrum_Col_xxx_NP_xxx/`, con `wavelength_<fecha>.txt`, un `Spectrum_iXXXX_jXXXX.txt` por píxel, el TIFF del mapa y `Trace_BS.txt`, todos con el formato del legado;
+    - un `Info.txt`;
+    - un `.h5` con todo: el cubo crudo, los mapas, los escaneos, el BS, el eje λ y su fuente, el fondo y la corrección espectral.
+
+    Diferencias con el legado: los espectros tienen **1004 puntos** con el eje de la **EEPROM**, y `Trace_BS.txt` tiene una muestra por píxel del mapa (el legado guardaba una traza continua).
+  - El panel derecho tiene cuatro gráficos: la grilla, el escaneo del fotodiodo, el mini-mapa (clic en un píxel: su espectro) y el espectro. Arriba se ve una estimación del tiempo por NP y del total. [📖 Ayuda] abre MOD-06.
 - **Monitoreo puntual:** una exposición real por cuadro.
   - **Antes de iniciar** hay que elegir en "Espejo de detección ahora" dónde está el espejo. No tiene sensor. La rutina lo mueve sola según la fase y al terminar lo devuelve a esa posición (R4-K). La elección no se recuerda: se confirma en cada corrida.
   - **Corre en su propio hilo:** la ventana responde durante cada exposición, y [Detener], la pausa y el E-STOP actúan enseguida.
@@ -952,12 +1094,12 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
    `🔒 SUBJUGADO A PYSPECTRUM 3.0 (MODO SOLO MONITOREO)`
 3. **Bloqueo Selectivo de Actuadores**: Se deshabilitan los botones de movimiento manual de nanoposicionamiento, foco y obturación láser vía `set_actuators_enabled(False)`.
 4. **Excepciones Críticas de Seguridad Inviolables**:
-   - El botón **`Cerrar Todos (btn_close_all)`** permanece **siempre habilitado** para que el operador pueda cortar la emisión láser desde cualquier ventana.
+   - El botón **`Cerrar Todos (btn_close_all)`** permanece **siempre habilitado** en el dock de obturadores. Es un botón, no un atajo: el atajo de todas las ventanas es el de la parada de emergencia (`Ctrl+E` / `F12`).
    - Los botones de detención y guardado confocal permanecen activos.
 5. **Telemetría Continua**: Las lecturas en vivo de posición XYZ de la platina PI y la señal del fotodiodo vía NI-DAQmx continúan transmitiéndose sin colisiones de hilos.
 6. **PyPrinting y el contrapropagante como huéspedes (paso 13, `DEC-040`; R4-J):** el contrapropagante abierto desde PySpectrum tampoco conecta la platina al abrirse. Lo siguiente vale para PyPrinting. El PyPrinting que se abre desde el menú de PySpectrum usa la platina, las tareas de la placa y el espejo de detección de PySpectrum, pero no los administra:
-   - al abrirse **no conecta la platina** (conectarla la mandaría a home y liberaría su interlock) ni cambia el perfil de hardware. Si PySpectrum no tiene la platina conectada, el satélite la ve desconectada;
-   - al cerrarlo, cierra los obturadores, guarda la posición y detiene su cámara Canon. **No desconecta la platina**, que en PyPrinting suelto la lleva a (0, 0, 0), y tampoco cierra las tareas de la placa ni mueve el espejo;
+   - al abrirse **no conecta la platina** (es del anfitrión, y conectarla liberaría su interlock) ni cambia el perfil de hardware. Si PySpectrum no tiene la platina conectada, el satélite la ve desconectada;
+   - al cerrarlo, cierra los obturadores, guarda la posición y detiene su cámara Canon. **No desconecta la platina**, que es del anfitrión, y tampoco cierra las tareas de la placa ni mueve el espejo;
    - si se lo vuelve a abrir, se crea uno nuevo.
 
    PyPrinting suelto (`python app.py`) sigue igual que antes.
@@ -966,9 +1108,26 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
 
 ### 4.5 Interlocks de Seguridad Física y Óptica
 
-1. **Parada de Emergencia Global (🚨 E-STOP)**:
-   - Accionable mediante el botón de cabecera o los atajos `Ctrl+E` / `F12`.
-   - Cierra instantáneamente todos los obturadores láser (`close_all_shutters()`), aborta la adquisición del sensor Andor CCD, libera la sesión de hardware y desbloquea las ventanas satélites.
+1. **Parada de Emergencia (🚨 E-STOP) — la del proceso entero (R4-17 fase 4c, `DEC-049`)**:
+   - **Dónde:** el botón de la barra superior de PySpectrum; en PyPrinting, el botón rojo "■ PARADA DE EMERGENCIA · Ctrl+E · F12" arriba de la ventana principal y del panel de impresión, y uno chico en la traza y en el dock de obturadores. Los atajos `Ctrl+E` / `F12` funcionan desde **cualquier** ventana del programa, también con un diálogo abierto y desde la ventana del satélite.
+   - **Es una sola para los dos programas:** con PyPrinting abierto desde PySpectrum, una parada en cualquiera de los dos detiene a los dos, y hay un solo Rearmar.
+   - **Qué hace, sin esperar a nada:**
+     - desde ese instante **ningún obturador se puede abrir y la platina no se mueve**, tampoco con las flechas del panel, hasta Rearmar;
+     - un hilo aparte cierra los cuatro obturadores y después sube el filtro de densidad (baja potencia);
+     - se detienen las rutinas (la grilla queda **DETENIDA**, distinta de "en pausa"), la traza, el autofoco y los escaneos;
+     - se aborta la cámara Andor y la ganancia EM va a 0 y se relee.
+   - **El banner rojo**, no modal, dice la hora y si la placa confirmó el cierre de los cuatro. Si no lo confirma en medio segundo, o la placa está tomada, dice **"PARADA SIN CONFIRMAR … cortá la emisión con la llave del láser"**: la llave es la única parada física que no depende del programa. Ya no aparece el diálogo de antes.
+   - **Rearmar** (en el banner, o "🔄 Rearmar Sistema") se habilita con el cierre confirmado. Rearma cuando todas las rutinas terminaron de detenerse, con un plazo de 12 s; mientras espera, dice a quién. La grilla queda **en pausa**: seguir es un **Play** aparte, en el primer nodo que nunca se expuso.
+
+   **Los cuatro cortes, lado a lado** (`gui_design_v2.md` §5.2):
+
+   | | Pausa (`F2`) | Cerrar todos | Parada de emergencia (`Ctrl+E`, `F12`) |
+   |---|---|---|---|
+   | Qué cierra | el obturador de impresión | los cuatro | los cuatro, y bloquea toda apertura y todo movimiento |
+   | La grilla | queda **en pausa** | **sigue** a los 3 s | queda **detenida** |
+   | El nodo en curso | interrumpido, en revisión | interrumpido, en revisión | interrumpido, en revisión |
+   | Para volver a abrir | Play | nada: el nodo siguiente abre solo | Rearmar y después Play |
+   | Alcance del atajo | todas las ventanas (si la grilla corre; si no, `F2` detiene la traza manual) | sólo el botón | todas las ventanas |
 2. **Espejo rápido e interlock especular (paso 7, `DEC-040`)**:
    - **Condición especular:** orden cero, la red espejo (posición 3 de la torreta) o una λc bajo el umbral $(1 + 0.10)\cdot W/2$ (56.7 nm con 150 l/mm, 6.4 nm con 1200 l/mm; PROVISORIO hasta BANCO-42). Un estado del Shamrock que no se puede leer cuenta como especular.
    - **Entrar:** `🪞 Orden cero (red actual)`, `Ctrl+0`, `Red espejo`, o `Ir a λ` con un destino bajo el umbral (el botón pasa a "Ir (espejo rápido)"). No hay diálogo. Antes de girar se detiene la cámara, la ganancia EM va a 0 y se relee, se fija la exposición de orden cero (la primera de la sesión, 0.1 s; después la última usada) y se cierran todos los obturadores con confirmación. Si un paso falla, **la red no se mueve** y el panel muestra qué paso falló y en qué estado quedó cada recurso.
@@ -982,7 +1141,7 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
 5. **Cierre de PySpectrum (paso 13, `DEC-040`)**:
    - **Una sola pregunta:** "Se cierran todos los obturadores, la platina va a (50, 50, 10) µm y la cámara se cierra: el enfriador queda como lo deje el SDK al cerrar". Desde R4-L, 3.0 no fija qué hace el enfriador al cerrar, igual que el legado; BANCO-57 lo mide. La posición es `config.PI_HOME_POS` (R4-B 6): así, al volver a conectarse, la platina no se mueve. Si hay un satélite abierto, la misma pregunta avisa que también se cierra, sin mover la platina. El satélite no pregunta por su cuenta.
    - **Orden:**
-     1. E-STOP;
+     1. E-STOP (desde R4-17 fase 4c, la parada del proceso; el cierre la levanta antes de mover la platina, porque estacionarla es una acción que el operador confirmó con la pregunta);
      2. las rutinas y sus hilos, incluido un barrido de Step & Glue en curso;
      3. los satélites;
      4. los obturadores, con el cierre confirmado;
@@ -1228,6 +1387,16 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
 
 ### 11.1 Modo Espectro Individual
 - **Importador Inteligente Andor Solis**: Salta automáticamente las ~50 líneas iniciales de condiciones experimentales de Andor Solis y detecta delimitadores (tabs, comas, espacios).
+- **Archivos `.sif` de Andor Solis (2026-10-02, `DEC-042`):** "Examinar Espectro…" y los lotes de la suite multi-espectro abren `.sif` además de `.asc`, `.txt`, `.csv` y `.dat`. Aparece el grupo **"Archivo .sif"**:
+  - **Qué canales trae:** un `.sif` tiene casilleros fijos (Señal, Referencia, Fondo, Live y Fuente) y cada canal declara su tipo. El grupo dice qué casilleros vinieron y de qué tipo es la señal.
+  - **El fondo ("ruido"):**
+    - si la señal dice `Counts (Bg Corrected)`, **Solis ya restó el fondo**: se usa tal cual, nunca se resta otra vez, y el fondo se dibuja punteado sólo para ver;
+    - si dice `Counts`, se muestra **señal − fondo** por defecto, y **"Restar el fondo del SIF"** permite ver el crudo;
+    - sólo se resta si el fondo tiene la misma forma y la misma exposición. Si no, la casilla se deshabilita y el grupo dice por qué.
+  - **Filas y cuadros:** con varias filas (Image o Multi-Track) se promedian las filas [desde, hasta), por defecto todas. Con varios cuadros (cinética), el promedio de todos o uno. En un FVB de un cuadro, esos controles quedan deshabilitados.
+  - **Señal en cuentas por segundo** (por ejemplo, `Counts (Bg corrected per second)`): el fondo se pasa también a cuentas por segundo (÷ su exposición), para que se puedan comparar. El grupo dice las unidades, y la columna exportada se llama `SIF_Background_Counts_per_s`.
+  - **Eje y láser:** el eje λ sale de la calibración guardada en el SIF; si no tiene, el eje queda en píxeles y se avisa. **El láser no viene en el SIF:** elegilo siempre en "Excitación y Ejes". El `RamanExWavelength` del SIF (por ejemplo, 422 en `reserva/cumulo_594.sif`) no se usa. Podés ver el espectro en longitud de onda, en corrimiento Raman o en energía.
+  - **Exportar CSV:** la cabecera dice qué casilleros vinieron, qué se hizo con el fondo y qué es `Raw_Counts`. El fondo del SIF va en una columna aparte, `SIF_Background_Counts`.
 - **Conversión Fotónica de Unidades en Vivo**:
   - Longitud de onda ($\text{nm}$).
   - Desplazamiento Raman ($\text{cm}^{-1}$): $\Delta\tilde{\nu} = (1/\lambda_{\text{laser}} - 1/\lambda) \times 10^7$ con $\lambda_{\text{laser}}$ configurable (532 nm, 632.8 nm, 785 nm o libre).
@@ -1240,10 +1409,16 @@ El módulo **Raman Analyzer** es la estación analítica integral para espectros
   4. **Rolling Ball (*Esfera Rodante*)**: Morfología matemática para fondos con ondulaciones complejas.
   5. **Tercera Derivada & Splines Cúbicos**: Extracción de nodos de fondo libre de picos.
 - **Filtros de De-noising y Rayos Cósmicos**: Savitzky-Golay, Fourier Pasa-Bajos FFT y extirpador estadístico de rayos cósmicos (*Cosmic Ray Despiking* por derivada y MAD).
+- **🎨 Estudio de Exportación (2026-10-02):** "Estudio: espectro original" (espectro, línea base y, si es un `.sif`, su fondo) y "Estudio: espectro corregido" (Raman neto, picos y ajustes) abren el Estudio de Exportación Científica con las capas de ese gráfico: estilos, ejes, tamaño y formato (PNG, SVG, PDF). En la suite multi-espectro, "🎨 Estudio de Exportación" abre el gráfico de la pestaña activa (en PCA, las cargas espectrales).
 - **Reglas Duales A/B & Deconvolución Multi-Pico**: Detección automática de picos (*Find Peaks*), medición de altura y área integrada entre reglas, y ajuste no lineal con perfiles Gaussianos, Lorentzianos y Pseudo-Voigt.
 
 ### 11.2 Suite Multi-Espectro & Series Temporales (`MultiSpectrumWidget`)
 Diseñada para cinéticas químicas, series temporales SERS y comparaciones de lotes:
+- **Rango de cada espectro (2026-10-02):**
+  - **"Overlay" y "Crudos & Línea Base"** muestran cada espectro con su rango completo, con la misma línea base, el mismo suavizado y la misma normalización.
+  - **Un fondo de referencia más corto que un espectro** no se extrapola: fuera de su rango, ese espectro queda sin corregir y no se dibuja.
+  - **Promedio, cinética, mapa de calor y PCA** necesitan una grilla común a todos los espectros, así que usan sólo el rango que tienen todos. Cuando eso deja datos afuera, un aviso naranja arriba de las pestañas dice el rango común y cuántos puntos quedan.
+  - **El CSV de "Overlay" y de "Crudos"** exporta cada espectro con su propio eje, en pares de columnas.
 - **🔬 Láser de Excitación y Selector Tri-Modal de Unidades Espectrales**:
   - **Selector de Láser**: Longitudes de onda estándar (532.0 nm Verde, 632.8 nm Rojo He-Ne, 637.0 nm Diodo, 785.0 nm NIR, 592.0 nm Amarillo) o valor personalizado.
   - **Selector de Unidades Eje X**: Permite alternar de forma inmediata entre **Corrimiento Raman ($\text{cm}^{-1}$)**, **Longitud de Onda ($\text{nm}$)** y **Energía Relativa ($\text{eV}$)**.
@@ -1858,7 +2033,7 @@ Para un análisis detallado de la topología de hilos, consulte el reporte forma
 ### Resumen de la Topología Multihilo:
 * **Main UI Thread (Hilo Principal)**: Maneja la interfaz gráfica PyQt6, gráficos PyQtGraph y eventos de usuario.
 * **`cameraThread` (`QThread`)**: Dedicado exclusivamente al procesamiento de frames EVF de la Canon EOS 500D, filtros antiruido y emisión `fullFrameSignal`.
-* **`confocalThread` (`QThread`)**: Ejecuta las rutinas de impresión de grillas, ensamblado de dímeros, muestreo analógico a 10 kHz NI-DAQmx y autofoco Z.
+* **`confocalThread` (`QThread`)**: Ejecuta las rutinas de impresión de grillas, ensamblado de dímeros, muestreo analógico a 10 kHz NI-DAQmx y autofoco Z. Desde el 2026-10-02 (`DEC-045`), la cadena de la grilla corre entera en este hilo, incluido el criterio de parada. Así, que la interfaz esté ocupada dibujando ya no puede demorar una decisión, repetirla ni atribuirla al nodo siguiente.
 * **`instrumentThread` (`QThread`)**: Gestiona la comunicación serie/USB RS-232 con la platina piezoeléctrica PI E-517 y obturadores.
 * **Hilos Nativos C++ (`EDSDK.dll` & `nicaiu.dll`)**: Manejan las transferencias DMA por hardware y el protocolo USB/PTP de la cámara.
 

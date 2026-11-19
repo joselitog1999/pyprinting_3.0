@@ -4,7 +4,8 @@ calibration_dock.py — Pestaña Modular de Calibraciones del Sistema
 PySpectrum 3.0 — UNSAM Nanofotónica
 
 Provee paneles modulares ("ventanitas") para:
-1. Ranura de Entrada & Pixel X Central del Slit (Alineación Orden Cero y ajuste gaussiano).
+1. Ranura de Entrada & Pixel X Central del Slit: centro de la ranura en orden cero, una gaussiana por fila del
+   ROI vertical (R4-N 1a; `pyspectrum/calibration/slit_center.py`), aplicado sólo con [Aplicar].
 2. Offset de Rejillas & Detector según SDK Andor Shamrock (ShamrockCIF.dll).
 3. Coeficientes Cúbicos de Calibración de Longitud de Onda (EEPROM).
 4. Calibración de Respuesta Espectral con Lámpara Halógena.
@@ -64,7 +65,8 @@ class CalibrationFrontend(QtWidgets.QFrame):
     setSlitWidthSignal = pyqtSignal(float)
     getSlitZeroPosSignal = pyqtSignal(int)
     saveSlitPixelSignal = pyqtSignal(float)
-    autoCalibrateSlitSignal = pyqtSignal()
+    autoCalibrateSlitSignal = pyqtSignal(float, int)      # exposición (s), cuadros (R4-N 1a)
+    applySlitCenterSignal = pyqtSignal()                  # [Aplicar como centro de ranura] (P3)
 
     # Los offsets se leen; no se escriben desde acá (pasos 9-10, G-10). El offset entero se escribe sólo
     # con la transacción (pyspectrum/calibration/offset_transaction.py), desde la rutina (R4-B-1).
@@ -203,31 +205,74 @@ class CalibrationFrontend(QtWidgets.QFrame):
         )
         slit_layout.addWidget(self.spin_pixel_x, 3, 1)
 
-        btn_save_px = QtWidgets.QPushButton("💾 Guardar Pixel X")
-        btn_save_px.setToolTip("Guarda el valor del centroide X en la memoria de calibración activa del programa.")
-        btn_save_px.clicked.connect(lambda: self.saveSlitPixelSignal.emit(self.spin_pixel_x.value()))
-        slit_layout.addWidget(btn_save_px, 3, 2)
+        self.btn_save_px = QtWidgets.QPushButton("💾 Guardar Pixel X")
+        self.btn_save_px.setToolTip("Guarda este valor a mano como centro de la ranura. Queda registrado en el "
+                                    "archivo de calibraciones (SLIT_CENTER, a mano).")
+        self.btn_save_px.clicked.connect(lambda: self.saveSlitPixelSignal.emit(self.spin_pixel_x.value()))
+        slit_layout.addWidget(self.btn_save_px, 3, 2)
 
-        self.btn_auto_slit = QtWidgets.QPushButton("🔍 Auto-Calibrar Centroide X (Ajuste Gaussiano)")
+        # Autocalibración del centro (R4-N 1a): una gaussiana por fila del ROI vertical, en orden cero.
+        exp_row = QtWidgets.QHBoxLayout()
+        exp_row.addWidget(QtWidgets.QLabel("Exposición:"))
+        self.spin_slit_exp = QtWidgets.QDoubleSpinBox()
+        self.spin_slit_exp.setRange(0.001, 10.0)
+        self.spin_slit_exp.setDecimals(3)
+        self.spin_slit_exp.setSingleStep(0.01)
+        self.spin_slit_exp.setValue(0.05)
+        self.spin_slit_exp.setSuffix(" s")
+        self.spin_slit_exp.setToolTip("Exposición de los cuadros de la ranura. Si el crudo llega al 80 % del ADC, "
+                                      "la medición se rechaza: bajala.")
+        exp_row.addWidget(self.spin_slit_exp)
+        exp_row.addWidget(QtWidgets.QLabel("Cuadros:"))
+        self.spin_slit_frames = QtWidgets.QSpinBox()
+        self.spin_slit_frames.setRange(1, 20)
+        self.spin_slit_frames.setValue(1)
+        self.spin_slit_frames.setToolTip("Cuadros nuevos. La estadística sale de las filas; con 3 o más, cada píxel "
+                                         "es la mediana en el tiempo y los rayos cósmicos se descartan.")
+        exp_row.addWidget(self.spin_slit_frames)
+        exp_row.addStretch()
+        slit_layout.addLayout(exp_row, 4, 0, 1, 3)
+
+        self.btn_auto_slit = QtWidgets.QPushButton("🔍 Auto-Calibrar Centro de la Ranura (una gaussiana por fila)")
         self.btn_auto_slit.setStyleSheet("background-color: #A6E3A1; color: #11111B;")
         self.btn_auto_slit.setToolTip(
-            "Captura automáticamente el cuadro actual en Orden Cero, proyecta el perfil horizontal,\n"
-            "sustrae el nivel de fondo y calcula el ajuste no lineal Gaussiano (centroide y FWHM)."
+            "En orden cero, con luz sobre la ranura: toma cuadros nuevos de las filas del ROI vertical\n"
+            "(Exploración), ajusta una gaussiana en cada fila y promedia la posición del máximo.\n"
+            "Abre el obturador del espectrómetro sólo mientras mide; no toca láseres.\n"
+            "No cambia nada hasta [Aplicar]. Si falla, no guarda nada y dice por qué."
         )
-        self.btn_auto_slit.clicked.connect(self.autoCalibrateSlitSignal.emit)
-        slit_layout.addWidget(self.btn_auto_slit, 4, 0, 1, 3)
+        self.btn_auto_slit.clicked.connect(lambda: self.autoCalibrateSlitSignal.emit(
+            float(self.spin_slit_exp.value()), int(self.spin_slit_frames.value())))
+        slit_layout.addWidget(self.btn_auto_slit, 5, 0, 1, 3)
+
+        self.lbl_slit_result = QtWidgets.QLabel("Sin medición.")
+        self.lbl_slit_result.setWordWrap(True)
+        self.lbl_slit_result.setStyleSheet("color: #A6ADC8; font-size: 8.5pt;")
+        self.lbl_slit_result.setToolTip(
+            "Centro ± u (Tipo A, de las filas), FWHM en px y µm (× 8 µm), dispersión de los centros respecto de la\n"
+            "recta, inclinación de la ranura sobre el sensor y filas usadas. TILT: el centro corre más de 1 px de\n"
+            "punta a punta del ROI (el promedio es el centro en la mitad del ROI). EXPERIMENTAL.")
+        slit_layout.addWidget(self.lbl_slit_result, 6, 0, 1, 3)
+
+        self.btn_apply_slit_center = QtWidgets.QPushButton("✔ Aplicar como centro de ranura")
+        self.btn_apply_slit_center.setEnabled(False)
+        self.btn_apply_slit_center.setToolTip("Adopta el centro medido: lo guarda en el archivo de calibración del "
+                                              "programa y lo registra en el archivo de calibraciones (SLIT_CENTER, "
+                                              "EXPERIMENTAL). Sólo con una medición que salió bien.")
+        self.btn_apply_slit_center.clicked.connect(self.applySlitCenterSignal.emit)
+        slit_layout.addWidget(self.btn_apply_slit_center, 7, 0, 1, 3)
 
         # Slit Zero Position SDK
         lbl_sz = QtWidgets.QLabel("Slit Zero Pos (SDK steps):")
         lbl_sz.setToolTip("Posición mecánica cero de calibración del slit en pasos de motor del SDK Shamrock.")
-        slit_layout.addWidget(lbl_sz, 5, 0)
+        slit_layout.addWidget(lbl_sz, 8, 0)
         self.spin_slit_zero = QtWidgets.QSpinBox()
         self.spin_slit_zero.setRange(-10000, 10000)
         self.spin_slit_zero.setReadOnly(True)
         self.spin_slit_zero.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.spin_slit_zero.setToolTip("Cero de la ranura en pasos de motor, leído del Shamrock. PySpectrum no lo "
                                        "escribe (R2-inst §3.2).")
-        slit_layout.addWidget(self.spin_slit_zero, 5, 1)
+        slit_layout.addWidget(self.spin_slit_zero, 8, 1)
 
         vbox.addWidget(box_slit)
 
@@ -399,7 +444,7 @@ class CalibrationFrontend(QtWidgets.QFrame):
             "Verificación con agua y ruido oscuro: <b>retiradas</b> (2026-09-30). "
             "La λ se verifica en la sub-pestaña <b>Calibración de λ (automática)</b>. "
             "El fondo se toma en cada procedimiento, con la misma configuración (exposición, ganancia, "
-            "modo de lectura, red, λc) y todo apagado o el obturador del espectrómetro cerrado, a elección.")
+            "modo de lectura) y todo apagado o el obturador del espectrómetro cerrado, a elección.")
         self.lbl_retired.setWordWrap(True)
         self.lbl_retired.setStyleSheet("color: #A6ADC8; font-size: 8.5pt;")
         vbox.addWidget(self.lbl_retired)
@@ -428,6 +473,11 @@ class CalibrationFrontend(QtWidgets.QFrame):
         self.curve_fit = self.plot_widget.plot(name="Ajuste Gaussiano", pen=pg.mkPen("#F38BA8", width=2.5, style=QtCore.Qt.PenStyle.DashLine))
         self.line_center = pg.InfiniteLine(pos=501.25, angle=90, pen=pg.mkPen("#A6E3A1", width=2.0, style=QtCore.Qt.PenStyle.DotLine), label="Centro Slit")
         self.plot_widget.addItem(self.line_center)
+        # El centro medido, todavía sin aplicar (R4-N 1a)
+        self.line_candidate = pg.InfiniteLine(pos=501.25, angle=90, pen=pg.mkPen("#F9E2AF", width=1.5,
+                                              style=QtCore.Qt.PenStyle.DashLine), label="medido")
+        self.line_candidate.hide()
+        self.plot_widget.addItem(self.line_candidate)
 
         main_layout.addWidget(self.plot_widget, stretch=3)
 
@@ -555,8 +605,10 @@ class CalibrationFrontend(QtWidgets.QFrame):
         if entry.kind == "OBSERVED":
             g = v.get("gratings", {})
             value = "/".join(str(g.get(k, {}).get("offset")) for k in sorted(g))
-        cells = [entry.ts.replace("T", " ")[:19], entry.kind,
-                 str(entry.key.grating_index) if entry.key else "todas", str(value), str(result), entry.operator]
+        target = str(entry.key.grating_index) if entry.key else "todas"
+        if entry.kind == "SLIT_CENTER":
+            value, target = f"{float(v.get('center_px', float('nan'))):.2f} px", "ranura"
+        cells = [entry.ts.replace("T", " ")[:19], entry.kind, target, str(value), str(result), entry.operator]
         row = 0 if at_top else self.table_history.rowCount()
         self.table_history.insertRow(row)
         for col, text in enumerate(cells):
@@ -572,14 +624,36 @@ class CalibrationFrontend(QtWidgets.QFrame):
         self.edit_d.setText(f"{d:.6e}")
         self.lbl_status.setText(f"Coeficientes EEPROM leídos. Dispersión: {b:.4f} nm/px.")
 
-    @pyqtSlot(float, float, np.ndarray, np.ndarray, np.ndarray)
-    def update_slit_fit_result(self, centroid_x: float, fwhm: float, x_data: np.ndarray, y_data: np.ndarray, fit_data: np.ndarray):
-        self.spin_pixel_x.setValue(centroid_x)
-        self.line_center.setValue(centroid_x)
-        self.curve_profile.setData(x_data, y_data)
-        if len(fit_data) == len(x_data):
-            self.curve_fit.setData(x_data, fit_data)
-        self.lbl_status.setText(f"Ajuste Slit: <b>Centroide X = {centroid_x:.2f} px</b> (FWHM = {fwhm:.2f} px)")
+    @pyqtSlot(object)
+    def update_slit_fit_result(self, result):
+        """El resultado de la autocalibración (R4-N 1a). No cambia el centro: eso es [Aplicar]."""
+        ok = bool(getattr(result, "ok", False))
+        text = result.summary() if result is not None else "Sin medición."
+        color = "#A6E3A1" if ok else "#F38BA8"
+        self.lbl_slit_result.setText(f"<span style='color:{color}'>{text}</span>")
+        self.btn_apply_slit_center.setEnabled(ok)
+        if ok and result.profile is not None:
+            self.curve_profile.setData(np.arange(result.profile.size, dtype=np.float64), result.profile)
+            if result.fit_x is not None:
+                self.curve_fit.setData(result.fit_x, result.fit_y)
+            self.line_candidate.setValue(result.center_px)
+            self.line_candidate.show()
+        else:
+            self.curve_fit.setData([], [])
+            self.line_candidate.hide()
+        self.lbl_status.setText("Ranura: medición lista, sin aplicar." if ok else "Ranura: la medición no sirvió.")
+
+    @pyqtSlot(bool)
+    def set_slit_running(self, running: bool):
+        self.btn_auto_slit.setEnabled(not running)
+        if running:
+            self.btn_apply_slit_center.setEnabled(False)
+            self.lbl_slit_result.setText("Midiendo la ranura…")
+
+    @pyqtSlot()
+    def slit_center_applied(self):
+        self.btn_apply_slit_center.setEnabled(False)
+        self.line_candidate.hide()
 
     @pyqtSlot(str)
     def show_status(self, msg: str):
@@ -596,7 +670,9 @@ class CalibrationBackend(QtCore.QObject):
     historyInitSignal = pyqtSignal(object)
     historyAppendedSignal = pyqtSignal(object)
     cubicCoeffsUpdatedSignal = pyqtSignal(float, float, float, float)
-    slitFitResultSignal = pyqtSignal(float, float, np.ndarray, np.ndarray, np.ndarray)
+    slitFitResultSignal = pyqtSignal(object)        # SlitCenterResult (R4-N 1a)
+    slitRunningSignal = pyqtSignal(bool)
+    slitCenterAppliedSignal = pyqtSignal()
     activeCalibFileUpdatedSignal = pyqtSignal(str)
     statusSignal = pyqtSignal(str)
 
@@ -626,6 +702,14 @@ class CalibrationBackend(QtCore.QObject):
         self.lamp_temp_k: float = 3100.0
         self.active_calib_file: str = str(CALIBRATION_TXT_FILE)
 
+        # Autocalibración de la ranura (R4-N 1a): en su propio hilo, con su sesión; nada se aplica sin [Aplicar].
+        from pyspectrum.calibration.slit_center import SESSION_NAME
+        from pyspectrum.modules.routines.routine_thread import RoutineThread
+        self.slit_thread = RoutineThread(SESSION_NAME, self)
+        self.slit_thread.finished.connect(self._on_slit_finished)
+        self.pending_slit = None              # la última medición que salió bien, sin aplicar
+        self._slit_result = None
+        self._slit_meta: dict = {}
 
         # Cargar calibración previa al inicializar (prioridad .txt, fallback .json)
         if not self.load_calibration_from_txt(str(CALIBRATION_TXT_FILE)):
@@ -637,6 +721,9 @@ class CalibrationBackend(QtCore.QObject):
         frontend.getSlitZeroPosSignal.connect(self.get_slit_zero_position)
         frontend.saveSlitPixelSignal.connect(self.save_slit_pixel)
         frontend.autoCalibrateSlitSignal.connect(self.auto_calibrate_slit)
+        frontend.applySlitCenterSignal.connect(self.apply_slit_center)
+        self.slitRunningSignal.connect(frontend.set_slit_running)
+        self.slitCenterAppliedSignal.connect(frontend.slit_center_applied)
 
         frontend.getGratingOffsetSignal.connect(self.get_grating_offset)
         frontend.getDetectorOffsetSignal.connect(self.get_detector_offset)
@@ -800,66 +887,128 @@ class CalibrationBackend(QtCore.QObject):
         self._save_calibration_file()
         self.save_calibration_to_txt()
         spectroscopy_context.set_slit_parameters(slit_center_px=self.slit_center_x)
-        self.statusSignal.emit(f"Pixel X central {pixel_x:.2f} px guardado en configuración.")
+        registered = self._register_slit_center({"center_px": float(pixel_x), "provenance": "EXPERIMENTAL"},
+                                                method="manual_entry", note="escrito a mano")
+        self.statusSignal.emit(f"Pixel X central {pixel_x:.2f} px guardado en configuración."
+                               + ("" if registered else " ⚠️ No se pudo registrar en el archivo de calibraciones."))
+
+    # ── Autocalibración del centro de la ranura (R4-N 1a) ──
+    def _slit_data_dir(self) -> Path:
+        base = os.getenv("PYSPECTRUM_ROUTINE_DATA_DIR") or str(Path.home() / "Documents" / "Data_PySpectrum")
+        return Path(base) / "calibration"
+
+    @pyqtSlot(float, int)
+    def auto_calibrate_slit(self, exposure_s: float = 0.05, n_frames: int = 1):
+        """Mide el centro en orden cero sobre las filas del ROI vertical. No aplica nada (P3)."""
+        from pyspectrum.calibration import slit_center as sc
+        from pyspectrum.modules.routines.grid_runner import GridAbort, NodeFailed
+        if self.slit_thread.running:
+            self.statusSignal.emit("La calibración de la ranura ya está corriendo.")
+            return
+        y_min, y_max, _c, height = spectroscopy_context.vertical_roi
+        try:
+            rows = sc.check_rows((y_min, y_max) if height > 0 else (0, 0))
+            sc.check_zero_order(sc.zero_order_mode(self.camera, self.spectrometer))
+        except sc.SlitCalibrationRefused as e:
+            self.statusSignal.emit(f"⛔ {e}")
+            return
+        self.pending_slit = None
+        self._slit_result = None
+        self._slit_meta = {"exposure_s": float(exposure_s), "n_frames": int(n_frames),
+                           "slit_width_um": float(self.slit_width)}
+        frames_box = []
+
+        def expose_recording(runner):
+            def expose(shape, exp):
+                fr = runner.expose(shape, exp)
+                frames_box.append(fr)
+                return fr
+            return expose
+
+        def body(runner, ctl):
+            try:
+                res = sc.measure_slit_center(self.camera, expose_recording(runner), exposure_s=float(exposure_s),
+                                             rows=rows, n_frames=int(n_frames),
+                                             mode_fn=lambda: sc.zero_order_mode(self.camera, self.spectrometer))
+            except sc.SlitCalibrationRefused as e:
+                res = sc.failed_result(str(e), rows, 0, 0.0, ["REFUSED"])
+            except NodeFailed as e:
+                res = sc.failed_result(str(e), rows, len(frames_box), 0.0, ["ACQUISITION_FAILED"])
+            except GridAbort:
+                res = sc.failed_result("detenida (Stop o E-STOP)", rows, len(frames_box), 0.0, ["STOPPED"])
+            if res.ok:
+                path = sc.save_slit_frames(self._slit_data_dir(), np.stack(frames_box), res, self._slit_meta)
+                res = sc.with_frames_file(res, path)
+            self._slit_result = res
+            return "done"
+        err = self.slit_thread.start(body, camera=self.camera, spectrometer=self.spectrometer, mirror=None,
+                                     needs_spectrometer=True, require_mirror=False, restore_mirror=False)
+        if err:
+            self.statusSignal.emit(f"⛔ La calibración de la ranura no arrancó: {err}")
+            return
+        self.slitRunningSignal.emit(True)
+        self.statusSignal.emit("Midiendo el centro de la ranura…")
+
+    @pyqtSlot(str)
+    def _on_slit_finished(self, outcome: str):
+        from pyspectrum.calibration import slit_center as sc
+        res = self._slit_result
+        if res is None:
+            res = sc.failed_result(f"la medición terminó sin resultado ({outcome})", (0, 0), 0, 0.0, ["ERROR"])
+        self.pending_slit = res if res.ok else None
+        self.slitRunningSignal.emit(False)
+        self.slitFitResultSignal.emit(res)
+        self.statusSignal.emit(("Ranura medida, sin aplicar: " if res.ok else "Ranura: ") + res.summary())
 
     @pyqtSlot()
-    def auto_calibrate_slit(self):
-        """Adquiere el perfil actual de la ranura en Orden Cero y realiza un ajuste Gaussiano."""
+    def apply_slit_center(self):
+        """[Aplicar como centro de ranura] (P3): adopta la última medición buena y la registra (P4)."""
+        res = self.pending_slit
+        if res is None or not res.ok:
+            self.statusSignal.emit("No hay una medición de la ranura para aplicar.")
+            return
+        self.slit_center_x = float(res.center_px)
+        self.slit_fwhm = float(res.fwhm_px)
+        self._save_calibration_file()
+        self.save_calibration_to_txt()
+        spectroscopy_context.set_slit_parameters(slit_center_px=self.slit_center_x)
+        values = dict(res.values())
+        values.update(self._slit_meta)
+        registered = self._register_slit_center(values, method="row_gaussian_mean",
+                                                note="autocalibración en orden cero (R4-N 1a)")
+        self.pending_slit = None
+        self.slitCenterAppliedSignal.emit()
+        self.statusSignal.emit(f"Centro de la ranura aplicado: {res.center_px:.2f} ± {res.u_center_px:.2f} px."
+                               + ("" if registered else " ⚠️ No se pudo registrar en el archivo de calibraciones."))
+
+    def _register_slit_center(self, values: dict, *, method: str, note: str) -> bool:
+        """Una entrada SLIT_CENTER (EXPERIMENTAL) en el archivo de calibraciones, con el equipo que se leyó."""
+        from pyspectrum.calibration.repository import CalibrationEntry
+        spec = self.spectrometer
+        ident = {"serial": None, "entrance_port": None, "exit_port": None}
         try:
-            # 1. Obtener imagen o perfil 1D
-            if hasattr(self.camera, "get_most_recent_image"):
-                img = self.camera.get_most_recent_image()
-                if img is not None and img.ndim == 2:
-                    y_mid = img.shape[0] // 2
-                    sub_y = img[max(0, y_mid - 20): min(img.shape[0], y_mid + 20), :]
-                    profile = np.mean(sub_y, axis=0)
-                elif img is not None:
-                    profile = img
-                else:
-                    profile = np.ones(1004, dtype=np.float64) * 100.0
-            else:
-                profile = np.ones(1004, dtype=np.float64) * 100.0
-
-            x = np.arange(len(profile), dtype=np.float64)
-            y = np.array(profile, dtype=np.float64)
-
-            # 2. Ajuste Gaussiano
-            centroid, fwhm, fit_curve = self._fit_gaussian_slit(x, y)
-            self.slit_center_x = centroid
-            self.slit_fwhm = fwhm
-            self._save_calibration_file()
-            self.save_calibration_to_txt()
-            spectroscopy_context.set_slit_parameters(slit_center_px=centroid)
-
-            self.slitFitResultSignal.emit(float(centroid), float(fwhm), x, y, fit_curve)
-        except Exception as e:
-            self.statusSignal.emit(f"Error en auto-calibración: {e}")
-
-    def _fit_gaussian_slit(self, x: np.ndarray, y: np.ndarray) -> Tuple[float, float, np.ndarray]:
-        """Ajusta un modelo Gaussiano sobre el perfil de intensidad del slit."""
-        from scipy.optimize import curve_fit
-
-        bg = np.percentile(y, 10)
-        amp = np.max(y) - bg
-        x0_guess = float(x[np.argmax(y)])
-        sigma_guess = 5.0
-
-        def gauss(p, a, x0, sig, c):
-            return a * np.exp(-((p - x0) ** 2) / (2.0 * sig ** 2)) + c
-
-        try:
-            popt, _ = curve_fit(gauss, x, y, p0=[amp, x0_guess, sigma_guess, bg], maxfev=2000)
-            a_fit, x0_fit, sig_fit, c_fit = popt
-            fwhm = 2.355 * abs(sig_fit)
-            fit_curve = gauss(x, *popt)
-            return (float(x0_fit), float(fwhm), fit_curve)
+            ret_s, serial = spec.ShamrockGetSerialNumber(DEVICE)
+            ident["serial"] = str(serial) if ret_s == SHAMROCK_SUCCESS else None
+            for name, flipper in (("entrance_port", 1), ("exit_port", 2)):
+                ret_p, port = spec.ShamrockGetFlipper(DEVICE, flipper)
+                ident[name] = int(port) if ret_p == SHAMROCK_SUCCESS else None
         except Exception:
-            weights = np.maximum(0, y - bg)
-            if np.sum(weights) > 0:
-                cg = float(np.sum(x * weights) / np.sum(weights))
-            else:
-                cg = float(x0_guess)
-            return (cg, 10.0, np.array([]))
+            pass
+        v = dict(values)
+        v.update(ident)
+        v.setdefault("slit_width_um", float(self.slit_width))
+        entry = CalibrationEntry("SLIT_CENTER", None, method=method, note=note, values=v)
+        try:
+            self.repository.append(entry)
+        except OSError as e:
+            print(f"[Calib Backend] No se pudo registrar SLIT_CENTER: {e}")
+            return False
+        self.historyAppendedSignal.emit([entry])
+        return True
+
+    def shutdown(self, timeout_ms: int = 3000):
+        """Cierre de PySpectrum (paso 13): detiene la medición de la ranura en curso."""
+        return self.slit_thread.shutdown(timeout_ms)
 
     @pyqtSlot(str)
     def load_lamp_calibration(self, filepath: str):

@@ -32,6 +32,7 @@ from PyQt6.QtGui import QFont, QColor, QPen, QPainter, QImage
 
 from core.raman_engine import (
     parse_andor_solis_file,
+    parse_spectrum_file,
     wavelength_to_raman_shift,
     raman_shift_to_wavelength,
     raman_shift_to_ev,
@@ -106,6 +107,13 @@ class MultiSpectrumWidget(QWidget):
             self.unit_mode = str(self.parent_analyzer.unit_mode)
         self.view_mode: str = "overlay"  # 'overlay', 'waterfall', 'heatmap'
         self.norm_mode: str = "none"     # 'none', 'max', 'peak', 'area', 'snv'
+        # Cada espectro sobre su propio eje (2026-10-02): Overlay y Crudos los dibujan con su rango completo;
+        # la grilla común (intersección) queda para promedio, cinética, mapa y PCA.
+        self.native_spectra: List[Tuple[np.ndarray, np.ndarray]] = []
+        self.native_baseline: List[np.ndarray] = []
+        self.native_corrected: List[np.ndarray] = []
+        self.native_displayed: List[np.ndarray] = []
+        self.ref_blank_native: Optional[Tuple[np.ndarray, np.ndarray]] = None
         self.ref_peak_pos: float = 1078.0
 
         # Referencia de línea base externa / fondo (Modo 1)
@@ -583,8 +591,13 @@ class MultiSpectrumWidget(QWidget):
         self.btn_export_png.clicked.connect(self._on_export_active_png)
 
         tb_hlo.addWidget(self.btn_copy_tsv)
+        self.btn_export_studio = QPushButton("🎨 Estudio de Exportación")
+        self.btn_export_studio.setToolTip("Abre el Estudio de Exportación con el gráfico de la pestaña activa "
+                                          "(en PCA, las cargas espectrales).")
+        self.btn_export_studio.clicked.connect(self._on_export_active_studio)
         tb_hlo.addWidget(self.btn_export_csv)
         tb_hlo.addWidget(self.btn_export_png)
+        tb_hlo.addWidget(self.btn_export_studio)
 
         right_vlo.addWidget(top_bar)
 
@@ -721,6 +734,14 @@ class MultiSpectrumWidget(QWidget):
         self.tabs_views.currentChanged.connect(self._on_tab_view_changed)
         self._on_tab_view_changed(0)
 
+        self.lbl_common_range = QLabel("")
+        self.lbl_common_range.setWordWrap(True)
+        self.lbl_common_range.setStyleSheet("color: #FAB387; font-size: 8.5pt;")
+        self.lbl_common_range.setToolTip(
+            "Overlay y Crudos muestran cada espectro con su rango completo. Promedio, cinética, mapa de calor y PCA\n"
+            "necesitan una grilla común a todos los espectros: usan sólo el rango que tienen todos.")
+        self.lbl_common_range.hide()
+        right_vlo.addWidget(self.lbl_common_range)
         right_vlo.addWidget(self.tabs_views)
 
         splitter.addWidget(right_widget)
@@ -735,7 +756,7 @@ class MultiSpectrumWidget(QWidget):
         start_dir = str(Path.home() / "Documents")
         files, _ = QFileDialog.getOpenFileNames(
             self, "Cargar Lote de Espectros", start_dir,
-            "Archivos Espectroscópicos (*.asc *.txt *.csv *.dat);;Todos (*.*)"
+            "Archivos Espectroscópicos (*.sif *.asc *.txt *.csv *.dat);;Todos (*.*)"
         )
         if not files:
             return
@@ -744,7 +765,7 @@ class MultiSpectrumWidget(QWidget):
         for f in files:
             p = Path(f)
             try:
-                meta, wls, counts = parse_andor_solis_file(p)
+                meta, wls, counts = parse_spectrum_file(p)
                 if len(wls) > 5 and len(counts) > 5:
                     self._add_spectrum_to_collection(p.name, p, wls, counts, meta)
                     loaded_count += 1
@@ -772,7 +793,7 @@ class MultiSpectrumWidget(QWidget):
     def _on_load_demo_series(self):
         demo_file = Path(__file__).resolve().parent.parent / "reserva" / "90%_in_red_10s_3_em.asc"
         if demo_file.exists():
-            meta, wls, counts = parse_andor_solis_file(demo_file)
+            meta, wls, counts = parse_spectrum_file(demo_file)
         else:
             # Espectro sintético SERS 4-MBA
             wls = np.linspace(540.0, 600.0, 1000)
@@ -940,7 +961,19 @@ class MultiSpectrumWidget(QWidget):
                 visible_spectra.append((x_active, y_cnts, sp["name"], sp["metadata"]))
                 self.active_indices.append(idx)
 
+        self.native_spectra = []
+        for x_act, y_act, _name, _meta in visible_spectra:
+            xs = np.asarray(x_act, dtype=np.float64)
+            ys = np.asarray(y_act, dtype=np.float64)
+            order = np.argsort(xs)
+            xs, ys = xs[order], ys[order]
+            if x_range is not None:
+                keep = (xs >= x_range[0]) & (xs <= x_range[1])
+                xs, ys = xs[keep], ys[keep]
+            self.native_spectra.append((xs, ys))
+
         if not visible_spectra:
+            self.lbl_common_range.hide()
             self.common_x = np.array([])
             self.Y_raw = np.empty((0, 0))
             self.Y_corrected = np.empty((0, 0))
@@ -953,6 +986,7 @@ class MultiSpectrumWidget(QWidget):
             visible_spectra,
             x_range=x_range
         )
+        self._update_common_range_notice()
 
         if len(self.common_x) > 0:
             x0 = float(self.common_x[0])
@@ -1316,7 +1350,7 @@ class MultiSpectrumWidget(QWidget):
         start_dir = str(Path.home() / "Documents")
         filepath, _ = QFileDialog.getOpenFileName(
             self, "Seleccionar Archivo de Fondo / Blanco de Referencia", start_dir,
-            "Archivos Espectroscópicos (*.asc *.txt *.csv *.dat);;Todos (*.*)"
+            "Archivos Espectroscópicos (*.sif *.asc *.txt *.csv *.dat);;Todos (*.*)"
         )
         if not filepath:
             return
@@ -1326,7 +1360,7 @@ class MultiSpectrumWidget(QWidget):
         """Carga un archivo de referencia/blanco externo para sustraer como línea base (Modo 1)."""
         p = Path(filepath)
         try:
-            meta, wls, counts = parse_andor_solis_file(p)
+            meta, wls, counts = parse_spectrum_file(p)
             self.ref_blank_filepath = p
             self.ref_blank_name = p.name
             self.ref_blank_wls = np.asarray(wls, dtype=np.float64)
@@ -1505,6 +1539,87 @@ class MultiSpectrumWidget(QWidget):
         )
         self._reinterpolate_all()
 
+    def _update_common_range_notice(self):
+        """Avisa cuando la grilla común (intersección) deja afuera datos que Overlay y Crudos sí muestran."""
+        natives = [x for x, _ in self.native_spectra if len(x) > 1]
+        if len(natives) < 2 or len(self.common_x) == 0:
+            self.lbl_common_range.hide()
+            return
+        lo, hi = min(float(x[0]) for x in natives), max(float(x[-1]) for x in natives)
+        c0, c1 = float(np.min(self.common_x)), float(np.max(self.common_x))
+        span = max(hi - lo, 1e-12)
+        if (c0 - lo) <= 1e-6 * span and (hi - c1) <= 1e-6 * span:
+            self.lbl_common_range.hide()
+            return
+        suf = self._get_unit_suffix()
+        dec = 4 if self.unit_mode == "energy" else 1
+        self.lbl_common_range.setText(
+            f"⚠ Overlay y Crudos muestran cada espectro completo ({lo:.{dec}f} a {hi:.{dec}f}{suf}). Promedio, "
+            f"cinética, mapa de calor y PCA usan sólo el rango común a todos: {c0:.{dec}f} a {c1:.{dec}f}{suf} "
+            f"({len(self.common_x)} pts).")
+        self.lbl_common_range.show()
+
+    def _process_native(self):
+        """La misma línea base, suavizado, normalización y cascada que la grilla común, pero sobre el eje de cada
+        espectro. Un blanco de referencia no se extrapola: fuera de su rango, NaN."""
+        b_strategy = self.combo_baseline_mode.currentIndex()
+        self.native_baseline, self.native_corrected, self.native_displayed = [], [], []
+        blank = None
+        if b_strategy == 0:
+            if self.ref_blank_wls.size > 0 and self.ref_blank_counts.size > 0:
+                if np.all(self.ref_blank_wls > 200.0):
+                    bx = self._convert_wls_to_current_x(self.ref_blank_wls)
+                else:
+                    bx = self.ref_blank_wls.copy()
+                order = np.argsort(bx)
+                blank = (np.asarray(bx, dtype=np.float64)[order], np.asarray(self.ref_blank_counts, dtype=np.float64)[order])
+            else:
+                b_idx = self.combo_blank_from_batch.currentIndex() - 1
+                if 0 <= b_idx < len(self.native_spectra):
+                    blank = self.native_spectra[b_idx]
+        self.ref_blank_native = blank
+
+        algo_idx = self.combo_indiv_algo.currentIndex()
+        for x, y in self.native_spectra:
+            base = np.zeros_like(y)
+            if b_strategy == 0 and blank is not None:
+                base = np.interp(x, blank[0], blank[1], left=np.nan, right=np.nan)
+            elif b_strategy == 1 and len(y) > 3:
+                if algo_idx == 0:
+                    base = baseline_asls(y, lam=float(self.spin_asls_lambda.value()), p=float(self.spin_asls_p.value()))
+                elif algo_idx == 1:
+                    base = baseline_airpls(y, lam=float(self.spin_asls_lambda.value()))
+                elif algo_idx == 2:
+                    base = baseline_modpoly(y, poly_order=int(self.spin_modpoly_order.value()))
+                elif algo_idx == 3:
+                    base = baseline_rolling_ball(y, radius=int(self.spin_rolling_radius.value()))
+            corr = y - base
+            if self.check_batch_smooth.isChecked():
+                w = self.spin_batch_sg_win.value()
+                if w % 2 == 0:
+                    w += 1
+                fin = np.isfinite(corr)
+                if int(fin.sum()) > w:
+                    corr = corr.copy()
+                    corr[fin] = smooth_savgol(corr[fin], window_length=w, polyorder=3)
+            self.native_baseline.append(base)
+            self.native_corrected.append(corr)
+
+        ref_p = float(self.spin_ref_peak.value())
+        normed = []
+        for (x, _y), corr in zip(self.native_spectra, self.native_corrected):
+            out = np.full_like(corr, np.nan)
+            fin = np.isfinite(corr)
+            if int(fin.sum()) >= 2:
+                out[fin] = normalize_spectrum_matrix(x[fin], corr[fin][None, :], mode=self.norm_mode, ref_pos=ref_p)[0]
+            normed.append(out)
+        if self.view_mode == "waterfall" and normed:
+            finite = np.concatenate([n[np.isfinite(n)] for n in normed]) if normed else np.array([])
+            ptp_ref = float(np.ptp(finite)) if finite.size else 1.0
+            step = ptp_ref * (self.slider_waterfall.value() / 100.0)
+            normed = [n + i * step for i, n in enumerate(normed)]
+        self.native_displayed = normed
+
     def _reprocess_and_update(self):
         if self.Y_raw.size == 0 or len(self.common_x) == 0:
             if self.plot_raw_baseline:
@@ -1609,7 +1724,8 @@ class MultiSpectrumWidget(QWidget):
         else:
             self.Y_displayed = Y_norm.copy()
 
-        # 5. Renderizado en Gráficos (Crudos & Línea Base y Principal)
+        # 5. Renderizado en Gráficos (Crudos & Línea Base y Principal), cada espectro sobre su propio eje
+        self._process_native()
         self._update_raw_baseline_tab()
         self._render_main_plot()
 
@@ -1633,12 +1749,13 @@ class MultiSpectrumWidget(QWidget):
         N, M = self.Y_raw.shape
         b_strategy = self.combo_baseline_mode.currentIndex()
 
-        # 1. Graficar espectros crudos
+        # 1. Graficar espectros crudos, cada uno con su rango completo
         for i in range(N):
             orig_idx = self.active_indices[i]
             sp_data = self.spectra_list[orig_idx]
             pen_raw = pg.mkPen(sp_data["color"], width=1.6)
-            self.plot_raw_baseline.plot(self.common_x, self.Y_raw[i, :], pen=pen_raw, name=f"{sp_data['name']} (Crudo)")
+            nx, ny = self.native_spectra[i] if i < len(self.native_spectra) else (self.common_x, self.Y_raw[i, :])
+            self.plot_raw_baseline.plot(nx, ny, pen=pen_raw, name=f"{sp_data['name']} (Crudo)")
 
         # 2. Graficar líneas de base según el modo seleccionado
         # REQUISITO DEL USUARIO: "En caso de elegir la opcion de corregir con la linea de base del archivo de referencia, solo debera mostrarse esa."
@@ -1646,7 +1763,8 @@ class MultiSpectrumWidget(QWidget):
             if self.ref_blank_curve is not None and len(self.ref_blank_curve) == len(self.common_x):
                 pen_ref = pg.mkPen("#D20F39" if self.theme_mode == 100 else "#F38BA8", width=2.6, style=Qt.PenStyle.DashLine)
                 ref_lbl = f"Línea Base Ref: {self.ref_blank_name}" if self.ref_blank_name else "Línea Base Ref (Fondo)"
-                self.plot_raw_baseline.plot(self.common_x, self.ref_blank_curve, pen=pen_ref, name=ref_lbl)
+                bx, by = self.ref_blank_native if self.ref_blank_native is not None else (self.common_x, self.ref_blank_curve)
+                self.plot_raw_baseline.plot(bx, by, pen=pen_ref, name=ref_lbl)
                 if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
                     self.lbl_raw_base_info.setText(
                         f"Modo 1 (Referencia Externa / Fondo): <b>{ref_lbl}</b> única superpuesta a {N} espectros crudos."
@@ -1661,7 +1779,11 @@ class MultiSpectrumWidget(QWidget):
                 orig_idx = self.active_indices[i]
                 sp_data = self.spectra_list[orig_idx]
                 pen_base = pg.mkPen(sp_data["color"], width=1.8, style=Qt.PenStyle.DashLine)
-                self.plot_raw_baseline.plot(self.common_x, self.Y_baseline[i, :], pen=pen_base, name=f"Línea Base {sp_data['name']}")
+                if i < len(self.native_baseline):
+                    self.plot_raw_baseline.plot(self.native_spectra[i][0], self.native_baseline[i], pen=pen_base,
+                                                name=f"Línea Base {sp_data['name']}")
+                else:
+                    self.plot_raw_baseline.plot(self.common_x, self.Y_baseline[i, :], pen=pen_base, name=f"Línea Base {sp_data['name']}")
             if hasattr(self, "lbl_raw_base_info") and self.lbl_raw_base_info:
                 self.lbl_raw_base_info.setText(
                     f"Modo 2 (Cálculo Individual): Algoritmo <b>{algo_name}</b> estimado independientemente para cada uno de los {N} espectros."
@@ -1684,7 +1806,11 @@ class MultiSpectrumWidget(QWidget):
             orig_idx = self.active_indices[i]
             sp_data = self.spectra_list[orig_idx]
             pen = pg.mkPen(sp_data["color"], width=1.6)
-            self.plot_multi.plot(self.common_x, self.Y_displayed[i, :], pen=pen, name=sp_data["name"])
+            if i < len(self.native_displayed):
+                self.plot_multi.plot(self.native_spectra[i][0], self.native_displayed[i], pen=pen, name=sp_data["name"],
+                                     connect="finite")
+            else:
+                self.plot_multi.plot(self.common_x, self.Y_displayed[i, :], pen=pen, name=sp_data["name"])
 
         self._on_cursors_moved()
 
@@ -1990,6 +2116,63 @@ class MultiSpectrumWidget(QWidget):
         elif curr == self.tab_pca:
             self._export_pca_to_png("Raman_PCA_Analysis.png")
 
+    def _on_export_active_studio(self):
+        """El Estudio de Exportación con el gráfico de la pestaña activa (2026-10-02)."""
+        if not self.spectra_list:
+            QMessageBox.warning(self, "Sin datos", "Cargá espectros antes de abrir el Estudio de Exportación.")
+            return
+        curr = self.tabs_views.currentWidget()
+        plots = {self.tab_raw_base: (self.plot_raw_baseline, "Raman_Raw_and_Baselines"),
+                 self.tab_plot: (self.plot_multi, "Raman_Overlay_Spectra"),
+                 self.tab_mean: (self.plot_mean, "Raman_Mean_Std_Spectrum"),
+                 self.tab_kin: (self.plot_kinetics, "Raman_Band_Kinetics"),
+                 self.tab_heat: (self.plot_heatmap, "Raman_Heatmap_2D"),
+                 self.tab_pca: (self.plot_pca_loadings, "Raman_PCA_Loadings")}
+        if curr not in plots:
+            return
+        plot, name = plots[curr]
+        from analysis.figure_export_studio import FigureExportStudioDialog
+        try:
+            dlg = FigureExportStudioDialog(plot, parent=self, title=name, default_filename=name)
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Error en el Estudio de Exportación", f"No se pudo abrir el estudio:\n{e}")
+
+    def _export_native_csv(self, tab, col_x: str, names: List[str]):
+        """Overlay y Crudos: cada espectro con su propio eje (pares de columnas), rellenando con vacíos."""
+        is_plot = tab == self.tab_plot
+        default = "Raman_MultiSpectra_Native.csv" if is_plot else "Raman_Raw_and_Baselines_Native.csv"
+        out_path, _ = QFileDialog.getSaveFileName(self, "Exportar Espectros (cada uno con su eje)", default,
+                                                  "Archivos CSV (*.csv);;Archivos de Texto (*.txt)")
+        if not out_path:
+            return
+        try:
+            cols, header = [], []
+            for i, name in enumerate(names):
+                x, y = self.native_spectra[i]
+                cols.append(x)
+                header.append(f"{col_x}_{name}")
+                if is_plot:
+                    cols.append(self.native_displayed[i] if i < len(self.native_displayed) else y)
+                    header.append(name)
+                else:
+                    cols.append(y)
+                    header.append(f"Raw_{name}")
+                    if self.combo_baseline_mode.currentIndex() == 1 and i < len(self.native_baseline):
+                        cols.append(self.native_baseline[i])
+                        header.append(f"Baseline_{name}")
+            n = max(len(c) for c in cols)
+            matrix = np.full((n, len(cols)), np.nan)
+            for j, c in enumerate(cols):
+                matrix[:len(c), j] = c
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(",".join(header) + "\n")
+                for row in matrix:
+                    f.write(",".join("" if not np.isfinite(v) else f"{v:.4f}" for v in row) + "\n")
+            QMessageBox.information(self, "Exportación Exitosa", f"Datos exportados correctamente en:\n{out_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Exportación", f"No se pudo exportar CSV:\n{e}")
+
     def _on_export_active_csv(self):
         """Exporta los datos numéricos de la pestaña actualmente visible a formato CSV."""
         if self.Y_raw.size == 0 or len(self.common_x) == 0:
@@ -2000,6 +2183,10 @@ class MultiSpectrumWidget(QWidget):
         col_x = self._get_axis_col_name()
         N = len(self.active_indices)
         names = [self.spectra_list[idx]["name"].replace(",", "_") for idx in self.active_indices]
+
+        if curr in (self.tab_plot, self.tab_raw_base) and len(self.native_spectra) == N:
+            self._export_native_csv(curr, col_x, names)
+            return
 
         if curr == self.tab_raw_base:
             out_path, _ = QFileDialog.getSaveFileName(

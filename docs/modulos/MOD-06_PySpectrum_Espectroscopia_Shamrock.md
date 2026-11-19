@@ -190,9 +190,21 @@ Integrada en el `DockArea` principal (junto a Step & Glue y Raman) y accesible d
 - **Botón `🎯 Mover a Orden Cero (0.0 nm)`**: Desplaza el goniómetro a dispersión nula para visualización especular de la ranura.
 - **Ancho Micrométrico de Ranura**: Ajuste dinámico de 10 a 2500 µm con botones rápidos de 10, 50, 100 y 500 µm.
 - **Pixel Central X (`SLIT_CENTER_PIXEL_X`)**: Ajuste del pixel central donde focaliza la rendija (predeterminado: 501.0 px).
-- **Auto-Calibración de Centroide X**: Ajuste gaussiano no lineal de la proyección horizontal en orden cero:
+- ~~**Auto-Calibración de Centroide X**: Ajuste gaussiano no lineal de la proyección horizontal en orden cero:
   $$I(x) = A \exp\left(-\frac{(x - x_0)^2}{2\sigma^2}\right) + y_0$$
-  calcula con precisión subpíxel el centroide $x_0$ y el ancho a media altura (FWHM).
+  calcula con precisión subpíxel el centroide $x_0$ y el ancho a media altura (FWHM).~~ **Reemplazada el 2026-10-01 (R4-N 1a, `DEC-040`).** El código viejo leía un cuadro sin adquirir (o uno inventado de 100 cuentas), ajustaba el promedio de 40 filas y guardaba cualquier resultado.
+- **Centro de la ranura (R4-N 1a):**
+  - **Motor:** `pyspectrum/calibration/slit_center.py`, sin Qt.
+    - `analyze_slit_frames(frames, rows)`: una gaussiana con fondo lineal por fila, con `estimate_line_center`, el estimador de la calibración de λ;
+    - recta robusta de los centros contra la fila: la pendiente es la inclinación y las filas que se apartan se descartan (5 MAD, mínimo 0.2 px);
+    - centro = promedio de las filas usadas; u = máx(s/√n, u del ajuste/√n); FWHM = mediana de las filas;
+    - con 3 cuadros o más, mediana en el tiempo;
+    - la saturación se evalúa por fila: una fila al 80 % del ADC no se usa, y con más del 10 % de las filas saturadas la medición se rechaza.
+  - **Contra la cámara:** `measure_slit_center` exige orden cero (`refresh_state` del servicio de orden cero, sólo lectura) y un ROI de al menos 5 filas. Pone la cámara en imagen sobre el ROI y la devuelve al modo que tenía, también si la exposición falla.
+  - **En el dock:** corre en un `RoutineThread` con la sesión "Calibración de ranura", que abre y cierra el obturador del espectrómetro. Muestra el resultado y la línea "medido", sin aplicarlo.
+    - `apply_slit_center` es la única vía que escribe: el `.txt` y el `.json` del programa, el contexto y una entrada `SLIT_CENTER` (EXPERIMENTAL) en el archivo de calibraciones.
+    - Los cuadros crudos de una medición buena van a `calibration/slit_center_<fecha>.h5`.
+  - **Tests:** `tests/test_slit_center.py`. **Banco:** BANCO-63.
 
 ### 8.2 Offsets de red y detector: lectura, archivo de calibraciones y escritura (pasos 9 y 10, `DEC-040`)
 Los offsets son pasos de motor que el Shamrock guarda y que ven también Solis y el PySpectrum legado. Vigentes en el equipo (BANCO-25, R4-G): red de 150 l/mm = 87, red de 1200 l/mm = 195, espejo = 60, detector = 0.
@@ -257,7 +269,14 @@ Diseño: metrología (`pyspectrum_A_ronda2/metrology.md` §1-§4), instrumentaci
   - el `Backend`, en el hilo de la GUI, hace el preflight, toma la sesión (pausa el Live), abre el obturador del espectrómetro y, al terminar, lo cierra y libera;
   - `measure_step_and_glue` es la misma secuencia, síncrona, para scripts y tests.
 - **Latido:** se renueva mientras haya un láser abierto, siempre sin argumento (R4-B-5, R4-C-3, C-29). La pausa "sin señal" sigue latiendo (D-17).
-- **Espejo de detección:** `core.nidaq.get_detection_mirror_belief()` (posición y fuente: sin información, comandado, o confirmado por el operador) y `confirm_detection_mirror_belief()` (D-10). La persistencia entre sesiones (C-08) sigue pendiente.
+- **Espejo de detección:** `core.nidaq.get_detection_mirror_belief()` (posición y fuente: sin información, comandado, o confirmado por el operador) y `confirm_detection_mirror_belief()` (D-10). ~~La persistencia entre sesiones (C-08) sigue pendiente.~~ Implementada el 2026-10-01 (R4-N 3, `DEC-040`):
+  - `core/detection_mirror_state.py` guarda `detection_mirror.json` junto al archivo de calibraciones, después de cada pulso que salió bien y de cada confirmación, en forma atómica;
+  - al importar `core.nidaq` se lee el último estado: va en `MirrorBelief.last_known` y guía el próximo pulso, pero la posición queda `"unknown"` hasta que el operador confirme (D-01);
+  - un archivo dañado es "sin información";
+  - `set_detection_mirror` es el nombre nuevo, y `flipper_notch532` queda como alias (P6);
+  - el panel izquierdo muestra el estado y ofrece [Está arriba] / [Está abajo], que no pulsan;
+  - los archivos de estado de los legados se leen, sólo lectura, desde `config.LEGACY_DETECTION_MIRROR_STATUS_FILE` (P7).
+  - **Tests:** `tests/test_detection_mirror_persistence.py`. **Banco:** BANCO-64.
 - **Cosido:** el de siempre, `sigmoidal_step_and_glue`, sin cambios de fórmula.
 - **Botón `💾 Guardar Espectro...`**: exportación del espectro cosido a `.txt`, `.csv` o `.npz`.
 
@@ -530,6 +549,38 @@ Reconstrucción del legado real `pyspectrum-legacy/Growth_ps.py`/`Dimers_ps.py` 
   - `request_stop()` corta una exposición desde otro hilo, y `scanFinishedSignal` se emite una sola vez.
 - **Luminiscencia, crecimiento y dímeros:** en `RoutineThread`, con las fases de §12.17 y §12.19 corregidas según R4-K (P3: potencia y láser del centrado como el legado; P4: serie de exposiciones; P5: sin espectro final de dímeros; P6: nodo fallido; P7: la pausa cierra el láser).
 - **Sentido del espejo:** abajo = espectrómetro (confirmado por el investigador para el crecimiento, R4-K). El legado del crecimiento lo ponía arriba (`Growth_ps.py:788`); lo confirma BANCO-59.
+
+### 12.22 Paridad con el legado — luminiscencia completa y bases comunes (`DEC-054`)
+
+**Luminiscencia en grilla.** La pestaña repite por nodo la secuencia de `Luminescence_ps.py`:
+1. autofoco con el lock del satélite;
+2. centrado con el confocal por fotodiodo del satélite (TIFF `NPscan` crudos);
+3. mini-mapa hiperespectral en Single-Track sobre la fibra, con el BS por píxel;
+4. centro de masa del mapa y corrección opcional del origen.
+
+El motor está en `pyspectrum/modules/routines/luminescence_grid.py` (sin Qt). El panel tiene los grupos Autofoco, Centrado, Mini-mapa y Referencia, cuatro gráficos y un banner con lo que impide arrancar.
+
+| Pieza | Módulo | Qué hace |
+| :--- | :--- | :--- |
+| Eje λ único | `pyspectrum/services/spectral_axis.py` | Usa la EEPROM ($\lambda(p) = a + bp + cp^2 + dp^3$, 1004 puntos) y `GetCalibration` sólo como respaldo. Nunca inventa un eje y devuelve la fuente. La usan luminiscencia, crecimiento, dímeros, el mapa hiperespectral y la exploración |
+| Fotodiodo por láser | `optical_support.read_photodiode_level(laser=…)`, `read_bs_level()` | Lee `config.PD_CHANNELS[laser]`; antes leía siempre `ai0` |
+| Fila de la fibra | `grid_runner.FiberROI`, `GridRunner.use_fiber_roi` | Single-Track; legado 438 ± 12 → SDK centro 439, alto 25 |
+| Foco y confocal del satélite | `pyspectrum/services/satellite_optics.py` | Un solo lock por proceso. Restaura el panel del satélite después del centrado |
+| Archivos del legado | `pyspectrum/services/legacy_files.py` | `NPscan` crudos, `wavelength_*.txt`, `Spectrum_i_j.txt`, el TIFF del mapa, `Trace_BS.txt`, `Info.txt` |
+
+El TIFF `NPscan` de PyPrinting también pasó a float crudo. Antes se normalizaba a uint16 y se perdía la intensidad absoluta.
+
+**Luminiscencia S&G (`DEC-055`).** En la grilla, "Medición en cada NP = Step & Glue" sigue la secuencia de `Luminescence_steps_ps.py`:
+1. enfoca y centra a potencia baja;
+2. mide a potencia alta con el espejo abajo;
+3. recorre las ventanas con `step_glue_engine.run_windows`, con el plan de la corrida (ancho medido y márgenes) y la verificación previa especular.
+
+La lectura es en Image de cuadro completo (`GridRunner.use_full_image`). La fibra y el fondo se promedian por filas (`legacy_files.rows_mean`). Los archivos del legado (`legacy_files.write_step_glue`) llevan las ventanas concatenadas sin coser; el `.h5`, la fibra y el fondo de cada ventana y el espectro cosido con `sigmoidal_step_and_glue` sobre la fibra. El fondo de la grilla (oscuro) se toma en Image, aparte.
+
+**Límites:**
+- `Trace_BS.txt` tiene una muestra por píxel, no una traza continua.
+- El mini-mapa no hace dλ: es la suma en la banda, como el legado.
+- La comparación de Single-Track contra la suma por software del cuadro Image es BANCO-74.
 
 ## 13. 🔗 Referencias Cruzadas
 - [[SYS-301_Sistema_Espectrometro_Shamrock500i_iXon3|📘 SYS-301: Shamrock 500i, iXon3 y Óptica Confocal]]

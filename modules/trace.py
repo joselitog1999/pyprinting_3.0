@@ -31,10 +31,10 @@ from config import (SHUTTERS, DEFAULT_DATA_PATH,
                     PD_CHANNELS, PD_CHANS_LIST)
 try:
     from nidaq import (open_shutter, close_shutter, heartbeat_shutter,
-                        channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
+                        channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE, is_emergency_stopped)
 except ImportError:
     from core.nidaq import (open_shutter, close_shutter, heartbeat_shutter,
-                             channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE)
+                             channels_photodiodos, RATE_MULTICHANNEL, SAFE_MODE, is_emergency_stopped)
 
 SHUTTERS_LASER2 = ["None", "BS"] + list(SHUTTERS)
 
@@ -384,6 +384,9 @@ class Frontend(QFrame):
         pg_lo.addWidget(self.trace_laser2)
         pg_lo.addWidget(self.btn_fft_l2)
         pg_lo.addWidget(self.traceButton)
+        from core.ui.emergency_widgets import EmergencyStopButton
+        self.btn_estop = EmergencyStopButton(source="traza", compact=True)   # R4-17 fase 4c
+        pg_lo.addWidget(self.btn_estop)
         pg_lo.addWidget(self.PointLabel)
         pg_lo.addWidget(self.saveButton)
         pg_lo.addWidget(self.setPowerBSButton)
@@ -466,9 +469,12 @@ class Backend(QObject):
 
     dataSignal          = pyqtSignal(list)
     data_printingSignal = pyqtSignal(list)  # incluye mode en data[-1]
+    # R4-17 fase 4b (DEC-048): la traza se detuvo sola por la parada de emergencia (modo de impresión, causa)
+    traceAbortedSignal  = pyqtSignal(str, str)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.name = "traza"
         self.file_path = str(DEFAULT_DATA_PATH)
         self.pointtimer = None
         self.bs_timer   = None
@@ -582,11 +588,15 @@ class Backend(QObject):
             self.pointtimer = QTimer(self)
             self.pointtimer.timeout.connect(self._trace_update)
 
-        if hasattr(self, 'laser1') and self.laser1 != "None":
-            open_shutter(self.laser1)
-        if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
-            open_shutter(self.laser2)
-        heartbeat_shutter(30.0)
+        # Con un modo de impresión, la apertura es de la grilla (`_grid_trace`, que anota la época de cierre y mira
+        # si abrió): la traza no vuelve a abrir. Esa segunda apertura reabría el láser si un "Cerrar todos" caía
+        # entre las dos (R4-17 fase 3, H11 de instrumentación; DEC-046). La traza manual (F1) abre como siempre.
+        if self.mode_printing == "none":
+            if hasattr(self, 'laser1') and self.laser1 != "None":
+                open_shutter(self.laser1)
+            if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
+                open_shutter(self.laser2)
+        heartbeat_shutter()
 
         self._n           = 0
         self.timer_inicio = time.time()
@@ -634,14 +644,49 @@ class Backend(QObject):
 
     @pyqtSlot(float, float)
     def set_calibration_bs(self, slope: float, intercept: float):
-        pass
+        """Guarda la calibración de potencia de la ventana Power in BS como el legado (Trace_ps.py,
+        save_calibration_BS): Calibration_Power<YYYYmmdd-HHMMSS>.txt en la carpeta de datos, con el encabezado
+        "Laser, Slope (mW/V), Intercept (mW)" y una línea por valor. Antes este slot estaba vacío."""
+        self.calibration_bs = (float(slope), float(intercept))
+        laser = getattr(self, "laser1", None) or (SHUTTERS[0] if SHUTTERS else "")
+        name = os.path.join(self.file_path, f"Calibration_Power{time.strftime('%Y%m%d-%H%M%S')}.txt")
+        try:
+            np.savetxt(name, [str(laser), f"{float(slope):g}", f"{float(intercept):g}"], fmt="%s",
+                       header="Laser, Slope (mW/V), Intercept (mW)", encoding="utf-8")
+            print(f"[Trace] Calibración de potencia guardada: {name}")
+        except OSError as e:
+            print(f"[Trace] ⚠️ No se pudo guardar la calibración de potencia en {name}: {e}")
 
     # ── Adquisición periódico ─────────────────────────────────────────────────
 
+    # ── Participante de la parada de emergencia (R4-17 fase 4b): no tiene bandera propia, mira la del proceso en
+    # la primera línea de cada tick ──
+    def on_emergency_stop(self, generation: int) -> None:
+        pass
+
+    def is_quiescent(self) -> bool:
+        return not (self.pointtimer is not None and self.pointtimer.isActive())
+
+    def on_rearmed(self, generation: int) -> None:
+        pass
+
+    def is_running(self) -> bool:
+        return False
+
     def _trace_update(self):
+        if is_emergency_stopped():
+            # Se detiene SIN latir (la parada cerró los obturadores; un latido rearmaría el plazo). Con un modo de
+            # impresión avisa a la grilla, que deja el nodo interrumpido. Vale también para la traza manual (F1).
+            if self.pointtimer is not None and self.pointtimer.isActive():
+                self.pointtimer.stop()
+            mode = self.mode_printing
+            if mode != "none":
+                self.traceAbortedSignal.emit(mode, "estop")
+            print("[Trace] ⛔ Parada de emergencia: traza detenida.")
+            return
         self._n += 1
         if self._n % 30 == 0:  # Cada ~1 segundo a 30 FPS: renueva el heartbeat del watchdog para alinear sin corte
-            heartbeat_shutter(30.0)
+            heartbeat_shutter()
 
         active_l1_name = getattr(self, 'laser1', SHUTTERS[0])
         active_l2_name = getattr(self, 'laser2', "None")
@@ -720,7 +765,10 @@ class Backend(QObject):
                 I_old = float(np.mean(self.intensity_l1[:n - M2])) if (n - M2) > 0 else float(self.intensity_l1[0])
         else:
             I_new = float(np.mean(self.intensity_l1[n - M:n]))
-            I_old = float(np.mean(self.intensity_l1[max(0, n - M - M2):n - M]))
+            # Con n == M la ventana vieja está vacía: no hay línea de base todavía. NaN explícito (el criterio no
+            # decide por cociente ni por caída con NaN, como antes), sin el "Mean of empty slice" de numpy.
+            old_win = self.intensity_l1[max(0, n - M - M2):n - M]
+            I_old = float(np.mean(old_win)) if len(old_win) else float("nan")
 
         med2 = I_old
         med  = I_new

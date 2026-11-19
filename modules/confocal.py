@@ -40,6 +40,7 @@ from config  import (pi, SHUTTERS, DEFAULT_DATA_PATH,
                      DEFAULT_CONFOCAL_FILTER_PERCENT,
                      DEFAULT_DRIFT_TOTAL_MINUTES, DEFAULT_DRIFT_REFRESH_SECONDS,
                      DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, wait_on_target)
+from nidaq   import is_emergency_stopped, RoutineWatchdogLease
 from nidaq   import (open_shutter, close_shutter, close_all_shutters, heartbeat_shutter, channels_photodiodos,
                      channels_triggers, PD_CHANNELS, PD_CHANS_LIST,
                      RATE_MULTICHANNEL)
@@ -479,6 +480,10 @@ class Backend(QObject):
         if connect_stage:      # False en el satélite huésped (paso 13, V11): la platina es del anfitrión
             pi.connect()
         self.file_path         = str(DEFAULT_DATA_PATH)
+        self.name              = "confocal"
+        self._estop_abort      = False           # la parada de emergencia (R4-17 fase 4b)
+        self.last_open_ok      = True            # si la última apertura de un escaneo tuvo éxito (R4-17 fase 5)
+        self._wd               = RoutineWatchdogLease("escaneo confocal")  # watchdog de rutinas (DEC-052)
         self.scan_mode_option  = SCAN_MODES[0]
         self.psf_mode_option   = PSF_MODES[0]
         self.image_scan_option = SCAN_IMAGE[0]
@@ -546,7 +551,7 @@ class Backend(QObject):
         open_shutter(self.laser)
         try:
             for name, cx, cy in corners:
-                heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+                heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
                 cx_c = max(0.0, min(100.0, cx))
                 cy_c = max(0.0, min(100.0, cy))
                 pi.MOV([1, 2], [cx_c, cy_c])
@@ -708,6 +713,7 @@ class Backend(QObject):
 
     def _start_scan(self):
         self._ensure_timers()
+        self._wd.begin()                 # DEC-052: el escaneo es una rutina; termina en cada salida
         self.signal_scan_stop = False
         self.image      = np.zeros((self.Ny, self.Nx))
         self.image_gone = np.zeros((self.Ny, self.Nx))
@@ -728,6 +734,7 @@ class Backend(QObject):
             ok = self._measure_4_corners_tilt(x_c, y_c, self.range_x, self.range_y)
             if not ok:
                 print("[Confocal] ⚠️ Cancelando inicio de escaneo (Lock focus no preparado).")
+                self._wd.end()
                 self.scandoneSignal.emit()
                 return
 
@@ -744,6 +751,7 @@ class Backend(QObject):
     def stop_scan(self):
         if not self.signal_scan_stop:
             close_shutter(self.laser)
+        self._wd.end()
         if getattr(self, "_step_task", None) is not None:
             try:
                 self._step_task.close()
@@ -763,9 +771,14 @@ class Backend(QObject):
         key = (self.scan_mode_option, self.psf_mode_option)
         if key in timers:
             timer, axes, targets = timers[key]
-            if timer is not None and timer.isActive():
+            # Vuelve al inicio sólo si había un escaneo corriendo (R4-17 fase 3, DEC-046). Antes movía siempre: la
+            # Pausa de la grilla (que llama a stop_scan por grid_scan_stopSignal) llevaba la platina al inicio del
+            # último escaneo, o a (50, 50) µm, sin ningún escaneo en curso, contra DEC-041 ("en pausa la platina no
+            # se mueve").
+            was_scanning = timer is not None and timer.isActive()
+            if was_scanning:
                 timer.stop()
-            if self.mode_printing == "none":
+            if was_scanning and self.mode_printing == "none":
                 pi.MOV(axes, targets)
 
     # ── Scan step ─────────────────────────────────────────────────────────────
@@ -787,13 +800,15 @@ class Backend(QObject):
             self.matrix_scan_spiral = [to_spiral(gx, "cw"), to_spiral(gy, "cw")]
         except Exception:
             self.matrix_scan_spiral = [xs, ys]
-        open_shutter(self.laser); time.sleep(0.05)
+        self.last_open_ok = bool(open_shutter(self.laser)); time.sleep(0.05)  # R4-17 fase 5
         self.PDtimer_stepxy.start(0)
 
     def _scan_step_xy(self):
+        if self._estop_halts_scan():
+            return
         if not getattr(self, "signal_scan_stop", False) and self.j < self.Ny:
             if self.i < self.Nx:
-                heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+                heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
                 target_x = self.matrix_scan_step[0][self.i]
                 target_y = self.matrix_scan_step[1][self.j]
                 # ANOM-CONFOCAL-03: self.i==0 aquí significa que el pi.MOV de más abajo ES
@@ -847,6 +862,7 @@ class Backend(QObject):
         else:
             self.PDtimer_stepxy.stop()
             self.signal_scan_stop = True
+            self._wd.end()
             self.dataSignal.emit(self.image)
             if self._step_task is not None:
                 try:
@@ -870,25 +886,25 @@ class Backend(QObject):
     def _start_ramp_xy(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_x(self.x_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampxy.start(0)
 
     def _start_ramp_xz(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_x(self.x_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampxz.start(0)
 
     def _start_ramp_yx(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_y(self.y_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampyx.start(0)
 
     def _start_ramp_yz(self):
         self.tic = time.time(); self.i = 0
         self._configure_ramp_y(self.y_pos)
-        open_shutter(self.laser)
+        self.last_open_ok = bool(open_shutter(self.laser))  # R4-17 fase 5
         self.PDtimer_rampyz.start(0)
 
     def _configure_ramp_x(self, x_pos: float):
@@ -982,6 +998,36 @@ class Backend(QObject):
         back = ph[sa:sd] if sd > sa else ph[L//2:]
         return gone, back
 
+    # ── Participante de la parada de emergencia (R4-17 fase 4b, DEC-048) ──
+    _SCAN_TIMERS = ("PDtimer_rampxy", "PDtimer_rampxz", "PDtimer_rampyx", "PDtimer_rampyz", "PDtimer_stepxy")
+
+    def on_emergency_stop(self, generation: int) -> None:
+        self._estop_abort = True
+
+    def is_quiescent(self) -> bool:
+        return not any(getattr(self, n, None) is not None and getattr(self, n).isActive() for n in self._SCAN_TIMERS)
+
+    def on_rearmed(self, generation: int) -> None:
+        self._estop_abort = False
+
+    def is_running(self) -> bool:
+        return False
+
+    def _estop_halts_scan(self) -> bool:
+        """Primera línea de cada tick de escaneo: con la parada, detiene los timers sin el MOV de retorno y sin
+        despachar `scanfinishedSignal` (la grilla no recibe un escaneo a medias). Los obturadores los cierra el
+        cerrador de la parada."""
+        if not (self._estop_abort or is_emergency_stopped()):
+            return False
+        self.signal_scan_stop = True
+        for name in self._SCAN_TIMERS:
+            timer = getattr(self, name, None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+        self._wd.end()
+        print("[Confocal] ⛔ Parada de emergencia: escaneo detenido (sin volver al inicio).")
+        return True
+
     def _abort_scan_on_stage_fault(self):
         """Falla de la platina a mitad del escaneo (DEC-036): se detiene todo y se cierran los
         obturadores. No se vuelve a la posición inicial: con la platina en falla, un MOV más
@@ -992,6 +1038,7 @@ class Backend(QObject):
             if timer is not None and timer.isActive():
                 timer.stop()
         close_all_shutters()
+        self._wd.end()
         print("[Confocal] Escaneo ABORTADO por falla de la platina: obturadores cerrados.")
 
     def _wait_axis_settle(self, axes, timeout_s: float = 0.05) -> bool:
@@ -1017,9 +1064,11 @@ class Backend(QObject):
     # ── Scan ramp loops ───────────────────────────────────────────────────────
 
     def _scan_ramp_xy(self):
+        if self._estop_halts_scan():
+            return
         dy = self.range_y / self.Ny
         if self.i < self.Ny:
-            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+            heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
             target_y = getattr(self, "y_min", self.y_pos - self.range_y/2) + dy/2 + self.i*dy
             if getattr(self, "tilt_correction_enabled", False):
                 target_z = self._evaluate_tilt_z(self.x_pos, target_y)
@@ -1037,6 +1086,7 @@ class Backend(QObject):
             self.dataSignal.emit(self.image); self.i += 1
         else:
             self.PDtimer_rampxy.stop(); self.signal_scan_stop = True
+            self._wd.end()
             close_shutter(self.laser)
             self.image_back = np.fliplr(self.image_back)
             self.image = self.image_gone + self.image_back
@@ -1047,9 +1097,11 @@ class Backend(QObject):
             self._post_scan_dispatch(x_o, y_o)
 
     def _scan_ramp_xz(self):
+        if self._estop_halts_scan():
+            return
         dz = self.range_y / self.Ny
         if self.i < self.Ny:
-            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+            heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
             target_z = getattr(self, "z_min", self.z_pos - self.range_y/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
             if not self._wait_axis_settle(3):
@@ -1061,6 +1113,7 @@ class Backend(QObject):
             self.dataSignal.emit(self.image); self.i += 1
         else:
             self.PDtimer_rampxz.stop(); self.signal_scan_stop = True
+            self._wd.end()
             close_shutter(self.laser); time.sleep(0.1)
             self.image_back = np.fliplr(self.image_back)
             self.image = self.image_gone + self.image_back
@@ -1068,9 +1121,11 @@ class Backend(QObject):
             self._save_frame(); self.scandoneSignal.emit()
 
     def _scan_ramp_yx(self):
+        if self._estop_halts_scan():
+            return
         dx = self.range_x / self.Nx
         if self.i < self.Nx:
-            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+            heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
             target_x = getattr(self, "x_min", self.x_pos - self.range_x/2) + dx/2 + self.i*dx
             pi.MOV(1, target_x)
             if not self._wait_axis_settle(1):
@@ -1082,6 +1137,7 @@ class Backend(QObject):
             self.dataSignal.emit(self.image); self.i += 1
         else:
             self.PDtimer_rampyx.stop(); self.signal_scan_stop = True
+            self._wd.end()
             close_shutter(self.laser); time.sleep(0.1)
             self.image_back = np.flipud(self.image_back)
             self.image = self.image_gone + self.image_back
@@ -1091,9 +1147,11 @@ class Backend(QObject):
             self._post_scan_dispatch(x_o, y_o)
 
     def _scan_ramp_yz(self):
+        if self._estop_halts_scan():
+            return
         dz = self.range_x / self.Nx
         if self.i < self.Nx:
-            heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+            heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
             target_z = getattr(self, "z_min", self.z_pos - self.range_x/2) + dz/2 + self.i*dz
             pi.MOV(3, target_z)
             if not self._wait_axis_settle(3):
@@ -1105,6 +1163,7 @@ class Backend(QObject):
             self.dataSignal.emit(self.image); self.i += 1
         else:
             self.PDtimer_rampyz.stop(); self.signal_scan_stop = True
+            self._wd.end()
             close_shutter(self.laser); time.sleep(0.1)
             self.image_back = np.fliplr(self.image_back)
             self.image = self.image_gone + self.image_back
@@ -1287,6 +1346,7 @@ class Backend(QObject):
             close_shutter(getattr(self, "laser", SHUTTERS[0]))
         except Exception:
             pass
+        self._wd.end()
 
     def make_connection(self, frontend: Frontend):
         frontend.scan_modeSignal.connect(self.scan_mode)

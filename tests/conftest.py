@@ -37,6 +37,12 @@ os.environ["PYSPECTRUM_ROUTINE_DATA_DIR"] = _tempfile.mkdtemp(prefix="pyspectrum
 # para TODOS los imports de PyQt6 posteriores, sin depender del orden de imports interno
 # de cada archivo de test individual.
 import config  # noqa: F401
+# `core/nidaq.py` se registra con los dos nombres (`nidaq` y `core.nidaq`), pero si lo importa primero un módulo
+# de PyPrinting por su nombre corto (`from nidaq import ...`, como `modules/measurements.py`), el paquete `core`
+# queda sin el atributo `nidaq` y fallan los `monkeypatch.setattr("core.nidaq....")` de los tests siguientes.
+# Pasaba según el orden de los archivos (p. ej. test_grid_pause_halts_chain antes que test_grid_runner,
+# 2026-10-02). Importarlo acá con su nombre de paquete lo deja bien registrado para todos.
+import core.nidaq  # noqa: F401,E402
 
 # Una sola QApplication para toda la suite, creada acá CON argv. Si el primer test que la crea
 # usa `QApplication([])`, QtWebEngine (el navegador del wiki científico) mata el proceso con
@@ -171,6 +177,49 @@ def _purge_deleted_pyqtgraph_views():
             if sip.isdeleted(view):
                 view_box.AllViews.pop(view, None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_open_hold():
+    """La retención de aperturas de "Cerrar todos" y el registro de rutinas que corren (R4-17 fase 3) son estado
+    de proceso: una retención vigente al terminar un test rechazaría las aperturas del siguiente, y una grilla que
+    quedó registrada haría que un "Cerrar todos" posterior retuviera. La época no se toca: es monótona y cada
+    consumidor la compara con la que anotó."""
+    from core import nidaq
+
+    def _reset_routine_watchdog():
+        # El watchdog de rutinas (DEC-052) también es del proceso: una rutina que quedó registrada haría que la
+        # apertura manual del test siguiente armara un plazo, y un plazo elegido en un test lo heredaría el otro.
+        with nidaq._watchdog_lock:
+            nidaq._watchdog_routines.clear()
+            nidaq._watchdog_deadline = None
+            nidaq._default_timeout_s = 30.0
+
+    nidaq._open_hold_until = 0.0
+    nidaq._routines_running.clear()
+    _reset_routine_watchdog()
+    yield
+    nidaq._open_hold_until = 0.0
+    nidaq._routines_running.clear()
+    _reset_routine_watchdog()
+    # La parada de emergencia (R4-17 fase 4) también es del proceso: un test que la dejó activa rechazaría todas
+    # las aperturas y los movimientos de los siguientes. Los participantes que registró se van con él.
+    from core import estop_state, emergency_stop
+    if estop_state.is_active():
+        estop_state._reset_for_tests()
+        nidaq._shutter_interlocks.pop(nidaq.ESTOP_INTERLOCK, None)
+    with nidaq._closer_cv:
+        nidaq._closer_done_epoch = max(nidaq._closer_done_epoch, nidaq._closer_target_epoch)
+    # Un intento del cerrador que ya había empezado termina acá, no en medio del test siguiente (escribiría en su placa)
+    import time as _time
+    t_end = _time.monotonic() + 2.0
+    while nidaq._closer_active and _time.monotonic() < t_end:
+        _time.sleep(0.01)
+    nidaq._close_listeners.clear()
+    emergency_stop.get_emergency_coordinator()._forget_transient_for_tests()
+    hs = sys.modules.get("pyspectrum.modules.hardware_session")
+    if hs is not None and hasattr(hs.hardware_session, "_reset_estop_for_tests"):
+        hs.hardware_session._reset_estop_for_tests()
 
 
 @pytest.fixture(autouse=True)

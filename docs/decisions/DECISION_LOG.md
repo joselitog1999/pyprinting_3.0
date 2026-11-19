@@ -18,7 +18,7 @@
 | `DEC-007` | 2026-09-16 | Formal ADR: Dedicated `QThread` Worker for LineScan Spectroscopy (Considered Options & Traceability) | `ACCEPTED` | Software Architect, Instrumentation | `SYS-101`, `SYS-102`, `SYS-104`, complements `DEC-006` |
 | `DEC-008` | 2026-09-16 | Metrological Traceability of Transmittance/Extinction Datasets in LineScan Spectroscopy HDF5 (Raw vs. `_physical`) | `ACCEPTED — FULLY RESOLVED (2026-09-17)` | Scientific Reviewer, Metrology | `SYS-104`, `CAT-401`, `core/sif_processor.py` |
 | `DEC-009` | 2026-09-17 | Hardware-Safety Audit Remediation: Slit Clamp, Grating Settle Polling, Session Arbitration, Partial-Scan Reporting (P0) | `ACCEPTED` | Instrumentation, Software Architect, QA/UX Auditor, Metrology | `pyspectrum/drivers/shamrock_driver.py`, `pyspectrum/modules/step_and_glue.py`, `pyspectrum/modules/routines/linescan_spectroscopy.py` |
-| `DEC-010` | 2026-09-17 | Unified Global Shutter Auto-Close Policy (SYS-201) + Heartbeat Coverage Audit Across Scanning Loops | `ACCEPTED` | Instrumentation, Software Architect | `core/nidaq.py`, `core/shutters.py`, `modules/confocal.py`, `modules/focus.py`, `contrapropagante.py` |
+| `DEC-010` | 2026-09-17 | Unified Global Shutter Auto-Close Policy (SYS-201) + Heartbeat Coverage Audit Across Scanning Loops | `ACCEPTED — partly SUPERSEDED by DEC-052 (2026-11-18)`: the deadline is only for routines | Instrumentation, Software Architect | `core/nidaq.py`, `core/shutters.py`, `modules/confocal.py`, `modules/focus.py`, `contrapropagante.py` |
 | `DEC-011` | 2026-09-17 | PI E-517 Stage Connection Resilience: GCSError/Communication-Failure Isolation, MOV Clamping, Grid Pre-Flight Range Check, Pause/Resume on Real Disconnection | `ACCEPTED` | Instrumentation, Software Architect | `config.py`, `modules/measurements.py` |
 | `DEC-012` | 2026-09-18 | Universal Template Matching and Crystallographic Generalization for Hexagonal and Honeycomb Lattices in 2D Disorder Analyzer | `ACCEPTED` | Physicist, Computational Physicist, Metrology, Software Architect, Devil's Advocate | `core/lattice_disorder.py`, `analysis/lattice_disorder_gui.py`, `core/lattice_generator.py` (consumed, not modified), `MOD-08` |
 | `DEC-013` | 2026-09-18 | Multi-Agent Hardware-Safety Audit Remediation (Lotes 1-6): Focus Retry Caps, Trace Task Persistence, Printing Watchdog Renewal, Confocal Settling & Heartbeat Policy, Hyperspectral QThread + Shutter Lifecycle, Dual-Confocal PSF-Mode Parity | `ACCEPTED` | Instrumentation, Software Architect, Experimentalist, Devil's Advocate | `modules/focus.py`, `modules/trace.py`, `core/nidaq.py`, `modules/measurements.py`, `modules/confocal.py`, `contrapropagante.py`, `pyspectrum/modules/hyperspectral_confocal.py`, `pyspectrum/window.py` |
@@ -111,6 +111,12 @@ Chosen option: **Option C**, the only one that keeps the watchdog and abort path
 * **Correction (logged in `DEC-010`, 2026-09-17)**: the `test_shutter_alignment_and_heartbeat.py` "collection errors" cited above as a `PyQt6` DLL-loading artifact were misdiagnosed. The real cause was a missing pytest fixture (`app`) and, separately, a deterministic `sys.path` ordering issue (two `PyQt6` installs for Python 3.13 in this environment — see `DEC-010` for the full root cause and fix). Both are now fixed; see `DEC-010`.
 
 ### DEC-010: Unified Global Shutter Auto-Close Policy (SYS-201) + Heartbeat Coverage Audit Across Scanning Loops
+> [!WARNING]
+> **Partly SUPERSEDED by `DEC-052` (2026-11-18).** The deadline no longer applies to every opening: manual
+> operation (Shutters dock, Láser 532, trace F1) has none, and the value is chosen in the printing Control Panel and
+> in PySpectrum's left panel, not in the Shutters dock. `open_shutter()` and `heartbeat_shutter()` no longer take
+> `timeout_s`. The 30 s default, the 100 ms poll and the per-iteration heartbeat inside routines stay.
+
 * **Context**: `core/nidaq.py::open_shutter()`/`heartbeat_shutter()` hardcoded `timeout_s=30.0` as their Python default-parameter value. `core/shutters.py::Backend.set_autoclose_timeout()` (the slot behind the Shutters dock's "Auto-cierre" checkbox / timeout combo) only stored the choice in `self.current_timeout`, a per-instance attribute consulted **only** by that same dock's own `shutter0()`–`shutter3()` slots. Every other module opening a shutter — every experimental routine — calls `open_shutter(self.laser)` with no `timeout_s` argument, so it silently got the hardcoded `30.0` regardless of what the operator had selected in the dock, including "Sin límite (Modo Alineación)". Separately, several scanning loops opened a shutter once at the start of a multi-row/multi-point acquisition and never called `heartbeat_shutter()` again until the scan finished — if a single scan exceeded the (possibly silently-restored) 30 s deadline, the watchdog would force-close the shutter mid-scan, leaving the stage scanning in the dark.
 * **Decision**:
   1. **Global policy, `core/nidaq.py`**: added `_default_timeout_s` (module global) + `set_default_shutter_timeout()`/`get_default_shutter_timeout()`. `open_shutter()` and `heartbeat_shutter()` now default to a sentinel (`_SENTINEL`, an `object()` identity check, not `None` — `None` is itself a valid explicit "no limit" value and must stay distinguishable from "no argument passed") and fall back to `get_default_shutter_timeout()` only when the caller passed nothing. An explicit `timeout_s` argument (numeric or `None`) at any call site always wins over the global policy, preserving every existing explicit call site's behavior unchanged.
@@ -1131,8 +1137,836 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * **Mutaciones:** 25, todas detectadas. Seis sobrevivían al principio y cada una pedía un test nuevo: la forma del fondo en el `.txt` de Raman; el rechazo antes del hilo en Luminiscencia y Crecimiento puntuales y en la grilla de Crecimiento (el cuerpo también rechaza, pero ya con la sesión tomada); el del mapa, que sin el rechazo previo pasaba la cámara a FVB y guardaba un mapa vacío; y la ganancia EM en la clave del fondo del escaneo lineal.
   * **Suite completa:** 1613 passed, 3 xfailed, 0 failed. En la corrida anterior, dos tests del escaneo lineal fallaban sólo en la suite completa: un objeto dejado por otro test cerraba el obturador del mismo espectrómetro simulado. El espía registra ahora sólo las llamadas del escaneo lineal; una mutación del obturador confirma que sigue detectando.
   * **Pendiente de banco:** BANCO-62.
+* **R4-N 1a, el centro de la ranura: implementado (2026-10-01).** Ronda 2 del 2026-09-30 con las respuestas P1 a P4 del investigador (`RESPUESTAS_INVESTIGADOR`, R4-N segunda parte).
+  * **Por qué se reescribió:** el auto-calibrado viejo corría en el hilo de la GUI. Leía `get_most_recent_image()` sin adquirir (o, sin imagen, un perfil inventado de 100 cuentas), ajustaba el promedio de 40 filas del centro del sensor y guardaba cualquier resultado, también el de un ajuste fallido.
+  * **Método (P1):** en orden cero, una gaussiana con fondo lineal en cada fila del ROI vertical, con `estimate_line_center`, el estimador de la calibración de λ. El centro es el promedio de las posiciones del máximo; esa columna, cruzada con el ROI, es la zona de trabajo.
+  * **Estadística (P2):** sale de las filas.
+    * Una recta robusta de los centros contra la fila da la inclinación (TILT si el centro corre más de 1 px de punta a punta del ROI) y la dispersión respecto de la recta.
+    * Las filas que se apartan (rayos cósmicos) se descartan.
+    * u = máx(s/√n, u del ajuste/√n).
+  * **Cuadros:** 1 por defecto. Con 3 o más, cada píxel es la mediana en el tiempo.
+  * **Saturación:** se evalúa por fila. Un rayo cósmico satura una o dos filas, y esas filas se descartan. Si satura más del 10 % de las filas, satura la imagen de la ranura y la medición se rechaza.
+  * **Se rechaza** fuera de orden cero (lectura del Shamrock), sin un ROI de al menos 5 filas, sin línea o con menos de la mitad de las filas útiles. **Nada se guarda si falla.**
+  * **Se aplica sólo con [Aplicar] (P3).** Cada aplicación, también la de `💾 Guardar Pixel X` a mano, queda en el archivo de calibraciones como `SLIT_CENTER`, EXPERIMENTAL (P4). Los cuadros crudos de una medición buena quedan en `calibration/slit_center_<fecha>.h5`.
+  * **Hardware:**
+    * sesión "Calibración de ranura", en un `RoutineThread`;
+    * el obturador del espectrómetro se abre sólo mientras mide, y no se tocan láseres;
+    * la cámara vuelve al modo de lectura que tenía, también si la exposición falla.
+  * **Conciliación de contratos:**
+
+    | Control (GUI) | Señal | Motor | Tipo y unidad | Por defecto |
+    | :--- | :--- | :--- | :--- | :--- |
+    | `spin_slit_exp` | `autoCalibrateSlitSignal(float, int)` | `measure_slit_center(exposure_s=)` | s, 0.001–10 | 0.05 |
+    | `spin_slit_frames` | `autoCalibrateSlitSignal(float, int)` | `n_frames=` | entero, 1–20 | 1 |
+    | ROI vertical de Exploración | `spectroscopy_context.vertical_roi` | `rows=(y_min, y_max)` | filas del sensor, [r0, r1) | — |
+    | `btn_apply_slit_center` | `applySlitCenterSignal()` | `CalibrationBackend.apply_slit_center` | — | deshabilitado sin una medición buena |
+    | `lbl_slit_result` | ← `slitFitResultSignal(object)` | `SlitCenterResult.summary()` | px, µm | — |
+
+    Ninguna discrepancia.
+  * **Tests:** `tests/test_slit_center.py` (26). `test_slit_gaussian_fit` pasa al motor nuevo. 17 mutaciones, todas detectadas.
+  * **Pendiente de banco:** BANCO-63.
+  * **Documentos:** MANUAL, MOD-06 §8.1 y SYS-303 Paso 1.4 (lo viejo, tachado). SYS-302 §2.2 lleva una nota: el píxel es de 8 µm, no de 13 µm.
+* **Dos defectos del cierre encontrados de paso (2026-10-01), con un test que fallaba antes del arreglo.**
+  * **`RoutineThread.shutdown` nunca terminaba a tiempo.** El bucle del hilo salía sólo desde `_on_finished`, un slot encolado al hilo de la GUI. Pero `shutdown` espera el hilo bloqueando justamente la GUI, así que la espera agotaba siempre su tope de 3 s y el paso se informaba como fallido.
+    * Afectaba a luminiscencia, crecimiento y dímeros al cerrar con una rutina corriendo.
+    * Ahora el hilo sale apenas termina el cuerpo (conexión directa a `quit`).
+  * **Una toma de fondo en curso no se detenía al cerrar.** `shutdown_all_darks` (`routine_dark.py`) detiene todas, y la ventana la llama, como a la calibración de la ranura.
+* **R4-N 2b, la sonda de la cámara de 3.0: implementada (2026-10-01).** Ronda 2 del 2026-09-30; P5: con `--estado-base` opcional.
+  * `tools/bench/pyspectrum_camera_probe.py`:
+    * conecta como 3.0 (`PylablibAndorCCD`, `CONNECT_KWARGS`) y después sólo lee, con los mismos getters que la sección E de la sonda del legado (un test verifica que las dos listas sean iguales), más `get_full_info`, identidad y geometría;
+    * con `--estado-base` aplica `apply_camera_baseline`, el del arranque de 3.0, una sola vez, y vuelve a leer;
+    * el JSON va sólo a `--salida`, con las claves de `guardar_info` del legado más cada lectura con su resultado;
+    * `--comparar` lista las diferencias en `settings` y `camera_full_info`;
+    * la cámara se cierra siempre.
+  * No adquiere, no abre obturadores ni toca láseres, DAQmx, platina ni espectrógrafo.
+  * Conectar no es sólo leer: pylablib fija su configuración por defecto, igual que al abrir 3.0. Lo dicen el docstring y las instrucciones.
+  * **Tests:** `tests/test_pyspectrum_camera_probe.py` (10), con una cámara falsa que registra cada llamada. 9 mutaciones, todas detectadas.
+  * **Documentos:** `tools/bench/INSTRUCCIONES.txt` §5 y BANCO-55, pasos 1 y 2.
+* **R4-N 3, el espejo de detección entre sesiones (C-08): implementado (2026-10-01).** Ronda 2 del 2026-09-30, con las respuestas P6 y P7.
+  * **Archivo:** `core/detection_mirror_state.py`. Escribe `detection_mirror.json` junto al archivo de calibraciones, o donde diga `config.DETECTION_MIRROR_STATE_PATH`, en forma atómica, después de cada pulso que salió bien y de cada confirmación. Una falla al escribir no rompe el pulso. Un archivo ausente o dañado es "sin información".
+  * **Al arrancar** (`load_last_known_mirror_state`, al importar `core.nidaq`): el último estado va en `MirrorBelief.last_known` y guía el próximo pulso, porque el espejo cambia de lado con cada uno. La posición queda `"unknown"` y la fuente `"none"`: las rutinas siguen pidiendo la confirmación (D-01).
+  * **Por qué no se mostró el último conocido como posición:**
+    * el Step & Glue se salta el diálogo del espejo si la creencia es "abajo";
+    * la calibración de λ tilda "espejo abajo" con esa creencia.
+
+    Con el último conocido como posición, una sesión anterior habría reemplazado la confirmación del operador. Un test cubre el caso del Step & Glue.
+  * **Panel izquierdo:** el renglón del espejo muestra "confirmado", "ordenado", "último conocido, sin confirmar" o "desconocido". [Está arriba] / [Está abajo] sólo registran lo que ve el operador y no pulsan.
+  * **Nombres (P6):** `set_detection_mirror` es el nombre nuevo; `flipper_notch532` queda como alias que delega, para PyPrinting (`app.py`).
+  * **Legados (P7):** `config.LEGACY_DETECTION_MIRROR_STATUS_FILE` acepta una ruta o varias, separadas por `;`. Los dos legados tenían cada uno su archivo para el mismo espejo (TRIAGE_SISTEMA_VS_LEGADO). Se leen sólo como información.
+  * **Tests:** `tests/test_detection_mirror_persistence.py` (24). 12 mutaciones, todas detectadas.
+  * **Pendiente de banco:** BANCO-64.
 * **Tests**: `tests/test_pyspectrum_first_start_safety.py`, 15 tests. 13 of the first 14 were red before the change, and the geometry test was red before its fix.
 * **Outcome**: **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-041: A Grid Pause Halts Every Stage of the Printing Chain (C-01, Round 4, Question 1; 2026-10-01)
+* **Context (instrumentation panel of the C-01 Round 4 mini Round 1, `docs/evidence/auditoria_2026-09-27/c01_ronda4/`):** a Pause pressed during the between-node autofocus could reopen the 532 nm shutter at high power with no detection.
+  * The autofocus finish is dispatched to the GUI thread by a closure (`app.py::_on_autofinish`). The criterion is dispatched there too (`app.py::_dispatch_trace`), while the workers live in `confocalThread`.
+  * The Pause arrives queued to the workers. It ran first: it closed the shutter and set `mode_printing = "none"`.
+  * Then the GUI thread continued with `grid_finish_autofoco` → `_grid_trace`, which lowered the filter and opened the 532.
+  * With `"none"` the trace sends nothing to the criterion, so nothing closes the shutter, and the trace's own heartbeat renews the watchdog indefinitely.
+  * Reproduced in `SAFE_MODE`. **It is also in `7f5d10a`, the commit on the lab PC**; the legacy program connected the signal to the worker's slot.
+  * Interim rule from the operator: PyPrinting 3.0 is not used for grids until this fix is deployed.
+* **Decision (operator, 2026-10-01: fix it now, apart from R4-17, test first, short Round 2):**
+  * `Backend.is_paused` is now a `threading.Event` behind a property, so every existing write keeps working and every reader sees it from either thread.
+  * The Pause button marks it **at once**, with a direct connection to `request_pause`; the queued `grid_pause` then closes the shutter and raises the filter.
+  * Every entry of the chain checks it before moving, switching the filter or opening:
+    * `grid_autofoco`, `grid_finish_autofoco` (after its 0.1 s wait);
+    * `_grid_trace`, before lowering the filter and again right before opening;
+    * `grid_scan`, `_grid_center_scan`, `on_scan_finished` (a drift correction that arrives during a pause is not applied), `grid_finish` (dimers);
+    * `_grid_detect`, `_advance_healing_pass`.
+  * `_grid_trace` also never opens with `mode_printing == "none"`.
+  * **Resume never re-exposes a decided node.** `_detect_pending` is set when the criterion decides and cleared when the chain advances. If the pause fell after the decision (post-scan, wait), Play continues with the next node. A pause that cut the exposure still resumes on the same node, as before; the Round 4 rule P4 (question 5) changes that.
+* **Not in this fix (R4-17 and option E):** moving the chain onto one thread, PyPrinting's own emergency stop, "Cerrar todos" with a closing epoch, and the ≈ 100 ms after raising the filter (question 4; the current entries already wait 0.5-1 s).
+* **Tests:** `tests/test_grid_pause_halts_chain.py` (17). 12 of the first 13 failed before the fix; the one that passed is the normal flow without a pause. 16 mutations, all killed.
+* **Bench:** BANCO-70.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-042: `.sif` Files Read by Slot; the Raman Analyzer Opens Them (2026-10-02)
+* **Context:** the operator has Raman `.sif` files that carry the signal and the noise (background) in the same file (`reserva/cumulo_594.sif`).
+  * The Raman analyzer did not open `.sif` at all.
+  * The transmittance analyzer's reader assigned channels by block position. A two-channel Raman file came out as "transmittance + live".
+* **Facts from the files:**
+  * A `.sif` has fixed slots in this order: Signal, Reference, Background, Live and Source. Each is preceded by a presence flag (`0`/`1`); the SIFX XML footer names the same sections.
+  * Each channel declares a DataType.
+  * `cumulo_594.sif`: Signal `Counts (Bg Corrected)` + Background `Counts` (≈ 320 counts, the bias), with the Reference flag `0`. It also carries `RamanExWavelength = 422`, which is not the laser.
+  * In the two transmittance samples, the Live slot declares `Transmittance` although it holds raw counts, so the slot, not the DataType, decides the name.
+* **Decision (operator, 2026-10-02):**
+  * `read_sif_slots` reads the slots sequentially from their flags. `parse_all_sif_channels` maps slots to names; with 4 channels the result is unchanged, and the old positional scan stays as a fallback.
+  * `read_raman_sif`:
+    * a `Bg Corrected` signal is never subtracted again;
+    * a raw `Counts` signal is shown minus the file's background by default, with a toggle, and only if shape and exposure match;
+    * rows are averaged over a chosen range and frames are averaged or one is chosen;
+    * the axis comes from the SIF calibration, or pixels with a note;
+    * **the laser is always set by the user** (the SIF value is shown as "no se usa").
+  * The CSV export carries the background in its own column, `SIF_Background_Counts`.
+  * The multi-spectrum suite loads `.sif` through `parse_spectrum_file`.
+* **Tests:** `tests/test_sif_slots_and_raman.py` (19). The test of the Raman file in the transmittance reader failed before the change (`transmittance` + `live`). 15 mutations, all killed. The existing SIF tests (`test_sif_processor.py`, the six `test_sif_analyzer_*`) pass unchanged.
+* **Docs:** MANUAL §11.1, MOD-11, MOD-12 §3.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+* **Defect found the next day (2026-10-02, `reserva/pl_400.sif`), fixed with a test that failed first:**
+  * Naming by slot made the transmittance analyzer subtract the dark from a live channel that Solis had already corrected. The signal of `pl_400.sif` is `Counts (Bg corrected per second)`, ≈ 930, and the dark is ≈ 3267 counts in 5 s, so the live spectrum came out at ≈ −2400.
+  * Before the slot change, the file was mislabelled instead (transmittance + live).
+  * Fix: `SifSpectrum.live_is_bg_corrected`, set from the slot that becomes `live`: the Signal when there is no Live slot. The analyzer passes it as `ref_is_bg_subtracted` for the live channel, so a corrected live is never subtracted again, even with "restar ruido" checked.
+  * The Live slot of the transmittance files (raw counts) is not marked. 3 mutations, all killed.
+* **Operator decisions, 2026-10-02 (both "yes"):**
+  * **The multi-spectrum suite shows each spectrum with its full range** in "Overlay" and "Crudos & Línea Base".
+    * Each spectrum gets the same baseline, smoothing, normalization and waterfall, on its own axis. A shorter reference blank gives `NaN` outside its range and is never extrapolated.
+    * The mean, kinetics, heatmap and PCA keep the common grid (the intersection), with a visible notice of the common range and its point count whenever it leaves data out.
+    * The CSV of those two tabs exports each spectrum with its own axis.
+    * Before this, `pl_400.sif` together with `cumulo_594.sif` showed 154 of 1004 points, with no notice.
+    * 6 tests and 6 mutations, all killed.
+  * **A per-second signal gets a per-second background.** When the signal's DataType says "per second", the background is divided by its own exposure before any subtraction or plot. The panel shows the units, and the export column is `SIF_Background_Counts_per_s`. 4 tests.
+
+### DEC-043: R4-17 (C-01, Round 4) — Phase 0: Grid-Chain Test Rig and the `legacy_timer` Golden Baseline (2026-10-02)
+* **Context:** Round 2 of R4-17 is approved (`c01_ronda4/SINTESIS_RONDA2.md`; answers in `RESPUESTAS_INVESTIGADOR.md`, 2026-10-02):
+  * question 2 is no (the 3 s wait counts from the first close);
+  * question 3 is (b) (all four lines unconfirmed after a failed write);
+  * every filter verification is disabled for now;
+  * the rest follow the recommendations.
+* **The phases** (`ronda2_architecture.md` §8): 0 rig and golden baseline; 1 "Cerrar Todos" that does not lie; 2 the chain on one thread; 3 closing epoch and interrupted node; 4 emergency stop and rearm; 5 between-node steps; 6 low-power confirmation (off).
+* **Phase 0 (exempt: tests only):**
+  * **`tests/harness/grid_chain_rig.py`:**
+    * the real `app.Backend` workers, with the same thread topology as `create_app_satellite`: measurement, focus, trace and confocal in a real `QThread`, with the `Backend` dispatchers on the main thread acting as the GUI thread;
+    * line writes logged at `nidaq._write_shutter_lines`, with the requesting function and the thread;
+    * stage `MOV`s logged;
+    * a photodiode scripted by read number since the node's shutter opened, not by clock, so decisions do not depend on thread jitter;
+    * sleeps scaled ×0.01.
+    * `app.py` imports the modules by their short names (`measurements`, `trace`, `focus`), which are different objects from `modules.*`, so the rig patches the modules of the workers' classes.
+  * **`tests/golden/legacy_timer_chain.json`:** recorded on `927e818` before any R4-17 change: 11 nodes, 9 captures and 2 drops. The baseline holds the decisions and decision ticks, the stage moves, the line-level transitions and the DO writes.
+  * **`tests/test_legacy_timer_golden.py`** compares all of that.
+    * The levels and their order are compared exactly.
+    * Who writes is compared as a multiset, because of the first finding below.
+    * Three mutations (N_hold off by one, the trace not closing, a 1 nm move offset) are all caught.
+* **Findings:**
+  1. **Two closes race when a node is decided.** The criterion closes from the GUI thread, and the trace closes from `confocalThread` when it is stopped by a queued signal. Which one writes first varies between runs. Both write the same levels, so it is not a hazard by itself, but it is the two-thread topology that phase 2 removes.
+  2. **P-1, confirmed:** a trace tick that was already queued when the criterion decided decides the same node again. That means two `grid_detectSignal`s, `i_global` advancing twice, and a skipped node. `tests/test_grid_double_decision_probe.py` holds it as `xfail(strict=True)`.
+     * `7f5d10a` (the lab PC) has no guard against it either.
+     * The operator has seen no skipped nodes, so in practice it is rare; it needs a tick to queue while the GUI thread is busy, for example while saving the trace.
+     * Phase 2 or 3 closes it. **Update (DEC-045):** phase 2 closed the path; the criterion's own guard is left to phase 3.
+  3. **On the trace's 5th tick, `I_old` is `NaN`** (an empty window when `n − M − M2 = 0`). This is the "Mean of empty slice" warning in the suite. The criterion survives it, because a comparison with `NaN` is false. It is recorded for phase 3.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-044: R4-17 Phase 1 — A Failed Write Confirms Nothing; "Cerrar Todos" Unchecks Only After a Confirmed Close (2026-10-02)
+* **Context:** two findings of the C-01 Round 4 mini Round 1 (devil's advocate, instrumentation), both confirmed in the code.
+  * After a failed write, `close_all_shutters` marked as unconfirmed only the shutters believed open. With nothing believed open it returned `False`, yet `_all_closed_confirmed()` was `True`, so a later "4 of 4 confirmed" could have been a lie.
+  * The "Cerrar Todos" button unchecked every shutter **before** writing and ignored the result, so it failed silently.
+* **Decision** (operator, Round 2 question 3, option (b)): **after any failed write** (open, close or close-all), **all four lines** are unconfirmed, because the board state is unknown. They are treated as open, and the watchdog retries.
+  * **Where:** `core/nidaq.py::_mark_all_unconfirmed`.
+  * **Notices:** a line commanded closed gets "cierre NO confirmado"; a line commanded open on purpose gets "estado sin confirmar".
+  * **Confirmation:** a successful write applies the whole array, so it confirms all four. A line commanded open gets the notice "estado confirmado (abierto)", and the dock keeps it checked.
+  * **The button:** "Cerrar Todos" (`core/shutters.py::_close_all_shutters_clicked`) unchecks only if `close_all_shutters()` confirmed. Otherwise the DEC-036 notices leave each shutter checked in red, with the banner.
+  * **The dock:** it also treats "sin confirmar" as an unconfirmed state (checked, red).
+* **Deliberate contract change:** `test_close_all_failure_marks_previously_open_shutters` now expects all four, not only the one believed open.
+* **Tests:**
+  * `tests/test_close_all_does_not_lie.py` (7); four of them failed before the change. 7 mutations, all killed.
+  * The golden baseline (DEC-043) is unchanged, because its script has no failures.
+* **Test isolation fix (exempt):**
+  * `core/nidaq.py` registers itself as both `nidaq` and `core.nidaq`. When a PyPrinting module imports it first by the short name, the `core` package is left without the `nidaq` attribute, and later `monkeypatch.setattr("core.nidaq....")` calls fail.
+  * Whether this happened depended on file order (`test_grid_pause_halts_chain` before `test_grid_runner`).
+  * `tests/conftest.py` now imports `core.nidaq` by its package name first.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-045: R4-17 Phase 2 — The Grid Chain Runs on One Thread (2026-10-02)
+* **Context:** the end of the autofocus (`app.py::_on_autofinish`) and the trace criterion (`app.py::_dispatch_trace`) were functions of `app.Backend`, which lives in the GUI thread. So:
+  * `grid_finish_autofoco`, the first node's `_grid_trace` and `grid_trace_detect` ran in the GUI thread;
+  * the rest of the chain ran in `confocalThread`.
+  The phase 0 rig confirmed it (DEC-043).
+* **What the split cost** (new rig scenario, with the GUI thread serving its queue every 250 ms, as when it is drawing):
+  * trace ticks pile up in the GUI thread's queue;
+  * on `ec2e198`, stale ticks of a node were judged as the next node's, so both drop nodes (2 and 6) came out as "success";
+  * with the closure reconnected on top of the new code (mutation m16b), node 3 was decided three times, and nodes 4, 5 and 8 were skipped. This is P-1 in full.
+  * `7f5d10a` (the lab PC) has the same split.
+* **Decision** (approved design, `ronda2_architecture.md` §3.3; logic unchanged):
+  * **New signal** `focusWorker.autofocusFinished(str, object)`, emitted next to `autofinishSignal`. The `object` stays `None` until phase 5 (`AutofocusResult`). `autofinishSignal` is kept for its other listeners (`pyspectrum/modules/optical_support.py`).
+  * **New slots** on `MeasBackend`. Each worker filters by its own `mode_arg`.
+    * `on_autofocus_finished(str, object)`, connected with `QueuedConnection` (a stage boundary).
+    * `on_trace_data(list)`, connected with `AutoConnection`. This is direct, because the trace lives in the same thread: the criterion decides inside the tick, and `grid_trace_stopSignal` → `traceWorker.stop` is synchronous.
+  * **`grid_detectSignal`** → `grid_scan`, and → `grid_finish` for dimers, now uses an explicit `QueuedConnection`, so the next node starts on a fresh event-loop turn.
+  * **Removed:** `_dispatch_trace` and `_on_autofinish`.
+  * **`contrapropagante.py`** had the same copy of both dispatchers. It gets the same change.
+* **Tests:**
+  * **`tests/test_grid_chain_single_thread.py`**, both failing on `ec2e198`:
+    1. every chain stage, and every shutter write of the chain, runs in `confocalThread`;
+    2. with a busy GUI thread, each of the 11 nodes is decided exactly once, in order, with the expected decision.
+  * **Mutations:** m16 (the autofocus end through a GUI-thread closure) and m16b (the trace through one) are both caught.
+  * **The golden baseline:**
+    * decisions, decision ticks, DO levels and line transitions are identical;
+    * close callers are still compared as a multiset, because the baseline holds one of the old racing orders. The order is now fixed: the trace's synchronous stop first, then the criterion.
+  * **The direct-call probe** (`tests/test_grid_double_decision_probe.py`) stays `xfail(strict)`. Phase 2 closes the path by topology, but the criterion itself still has no guard against a second call after its decision. That guard is a logic change, so it is left to phase 3.
+* **Rig fixes** (exempt: tests only):
+  * **Start position:** the simulated stage is global, so the Z of the first autofocus depended on the grids run earlier in the same process, and the golden `MOV` log failed depending on test order. The rig now starts every grid at (40, 40, 10) µm. The golden baseline was re-recorded on `ec2e198`, before the phase 2 change; only Z moves changed.
+  * **Decision ticks** are recorded with a direct connection (in the emitting thread, at emit time), and every decision event is counted.
+  * **Stage threads** are recorded by class wrappers plus `_halted(label)`. PyQt binds `@pyqtSlot` methods into the class meta-object at first instantiation, so a call through a Qt connection can bypass a later wrapper.
+  * **Thread names** come from Qt (`threading` shows a `QThread` as a new "Dummy-N" on each call).
+  * Before the change, the golden decision ticks were flaky (node 10: tick 18 instead of 20, about 1 run in 8). After it: 12 consecutive runs passed (in both file orders, plus the full suite).
+* **Phase 1 test fix** (exempt: tests only): `test_close_all_unchecks_only_after_a_confirmed_close` now pins the watchdog retry at 60 s. Under load, the fixture's 0.2 s retry confirmed the close before the checkbox was read, and the test failed once in the full suite.
+* **Bench:** BANCO-70 can now run (with the trace Δt and a busy-GUI check added). BANCO-71 was added, along with the Round 2 additions to BANCO-66/67/68.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-046: R4-17 Phase 3 — Closing Epoch, the Interrupted Node and the 3 s Hold (2026-10-02)
+* **Context:** a "Cerrar todos" (or the laser's dock button, or a Pause) during an exposure left the trace running with the shutter closed.
+  * The signal dropped, so the criterion decided "timeout". The Healing Pass then re-exposed a node that may already have printed.
+  * The next node opened at once.
+  * A Pause during the exposure resumed on the same node (DEC-041), with the same risk.
+  * The rest of the closing-epoch design is approved in `ronda2_architecture.md` §4.1.1, §4.1.3 and §4.6.
+* **Operator decisions** (Round 2 answers, 2026-10-02):
+  * **Question 1:** a Pause follows the same rule as a cut. The cut node goes to review and is never re-exposed.
+  * **Question 2:** a second "Cerrar todos" does not restart the hold; the 3 s count from the first close. This reverses mutation m17 of the design (which extended the hold with the max).
+* **Decision, `core/nidaq.py`:**
+  * **Closing epoch.** `CloseCause`, `CloseEpoch` and `get_close_epoch()`. Every close-all and every operator close bumps it before taking `_nidaq_lock`:
+    * the watchdog passes `WATCHDOG`;
+    * `trip_shutter_interlock` and the photodiode-task fault pass `INTERLOCK`;
+    * the atexit close passes `EXIT`;
+    * the default is `ROUTINE`.
+  * **Confirmation.** `is_close_confirmed(epoch)` is backed by `_last_written_epoch`. That value is read before every write and advanced by any successful write that leaves all four lines closed.
+  * **The hold.** `request_close_all(cause, detail, hold_s)` (synchronous until the phase 4 closer thread) plus `operator_close_all()`: with a routine running (`set_routine_running` / `any_routine_running`, interim until the phase 4 coordinator), it holds every opening for `OPERATOR_HOLD_S` = 3 s.
+    * `open_shutter` checks the hold before and inside the lock. A held opening neither writes nor arms the watchdog.
+    * `operator_close_shutter(name)` is a dock button's close, and counts like "Cerrar todos".
+* **Decision, `core/grid_state.py` (new, no Qt):** `GridRunState`, `GridTransition`, `CAUSE_POLICY`, `NodeMeta` and `INTERRUPTED`.
+  * `operator` → the grid goes on after the hold.
+  * `estop` → stopped (phase 4).
+  * `pause`, `watchdog`, `interlock`, `stage`, `routine`, `excepthook` and `exit` → paused.
+  * An unknown cause is treated as paused (the safe side).
+* **Decision, `modules/measurements.py`:**
+  * **`_grid_trace`** records the epoch **before** opening and checks the result of `open_shutter`:
+    * the line left unconfirmed → the node may have opened, so it is treated as interrupted;
+    * held → the node was not exposed, and it is retried when the hold expires;
+    * an interlock → pause.
+  * **`grid_trace_detect`, first lines, before the heartbeat:**
+    * a node already decided is ignored (`_node_decided`, the P-1 guard). The direct-call probe now passes, so its `xfail` was removed;
+    * a pause, or a changed epoch, → `_finalize_interrupted_node(cause)`.
+  * **`_finalize_interrupted_node`** runs once per node. It:
+    * does not beat;
+    * stops the trace and closes;
+    * sets `node_results = "interrupted"` and `node_meta`;
+    * saves the trace with the header `INTERRUPTED (<cause>, t_exp = … s)`;
+    * emits `nodeStatusSignal` and the new `nodeInterruptedSignal(int, str, float)`;
+    * sets `_detect_pending = True` (resume goes to the next node);
+    * continues per `CAUSE_POLICY`.
+  * **The wait** is a worker `QTimer` (precise, the hold plus 20 ms, re-armed if any hold remains), never a sleep. It emits `countdownSignal(int, float)`; a Pause cancels it.
+  * **`grid_pause`** finalizes a node that was exposed and undecided.
+  * **The Healing Pass** still takes only `"timeout"`, so it never re-exposes an interrupted node.
+  * **The Time-Volt report** keeps interrupted nodes out of its statistics and lists them apart (R-15).
+  * **The grid view** draws an interrupted node as an up-triangle, Red fill and Peach ring (`gui_design_v2.md` §5.3).
+* **Decision, `core/shutters.py`:** the "Cerrar Todos" button calls `operator_close_all` and unchecks on `is_close_confirmed(epoch)`. Each shutter button's close calls `operator_close_shutter`.
+* **Decision, `modules/focus.py`:** the first autofocus of a grid opens twice, for the "auto-lock" (`focus_lock_lin`, the reference profile) and for the ramps (`focus_autocorr_lin_x2`). Both ignored the result of `open_shutter`. When an opening is refused (held, interlock, failed write):
+  * **the lock** is not fixed on a dark profile, and Z goes back to where it was. The lock first moves Z to the start of its ramp, 3.75 µm lower, so without the move back the grid would have printed out of focus;
+  * **the ramps** are skipped, Z is not corrected from a dark profile, and the grid is still notified.
+  * Validity of the autofocus result in general is phase 5.
+* **Pre-existing defect found and fixed, `modules/confocal.py::stop_scan`:**
+  * It always moved the stage back to the last scan start, or to (50, 50) µm. A Pause during a grid calls it through `grid_scan_stopSignal`, so **the Pause moved the stage** even with no scan running, against DEC-041.
+  * `test_grid_pause_halts_chain` never saw it, because it has no confocal worker. The new rig does.
+  * `stop_scan` now moves back only when a scan timer was active.
+* **Tests:**
+  * **`tests/test_grid_cuts_phase3.py` (12 in phase 3a):**
+    * a close during the exposure (by "Cerrar todos" and by the laser's button) with the Healing Pass on;
+    * the Time-Volt report;
+    * a close in the filter wait (E-5);
+    * a close right before each focus opening (the lock and the ramps);
+    * a Pause during the exposure;
+    * "Cerrar todos" with no grid (E-12);
+    * a second "Cerrar todos" during the wait;
+    * a watchdog close;
+    * a Pause during the wait;
+    * `stop_scan` with no scan running.
+  * **The rig** gained cut injection (`at_read`, `after`, `close_all`, `close_laser`, `pause`, `play`, `wait_until`). It also records DO write times, cut times, criterion heartbeats per node and every node status.
+  * **Eleven mutations, all caught.** Each selected test also passes unmutated:
+    * m3 (no epoch check);
+    * m4 (heartbeat before the check);
+    * m11 (Healing takes interrupted);
+    * m17r (the hold extends);
+    * m19 (no decided-node guard);
+    * m20 (Pause leaves the node open);
+    * m21 (`open_shutter` without the hold);
+    * m22 (`stop_scan` always moves);
+    * m23 (the autofocus ignores a refused opening);
+    * m24 (the lock ignores it);
+    * m25 (the lock does not move Z back).
+  * **Deliberate contract changes:**
+    * `test_a_pause_during_the_exposure_*` now expects the node interrupted and resume on the next node (question 1);
+    * the focus tests' `open_shutter` mocks return `True`, the real contract, instead of `None`.
+  * **`tests/conftest.py`** clears the hold and the routine registry between tests.
+* **Pending for the GUI** (phase 4, with `runStateChanged`), not in this phase:
+  * the "Cerrar todos · la grilla sigue" label and tooltip;
+  * the Peach 20 s banner;
+  * the visible countdown;
+  * telling the GUI that the grid paused itself after a watchdog or interlock cut. Until then, the console and the node glyph say it.
+* **Bench:** BANCO-67 can run. BANCO-70 now expects Play to go to the next node and the stage not to move.
+* **Phase 3b** (a separate commit, because it is the only change to the raw DO log):
+  * **`modules/trace.py::_start`** no longer opens the shutter when the trace has a printing mode. The opening belongs to the grid, which records the epoch and checks whether the shutter opened. The second opening reopened the laser when a "Cerrar todos" fell between the two (H11 of instrumentation). The manual trace (F1, mode "none") opens as before.
+  * **`I_old`** is an explicit `NaN` while the old window is empty (`n == M`). The criterion's behaviour is unchanged: a comparison with `NaN` is false, as before. The only difference is that numpy's "Mean of empty slice" warning is gone (DEC-043, finding 3).
+  * **Golden baseline:** the enumerated delta removes one redundant opening write per node (11). Each repeated the array of the grid's opening just before it, so no level changes. The rest of the raw DO log, the transitions, the decisions, the ticks and the moves are identical.
+  * **Rig:** the script's read counter is reset when the grid starts the trace (`grid_traceSignal`, direct), no longer by the trace's own opening.
+  * **Mutation m10** (the trace reopens in printing mode) is caught by `test_the_trace_does_not_reopen_the_shutter_in_printing_mode`.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-047: R4-17 Phase 4a — The Emergency-Stop Engine: Stop Event, Closer Thread, Silent Heartbeat, Motion Hold, Rearm and the Low-Power Gate (2026-10-02)
+* **Context:** the approved Round 2 design (`ronda2_architecture.md` §4.1.2-§4.1.6, §4.2; `ronda2_instrumentation.md` §1, §4). Operator answers:
+  * **Question 4:** until Rearm, every stage move is blocked, including the manual ones.
+  * **Question 7:** PySpectrum's E-STOP becomes the process stop (wired in phase 4c).
+* **Phase 4 is split in three commits:**
+  * **4a** is the engine, with no production caller yet: nothing triggers it until 4c;
+  * **4b** is the grid as a participant;
+  * **4c** is the keys, the GUI, PySpectrum and the satellite.
+* **Decision, `core/estop_state.py` (new leaf module, no `config` or `nidaq` import):**
+  * the process stop is a `threading.Event`, read with no lock, with a generation, a source and the trigger time;
+  * `trip()` is idempotent, so three presses are one episode with the first time;
+  * `clear(gen)` only clears the current generation;
+  * it registers itself under both names (`estop_state` and `core.estop_state`), like `nidaq`. A second copy would be a second stop nobody else sees.
+* **Decision, `core/nidaq.py`:**
+  * **`request_emergency_stop(source)`** runs with no hardware lock, no print, in < 1 ms. In this order: the Event (the functional interlock), the epoch (`ESTOP`), then wake the closer.
+  * **`open_shutter`** rejects during the stop **before** asking for the lock (a routine never waits for the board) and again inside it, without writing or arming the watchdog.
+  * **`heartbeat_shutter()`** does nothing during the stop.
+  * **The closer thread** (`ShutterCloser`, one per process, never ends) takes the board with `ESTOP_LOCK_TIMEOUT_S` = 0.25 s (provisional, fixed by BANCO-68).
+    * It closes the four in one write, with the existing retries, and sets the cosmetic `"E-STOP"` interlock.
+    * It releases the lock, then seals a `CloseResult` and notifies listeners outside it.
+    * After a confirmed close it raises the filter to low power (`up_flipper(lock_timeout_s)`).
+    * If it cannot get the board, it seals one `"placa tomada por otro hilo"` result per episode and retries every `ESTOP_RETRY_INTERVAL_S`. It never writes without the lock.
+  * **The close-all body** moved to `_close_all_under_lock()`, which does no printing inside the lock (H9). The closer and the synchronous path share it.
+  * **`clear_emergency_stop(gen)`** requires all of:
+    * the current generation;
+    * a confirmed close of the closer for that generation;
+    * no shutter open or unconfirmed;
+    * the board within its timeout.
+  * **`get_emergency_state()`** returns `EStopState`; listeners register with `register_close_listener`.
+  * **The low-power gate:** `up_flipper` and `down_flipper` take an optional lock timeout. A confirmed up records its time and a down or any failure clears it. `low_power_settle_remaining_s(LOW_POWER_SETTLE_S = 0.10)` is the 100 ms floor (used by the grid in 4b).
+* **Decision, `config.py` (the motion hold, answer 4):**
+  * `_PIController.MOV` and the passthrough `MVR` and `WGO` check the stop inside the PI lock, before writing to USB. If it is active, they write nothing, leave the cached position alone and do not call `_stage_fault`. They print "retenido" and return `False`.
+  * `_MockPI.MOV` and `WGO` do the same (SAFE_MODE parity).
+  * `connect()` and `disconnect()` stay outside the hold.
+* **Decision, `core/emergency_stop.py` (new, no Qt):** `EmergencyCoordinator`, one per process (`get_emergency_coordinator()`, both module names).
+  * **`trigger(source)`:** nidaq first, then the participants' flags, then the listeners.
+  * **`operator_close_all`**.
+  * **`rearm_check(gen)`** is instantaneous and requires: a closer confirmation, nothing open, every participant `is_quiescent()`, and the current generation. Its `reason` names the laser key when the board did not confirm.
+  * **`rearm(gen)`** never calls `pi.connect()`.
+  * `ESTOP_QUIESCENCE_TIMEOUT_S` = 12 s is the GUI's polling deadline (4c).
+* **Tests:** `tests/test_emergency_stop_engine.py` (10).
+  * the board held by a hung thread: `trigger` < 20 ms, a rejected open < 20 ms, one "board busy" result in ≤ 0.35 s even after retries, and the close once released;
+  * E-1 under 1000 triggers;
+  * an opening waiting for the lock when the stop lands;
+  * one episode for three presses;
+  * Rearm with the board absent (F-5), without a closer close, with an old generation and with a busy participant;
+  * the silent heartbeat;
+  * no stage move, by hand included;
+  * the low-power gate.
+* **Mutations:**
+  * nine caught: m2, m2b, m5, m6b, m14, m26 (no motion hold), m27 (clear without a closer close), m28 (the closer does not raise the filter) and m29 ("board busy" on every retry);
+  * m6 (nidaq's own generation check) is equivalent, because `estop_state.clear` checks again.
+* **Test isolation:** `tests/conftest.py` clears the stop, the closer's target, the close listeners and the coordinator's participants and listeners between tests.
+* **Bench:** BANCO-68 before using the stop with the lasers on (it fixes `ESTOP_LOCK_TIMEOUT_S`); BANCO-66 after 4c.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-048: R4-17 Phase 4b — The Grid as an Emergency-Stop Participant: Stopped State, Rearm to Pause, Resume at the First Never-Exposed Node, Refocus After 60 s, Low-Power Gate (2026-10-02)
+* **Context:** the approved design (`ronda2_architecture.md` §4.4-§4.6). Operator answers:
+  * **Question 1:** a Pause follows the same resume rule as the stop.
+  * **Question 5:** an unconfirmed filter pauses the grid.
+  * **Round 1, question 4:** after a stop, the filter goes to low power, and ≈ 100 ms pass before any autofocus.
+* **Decision, `modules/measurements.py` (`MeasBackend` is a participant):**
+  * **Flags only.** `on_emergency_stop` sets `_stop_event` and, if the grid was running or paused, `t_halt` and `STOPPED`. A grid that was idle stays idle, because the stop itself refuses a start.
+  * **`is_quiescent()`** requires no stage in progress, no pending hold wait or resume wait, and no exposed undecided node. The stage counter comes from the `_stage` decorator on the slots of the chain.
+  * **`on_rearmed`** leaves the grid in `PAUSED`: Play is still needed.
+  * **`is_running()`** is true for running, paused and stopped.
+  * **`run_state` (`GridRunState`)** has its own lock and emits `runStateChanged(str)`. The transitions are:
+    * IDLE → RUNNING on start;
+    * PAUSED on Pause or a self-pause;
+    * STOPPED on a stop;
+    * PAUSED on Rearm;
+    * RUNNING on Play;
+    * FINISHED → IDLE at the end.
+  * **`_halted()` and `grid_halted()`** also stop on the process stop and on the grid's own `_stop_event`. Every guard of DEC-041 therefore stops the chain for the stop as well.
+  * **Play while stopped does nothing.** `grid_measurment` refuses, which is the engine-side defence even if the GUI fails.
+  * **A stop during an exposure** leaves the node interrupted with cause `estop`, through the epoch or through the trace's new `traceAbortedSignal`. The grid then goes to `_stop_for`, which neither touches the filter (the closer raises it) nor moves anything.
+  * **The resume rule.** The resume follows `core/grid_state.py::compute_resume_index` and goes to the first node of the order never exposed in its current attempt. It uses `exposed`, a set of (node, attempt) recorded at every opening; the attempt is 0 in the primary pass and 1 in the Healing Pass.
+    * It **replaces `_detect_pending` and the use of `i_global`** in Play and in `resume_after_reconnect`.
+    * A node that opened is never exposed again, whether or not it was decided.
+    * With nothing left, the pass ends (the Healing Pass, or the end of the grid).
+  * **Before the first action of a resume** comes the low-power gate. Without a confirmed low power, `up_flipper()` runs; a `False` pauses the grid ("filtro no confirmado"). The 100 ms floor since the confirmation is waited with a precise `QTimer`, never a sleep.
+  * **Refocus.** After more than `RESUME_REFOCUS_AFTER_S` = 60 s stopped or paused, `_force_refocus` makes `grid_autofoco` refocus before the first node. With drift correction, that goes through the anchor.
+  * **Barrier 2 in `_grid_move`:** stopped, no MOV leaves. With a Pause it still does, as today ("siguiente índice"). A MOV held by the driver is not reported as "la platina no confirmó la llegada". "Siguiente índice" does nothing while stopped.
+* **Decision, the other participants:**
+  * **`TraceBackend`** checks the stop in the first line of `_trace_update`. It stops without beating and, in printing mode, emits `traceAbortedSignal(mode, "estop")`. That covers the manual trace too.
+  * **`FocusBackend`** checks its `abort_event` between the two autofocus ramps and does not correct Z. A routine counter feeds its quiescence.
+  * **`ConfocalBackend`** checks the stop in the first line of every scan tick. It stops the timers, without the return MOV and without `scanfinishedSignal`.
+* **Wiring:** `app.Backend` registers printing, dimers, trace, focus and confocal with the process coordinator, so a satellite shares the stop. `contrapropagante.py` registers printing, dimers, trace and focus. `traceAbortedSignal` → `on_trace_aborted` in both.
+* **Tests:**
+  * **`tests/test_grid_estop_phase4b.py` (16):**
+    * a stop in four stages (exposure, filter wait, autofocus, the hold wait): zero executed MOVs and zero openings until Rearm and Play, Play refused while stopped, PAUSED after Rearm, the first opening after Play, every node decided and exposed at most once, and in the exposure case no filter pulse from the worker;
+    * resume at the first never-exposed node (E-3), and after an exposure cut;
+    * a Healing Pass retry cut by the stop is not retried again;
+    * refocus only after > 60 s;
+    * the 100 ms low-power floor;
+    * an unconfirmed filter pauses;
+    * one barrier per participant (`_grid_move`, the manual trace, the confocal tick, the autofocus), plus grid quiescence during a stage.
+  * **Mutations:** 13, all caught (m8, m30-m41).
+  * **Deliberate contract changes:**
+    * the three tests of `test_grid_pause_halts_chain.py` that read `_detect_pending` now check `exposed`;
+    * `test_pi_stage_resilience.py::test_resume_after_reconnect_continues_from_pending_node` marks node 0 as exposed (its synthetic grid jumped to node 1 without printing node 0), and waits for the move, because the resume now waits the 100 ms low-power floor first.
+  * **Rig:** `estop()`, `rearm()` and a log of the MOVs that really went out (`move_results`, `executed_moves`).
+* **Not in 4b (they go to 4c):**
+  * the keys and the GUI (banner, Rearm, the runStateChanged-driven buttons);
+  * PySpectrum as a participant and its E-STOP as the process stop;
+  * the grid's `hardware_session` lease (answer 8), which is an interaction with PySpectrum and is tested with the satellite.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-049: R4-17 Phase 4c — One Emergency Stop per Process in the GUI: Process-Wide Keys, Banner and Rearm, Grid Controls, PySpectrum and the Satellite (2026-10-03)
+* **Context:** the approved design (`ronda2_architecture.md` §4.3, §4.9; `gui_design_v2.md` §5.1-§5.2, §6.7). Before any code, the Round 4 reconciliation of the engine and GUI contracts was written in `c01_ronda4/ronda4_conciliacion_fase4c.md`: 17 rows, no parameter discrepancy left.
+* **Operator answers** (`RESPUESTAS_INVESTIGADOR.md`, 2026-10-03):
+  1. the phase 3 `stop_scan` change is approved;
+  2. the PySpectrum stop shows only a non-modal banner;
+  3. the grid keeps the hardware session while paused or stopped, and releases it at the end or on reset;
+  4. starting a grid pauses PySpectrum's Live.
+  * Earlier answer 7: the PySpectrum E-STOP is the process stop.
+  * Earlier answer 8: the grid takes the session.
+* **Decision, `core/ui/emergency_keys.py` (new):**
+  * **`EmergencyKeyFilter`**, one per process, installed on the `QApplication` (idempotent, attached to the app).
+    * `F12` and `Ctrl+E` trigger `coordinator.trigger("tecla")` once per press, from **any** window: modal dialogs, non-native file dialogs and the PyPrinting satellite included ([DA] F-2).
+    * It consumes the `ShortcutOverride` and the `KeyPress` that follows, and ignores autorepeat.
+    * `F2` goes to the pause handlers. If none handles it, the key goes on, so the trace's own `F2` shortcut still stops a manual trace.
+    * `ESTOP_KEYS` and `PAUSE_KEY` are rows ✅ of `lab-invariants` §4, checked by `test_process_emergency_keys_match_lab_invariants`.
+  * **`EmergencyBridge`**, one per process, in the GUI thread. It turns closer results (from the closer thread) and coordinator events into queued signals.
+    * It runs the banner's own 0.5 s confirmation deadline (`CLOSE_CONFIRM_DEADLINE_S`), which does not depend on the closer reporting.
+    * Rearm polls `rearm_check` every 100 ms for up to `ESTOP_QUIESCENCE_TIMEOUT_S` (12 s), reporting who it waits for. When the deadline passes, it says the routine did not respond.
+    * It never opens a modal.
+* **Decision, `core/ui/emergency_widgets.py` (new):**
+  * **`EmergencyStopButton`**, in red.
+  * **`EmergencyBanner`**, non-modal, with its own Rearm button:
+    * "confirmada" only on an `ok` `CloseResult` of the closer for that stop;
+    * otherwise "PARADA SIN CONFIRMAR … cortá la emisión con la llave del láser";
+    * green "Rearmado … Play para seguir" after Rearm.
+* **Decision, PyPrinting:**
+  * **The main window:** the stop button and the banner at the top. The banner details which grid stopped and at which node.
+  * **The printing panel:**
+    * a safety row with the stop button, the banner, the grid state and the "Cerrar todos" countdown;
+    * the Peach 20 s "Cerraste los obturadores en el nodo N…" notice;
+    * the Play, Pause and Next-index buttons follow `runStateChanged`.
+  * **The trace:** a compact stop button.
+  * **The shutter dock:** a compact stop button next to "Cerrar todos". Its label reads "Cerrar todos · la grilla sigue" while a routine runs, it has the §5.2 tooltip, and it goes through `coordinator.operator_close_all`.
+  * **`create_app_satellite`** installs the process filter (idempotent) with a pause handler for the running grid, and removes the handler on close.
+  * **The grid's hardware session** (only with PySpectrum in the process) is taken on Play in the GUI thread, because the Live pauses touch widgets. It is released when the grid goes idle or finished. If another routine holds the session, Play does not start and the panel says so.
+* **Decision, PySpectrum:**
+  * **The E-STOP button and its shortcuts** call `coordinator.trigger("PySpectrum")`. There is no `QMessageBox`. The banner sits in its own toolbar row, and "Rearmar Sistema" calls the process Rearm through the bridge.
+  * **The per-window `_EmergencyKeyFilter` is replaced** by the process filter. The window's `QShortcut`s stay as a backup.
+  * **`HardwareSessionManager` is a permanent participant.**
+    * On a stop it only sets flags. The camera abort and the EM gain to 0, re-read, run in an `EStopCamera` thread. The Live pauses run in the GUI thread through a queued call, outside the key filter.
+    * That queued call runs only while the stop that requested it is still active. Otherwise, after a quick Rearm, it would pause the Live views and release the session of a routine started after the stop. The first full suite exposed this: three order-dependent failures plus a stray legacy stop in a later test.
+    * The stop releases the session of a PySpectrum routine, but not the PyPrinting grid's (answer 3).
+    * It is quiescent with no PySpectrum routine holding the session and the camera work done.
+    * `is_emergency_stopped` is the process stop, or the instance's legacy flag.
+  * **Legacy API, kept** for the orderly shutdown, the routines and about 100 uses in the tests:
+    * `emergency_stop()` triggers the process stop and still closes, does the camera work and the GUI part synchronously;
+    * `clear_emergency(timeout_s)` rearms when possible.
+  * **Shutdown:** parking the stage on close is an operator-confirmed action, like `disconnect()`. So `_park_after_stop` lifts the stop first, with the shutters already confirmed closed and the routines and guests stopped. If it cannot, the stage does not move and the report says so.
+* **Coordinator:** `register(p, permanent=False)`. The suite forgets only the per-test participants (`_forget_transient_for_tests`).
+* **Tests:**
+  * **`tests/test_emergency_gui_phase4c.py` (16):**
+    * the keys from every window, with a modal and a non-native dialog open;
+    * one stop for the satellite and PySpectrum, with an opening from a PyPrinting routine refused;
+    * the banner, confirmed and with the board held, and its own deadline;
+    * the PySpectrum button without a modal;
+    * Rearm waiting and reporting who, and its deadline;
+    * the grid controls and the hardware session;
+    * the countdown and the notice;
+    * `F2`, both handled and passed through;
+    * the "Cerrar todos" label;
+    * the session participant: the camera off the GUI thread, the Live pauses in the GUI thread, the grid session kept;
+    * PyPrinting's `F2` handler installed and removed;
+    * queued stop work never lands on a routine started after Rearm.
+  * **Mutations:** 14, all caught (m15, m42-m54), each checked unmutated.
+  * **Deliberate contract changes:**
+    * the PySpectrum key tests count `coordinator.trigger`;
+    * a window outside PySpectrum now **does** fire the stop ([DA] F-2), so the test "ignored in unrelated windows" became "fires once in any window";
+    * the satellite test waits, with a bounded pump, for the asynchronous close and session release;
+    * the pause-click test sets the grid RUNNING, because Pause is enabled only then.
+  * **Test isolation:**
+    * the 4c tests hide their PySpectrum windows and stop the satellite threads. A live window loads the event loop, and a later timing test (a 5 ms stop on a one-node luminescence grid) then missed its window;
+    * they are hidden, not closed, because PySpectrum's close sequence shuts the simulated camera and Shamrock, which the rest of the process still uses.
+* **Docs:**
+  * the MANUAL: the process stop, the four cuts side by side, the "Cerrar todos" label and notice, the grid controls and session, and the shutdown order;
+  * `lab-invariants` §4;
+  * SYS-201 §4.6;
+  * BANCO-66.
+* **Bench:** BANCO-68 first (it fixes `ESTOP_LOCK_TIMEOUT_S`). Then BANCO-66 end to end and BANCO-71, all with the lasers off.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-050: R4-17 Phase 5 — Between-Node Steps (Autofocus, Drift on P0): Validity Before Applying, Restore, Provisional Plausibility Caps, One Repeat Then Pause (2026-10-03)
+* **Context:** the approved design (`ronda2_architecture.md` §4.7, §5.5; `c01_ronda4/experimentalist.md` §5).
+  * **Operator answers:** Round 1 answer 7 (an implausible step after a repeat pauses the grid, with provisional caps) and [INV-R4] 6.
+  * **The defect in autofocus:** a cut during the second autofocus ramp let the stage go to the argmax of a correlation of noise (up to ±3 µm in Z, E-6).
+  * **The defect in drift:** a dark drift scan moved the anchor to the center of mass of thresholded noise, and fed an absurd drift speed into the adaptive autofocus interval.
+* **Decision, `core/step_plausibility.py` (new, numpy only):** `StepLimits` (all provisional until BANCO-65 C), `DriftReference`, `PlausibilityVerdict`, `check_drift_correction` and `check_autofocus`. T1 and F1 need the BS and are left out ([INV-R4] 7).
+  * **Drift caps:**
+    * **T2 amplitude:** on the **raw** image, peak S/N ≥ 10 (MAD) and 0.5-2 × the first accepted P0 scan of the grid;
+    * **T3 width:** 0.7-1.5 × the reference;
+    * **T4 edge:** center ≥ 0.27 µm from the scan box;
+    * **T5 step:** per axis ≤ 50 nm + 2 nm/s·Δt, ceiling 500 nm;
+    * **T6 cumulative:** ≤ 3 µm from the reference. T6 always pauses.
+  * **Autofocus caps:**
+    * **F2:** Pearson of the shifted profile with the locked one ≥ 0.8, and peak S/N ≥ 10;
+    * **F3:** |Δz₂| ≤ 50 nm;
+    * **F4:** |Δz| against the last accepted autofocus ≤ 100 nm + 2 nm/s·Δt, ceiling 300 nm;
+    * **F5:** argmax outside the outer 10 % of the ramp.
+  * `STEP_MAX_REJECTIONS = 1`.
+* **Decision, `core/grid_state.py`:** `StepSnapshot` (Z, the anchor, `last_af_*`, the stage, the closing epoch and the stop generation), `StepContext` and `AutofocusResult`.
+* **Decision, `modules/focus.py`:**
+  * The grid's autofocus receives a `StepContext` (epoch, last accepted Z and time, limits).
+  * `_autocorr_target()` runs the ramp and returns the target **without moving**. Validity (stop, or a changed epoch) and the caps are checked **before** each `_move_z`. An invalid or implausible iteration does not move to its target.
+  * `autofocusFinished(str, object)` carries an `AutofocusResult`.
+  * The manual F10 (no context) is unchanged: result `None`, no caps.
+  * A ramp exception counts as a rejection, unless a cut explains it.
+* **Decision, `modules/measurements.py`:**
+  * **`_emit_autofocus()`** takes the snapshot and hands the focus its context, at every autofocus of the chain: the node, the anchor, after the drift, and the Healing Pass.
+  * **`last_af_time` / `last_af_index`** are assigned when the autofocus is **accepted**, no longer before it.
+  * **`_start_drift_scan()`** takes the drift step's snapshot. The confocal now records `last_open_ok` at every scan start.
+  * **`on_scan_finished("drift_scan")`** checks validity (the epoch, the scan's opening), then T2-T6, **before** touching `startX/startY`, `drift_history_xy` or `_update_drift_velocity`. The first accepted P0 scan sets the reference.
+  * **An invalid step** (a cut) is not applied and does not count as a failure.
+    * With "Cerrar todos" (the grid goes on), the snapshot is restored at once (Z by `MOV`, the anchor, `last_af_*`) and the step is repeated when the hold expires.
+    * With a pause, a stop or any other cut, the restore is **deferred**: zero MOVs until Play.
+  * **At Play:** after the low-power gate and before anything else, the deferred restore is applied, and the step is repeated through a forced refocus (through the anchor with drift correction).
+  * **An implausible step** is restored and repeated once. The second rejection (or T6 at once) pauses with `stepRejectedSignal(int node, str step, str reason)`.
+  * **The printing panel** keeps the notice ("Corrección de deriva no plausible en P0: …" or "Autofoco no plausible en el nodo N: …") until Play.
+  * **Not in scope:** the dimers' centering and pre-scans only get the process safety, as decided in Round 2.
+  * **A Pause during an autofocus that completed with light** keeps that autofocus. The grid stops at its next guard; at Play, more than 60 s stopped forces a refocus.
+* **Decision, the simulator (`core/nidaq.py`, SAFE_MODE only):**
+  * A mock task configured as a ramp by `channels_triggers` (autofocus in Z, confocal scans in X/Y) now sees a Gaussian peak at the center of each ramp window. Before, it was pure noise, which every cap would rightly reject.
+  * The trace does not configure a ramp and is unchanged.
+  * The argmax stays at the center, so the golden baseline's Z moves are identical.
+* **Tests:**
+  * **`tests/test_grid_steps_phase5.py` (15):**
+    * every drift and autofocus cap on its own case, and T5 growing with Δt up to its ceiling;
+    * E-6 (a close in the second ramp: no noise Z, Z back to before the step, `last_af_*` untouched, the step repeated after the hold);
+    * a dark drift scan (anchor, history and speed untouched; repeated once, then paused with T2);
+    * a T5 break (one repeat, then pause);
+    * T6 (pauses with no repeat);
+    * a stop during the autofocus (zero MOVs until Play, then the Z restore first);
+    * the panel notice.
+  * **Mutations:** 12, all caught (m12b, m13, m55-m63), each checked unmutated. m12 (the restore without `last_af_*`) is **equivalent**, because `last_af_*` now change only on acceptance; m12b guards that.
+  * **Deliberate contract change:** the phase 3 test of a close right before a focus opening now expects the step to be **repeated** after the hold, with no Z correction during it. Before, the autofocus was skipped.
+  * **The golden baseline** is identical.
+* **Bench:** BANCO-65 C fixes the caps. BANCO-67 covers "Cerrar todos" during the autofocus or the drift.
+* **Outcome:** **ACCEPTED** (see the full-suite result in the commit).
+
+### DEC-051: R4-17 Phase 6 — Low-Power Confirmation of Interrupted Nodes, Implemented and Disabled (2026-10-03)
+* **Context:** the approved design (`ronda2_architecture.md` §4.8, §5.6; `c01_ronda4/experimentalist.md` §2-§3).
+  * **Operator answer Q-5 (b):** the base is the high-power plateau before the capture, divided by the density-filter attenuation measured in the session. It is subject to BANCO-65 and to a metrology review.
+  * **Answer 6:** every filter verification is disabled for now.
+  * **Answer 9:** an "unknown" after two reads goes to review, in every preset.
+* **Decision, `core/confirm_read.py` (new, numpy only):**
+  * `ConfirmConfig` with **`enabled = False`**; `ConfirmBase` (`HIGH_PLATEAU_SCALED`, the chosen one); `ConfirmOutcome`; `ConfirmReading`; `base_from_high_plateau()`; `classify()`.
+  * **The ratio, without the BS:** B = V − D, and R = median of the 20 ms blocks of B / B_base. The dispersion is s_R = IQR/1.35.
+  * **The outcomes:**
+    * **SEEN:** R ≥ u_c (1.20) and s_R ≤ 0.05;
+    * **NOT_SEEN:** R ≤ 1 + δ, with δ = max(3σ_R, 0.05), s_R ≤ 0.05 and R ≥ 0.85;
+    * **UNKNOWN:** anything else, including no base.
+  * "Unknown" is never treated as "not seen": a false "not seen" reprints over a fixed NP.
+  * **Defaults** follow §5.6: 100 ms in 5 blocks of 20 ms, a 100 ms dark read, a 50 ms settle, `max_reads = 2`. `attenuation = None` until BANCO-65 A, so there is no base and every outcome is UNKNOWN.
+* **Decision, `modules/measurements.py`:**
+  * **The base:** each interrupted node stores its high-power plateau, the median of its first trace samples, before any step.
+  * **With confirmation enabled,** the Healing Pass also takes the interrupted nodes. At such a node, after the in-situ autofocus and before going to high power, `_confirm_node()` runs as a between-node step:
+    1. the low-power gate (filter up, confirmed, ≥ 100 ms);
+    2. the dark read with the shutter closed;
+    3. the opening and the settle;
+    4. the blocks;
+    5. the close.
+  * **The outcomes:**
+    * SEEN → `"printed"` (green in the map), never re-exposed;
+    * NOT_SEEN → reprinted;
+    * UNKNOWN → a second read; UNKNOWN twice → review.
+  * **A cut during the read** (a changed epoch, a refused opening, a pause or a stop) classifies nothing. The node stays in review, and the grid goes on after the hold or pauses, per `CAUSE_POLICY`.
+  * **Disabled (the default),** nothing changes: interrupted nodes stay in review, and the Healing Pass takes only "timeout".
+* **Enabling it needs** BANCO-65 A (the attenuation and the filter transit) and B (the separation of populations), the metrology review, and a new DECISION_LOG entry. The entry must set `attenuation` and, from the in-session calibration of §3.2, u_c and σ_R.
+* **Tests:**
+  * **`tests/test_confirm_phase6.py` (15):**
+    * `classify` at every edge (u_c and 1 + δ included, the 0.85 floor, the dispersion, no base, σ_R);
+    * the base;
+    * disabled by default, with the interrupted node in review;
+    * enabled, in the rig: SEEN (printed, not re-exposed), NOT_SEEN (reprinted), UNKNOWN twice (review after two reads), and a cut during the read (no classification).
+  * **Mutations:** 9, all caught (m64-m72), each checked unmutated.
+* **Test isolation, found by the full suite:**
+  * `test_watchdog_retry_confirms_the_close_later` waited only for the "unconfirmed" set to clear, then read the notes at once. The watchdog retry clears that set inside the board lock but dispatches its notes **after** releasing it, so a UI callback can never block the board. Under load the test read in between.
+    * This race predates R4-17, and the extra background threads made it more frequent (two failures in four full runs).
+    * A 0.1 s delay before the dispatch makes the old assertion fail every time.
+    * The test now also waits for the note;
+  * as a defensive measure, the closer flags an attempt in flight (`_closer_active`), and `tests/conftest.py` waits for it at teardown, so a closer write cannot land in the next test;
+  * the phase 5 stop-during-autofocus test now waits for the autofocus result and the focus to be quiescent, not only for the grid to be quiescent. The grid is quiet while the focus still finishes its ramp. In production, Rearm also waits for the focus.
+* **Outcome:** **ACCEPTED, disabled** (see the full-suite result in the commit).
+
+### DEC-052: The Shutter Watchdog Watches Only Routines — Manual Operation Has No Deadline (2026-11-18)
+* **Context:**
+  * Until now every shutter opening armed one global deadline (30 s by default, `DEC-010`, `SYS-201`), including manual ones. A laser opened from the Shutters dock, or from the Láser 532 window, closed itself after 30 s. The Láser 532 window never renews the deadline, so it closed while its button still read "Abierto".
+  * The deadline was only disarmed when every shutter was confirmed closed. A deadline left armed by a routine therefore also closed a laser opened by hand.
+  * The focus routines and the trace hardcoded `heartbeat_shutter(30.0)`, ignoring the operator's choice.
+  * In Step & Glue and the optical-support autofocus, the heartbeat comes from a GUI `QTimer` while the work runs on another thread. A busy GUI could let the deadline lapse with the routine healthy.
+  * The researcher reported that the automatic close caused more problems than it solved.
+* **Deliberation:**
+  * Round 1 (2026-11-18): an adversarial `devil-advocate` read found that the watchdog thread also carries the **retry of unconfirmed closes** (`DEC-036`). That retry is event-driven, not time-driven, and must survive.
+  * The only scenario the deadline covered alone was a frozen GUI with a laser open and the process killed. A hard kill does not run `atexit` either. The answer is procedural (the laser key first, `BANCO-71`) plus `BANCO-16`, not code.
+  * The researcher then narrowed the request: remove the watchdog **only for manual operation**, keep it **inside routines**, and move its setting to the control panel.
+  * Rounds 2-3, approved with the recommended options:
+    * one value for every routine of the process;
+    * the trace F1 counts as manual;
+    * an expired routine closes **all** shutters, manual ones included;
+    * the same selector also goes in PySpectrum's left panel.
+* **Decision (engine, `core/nidaq.py`):**
+  * `open_shutter(name)` loses its `timeout_s` argument.
+    * With a routine registered, it arms or renews the routine deadline, even when the write fails (the `DEC-036` "if it did open" case).
+    * Without a routine, it arms nothing.
+  * `heartbeat_shutter()` loses its argument. It renews the deadline only when a routine is registered **and** a shutter is open (commanded open or unconfirmed). Otherwise it does nothing.
+  * **Routine registry:**
+    * `begin_routine_watchdog(name)` / `end_routine_watchdog(name)` nest by count.
+    * `routine_watchdog(name)` is the context manager.
+    * `RoutineWatchdogLease(name)` is an idempotent registration for timer- or signal-driven routines.
+    * `set_routine_running()` (the grid) also registers.
+    * When the last routine ends, the deadline is disarmed even if a manual laser is still open.
+  * **Deadline value:**
+    * `set_routine_watchdog_timeout()` / `get_routine_watchdog_timeout()` set and read it, with the old names kept as aliases.
+    * `_default_timeout_s` is still 30 s; `None` means "Sin límite".
+    * Changing the value while armed restarts the count with the new value.
+  * **On expiry:** the watchdog closes all four shutters with cause `WATCHDOG` and detail `rutina sin latido: <names>`, and notifies the callbacks. An expiry with no routine left does nothing.
+  * **Unchanged:**
+    * the watchdog thread, its 100 ms poll and the retry of unconfirmed closes;
+    * the emergency stop and its closer;
+    * the excepthook, `atexit`, the board and stage interlocks;
+    * "Cerrar todos".
+* **Decision (routines registered):**
+  * **PyPrinting:**
+    * the grid, through `set_routine_running`;
+    * the confocal scan: a lease, released at every exit (end of each mode, Stop, E-STOP, stage fault, tilt cancel, close);
+    * the focus routines, through `_focus_routine` and `_watchdog_routine`;
+    * the counter-propagating scan: a lease, released at the end, Stop and stage fault.
+  * **PySpectrum:**
+    * `RoutineThread` (growth, luminescence, dimers, slit, dark), registered around the body and its cleanup;
+    * `run_windows` (Step & Glue);
+    * the linescan (reference, background, scan);
+    * the λ calibration port;
+    * the hyperspectral map (a lease until `_finish`).
+  * The trace no longer hardcodes 30 s. Manual F1 is unregistered, and in printing mode the grid's registration covers it.
+* **Decision (GUI):**
+  * **Shutters dock:**
+    * the "Auto-cierre" checkbox, the timeout combo and the countdown are removed;
+    * the group is renamed "Seguridad", with a fixed label: "Operación manual: sin auto-cierre" (amber while a laser is open: "queda abierto hasta que lo cierres");
+    * the unconfirmed-close banner now reads "se sigue reintentando el cierre".
+  * **New `core/ui/routine_watchdog_widget.py::RoutineWatchdogSelector`:**
+    * placed in the printing Control Panel (row 14) and in PySpectrum's left panel ("⏱️ Watchdog de rutinas");
+    * offers 30, 60, 300 or 600 s, or "Sin límite";
+    * shows the running routine and "cierre en N s si deja de latir";
+    * one value per process: in satellite mode each panel resyncs on refresh.
+* **Tests:**
+  * `tests/test_shutter_alignment_and_heartbeat.py` is rewritten as the DEC-052 contract, 19 tests. Among them:
+    * manual opens never arm, and the dock and the Láser 532 window stay open past the deadline;
+    * a routine that stops beating closes everything, the dock included;
+    * a beating routine is never cut;
+    * the end of a routine disarms and spares a manual laser;
+    * "Sin límite";
+    * the lease;
+    * the selector syncing two panels;
+    * a source gate: no production `heartbeat_shutter(<arg>)` or `open_shutter(..., timeout_s)`, and every module that opens a laser is manual or registers a routine.
+  * Tests adapted to the new contract: `test_close_all_does_not_lie`, `test_shutter_confirmation_and_interlocks`, `test_emergency_stop_engine`, `test_concurrency_watchdog`, `test_measurements`, `test_pyspectrum_stability_safety`, `test_pi_stage_resilience`, `run_all_diagnostics`.
+  * `tests/conftest.py` resets the routine registry, the deadline and the 30 s value around each test.
+* **Supersedes:** the auto-close-for-every-opening part of `DEC-002` and `DEC-010` (`SYS-201`). The 100 ms poll, the 30 s default and the per-iteration heartbeat inside routines stay.
+* **Bench:**
+  * `BANCO-18` is reworded: the retry is still the watchdog thread's, now without a deadline.
+  * `BANCO-16` and `BANCO-71` become essential: with no deadline on manual operation, the laser key is the stop if the program hangs.
+* **Outcome:** **ACCEPTED** (full-suite result in the commit).
+
+### DEC-053: Connecting or Releasing the PI Stage Does Not Move It — Home Is an Explicit Button (2026-11-19)
+* **Context:**
+  * The researcher asked that opening the launcher, or a program launched from it, take no instrument automatically, except PySpectrum and the Camera suite. The goal is to keep instruments free for other programs and to keep the data bus unoccupied.
+  * The survey of what each program opens:
+    * the launcher, the Láser 532 window, the Hardware Dashboard and the analysers open nothing at start;
+    * the Canon camera connects only with its button, in the right microscope and in the Camera suite;
+    * the Andor camera and the Shamrock are opened only by PySpectrum;
+    * the right microscope and the counter-propagating microscope connect the stage and the NI board at start.
+  * The researcher's answers (Round 1):
+    * the stage and the NI board keep connecting automatically, because no other program uses them;
+    * the shutter lines are out of scope;
+    * PySpectrum keeps connecting everything at start.
+  * What remained was a side effect of connecting. `pi.connect()` sent the stage home to (50, 50, 10) µm, and `disconnect()` sent it to (0, 0, 0). Every connect, and every operator "Reconectar" (dock, Dashboard re-scan, the grid's "Reconectar y Reanudar"), moved the sample tens of µm.
+  * The researcher chose "no se mueve": connecting and releasing leave the stage where it is, and home becomes a separate button.
+  * Two defects of the old home-on-connect also go away:
+    * it waited only 3 s for on-target and then marked the stage connected whether or not it had arrived;
+    * it sent the MOV without checking that the shutters had confirmed closed.
+* **Decision (engine, `config.py`):**
+  * `_PIController.connect()`:
+    * opens the USB, closes the shutters (`DEC-036`, kept in case switching the servo on jolts the stage), switches the servo on and VCO off;
+    * **reads the position** into the cache, sends no `MOV`, and releases the stage interlock as before.
+  * `_PIController.disconnect()`: closes the shutters and the USB **without moving**. The servo stays on in the controller, holding the position.
+  * New `go_home(timeout_s=PI_HOME_TIMEOUT_S)` on `_PIController` and `_MockPI`, through `config._go_home`. It is the only path to `PI_HOME_POS`:
+    1. closes all shutters and requires the board's confirmation, or does not move;
+    2. sends the `MOV`, which honours the E-STOP motion hold, the per-axis travel clamp and the refusal when disconnected;
+    3. waits for on-target with `PI_HOME_TIMEOUT_S` = 3 s and returns `False` if the stage did not confirm.
+  * **Unchanged:**
+    * no automatic reconnection (`DEC-036`);
+    * the USB device selection by serial;
+    * PySpectrum's close-time question to park the stage at home (`pyspectrum/services/shutdown.py`), which is an explicit, confirmed action.
+* **Decision (GUI, `core/nanopositioning.py`):**
+  * A "⌂ Home (50, 50, 10) µm" button sits next to "🔌 Reconectar" in the Nanopositioning dock, which also appears in PySpectrum.
+  * It is wired once even though the frontend and backend connect to each other in both directions.
+  * It follows the same enabling rule as the other motion controls (`set_actuators_enabled`). Its tooltip says it closes the shutters first and that connecting no longer moves the stage.
+  * `Backend.go_home()` treats an unconfirmed home like any unconfirmed move.
+  * The Dashboard's re-scan tooltip and confirmation no longer announce a home.
+* **Tests (`tests/test_pi_stage_resilience.py`):**
+  * connect sends no `MOV`, closes the shutters before the servo, reads the position and clears the interlock;
+  * disconnect sends no `MOV`;
+  * `go_home` closes the shutters before the `MOV` and does not move without a confirmed close;
+  * `go_home` returns `False` when the stage does not arrive, when the E-STOP holds motion, or when the stage is disconnected;
+  * the mock goes home;
+  * the dock button runs one home and is disabled with the other actuators;
+  * the grid's reconnect-and-resume makes no home move.
+* **Bench:** `BANCO-19` adds a check that switching the servo on at connect does not jolt the stage (lasers off).
+* **Outcome:** **ACCEPTED**.
+
+### DEC-054: Parity with the Legacy PySpectrum — Full Luminescence Sequence and Its Shared Foundations (2026-11-19)
+* **Context:** A three-way read-only comparison of the legacy PySpectrum (`pyspectrum-legacy/`, the program in daily use) against 3.0 found three groups of differences.
+  * **3.0 defects:**
+    * the PySpectrum grid autofocus built a new `FocusBackend` per node, which re-locked at the current Z and corrected nothing;
+    * the routines always read `ai0`, whatever the laser;
+    * the PyPrinting NPscan TIFF was min-max normalised to uint16, losing absolute intensity.
+  * **Missing behaviour:** 3.0 luminescence took one exposure per node. It had no photodiode centring and no hyperspectral mini-map.
+  * **Format and axis differences:**
+    * the legacy writes one-column `.txt` and raw TIFF;
+    * 3.0 had two λ-axis sources depending on the module (EEPROM cubic vs `GetCalibration`).
+  * The `NP_xxx.txt` and power-calibration defects were fixed separately (`ea418cf`).
+* **Deliberation (Rounds 1–3, researcher's answers 2026-11-19):**
+  * **Files:** write both formats, legacy and new.
+  * **λ axis:** EEPROM, 1004 px, in every module.
+  * **Priority:** full luminescence first, then Luminescence Step & Glue.
+  * **Focus and centring:** PySpectrum grids use the **Microscopio Derecho satellite's** focus and confocal, and do not start without it.
+  * **Readout:** Single-Track over the fibre rows.
+  * **No focus lock:** with autofocus requested and no lock, the grid does not start.
+  * **NPscan TIFF:** raw float32.
+  * **Defaults not objected to:**
+    * the legacy fibre ROI (438 ± 12);
+    * PySpectrum dimers to be retired in favour of PyPrinting dimers (not yet done);
+    * the cooler stays at automatic −60 °C.
+  * The legacy Growth is not touched until `BANCO-73` says whether its REC Kinetics runs on pylablib 1.4.3.
+* **Decision (foundations):**
+  * **`pyspectrum/services/spectral_axis.py::spectral_axis(spectrometer, n)`** returns `SpectralAxis(nm, source)`.
+    * EEPROM first; `GetCalibration` only as a fallback.
+    * Requires a strictly monotonic finite axis, never invents one, and returns None otherwise.
+    * Used by luminescence, growth, dimers, the hyperspectral map (source in the `.h5`) and exploration.
+  * **`optical_support.photodiode_index(laser)`, `read_photodiode_level(laser=…)`, `read_bs_level()`.** Growth's photodiode-drop stop, dimers' print trace and `run_confocal_centering` now read the chosen laser's photodiode.
+  * **`grid_runner.FiberROI(center_row=438, height=25)`** (rows 426–450, SDK track 439/25) and `GridRunner.use_fiber_roi()`. The mock camera now enters Single-Track on `set_single_track`, like the real driver.
+  * **`pyspectrum/services/satellite_optics.py::SatelliteOptics`** wraps the satellite's `focusWorker` and `confocalWorker` through cross-thread invocations, waiting with heartbeat and abort.
+    * `autofocus()` refuses without the operator's lock.
+    * `center_scan()` runs a ramp x/y with the routine's range, pixels and threshold, and restores the satellite panel's settings afterwards.
+    * `PySpectrumWindow._satellite_optics` provides it.
+  * **`pyspectrum/services/legacy_files.py`** writes the legacy names and columns.
+  * **PyPrinting** `_save_scan` and the `.h5` export write the NPscan TIFF as raw float32.
+* **Decision (luminescence):** `pyspectrum/modules/routines/luminescence_grid.py` (no Qt) holds `MiniMapSpec`, `LuminescenceGridParams`, the legacy computations and the engine.
+  * **Legacy computations:**
+    * the band value is the sum inside the band, without dλ;
+    * the map geometry is $x_i = c_x - r/2 + i\,r/n_x$;
+    * the centre of mass normalises min–max and zeroes values below 0.7;
+    * names follow `Col_%03d_NP_%03d`.
+  * **`LuminescenceRunWriter`** writes `<ts>_Luminescence_<grid>/` with the legacy files and one `.h5`. The `.h5` holds the raw cube, maps, scans, BS, the axis and its source, the dark and the spectral correction.
+  * **`LuminescenceGridEngine`** runs the sequence described in `MOD-06` §12.22.
+  * **Backend preflight** (no laser opened before it passes): satellite present, focus lock if autofocus > 0, Single-Track available, axis, dark. The grid dark's conditions are Single-Track over the configured ROI (`conditions_fn`).
+* **Decision (GUI, Round 3):**
+  * **Groups:** Autofocus, Centring (checkable), Mini-map (checkable; Nx/Ny lock, band, CM threshold, fibre row and height with the SDK translation, scattering), and Reference.
+  * **Feedback:** a time estimate and [📖 Ayuda] to MOD-06.
+  * **Plots, 2×2:** the grid; the photodiode scan with its centre; the mini-map, where a click shows that pixel's spectrum; and the spectrum, with a draggable band synced to the spinboxes under `blockSignals`.
+  * A red preflight banner shows why the grid will not start.
+* **Tests:**
+  * `tests/test_luminescence_legacy_sequence.py` (16): axis source and fallback; photodiode per laser; ROI; legacy formats; raw PyPrinting TIFF; band, geometry and centre of mass against the legacy; satellite centring settings and restoration; autofocus needs the lock; preflight refusals; the full sequence writing both formats; Stop mid-map keeps the data as interrupted; refresh reference; GUI ↔ engine contract with 0 discrepancies.
+  * Adapted to the new contract (single-exposure mode where the old tests assumed it): `test_luminescence_and1`, `test_procedure_background_routines`, `test_pyspectrum_luminescence_and_calibration`, `test_spectrum_correction_metadata`.
+* **Bench:** `BANCO-74` (new): a low-power 2×2 luminescence grid end to end, and Single-Track against the software sum of the Image frame on the lamp.
+* **Outcome:** **ACCEPTED**.
+
+### DEC-055: Luminescence Step & Glue per NP — the Legacy `Luminescence_steps_ps` on the 3.0 Step & Glue Engine (2026-11-19)
+* **Context:** This is the second priority of the parity work (`DEC-054`). For each NP the legacy routine:
+  * focuses and centres at low power (`upFlipper`);
+  * measures at high power (`downFlipper`) with the laser open, unless in scattering mode;
+  * runs a Step & Glue over [λ₁, λ₂] with the overlap and exposure of the Step & Glue tab (defaults 400–800 nm, 0.2, 1 s);
+  * builds the windows edge-to-edge, 103 nm wide with 150 l/mm and 12 nm with 1200 l/mm;
+  * reads each window in Image mode and averages the fibre rows (438 ± 12) and the background rows (200 ± 12);
+  * saves the windows **concatenated and unglued**: calibration, stacked picture TIFF, `Line_Spectrum_step_N`, `Background_Line_Spectrum_step_N`;
+  * records no trace.
+
+  The legacy raises line 7 to measure in this routine and in Growth, but lowers it in Luminescence. Line 7 is a toggle-mode MFF101 whose position the legacy tracks in a state file.
+* **Deliberation (Round 1, the researcher's answers, 2026-11-19):**
+  * the mirror goes **down** to measure (R1-2);
+  * readout is **Image** like the legacy, with background rows and the stacked TIFF;
+  * **both formats**;
+  * a **measurement mode of the same grid**.
+
+  Defaults not objected to: the grid has its own range, overlap and exposure fields; the 3.0 window plan is used (measured width, margins); power follows the legacy.
+
+  Rounds 2–3 were presented together and approved.
+* **Decision (engine):**
+  * **`luminescence_grid`:**
+    * `NodeStepGlueSpec(start_nm=400, end_nm=800, overlap=0.2, exposure_s=1.0, background_roi=FiberROI(200, 25))`;
+    * `LuminescenceGridParams.measure` ∈ {minimap, step_glue, single}, with `mode` (a disabled mini-map is `single`) and `exposure_s`.
+  * **The engine in step_glue mode:**
+    1. low power before autofocus or centring;
+    2. high power, mirror down, laser open;
+    3. `run_windows(plan, request, …)` with `on_window` taking, from each Image frame, the fibre and background row means, and with `on_no_signal` continuing and noting it;
+    4. laser closed, mirror up.
+
+    A complete run glues the fibre means with `sigmoidal_step_and_glue`. A Stop or E-STOP keeps the windows and marks the node interrupted. Any other incomplete run is a failed node.
+  * **`GridRunner.use_full_image()`** sets Image 1002 × 1004.
+  * **`legacy_files.rows_mean` and `write_step_glue`** write the four legacy files. The picture is uint16 when the counts are integral, like the legacy.
+  * **The writer:**
+    * names the run `<ts>_Luminescence_Steps_<grid>` and the node `Spectrum_luminescence_Col_xxx_NP_xxx`;
+    * stores `sg_axes_nm`, `sg_fiber_mean`, `sg_background_mean`, `sg_centers_nm`, `glued_nm`/`glued` and the window file list in the `.h5`;
+    * writes a missing Z (loaded grids) as NaN; before, h5py rejected the `None`.
+* **Decision (backend):**
+  * `_step_glue_plan` builds a `StepGlueRequest` (read mode Image, the current grating, the EM gain) and calls `step_glue_engine.plan` and `preflight` once per run.
+  * Blockers, such as a specular window or an exposure out of range, refuse the start before any laser opens.
+  * The grid dark's conditions follow the measurement mode: Single-Track over the fibre, or Image full frame.
+  * The mock camera now enters Image mode on `set_image`, like the real driver.
+* **Decision (GUI):**
+  * The "Medición en cada NP" combo enables the mini-map controls only in mini-map mode and shows a "🧵 Step & Glue en cada NP" group (range, overlap %, exposure, background row and height).
+  * In Step & Glue mode, the mini-map plot is swapped for a plot of the node's windows, and the time estimate counts windows.
+* **Tests:** 7 new tests in `tests/test_luminescence_legacy_sequence.py` (23 in total):
+  * `rows_mean` and the legacy file names and sizes;
+  * parameters and validation;
+  * the node's order of power, mirror and laser, with both formats and the glued spectrum;
+  * a stopped sweep kept as interrupted;
+  * an end-to-end grid with the real `run_windows` in `SAFE_MODE`;
+  * the specular refusal;
+  * the GUI ↔ engine contract.
+* **Bench:** `BANCO-74` gains step 4, a two-node Step & Glue luminescence on the lamp compared with the legacy files.
+* **Outcome:** **ACCEPTED**.
 
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]

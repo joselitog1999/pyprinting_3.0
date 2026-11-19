@@ -352,12 +352,15 @@ def run_tests():
     gain_disabled = not cam_fe.slider_gain.isEnabled()
     assert_test("Salvaguarda y Alertas Ganancia iXon3 EMCCD", warn_200 and warn_300 and gain_disabled)
 
-    # 6. Seguridad: Watchdog Heartbeat y Cierre Forzado
-    heartbeat_shutter(30.0)
-    armed = is_watchdog_armed()
-    close_all_shutters()
-    disarmed = not is_watchdog_armed()
-    assert_test("Watchdog Heartbeat & Cierre Fail-Safe de Láseres", armed and disarmed)
+    # 6. Seguridad: watchdog de rutinas (DEC-052) — arma sólo dentro de una rutina con un láser abierto
+    from core.nidaq import routine_watchdog
+    with routine_watchdog("diagnóstico"):
+        open_shutter(config.SHUTTERS[0])
+        heartbeat_shutter()
+        armed = is_watchdog_armed()
+        close_all_shutters()
+        disarmed = not is_watchdog_armed()
+    assert_test("Watchdog de Rutinas & Cierre Fail-Safe de Láseres", armed and disarmed)
 
     # 7. Rutina Legacy: Dímeros Plasmónicos
     d_be = DimersBackend(cam_stress, get_shamrock(force_mock=True))

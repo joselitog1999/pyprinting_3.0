@@ -186,45 +186,50 @@ git clone https://github.com/joselitog1999/pyprinting_3.0.git
 cd pyprinting_3.0
 ```
 
-### 2. Configurar el Entorno Virtual (Recomendado: Python 3.11 o 3.12)
-**Usando Conda:**
-```bash
-conda create -n pyprinting python=3.12 -y
-conda activate pyprinting
-pip install -r requirements.txt
-```
+### 2. Instalar
 
-**O usando `venv`:**
+**En la PC del banco (Windows, Python 3.11 de 64 bits obligatorio).** pylablib 1.4.3 trae la extensión de la
+cámara Andor sólo para Python 3.11. El instalador crea `.venv`, instala todo, verifica las importaciones y
+los requisitos del sistema, y deja un informe en `logs\instalacion_<fecha>.log`:
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install\instalar.ps1 -AccesoDirecto
+```
+Los requisitos del sistema, los pasos a mano y las variables de entorno están en
+[`docs/MANUAL_USUARIO.md` §1.0](docs/MANUAL_USUARIO.md#10-instalación-y-arranque-en-la-pc-del-banco).
+
+**En una PC de desarrollo sin hardware** (Python 3.11–3.13; sin 3.11 la cámara Andor no se importa y los
+tests usan una cámara falsa):
 ```bash
 python -m venv .venv
-# En Windows:
-.venv\Scripts\activate
-# En Linux/macOS:
-source .venv/bin/activate
-pip install -r requirements.txt
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install --no-deps pylablib==1.4.3
 ```
+`pylablib` va aparte con `--no-deps` porque sus dependencias `pyft232` y PyQt5 rompen el entorno. picasso
+es opcional: `requirements-opcional.txt`.
 
 ### 3. Modos de Ejecución: Simulación vs Laboratorio
 
-#### 🟢 Modo Seguro / Simulación (`SAFE_MODE=1` — Sin Hardware Conectado)
+El lanzador (`iniciar_pyprinting.bat` o `.venv\Scripts\python main.py`) tiene la casilla
+**Modo Seguro (Simulación)**, que pasa `PYPRINTING_SAFE` a cada programa que abre.
+
+#### 🟢 Modo Seguro / Simulación (`PYPRINTING_SAFE=1` — Sin Hardware Conectado)
 Ideal para desarrollo, pruebas de algoritmos, análisis de datos y exploración de la interfaz:
 ```powershell
 # En PowerShell (Windows):
-$env:SAFE_MODE="1"; python app.py
-
-# En Bash (Linux):
-SAFE_MODE=1 python app.py
+$env:PYPRINTING_SAFE="1"; .venv\Scripts\python app.py
 ```
 
-#### 🔴 Modo Laboratorio Real (`SAFE_MODE=0` — Mesa Óptica de Nanofabricación)
-Exclusivo para la computadora conectada a la mesa óptica con instrumentos encendidos:
-```powershell
-$env:SAFE_MODE="0"; python app.py
-```
+#### 🔴 Modo Laboratorio Real (`PYPRINTING_SAFE` sin definir o `0` — Mesa Óptica)
+Es el valor por defecto. Exclusivo para la computadora conectada a la mesa óptica con los instrumentos
+encendidos. Fuera del modo seguro no hay simulador: un instrumento que no responde bloquea su función
+(`DEC-036`).
 
 ### 4. Ejecutar la Batería de Pruebas
+Los tests fuerzan el modo seguro. Conviene correrlos archivo por archivo, porque Qt puede abortar cuando
+se acumulan ventanas en un mismo proceso (`DEC-039`):
 ```bash
-pytest tests/test_lattice_disorder.py tests/test_lattice_disorder_ux_physics.py tests/test_wiki_browser.py -v
+.venv\Scripts\python -m pip install pytest
+.venv\Scripts\python -m pytest tests/test_shutter_alignment_and_heartbeat.py -q
 ```
 
 ---

@@ -355,8 +355,9 @@ class HardwareManager(QObject):
         """Informa el estado de cada equipo SIN conectar, reiniciar ni mover nada (paso 4, DEC-040).
 
         Es lo que hace el tablero al abrirse. Antes abría con `rescan_hardware()`, que reiniciaba la
-        cámara y el Shamrock (el enfriador se apagaba) y reconectaba la platina, que va a home si su
-        conexión se había perdido (contra DEC-036). Reescanear queda como botón explícito."""
+        cámara y el Shamrock (el enfriador se apagaba) y reconectaba la platina, que entonces iba a home
+        si su conexión se había perdido (contra DEC-036; desde DEC-053 conectar no la mueve). Reescanear
+        queda como botón explícito."""
         for dev in self.DEVICES:
             if SAFE_MODE or self.device_isolated.get(dev, False):
                 self.deviceStatusSignal.emit(dev, self.device_states.get(dev, "mock"), self.device_details.get(dev, ""))

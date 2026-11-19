@@ -19,7 +19,10 @@ Incorpora 5 Modos de Criterio de Parada Seleccionables en Tiempo Real:
 from __future__ import annotations
 import os
 import sys
+import functools
+import threading
 import time
+from time import monotonic as _monotonic
 import numpy as np
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -32,7 +35,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 from PIL import Image
 
 import pyqtgraph as pg
-from PyQt6.QtCore    import Qt, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore    import Qt, QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QApplication, QWidget, QFrame, QGridLayout,
                                QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QComboBox,
                                QPushButton, QCheckBox, QGroupBox, QProgressBar,
@@ -50,7 +53,34 @@ from config import (pi, SAFE_MODE, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE,
                     DEFAULT_DIMERS_DX, DEFAULT_DIMERS_DY,
                     DEFAULT_COORDINATE_REGIME, REGIME_LEGACY, PI_STAGE_RANGE_UM, wait_on_target)
 from nidaq  import (open_shutter, close_shutter, close_all_shutters,
-                    up_flipper, down_flipper, heartbeat_shutter)
+                    up_flipper, down_flipper, heartbeat_shutter,
+                    get_close_epoch, get_open_hold_remaining_s, get_unconfirmed_shutters,
+                    set_routine_running, is_emergency_stopped, low_power_settle_remaining_s)
+from core.grid_state import (GridRunState, NodeMeta, PAUSE_CAUSE, INTERRUPTED, policy_for,
+                             compute_resume_index, RESUME_REFOCUS_AFTER_S,
+                             StepSnapshot, StepContext, AutofocusResult)
+from core.step_plausibility import (DEFAULT_LIMITS, STEP_MAX_REJECTIONS, DriftReference,
+                                    check_drift_correction, spot_amplitude_width)
+from core import estop_state as _estop_state
+from core.confirm_read import (ConfirmBase, ConfirmConfig, ConfirmOutcome, base_from_high_plateau,
+                               classify as classify_confirmation)
+from config import PD_CHANNELS, PD_CHANS_LIST, RATE_MULTICHANNEL
+from nidaq import channels_photodiodos
+
+ESTOP_CAUSE = "estop"
+
+
+def _stage(fn):
+    """Cuenta las etapas de la cadena en curso: un participante de la parada está quieto sólo sin etapas en curso
+    (R4-17 fase 4b; `ronda2_architecture.md` §4.4)."""
+    @functools.wraps(fn)
+    def wrapper(self, *a, **k):
+        self._in_stage += 1
+        try:
+            return fn(self, *a, **k)
+        finally:
+            self._in_stage -= 1
+    return wrapper
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -254,18 +284,22 @@ class InteractiveGridWidget(QFrame):
             "retrying": "#fab387",  # Naranja cálido para nodos en Healing Pass
             "success":  "#a6e3a1",
             "timeout":  "#f38ba8",
+            "interrupted": "#f38ba8",  # expuesto sin decisión: en revisión (gui_design_v2.md §5.3)
+            "printed":  "#a6e3a1",  # impresa, confirmada a baja potencia (R4-17 fase 6)
         }
 
         spots = []
         for i in range(N):
             st = self.node_states[i]
             col = color_map.get(st, "#45475a")
+            interrupted = st == "interrupted"
             spots.append({
                 'pos': (x_disp[i], y_disp[i]),
                 'data': i,
                 'brush': pg.mkBrush(col),
-                'pen': pg.mkPen('#11111b', width=1),
-                'symbol': 'o',
+                # Triángulo hacia arriba con anillo Peach: "expuesto sin decisión: en revisión"
+                'pen': pg.mkPen('#fab387', width=2) if interrupted else pg.mkPen('#11111b', width=1),
+                'symbol': 't1' if interrupted else 'o',
                 'size': 16 if st in ('active', 'retrying') else 14
             })
 
@@ -858,7 +892,13 @@ class Frontend(QFrame):
         self.grid_save_info_button.clicked.connect(self._get_grid_info)
 
         # ── Layout principal ──────────────────────────────────────────────────
-        hbox      = QHBoxLayout(self)
+        # Arriba, la fila de seguridad (R4-17 fase 4c, gui_design_v2.md §5.1-§5.2): la parada, su banner, el estado
+        # de la grilla, la cuenta de "Cerrar todos" y el aviso de un nodo interrumpido
+        outer     = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._build_safety_row())
+        hbox      = QHBoxLayout()
+        outer.addLayout(hbox, 1)
         dock_area = DockArea()
 
         # Reference widget
@@ -972,6 +1012,12 @@ class Frontend(QFrame):
         )
         plo.addWidget(QLabel("Target Index:"),  13, 0); plo.addWidget(self.indice_impresionEdit, 13, 1)
         plo.addWidget(QLabel("Progreso Lote:"), 13, 2); plo.addWidget(self.progress_bar,        13, 3)
+
+        # Fila 14: Watchdog de rutinas (DEC-052). Vale para todas las rutinas del proceso; la operación manual
+        # (dock de Shutters, Láser 532, traza F1) no tiene plazo.
+        from core.ui.routine_watchdog_widget import RoutineWatchdogSelector
+        self.routine_watchdog_selector = RoutineWatchdogSelector(pcW)
+        plo.addWidget(self.routine_watchdog_selector, 14, 0, 1, 4)
 
         # Focus shift & Drift correction widget
         fsW = QWidget(); flo = QGridLayout(fsW)
@@ -1258,8 +1304,142 @@ class Frontend(QFrame):
         except ValueError: pass
 
     def _get_grid_measurement(self):
+        if not self._acquire_hardware_session():
+            return
         self._emit_parameters()
         self.gridSignal.emit()
+
+    # ── Seguridad: parada, estado de la grilla, "Cerrar todos" (R4-17 fase 4c, DEC-049) ──
+    def _build_safety_row(self) -> QWidget:
+        from core.ui.emergency_widgets import EmergencyBanner, EmergencyStopButton
+        row = QWidget()
+        lay = QVBoxLayout(row)
+        lay.setContentsMargins(6, 6, 6, 0)
+        top = QHBoxLayout()
+        self.btn_estop = EmergencyStopButton(source="PyPrinting")
+        self.lbl_run_state = QLabel("Sin grilla")
+        self.lbl_run_state.setToolTip("Estado de la grilla. DETENIDA: después de la parada de emergencia; nada se "
+                                      "abre ni se mueve hasta Rearmar y después Play.")
+        self.lbl_run_state.setStyleSheet("font-weight: bold; padding: 2px 8px;")
+        self.lbl_countdown = QLabel("")
+        self.lbl_countdown.setStyleSheet(f"color: #fab387; font-weight: bold;")
+        top.addWidget(self.btn_estop)
+        top.addWidget(self.lbl_run_state)
+        top.addWidget(self.lbl_countdown, 1)
+        lay.addLayout(top)
+        self.estop_banner = EmergencyBanner(detail_provider=self._stop_detail)
+        lay.addWidget(self.estop_banner)
+        self.lbl_cut_notice = QLabel("")
+        self.lbl_cut_notice.setWordWrap(True)
+        self.lbl_cut_notice.setStyleSheet("color: #1e1e2e; background-color: #fab387; font-weight: bold; "
+                                          "padding: 4px 8px; border-radius: 4px;")
+        self.lbl_cut_notice.hide()
+        lay.addWidget(self.lbl_cut_notice)
+        self._cut_notice_timer = QTimer(self)
+        self._cut_notice_timer.setSingleShot(True)
+        self._cut_notice_timer.timeout.connect(self.lbl_cut_notice.hide)
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(200)
+        self._countdown_timer.timeout.connect(self._tick_countdown)
+        self._countdown = (0, 0.0)
+        self._run_state = "idle"
+        self._session_owner = f"PyPrinting: grilla de {'impresión' if self.mode == 'printing' else 'dímeros'}"
+        self._session_held = False
+        return row
+
+    def _stop_detail(self) -> str:
+        be = getattr(self, "_backend_ref", None)
+        if be is None:
+            return ""
+        state = getattr(getattr(be, "run_state", None), "value", "")
+        if state == "stopped":
+            return f"La grilla quedó DETENIDA en el nodo {be.i_global}."
+        return ""
+
+    _RUN_STATE_TEXT = {"idle": ("Sin grilla", "#cdd6f4"), "running": ("CORRIENDO", "#a6e3a1"),
+                       "paused": ("EN PAUSA", "#f9e2af"), "stopped": ("DETENIDA — Rearmar y después Play", "#f38ba8"),
+                       "finished": ("Terminada", "#cdd6f4")}
+
+    @pyqtSlot(str)
+    def on_run_state(self, state: str):
+        """Los controles según el estado de la grilla (gui_design_v2.md §6.7): Play deshabilitado corriendo y
+        detenida; Pausa sólo corriendo; "Next index" deshabilitado detenida. El motor también rechaza (defensa)."""
+        self._run_state = state
+        text, color = self._RUN_STATE_TEXT.get(state, (state, "#cdd6f4"))
+        self.lbl_run_state.setText(text)
+        self.lbl_run_state.setStyleSheet(f"font-weight: bold; padding: 2px 8px; color: {color};")
+        self.play_button.setEnabled(state not in ("running", "stopped"))
+        self.pause_button.setEnabled(state == "running")
+        self.next_button.setEnabled(state != "stopped")
+        if state != "running":
+            self._countdown_timer.stop()
+            self.lbl_countdown.setText("")
+        elif self.lbl_cut_notice.text().startswith("⏸"):
+            self.lbl_cut_notice.hide()                     # Play: el aviso de un paso rechazado ya no aplica
+        if state in ("idle", "finished"):
+            self._release_hardware_session()
+
+    @pyqtSlot(int, float)
+    def on_countdown(self, node: int, t_end_wall: float):
+        self._countdown = (int(node), float(t_end_wall))
+        self._tick_countdown()
+        self._countdown_timer.start()
+
+    def _tick_countdown(self):
+        node, t_end = self._countdown
+        rem = t_end - time.time()
+        if rem <= 0:
+            self._countdown_timer.stop()
+            self.lbl_countdown.setText("")
+            return
+        self.lbl_countdown.setText(f"⏳ La grilla sigue con el nodo {node} en {rem:.1f} s")
+
+    @pyqtSlot(int, str, float)
+    def on_node_interrupted(self, node: int, cause: str, t_exp: float):
+        if cause == "operator":
+            text = (f"Cerraste los obturadores en el nodo {node}. La grilla sigue con el nodo {node + 1}. "
+                    f"Para detenerla: Pausa (F2) o PARADA DE EMERGENCIA (Ctrl+E / F12).")
+        else:
+            text = f"El nodo {node} quedó interrumpido ({cause}) después de {t_exp:.1f} s de exposición: en revisión."
+        self.lbl_cut_notice.setText(text)
+        self.lbl_cut_notice.show()
+        self._cut_notice_timer.start(20000)
+
+    @pyqtSlot(int, str, str)
+    def on_step_rejected(self, node: int, step: str, reason: str):
+        """La grilla pausó por un paso entre nodos no plausible dos veces (o T6). El aviso queda hasta el Play
+        (R4-17 fase 5, DEC-050; textos de c01_ronda4/experimentalist.md §5)."""
+        what = "Corrección de deriva no plausible en P0" if step == "deriva" else f"Autofoco no plausible en el nodo {node}"
+        self.lbl_cut_notice.setText(f"⏸ {what}: {reason}. La grilla quedó en pausa: revisá el banco y pulsá Play "
+                                    f"para repetir el paso.")
+        self.lbl_cut_notice.show()
+        self._cut_notice_timer.stop()
+
+    def _hardware_session(self):
+        """La sesión de hardware de PySpectrum, sólo si PySpectrum está en este proceso (modo satélite)."""
+        mod = sys.modules.get("pyspectrum.modules.hardware_session")
+        return getattr(mod, "hardware_session", None) if mod is not None else None
+
+    def _acquire_hardware_session(self) -> bool:
+        """Respuestas 3, 4 y 8: la grilla toma la sesión de hardware al arrancar (pausa el Live de PySpectrum) y la
+        conserva en pausa y detenida. Se hace acá, en el hilo GUI, porque las pausas de los Live tocan widgets."""
+        hs = self._hardware_session()
+        if hs is None or self._session_held:
+            return True
+        if hs.acquire_session(self._session_owner, auto_pause_live=True):
+            self._session_held = True
+            return True
+        owner = getattr(hs, "current_owner", "") or "la parada de emergencia"
+        self.lbl_cut_notice.setText(f"No se puede arrancar la grilla: {owner} tiene la sesión de hardware.")
+        self.lbl_cut_notice.show()
+        self._cut_notice_timer.start(20000)
+        return False
+
+    def _release_hardware_session(self):
+        hs = self._hardware_session()
+        if hs is not None and self._session_held:
+            hs.release_session(self._session_owner, restore_live=True)
+        self._session_held = False
 
     def _emit_parameters(self):
         color = self.grid_laser.currentIndex()
@@ -1524,6 +1704,12 @@ class Frontend(QFrame):
             backend.gridRangeErrorSignal.connect(self._show_grid_range_error)
         if hasattr(backend, "stageDisconnectedSignal"):
             backend.stageDisconnectedSignal.connect(self._show_stage_disconnected_dialog)
+        if hasattr(backend, "runStateChanged"):
+            backend.runStateChanged.connect(self.on_run_state)
+            backend.countdownSignal.connect(self.on_countdown)
+            backend.nodeInterruptedSignal.connect(self.on_node_interrupted)
+            backend.stepRejectedSignal.connect(self.on_step_rejected)
+            self.on_run_state(backend.run_state.value)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1537,6 +1723,14 @@ class Backend(QObject):
     namefolderSignal      = pyqtSignal(str)
     indexSignal           = pyqtSignal(int)
     nodeStatusSignal      = pyqtSignal(int, str)
+    # R4-17 fase 3 (DEC-046): un nodo en exposición que terminó sin decisión del criterio (nodo, causa, s
+    # expuesto), y la espera de la retención de "Cerrar todos" (nodo que sigue, hora de pared en que vence)
+    nodeInterruptedSignal = pyqtSignal(int, str, float)
+    countdownSignal       = pyqtSignal(int, float)
+    # R4-17 fase 4b (DEC-048): el estado de la grilla (GridRunState.value) cada vez que cambia
+    runStateChanged       = pyqtSignal(str)
+    # R4-17 fase 5 (DEC-050): un paso entre nodos rechazado por segunda vez pausa la grilla (nodo, paso, motivo)
+    stepRejectedSignal    = pyqtSignal(int, str, str)
     patternFinishedSignal = pyqtSignal(str)
     driftDisplacementSignal = pyqtSignal(str)
     driftZDisplacementSignal = pyqtSignal(str)
@@ -1557,11 +1751,129 @@ class Backend(QObject):
     grid_scan_stopSignal   = pyqtSignal()
     goSignal               = pyqtSignal()
 
+    # ── Pausa de la grilla (C-01 Ronda 4, 2026-10-01) ──
+    # La cadena de la grilla salta entre el hilo de los workers y el hilo GUI (el fin del autofoco y el criterio
+    # de la traza se despachan ahí, `app.py`). Una pausa que llega por una señal encolada podía correr ANTES de
+    # que el hilo GUI siguiera con `grid_finish_autofoco` → `_grid_trace`, que abría el 532 a alta potencia sin
+    # detección. Por eso `is_paused` es un evento entre hilos: lo marca el clic en Pausa en el acto, y cada
+    # entrada de la cadena lo mira antes de mover, cambiar el filtro o abrir.
+    @property
+    def is_paused(self) -> bool:
+        return self._grid_pause_event().is_set()
+
+    @is_paused.setter
+    def is_paused(self, value: bool) -> None:
+        ev = self._grid_pause_event()
+        ev.set() if value else ev.clear()
+
+    def _grid_pause_event(self) -> threading.Event:
+        ev = self.__dict__.get("_grid_pause_ev")
+        if ev is None:
+            ev = self.__dict__["_grid_pause_ev"] = threading.Event()
+        return ev
+
+    def grid_halted(self) -> bool:
+        """True si la grilla está en pausa o detenida por la parada de emergencia: ninguna entrada de la cadena
+        sigue."""
+        return self.is_paused or self._stopped()
+
+    def _stopped(self) -> bool:
+        ev = self.__dict__.get("_stop_event")
+        return bool((ev is not None and ev.is_set()) or is_emergency_stopped())
+
+    def request_pause(self) -> None:
+        """Lo llama el clic en Pausa, en el hilo GUI y en el acto (conexión directa). Sólo marca la pausa;
+        `grid_pause`, encolada a este worker, cierra el obturador y sube el filtro."""
+        self.is_paused = True
+
+    def _halted(self, where: str) -> bool:
+        if self._stopped():
+            print(f"[Measurements] ⛔ Grilla detenida por la parada de emergencia: {where} no sigue (no mueve, no "
+                  f"cambia el filtro, no abre).")
+            return True
+        if self.is_paused:
+            print(f"[Measurements] ⏸️ Grilla en pausa: {where} no sigue (no mueve, no cambia el filtro, no abre).")
+            return True
+        return False
+
+    # ── Estado de la grilla y participante de la parada (R4-17 fase 4b, DEC-048) ──
+    @property
+    def run_state(self) -> GridRunState:
+        return self.__dict__.get("_run_state", GridRunState.IDLE)
+
+    @run_state.setter
+    def run_state(self, value: GridRunState) -> None:
+        lock = self.__dict__.setdefault("_run_state_lock", threading.Lock())
+        with lock:
+            changed = self.__dict__.get("_run_state", GridRunState.IDLE) != value
+            self.__dict__["_run_state"] = value
+        if changed:
+            self.runStateChanged.emit(GridRunState(value).value)
+
+    def on_emergency_stop(self, generation: int) -> None:
+        """Sólo banderas (< 1 ms, sin E/S ni candados de hardware): el hilo de la cadena se entera en su próxima
+        consulta de `_halted()`. Una grilla que no corría queda como estaba: la parada misma impide arrancarla."""
+        self._stop_event.set()
+        if self.run_state in (GridRunState.RUNNING, GridRunState.PAUSED):
+            if self.t_halt is None:
+                self.t_halt = _monotonic()
+            self.run_state = GridRunState.STOPPED
+
+    def is_quiescent(self) -> bool:
+        return (self._in_stage == 0 and self._hold_continuation is None and self._resume_pending is False
+                and (self._node_t_open is None or self._node_decided))
+
+    def on_rearmed(self, generation: int) -> None:
+        """Rearmar deja la grilla detenida en PAUSA: hace falta Play (y el motor vuelve a revisar todo)."""
+        self._stop_event.clear()
+        if self.run_state == GridRunState.STOPPED:
+            self.is_paused = True
+            self.run_state = GridRunState.PAUSED
+
+    def is_running(self) -> bool:
+        return self.run_state in (GridRunState.RUNNING, GridRunState.PAUSED, GridRunState.STOPPED)
+
     def __init__(self, mode: str = "printing", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mode_arg      = mode
         self.mode_printing = "none"
         self.number_scan   = "none"
+        self.name          = f"grilla de {'impresión' if mode == 'printing' else mode}"
+        # La parada de emergencia de esta grilla (además de la del proceso) y el estado de la grilla (fase 4b)
+        self._stop_event   = threading.Event()
+        self._in_stage     = 0
+        self._resume_pending = False
+        self.t_halt: float | None = None       # desde cuándo está en pausa o detenida (para reenfocar al seguir)
+        self._force_refocus = False
+        # (nodo, intento) que llegaron a abrir para imprimir: la reanudación sigue en el primero que no está
+        self.exposed: set = set()
+        # Pasos entre nodos (R4-17 fase 5): el foco y el confocal de este proceso (los asigna app.Backend), la
+        # instantánea del paso en curso, la restitución diferida a la reanudación, los rechazos por (nodo, paso),
+        # la referencia de P0 y el último autofoco y la última corrección de deriva aceptados
+        self.focus_ref = None
+        self.confocal_ref = None
+        self.step_limits = DEFAULT_LIMITS
+        self._step_snap: StepSnapshot | None = None
+        self._pending_restore: StepSnapshot | None = None
+        self._step_rejections: dict = {}
+        self._drift_ref: DriftReference | None = None
+        self._last_af_z: float | None = None
+        self._last_drift_t: float | None = None
+        # Confirmación a baja potencia (R4-17 fase 6, DEC-051): APAGADA hasta BANCO-65 A y B. La meseta de alta
+        # potencia de cada nodo interrumpido (la base, opción (b) de Q-5), los nodos por confirmar y las lecturas
+        self.confirm_cfg = ConfirmConfig()
+        self.node_plateau: dict = {}
+        self.node_confirm: dict = {}
+        self._confirm_pending: set = set()
+        self._confirm_reads: dict = {}
+        # El nodo en exposición (R4-17 fase 3): la época de cierre que se anotó antes de abrir, cuándo abrió y si
+        # ya tiene decisión (del criterio o de la interrupción). Una sola decisión por nodo.
+        self._node_epoch: int | None   = None
+        self._node_t_open: float | None = None
+        self._node_decided: bool        = False
+        self.node_meta: dict            = {}
+        self._hold_timer: QTimer | None = None
+        self._hold_continuation         = None
         self.file_path     = str(DEFAULT_DATA_PATH)
         self.printing_error_x: list = []
         self.printing_error_y: list = []
@@ -1638,6 +1950,7 @@ class Backend(QObject):
         self.timeaxis: list  = []
         self.data1: list     = []
         self.data_BS: list   = []
+        self._reset_node_trace()
         self.timer_real     = 0.0
         self.timer_inicio   = 0.0
 
@@ -1681,6 +1994,8 @@ class Backend(QObject):
         if hasattr(frontend, "foldergridSignal"):
             frontend.foldergridSignal.connect(self.grid_create_folder)
         if hasattr(frontend, "pauseSignal"):
+            # Primero, en el acto y en el hilo GUI, la marca (C-01 Ronda 4); después, encolada, el cierre.
+            frontend.pauseSignal.connect(self.request_pause, Qt.ConnectionType.DirectConnection)
             frontend.pauseSignal.connect(self.grid_pause)
         if hasattr(frontend, "next_index_Signal"):
             frontend.next_index_Signal.connect(self.grid_next_index)
@@ -1731,6 +2046,15 @@ class Backend(QObject):
             pass
 
         # 3. Restablecer estados, acumuladores y variables internas
+        set_routine_running(f"grilla {self.mode_arg}", False)
+        if not self._stopped():
+            self.run_state = GridRunState.IDLE
+        self.exposed = set()
+        self.t_halt = None
+        self._cancel_hold_wait()
+        self._node_t_open = None
+        self._node_decided = False
+        self.node_meta.clear()
         self.xref = self.yref = self.zref = 0.0
         self.startX = self.startY = 0.0
         self.custom_name = ""
@@ -1963,19 +2287,91 @@ class Backend(QObject):
             self.stepsParametersSignal.emit([self.steps_after, self.steps_before])
 
     @pyqtSlot()
+    @_stage
     def grid_measurment(self):
+        # Defensa en el motor (R4-17 fase 4b): detenida por la parada, Play no hace nada aunque la GUI fallara
+        if self._stopped() or self.run_state == GridRunState.STOPPED:
+            print("[Measurements] ⛔ La grilla está detenida por la parada de emergencia: Rearmar antes de Play.")
+            return
         if getattr(self, "is_paused", False):
             self.is_paused = False
             self.mode_printing = self.mode_arg
-            print(f"[Measurements] ▶️ Reanudando impresión en nodo {self.i_global}...")
-            self.indexSignal.emit(self.i_global)
-            self._grid_move()
+            self.run_state = GridRunState.RUNNING
+            self._resume()
         elif self.mode_printing == "none":
             self.is_paused = False
             self._grid_start()
         else:
             self.indexSignal.emit(self.i_global)
             self._grid_move()
+
+    # ── Reanudar (R4-17 fase 4b; [INV-R4] 3-4; respuestas 1, 4 y 5 del 2026-10-02) ──
+    def _resume(self):
+        """Reanuda después de una pausa, de una parada rearmada o de una reconexión: primero el filtro en baja
+        potencia con su piso de 100 ms, después (si estuvo quieta más de RESUME_REFOCUS_AFTER_S) el reenfoque, y
+        el primer nodo que nunca se expuso. Un nodo que llegó a abrir no se vuelve a exponer."""
+        if self.t_halt is not None and (_monotonic() - self.t_halt) > RESUME_REFOCUS_AFTER_S:
+            self._force_refocus = True
+            print(f"[Measurements] 🔍 La grilla estuvo quieta {(_monotonic() - self.t_halt):.0f} s: se reenfoca "
+                  f"antes del primer nodo.")
+        self.t_halt = None
+
+        def go():
+            # La restitución diferida de un paso cortado, antes de cualquier otra cosa (R4-17 fase 5); el paso se
+            # repite con un reenfoque (con deriva, por el ancla)
+            if self._pending_restore is not None:
+                self._restore_snapshot(self._pending_restore)
+                self._pending_restore = None
+                self._force_refocus = True
+            self._resume_at_first_never_exposed()
+        self._after_low_power(go)
+
+    def _after_low_power(self, continuation):
+        """Antes de la primera acción al reanudar: el filtro en baja potencia confirmado hace ≥ 100 ms. Sin
+        confirmar, se pulsa `up_flipper`; si la placa no lo confirma, la grilla pausa (respuesta 5). La espera es
+        un QTimer, nunca un sleep."""
+        rem = low_power_settle_remaining_s()
+        if rem is None:
+            if not up_flipper():
+                print("[Measurements] ⚠️ El filtro de densidad no confirmó la baja potencia: la grilla queda en "
+                      "pausa.")
+                self._pause_for("filtro no confirmado")
+                return
+            rem = low_power_settle_remaining_s()
+        if rem:
+            self._resume_pending = True
+
+            def go():
+                self._resume_pending = False
+                continuation()
+            QTimer.singleShot(int(rem * 1000) + 5, Qt.TimerType.PreciseTimer, go)
+        else:
+            continuation()
+
+    @_stage
+    def _resume_at_first_never_exposed(self):
+        if self._halted("la reanudación"):
+            return
+        if getattr(self, "is_healing_pass", False):
+            order = list(self.healing_failed_queue)
+            idx = compute_resume_index(order, self.node_results, self.exposed, {i: 1 for i in order})
+            self.healing_index_in_queue = order.index(idx) if idx is not None else len(order)
+            if idx is not None:
+                print(f"[Measurements] ▶️ Reanudando el Healing Pass en el nodo {idx}.")
+            self._advance_healing_pass()
+            return
+        start = 1 if (getattr(self, "driftbool", False) and self.particulas > 1) else 0
+        order = list(range(start, int(self.particulas)))
+        idx = compute_resume_index(order, self.node_results, self.exposed, {})
+        if idx is None:
+            self.i_global = order[-1] if order else 0
+            print("[Measurements] ▶️ No quedan nodos sin exponer en el pase principal.")
+            self._grid_detect()                          # el fin del pase: Healing Pass o fin de la grilla
+            return
+        print(f"[Measurements] ▶️ Reanudando en el nodo {idx}, el primero que nunca se expuso.")
+        self.i_global = idx
+        self.indexSignal.emit(idx)
+        self._grid_move()
 
     def _preflight_grid_range_check(self) -> bool:
         """Calcula la caja envolvente total de la grilla (startX/startY + grid_x/grid_y,
@@ -2007,6 +2403,19 @@ class Backend(QObject):
     def _grid_start(self):
         self.mode_printing        = self.mode_arg
         self.is_paused            = False
+        self.exposed              = set()
+        self.t_halt               = None
+        self._force_refocus       = False
+        self._step_snap           = None
+        self._pending_restore     = None
+        self._step_rejections     = {}
+        self._drift_ref           = None
+        self._last_af_z           = None
+        self._last_drift_t        = None
+        self.node_plateau         = {}
+        self.node_confirm         = {}
+        self._confirm_pending     = set()
+        self._confirm_reads       = {}
         self.is_healing_pass      = False
         self.healing_failed_queue = []
         self.healing_index_in_queue = 0
@@ -2030,6 +2439,13 @@ class Backend(QObject):
         if not self._preflight_grid_range_check():
             self.mode_printing = "none"
             return
+
+        self.node_meta.clear()
+        self._node_t_open = None
+        self._node_decided = False
+        # Con la grilla corriendo, "Cerrar todos" retiene las aperturas (R4-17 fase 3)
+        set_routine_running(f"grilla {self.mode_arg}", True)
+        self.run_state = GridRunState.RUNNING
 
         self.printing_error_x = []; self.printing_error_y = []
         self.drift_history_xy = []
@@ -2109,6 +2525,7 @@ class Backend(QObject):
         return False
 
     @pyqtSlot()
+    @_stage
     def resume_after_reconnect(self):
         """Slot del botón 'Reconectar y Reanudar' del diálogo de recuperación: reabre la
         conexión física y retoma la secuencia exactamente en el nodo pendiente (i_global,
@@ -2125,13 +2542,21 @@ class Backend(QObject):
                 "vuelva a presionar 'Reconectar y Reanudar'."
             )
             return
-        print(f"[Measurements] ✅ Platina reconectada. Reanudando en partícula {self.i_global}...")
+        if self._stopped():
+            print("[Measurements] ⛔ Platina reconectada, pero hay una parada de emergencia: Rearmar y Play.")
+            return
+        print("[Measurements] ✅ Platina reconectada. Reanudando en el primer nodo que nunca se expuso...")
         self.is_paused = False
         self.mode_printing = self.mode_arg
-        self.indexSignal.emit(self.i_global)
-        self._grid_move()
+        self.run_state = GridRunState.RUNNING
+        self._resume()
 
     def _grid_move(self):
+        # Barrera 2 de la parada (ronda2_instrumentation.md §4.2): detenida, no sale ningún MOV. Con la Pausa sí
+        # (es el botón "siguiente índice" del operador), y la cadena se frena en la etapa siguiente.
+        if self._stopped():
+            print(f"[Measurements] ⛔ Parada de emergencia: no se mueve al nodo {self.i_global}.")
+            return
         if not self._check_physical_connection_or_pause():
             return
         if hasattr(self, 'grid_x') and len(self.grid_x) > 0:
@@ -2140,6 +2565,8 @@ class Backend(QObject):
         targets = [self.grid_x[self.i_global] + self.startX,
                    self.grid_y[self.i_global] + self.startY]
         pi.MOV(axes, targets)
+        if self._stopped():
+            return                     # el MOV quedó retenido por la parada: no es "la platina no confirmó"
         if not SAFE_MODE:
             # DEC-036: espera acotada y confirmada. Antes esperaba sin límite y, ante una
             # excepción de qONT, seguía como si la platina hubiera llegado.
@@ -2220,7 +2647,10 @@ class Backend(QObject):
         print(f"[Adaptive Drift] 🧠 v_xy={v_xy:.2f} nm/s, v_z={v_z:.2f} nm/s (v_eff={v_eff:.2f} nm/s) -> τ_safe={tau_safe:.1f}s, N_eff={self.current_n_effective}")
 
     @pyqtSlot()
+    @_stage
     def grid_autofoco(self):
+        if self._halted("el paso después de mover"):
+            return
         start_idx = 1 if (getattr(self, "driftbool", False) and self.particulas > 1) else 0
         n_every = getattr(self, "current_n_effective", getattr(self, "autofoc", 5))
 
@@ -2237,11 +2667,12 @@ class Backend(QObject):
         # Forzar en nodo inicial start_idx
         initial_trigger = (self.i_global == start_idx)
 
-        should_autofocus = initial_trigger or count_trigger or time_trigger
+        refocus_trigger = bool(getattr(self, "_force_refocus", False))   # reanudar tras > 60 s quieta (fase 4b)
+        self._force_refocus = False
+        should_autofocus = initial_trigger or count_trigger or time_trigger or refocus_trigger
 
         if should_autofocus:
-            self.last_af_time = time.time()
-            self.last_af_index = self.i_global
+            # last_af_time / last_af_index se asignan al ACEPTAR el autofoco (R4-17 fase 5), no acá
             if getattr(self, "driftbool", False):
                 # ── ETAPA 1/4: Desplazarse a zona limpia del ancla (-1 µm en X, -1 µm en Y) y disparar Autofoco 1 ──
                 self.autofocus_stage = "anchor_autofocus"
@@ -2252,7 +2683,7 @@ class Backend(QObject):
                 up_flipper(); time.sleep(1.0)
                 reason_str = "tiempo τ_safe" if time_trigger else f"conteo (N_eff={n_every})"
                 print(f"[Measurements] 🔍 [Etapa 1/4] Autofoco Z en zona limpia del ancla ({clean_anchor_x:.3f}, {clean_anchor_y:.3f}) µm [Disparo por {reason_str}]...")
-                self.grid_autofocusSignal.emit(self.mode_printing)
+                self._emit_autofocus()
             else:
                 # ── MODO ESTÁNDAR: Autofoco in-situ con shift si aplica ──
                 self.autofocus_stage = "standard_autofocus"
@@ -2262,14 +2693,147 @@ class Backend(QObject):
                     time.sleep(0.1)
                 up_flipper(); time.sleep(1.0)
                 print(f"[Measurements] 🔍 Autofoco Z in-situ en nodo {self.i_global} (frecuencia cada {n_every} partículas)...")
-                self.grid_autofocusSignal.emit(self.mode_printing)
+                self._emit_autofocus()
         else:
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
 
+    @pyqtSlot(str, object)
+    def on_autofocus_finished(self, mode: str, result=None):
+        """Fin del autofoco de `focusWorker`, en el hilo de este worker (R4-17 fase 2, DEC-045). Se conecta
+        encolada: la etapa siguiente empieza en una vuelta nueva del bucle de eventos. El autofoco es compartido
+        por impresión y dímeros, así que cada worker toma sólo el de su modo.
+
+        Fase 5 (DEC-050): con un `AutofocusResult`, un autofoco inválido (un corte) se restituye y se repite, y uno
+        no plausible se rechaza (se repite una vez; la segunda falla pausa). Sólo uno aceptado sigue la cadena."""
+        if mode != self.mode_arg:
+            return
+        if isinstance(result, AutofocusResult):
+            if not result.valid:
+                self._step_invalid("autofoco", result.reason)
+                return
+            if not result.accepted:
+                self._step_rejected("autofoco", result.reason)
+                return
+            self._last_af_z = float(result.z_after_um)
+        self.last_af_time = time.time()
+        self.last_af_index = int(self.i_global)
+        self._step_rejections.pop((int(self.i_global), "autofoco"), None)
+        self.grid_finish_autofoco()
+
+    # ── Pasos entre nodos: instantánea, validez, restitución, rechazo (R4-17 fase 5, DEC-050) ──
+    def _take_snapshot(self) -> StepSnapshot:
+        try:
+            z = float(pi.qPOS().get("3", getattr(self, "zref", 10.0)))
+        except Exception:
+            z = float(getattr(self, "zref", 10.0))
+        return StepSnapshot(z, float(self.startX), float(self.startY), float(getattr(self, "last_af_time", 0.0)),
+                            int(getattr(self, "last_af_index", 0)), str(getattr(self, "autofocus_stage", "idle")),
+                            int(get_close_epoch().epoch), int(_estop_state.generation()))
+
+    def _emit_autofocus(self):
+        """Antes de cada autofoco de la grilla: la instantánea del paso y el contexto para el foco (la época, el
+        último autofoco aceptado y los topes), así el foco evalúa la validez y los topes antes de mover Z."""
+        self._step_snap = self._take_snapshot()
+        if self.focus_ref is not None:
+            t_last = float(self.last_af_time) if self._last_af_z is not None else None
+            self.focus_ref.step_context = StepContext(self._step_snap.epoch0, self._last_af_z, t_last,
+                                                      self.step_limits)
+        self.grid_autofocusSignal.emit(self.mode_printing)
+
+    def _start_drift_scan(self):
+        """ETAPA 2/4: el escaneo confocal de P0 (el ancla), con su instantánea."""
+        pi.MOV([1, 2], [self.startX, self.startY])
+        time.sleep(0.1)
+        up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia
+        self.number_scan = "drift_scan"
+        self._step_snap = self._take_snapshot()
+        print(f"[Measurements] 📸 [Etapa 2/4] Disparando escaneo confocal 2D de Partícula 0 (Ancla) en ({self.startX:.3f}, {self.startY:.3f}) µm...")
+        self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
+
+    def _step_cut(self) -> str:
+        """Un corte invalida el paso: la época cambió desde la instantánea, o el escaneo no pudo abrir."""
+        snap = self._step_snap
+        if snap is not None:
+            ep = get_close_epoch()
+            if ep.epoch != snap.epoch0:
+                return f"corte durante el paso ({getattr(ep.cause, 'value', ep.cause)})"
+        cr = self.confocal_ref
+        if cr is not None and getattr(cr, "last_open_ok", True) is False:
+            return "la apertura del escaneo fue rechazada"
+        return ""
+
+    def _restore_snapshot(self, snap: StepSnapshot | None):
+        """No se aplica la corrección del paso y se vuelve a como estaba antes de él (Z, el ancla y last_af_*)."""
+        if snap is None:
+            return
+        self.startX, self.startY = snap.start_x_um, snap.start_y_um
+        self.last_af_time, self.last_af_index = snap.last_af_time, snap.last_af_index
+        self.autofocus_stage = snap.autofocus_stage
+        pi.MOV(3, snap.z_um)
+        if not SAFE_MODE:
+            wait_on_target(3)
+        print(f"[Measurements] ↩️ Paso restituido: Z = {snap.z_um:.4f} µm, ancla ({snap.start_x_um:.3f}, "
+              f"{snap.start_y_um:.3f}) µm.")
+
+    def _step_invalid(self, step: str, reason: str):
+        """Un corte durante el paso: no se aplica. Con "Cerrar todos" (la grilla sigue) se restituye ya y se repite
+        cuando vence la retención; con pausa, parada u otro corte, la restitución se difiere a la reanudación
+        (cero MOV hasta Play). No cuenta como falla de plausibilidad."""
+        print(f"[Measurements] ✋ {step.capitalize()} inválido en el nodo {self.i_global}: {reason}.")
+        snap = self._step_snap
+        ep = get_close_epoch()
+        policy = policy_for(getattr(ep.cause, "value", ep.cause))
+        if self.grid_halted() or not (policy.run_state == GridRunState.RUNNING and policy.continue_after_hold):
+            self._pending_restore = snap
+            if not self.grid_halted():
+                self._pause_for(getattr(ep.cause, "value", str(ep.cause)))
+            return
+        self._restore_snapshot(snap)
+        self._schedule_after_hold(lambda: self._repeat_step(step), next_node=int(self.i_global))
+
+    def _step_rejected(self, step: str, reason: str, always_pause: bool = False):
+        """Un paso no plausible: no se aplica, se restituye y se repite una vez; la segunda falla (o T6) pausa."""
+        key = (int(self.i_global), step)
+        n = self._step_rejections.get(key, 0) + 1
+        self._step_rejections[key] = n
+        self._restore_snapshot(self._step_snap)
+        if always_pause or n > STEP_MAX_REJECTIONS:
+            print(f"[Measurements] ⛔ {step.capitalize()} no plausible en el nodo {self.i_global}: {reason}. La "
+                  f"grilla queda en pausa.")
+            self.stepRejectedSignal.emit(int(self.i_global), step, reason)
+            self._pause_for(f"{step} no plausible")
+            return
+        print(f"[Measurements] ⚠️ {step.capitalize()} no plausible en el nodo {self.i_global}: {reason}. Se repite "
+              f"una vez.")
+        self._repeat_step(step)
+
+    def _repeat_step(self, step: str):
+        if self._halted(f"la repetición del paso ({step})"):
+            return
+        if step == "deriva":
+            self._start_drift_scan()
+        else:
+            self._emit_autofocus()
+
+    def _check_drift(self, image, center_mass):
+        cr = self.confocal_ref
+        box = pixel = None
+        if cr is not None and all(hasattr(cr, a) for a in ("x_min", "x_max", "y_min", "y_max", "range_x", "Nx")):
+            box = (float(cr.x_min), float(cr.x_max), float(cr.y_min), float(cr.y_max))
+            pixel = (float(cr.range_x) / float(cr.Nx), float(cr.range_y) / float(cr.Ny))
+        t_prev = self._last_drift_t if self._last_drift_t is not None else getattr(self, "grid_start_time", time.time())
+        verdict = check_drift_correction(np.asarray(image, dtype=float), (float(center_mass[0]), float(center_mass[1])),
+                                         box, pixel, self._drift_ref, (float(self.startX), float(self.startY)),
+                                         (float(self.xref), float(self.yref)), time.time() - t_prev, self.step_limits)
+        return verdict, pixel
+
     @pyqtSlot()
+    @_stage
     def grid_finish_autofoco(self):
         time.sleep(0.1)
+        if self._halted("el fin del autofoco"):
+            return
         # Actualizar Drift Z tras cualquier autofoco
         try:
             current_z = float(pi.qPOS().get("3", getattr(self, 'zref', 10.0)))
@@ -2295,12 +2859,7 @@ class Backend(QObject):
 
         if stage == "anchor_autofocus":
             # ── ETAPA 2/4: Mover al ancla P0 y disparar confocal drift_scan ──
-            pi.MOV([1, 2], [self.startX, self.startY])
-            time.sleep(0.1)
-            up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia
-            self.number_scan = "drift_scan"
-            print(f"[Measurements] 📸 [Etapa 2/4] Disparando escaneo confocal 2D de Partícula 0 (Ancla) en ({self.startX:.3f}, {self.startY:.3f}) µm...")
-            self.grid_scanSignal.emit(self.laser, self.mode_printing, "drift_scan")
+            self._start_drift_scan()
 
         elif stage in ("insitu_autofocus", "standard_autofocus", "idle"):
             # ── ETAPA 4/4: Posicionar en nodo objetivo y conmutar a ALTA potencia para imprimir ──
@@ -2308,20 +2867,292 @@ class Backend(QObject):
             target_y = self.grid_y[self.i_global] + self.startY
             pi.MOV([1, 2], [target_x, target_y])
             time.sleep(0.1)
+            if getattr(self, "is_healing_pass", False) and int(self.i_global) in self._confirm_pending:
+                # Un nodo interrumpido: primero la lectura a baja potencia, todavía con el filtro arriba (fase 6)
+                self.autofocus_stage = "idle"
+                self._confirm_node()
+                return
             down_flipper(); time.sleep(0.5)  # Conmutar estrictamente a ALTA potencia para la traza de impresión
             print(f"[Measurements] 🎯 [Etapa 4/4] Posicionado en nodo {self.i_global} ({target_x:.3f}, {target_y:.3f}) µm. Iniciando traza a ALTA potencia...")
             self.autofocus_stage = "idle"
             if self.mode_arg == "dimers": self._grid_center_scan()
             else:                         self._grid_trace()
 
+    # ── Confirmación a baja potencia (R4-17 fase 6, DEC-051; ronda2_architecture.md §4.8) ──
+    def _confirm_node(self):
+        """La lectura de confirmación es un paso entre nodos: compuerta de baja potencia (≥ 100 ms con el filtro arriba
+        confirmado), oscuro, apertura, bloques, cierre; un corte la invalida."""
+        if self._halted("la confirmación a baja potencia"):
+            return
+        self._after_low_power(self._confirm_read)
+
+    def _read_pd_blocks(self, total_ms: float, block_ms: float) -> np.ndarray:
+        """Medias por bloque (V) del fotodiodo del láser, en una lectura finita."""
+        n_blocks = max(1, int(round(total_ms / block_ms)))
+        spb = max(1, int(RATE_MULTICHANNEL * block_ms / 1000.0))
+        task = channels_photodiodos(RATE_MULTICHANNEL, n_blocks * spb)
+        try:
+            data = task.read(n_blocks * spb)
+            try:
+                task.wait_until_done()
+            except Exception:
+                pass
+        finally:
+            task.close()
+        ch = PD_CHANNELS.get(self.laser, PD_CHANS_LIST[0])
+        idx = PD_CHANS_LIST.index(ch) if ch in PD_CHANS_LIST else 0
+        row = np.asarray(data[idx], dtype=float)[:n_blocks * spb]
+        return row.reshape(n_blocks, -1).mean(axis=1)
+
+    @_stage
+    def _confirm_read(self):
+        i, cfg = int(self.i_global), self.confirm_cfg
+        if self._halted("la confirmación a baja potencia"):
+            return
+        epoch0 = get_close_epoch().epoch
+        dark = float(np.median(self._read_pd_blocks(cfg.dark_read_ms, cfg.block_ms)))   # obturador cerrado
+        if not open_shutter(self.laser):
+            self._confirm_invalid(i, "la apertura de la lectura fue rechazada")
+            return
+        try:
+            heartbeat_shutter()
+            time.sleep(cfg.settle_after_open_ms / 1000.0)
+            blocks = self._read_pd_blocks(cfg.read_ms, cfg.block_ms)
+        finally:
+            close_shutter(self.laser)
+        if get_close_epoch().epoch != epoch0 or self.grid_halted():
+            self._confirm_invalid(i, "corte durante la lectura")
+            return
+        v_base = (base_from_high_plateau(self.node_plateau.get(i), dark, cfg.attenuation)
+                  if cfg.base_source == ConfirmBase.HIGH_PLATEAU_SCALED else None)
+        reading = classify_confirmation(blocks, dark, v_base, cfg)
+        n = self._confirm_reads[i] = self._confirm_reads.get(i, 0) + 1
+        self.node_confirm[i] = reading
+        print(f"[Measurements] 🔎 Confirmación del nodo {i} (lectura {n}): {reading.outcome.value}, "
+              f"R = {reading.ratio:.2f}, s_R = {reading.spread:.3f}. {'; '.join(reading.reasons)}")
+        if reading.outcome == ConfirmOutcome.SEEN:
+            self._confirm_pending.discard(i)
+            self.node_results[i] = "printed"
+            self.nodeStatusSignal.emit(i, "printed")
+            self._grid_detect()                          # impresa: no se reexpone, sigue el Healing Pass
+        elif reading.outcome == ConfirmOutcome.NOT_SEEN:
+            self._confirm_pending.discard(i)
+            down_flipper(); time.sleep(0.5)              # no está: se reimprime (regla P4)
+            self._grid_trace()
+        elif n < cfg.max_reads:
+            self._confirm_read()                         # "no sé": una segunda lectura
+        else:
+            self._confirm_pending.discard(i)
+            self.nodeStatusSignal.emit(i, INTERRUPTED)   # "no sé" dos veces: en revisión
+            self._grid_detect()
+
+    def _confirm_invalid(self, i: int, reason: str):
+        """Un corte invalida la lectura: no clasifica nada y el nodo queda en revisión. La grilla sigue (con la
+        retención de "Cerrar todos", después de los 3 s) o queda en pausa, según quién cortó."""
+        print(f"[Measurements] ✋ Confirmación del nodo {i} inválida: {reason}. Queda en revisión.")
+        self._confirm_pending.discard(i)
+        if self.grid_halted():
+            return
+        ep = get_close_epoch()
+        policy = policy_for(getattr(ep.cause, "value", ep.cause))
+        if policy.run_state == GridRunState.RUNNING and policy.continue_after_hold:
+            self._schedule_after_hold(self._grid_detect, next_node=i)
+        else:
+            self._pause_for(getattr(ep.cause, "value", str(ep.cause)))
+
     def _grid_trace(self):
+        # Última barrera antes de abrir a alta potencia (C-01 Ronda 4): ni en pausa ni sin modo de impresión,
+        # porque con "none" la traza no le manda datos al criterio y nada cerraría el obturador.
+        if self._halted("la traza") or self.mode_printing == "none":
+            return
         down_flipper(); time.sleep(0.5)  # Conmutar estrictamente a ALTA potencia para la traza de impresión
-        open_shutter(self.laser); time.sleep(0.01)
+        if self._halted("la traza") or self.mode_printing == "none":
+            up_flipper()
+            return
+        # La época se anota ANTES de abrir: un cierre que llegue después se nota en el primer tick (R4-17 fase 3)
+        self._node_epoch = get_close_epoch().epoch
+        if not open_shutter(self.laser):
+            self._on_open_rejected()
+            return
+        self._node_t_open = _monotonic()
+        self._node_decided = False
+        self.exposed.add((int(self.i_global), self._attempt()))
+        self.ptr, self.timeaxis, self.data1, self.data_BS = 0, [], [], []   # la traza de ESTE nodo
+        self._reset_node_trace()
+        time.sleep(0.01)
         self.timer_inicio = time.time()
         self.hold_counter = 0
         self.grid_traceSignal.emit(self.laser, self.mode_printing)
 
+    def _on_open_rejected(self):
+        """El obturador del nodo no abrió (R4-17 fase 3). Si la escritura falló y la línea quedó sin confirmar, pudo
+        haber abierto: el nodo se trata como expuesto sin decisión. Si lo retuvo "Cerrar todos", el nodo no se
+        expuso y se reintenta cuando vence la retención. Si lo bloqueó un interlock, la grilla pausa."""
+        if self.laser in get_unconfirmed_shutters():
+            self._node_t_open = _monotonic()
+            self._node_decided = False
+            self.exposed.add((int(self.i_global), self._attempt()))
+            self._finalize_interrupted_node("apertura sin confirmar")
+            return
+        try:
+            up_flipper()
+        except Exception:
+            pass
+        if get_open_hold_remaining_s() > 0:
+            print(f"[Measurements] ⏳ Nodo {self.i_global}: \"Cerrar todos\" retiene las aperturas; "
+                  f"se reintenta en {get_open_hold_remaining_s():.1f} s.")
+            self._schedule_after_hold(self._grid_trace, next_node=self.i_global)
+        else:
+            self._pause_for("interlock")
+
+    def _attempt(self) -> int:
+        return 1 if getattr(self, "is_healing_pass", False) else 0
+
+    # ── Nodo interrumpido y espera de la retención (R4-17 fase 3, DEC-046) ──
+    def _interruption_cause(self):
+        """Por qué el nodo en exposición ya no puede decidirse con el criterio, o None."""
+        if self._stopped():
+            return ESTOP_CAUSE
+        if self.is_paused:
+            return PAUSE_CAUSE
+        if self._node_epoch is not None:
+            ep = get_close_epoch()
+            if ep.epoch != self._node_epoch:
+                return getattr(ep.cause, "value", str(ep.cause))
+        return None
+
+    def _finalize_interrupted_node(self, cause: str):
+        """Cierra, una sola vez, un nodo que estuvo expuesto y terminó sin decisión del criterio: no late, detiene
+        la traza, cierra, lo marca "interrupted" (en revisión: el Healing Pass no lo toma), guarda la traza con
+        su causa y sigue según `CAUSE_POLICY`. Nunca se reexpone (respuesta 1 del investigador, 2026-10-02)."""
+        if self._node_decided:
+            return
+        self._node_decided = True
+        t_open = self._node_t_open
+        t_exp = max(0.0, _monotonic() - t_open) if t_open is not None else 0.0
+        self._node_t_open = None
+        self.grid_trace_stopSignal.emit()
+        try:
+            close_shutter(self.laser)
+        except Exception as e:
+            print(f"[Measurements] ⚠️ Cierre del nodo interrumpido: {e}")
+        i = self.i_global
+        self.timer_real = round(t_exp, 2)
+        # Las primeras muestras del NODO (el historial), no de la ventana: pasadas SEND_WINDOW muestras, la
+        # ventana ya no empieza en la apertura.
+        early = [float(v) for v in (self._node_pd or list(self.data1))[:5]]
+        self.node_plateau[i] = float(np.median(early)) if early else None
+        self.node_results[i] = INTERRUPTED
+        self.node_meta[i] = NodeMeta(str(cause), float(t_exp), int(get_close_epoch().epoch),
+                                     1 if getattr(self, "is_healing_pass", False) else 0, True)
+        try:
+            self._save_trace()
+        except Exception as e:
+            print(f"[Measurements] ⚠️ No se pudo guardar la traza del nodo interrumpido {i}: {e}")
+        self.nodeStatusSignal.emit(i, INTERRUPTED)
+        self.nodeInterruptedSignal.emit(i, str(cause), float(t_exp))
+        print(f"[Measurements] ✋ Nodo {i} interrumpido ({cause}) después de {t_exp:.2f} s de exposición: "
+              f"queda en revisión y no se reexpone.")
+        policy = policy_for(cause)
+        if policy.run_state == GridRunState.RUNNING and policy.continue_after_hold and not self.grid_halted():
+            self._schedule_after_hold(self._grid_detect, next_node=i + 1)
+        elif policy.run_state == GridRunState.STOPPED or self._stopped():
+            self._stop_for(cause)
+        else:
+            self._pause_for(cause)
+
+    def _stop_for(self, cause: str):
+        """Detenida por la parada de emergencia: no toca el filtro (lo sube el cerrador después del cierre) ni
+        mueve nada; sólo Rearmar y Play la sacan de acá."""
+        self.mode_printing = "none"
+        self._cancel_hold_wait()
+        if self.t_halt is None:
+            self.t_halt = _monotonic()
+        if self.run_state in (GridRunState.RUNNING, GridRunState.PAUSED, GridRunState.STOPPED):
+            self.run_state = GridRunState.STOPPED
+        print(f"[Measurements] ⛔ Grilla DETENIDA en el nodo {self.i_global} ({cause}). Rearmar y después Play.")
+
+    @pyqtSlot(str, str)
+    @_stage
+    def on_trace_aborted(self, mode: str, cause: str):
+        """La traza se detuvo sola (la parada) antes de su próximo tick: el nodo en exposición queda
+        interrumpido."""
+        if mode != self.mode_arg:
+            return
+        if self._node_t_open is not None and not self._node_decided:
+            self._finalize_interrupted_node(cause)
+
+    def _pause_for(self, cause: str):
+        """La grilla queda en pausa por un corte que no fue la Pausa del operador (o además de ella)."""
+        self.is_paused = True
+        self.mode_printing = "none"
+        self._cancel_hold_wait()
+        if self.t_halt is None:
+            self.t_halt = _monotonic()
+        if self.run_state == GridRunState.RUNNING:
+            self.run_state = GridRunState.PAUSED
+        try:
+            up_flipper()
+        except Exception:
+            pass
+        try:
+            self.grid_scan_stopSignal.emit()
+        except Exception:
+            pass
+        print(f"[Measurements] ⏸️ Grilla en pausa en el nodo {self.i_global} ({cause}). Presione 'Play ►' para "
+              f"seguir con el nodo siguiente.")
+
+    def _schedule_after_hold(self, continuation, next_node: int):
+        """Sigue con `continuation` cuando vence la retención de aperturas de "Cerrar todos" (más 20 ms). Es el
+        mismo plazo que la barrera de `nidaq`, en un QTimer preciso del worker (nunca un sleep): si al dispararse
+        todavía queda retención, se reprograma."""
+        self._hold_continuation = continuation
+        remaining = get_open_hold_remaining_s()
+        self.countdownSignal.emit(int(next_node), time.time() + remaining)
+        if remaining > 0:
+            print(f"[Measurements] ⏳ La grilla sigue con el nodo {next_node} en {remaining:.1f} s.")
+        if self._hold_timer is None:
+            self._hold_timer = QTimer(self)
+            self._hold_timer.setSingleShot(True)
+            self._hold_timer.setTimerType(Qt.TimerType.PreciseTimer)
+            self._hold_timer.timeout.connect(self._on_hold_elapsed)
+        self._hold_timer.start(int(remaining * 1000) + 20)
+
+    @_stage
+    def _on_hold_elapsed(self):
+        continuation = self._hold_continuation
+        if continuation is None:
+            return
+        if self._halted("la espera de \"Cerrar todos\""):
+            self._hold_continuation = None
+            return
+        remaining = get_open_hold_remaining_s()
+        if remaining > 0:
+            self._hold_timer.start(int(remaining * 1000) + 20)
+            return
+        self._hold_continuation = None
+        continuation()
+
+    def _cancel_hold_wait(self):
+        self._hold_continuation = None
+        if self._hold_timer is not None:
+            try:
+                self._hold_timer.stop()
+            except Exception:
+                pass
+
     @pyqtSlot(list)
+    def on_trace_data(self, data: list):
+        """Tick de la traza (`data_printingSignal`, con el modo en `data[-1]`), en el hilo de este worker (R4-17
+        fase 2, DEC-045). La traza vive en el mismo hilo, así que la conexión es directa: el criterio decide dentro
+        del tick y la parada de la traza es sincrónica. Antes pasaba por el hilo GUI, y un tick encolado detrás de la
+        decisión podía volver a decidir el nodo o caer en el siguiente (P-1)."""
+        if not data or data[-1] != self.mode_arg:
+            return
+        self.grid_trace_detect(data[:-1])
+
+    @pyqtSlot(list)
+    @_stage
     def grid_trace_detect(self, data: list):
         # ANOM-MEASURE-02: renueva el watchdog en cada muestra mientras el obturador
         # está abierto — antes, ninguna llamada en el loop de impresión lo renovaba, así
@@ -2330,11 +3161,22 @@ class Backend(QObject):
         # de estados se enterara (queda esperando un salto que ya no puede ocurrir hasta
         # el timeout por `elapsed > effective_tmax`). Sin timeout_s explícito: respeta la
         # política global configurada en el dock de Shutters (no la hardcodea a 30.0).
+        #
+        # Primera línea, antes del latido (R4-17 fase 3): un nodo ya decidido no se vuelve a decidir (P-1), y un
+        # nodo cortado (Pausa, "Cerrar todos", watchdog, interlock: la época cambió) no lo decide el criterio:
+        # queda "interrupted" y no vuelve a latir.
+        if self._node_decided:
+            return
+        cut = self._interruption_cause()
+        if cut is not None:
+            self._finalize_interrupted_node(cut)
+            return
         heartbeat_shutter()
         self.ptr      = data[0]
         self.timeaxis = data[1]
         self.data1    = data[2]
         self.data_BS  = data[6] if len(data) > 6 else data[5]
+        self._append_node_trace(self.ptr, self.data1, self.data_BS)
 
         # Lectura integrada de ventana móvil para I_old (baseline) e I_new (señal evento)
         if len(data) >= 6:
@@ -2406,6 +3248,8 @@ class Backend(QObject):
         effective_tmax = getattr(self, "effective_timemax", self.timemax) if getattr(self, "is_healing_pass", False) else self.timemax
 
         if should_stop or (I_new < I_old * self.umbral_down) or (elapsed > effective_tmax):
+            self._node_decided = True
+            self._node_t_open = None
             self.grid_trace_stopSignal.emit()
             close_shutter(self.laser)
             self.timer_real = round(elapsed, 2)
@@ -2439,7 +3283,10 @@ class Backend(QObject):
             self.grid_detectSignal.emit()
 
     @pyqtSlot()
+    @_stage
     def grid_scan(self):
+        if self._halted("el escaneo posterior"):
+            return
         if self.scanbool and self.mode_arg == "printing":
             up_flipper(); time.sleep(1)
             self.number_scan = "none"
@@ -2448,19 +3295,41 @@ class Backend(QObject):
             self._grid_detect()
 
     def _grid_center_scan(self):
+        if self._halted("el escaneo de centrado"):
+            return
         up_flipper(); time.sleep(0.5)  # Conmutar estrictamente a BAJA potencia para el escaneo 2D de centrado
         self.number_scan = "center_scan"
         self.grid_scanSignal.emit(self.laser, self.mode_printing, self.number_scan)
 
     @pyqtSlot(np.ndarray, list, np.ndarray, np.ndarray, str, str)
+    @_stage
     def on_scan_finished(self, image: np.ndarray, center_mass: list,
                           image_gone: np.ndarray, image_back: np.ndarray,
                           mode: str, number_scan: str):
         if mode != self.mode_arg:
             return
+        if self._halted(f"el fin del escaneo ({number_scan})"):
+            if number_scan == "drift_scan":
+                self._pending_restore = self._step_snap   # se repite al reanudar, después de restituir
+            return                               # una corrección que llega en pausa no se aplica
 
         if number_scan == "drift_scan":
+            # Validez y topes ANTES de aplicar (R4-17 fase 5, DEC-050): un escaneo oscuro o cortado no mueve el ancla
+            # ni la velocidad de deriva (el centro de masa del ruido umbralizado cae cerca del centro del escaneo)
+            cut = self._step_cut()
+            if cut:
+                self._step_invalid("deriva", cut)
+                return
             if center_mass and len(center_mass) >= 2:
+                verdict, pixel = self._check_drift(image, center_mass)
+                if not verdict.ok:
+                    self._step_rejected("deriva", verdict.reason, always_pause=verdict.always_pause)
+                    return
+                if self._drift_ref is None:
+                    amp, width = spot_amplitude_width(np.asarray(image, dtype=float), pixel or (1.0, 1.0))
+                    self._drift_ref = DriftReference(amp, width)
+                self._last_drift_t = time.time()
+                self._step_rejections.pop((int(self.i_global), "deriva"), None)
                 # Actualizar posición absoluta real del ancla (Partícula 0)
                 self.startX = float(center_mass[0])
                 self.startY = float(center_mass[1])
@@ -2500,7 +3369,7 @@ class Backend(QObject):
             time.sleep(0.1)
             up_flipper(); time.sleep(0.5)  # Mantener flipper en baja potencia para el autofoco in-situ
             print(f"[Measurements] 🔍 [Etapa 3/4] Disparando Autofoco Z in-situ en nodo {self.i_global} ({target_insitu_x:.3f}, {target_insitu_y:.3f}) µm...")
-            self.grid_autofocusSignal.emit(self.mode_printing)
+            self._emit_autofocus()
             return
 
         # Si estamos en Modo 3, procesar reescalado de confocal raw
@@ -2549,7 +3418,10 @@ class Backend(QObject):
                 self._grid_detect()
 
     @pyqtSlot()
+    @_stage
     def grid_finish(self):
+        if self._halted("el escaneo posterior del dímero"):
+            return
         if self.postscanbool:
             up_flipper(); time.sleep(1)
             self.number_scan = "post_scan"
@@ -2612,6 +3484,7 @@ class Backend(QObject):
 
         files = sorted(files, key=_sort_key)
         rows = []
+        interrupted_rows = []    # expuestos sin decisión (R4-17 fase 3): no entran en las estadísticas del criterio
         for file_p in files:
             try:
                 base = os.path.basename(file_p)
@@ -2620,6 +3493,7 @@ class Backend(QObject):
 
                 # Leer tag de encabezado si fue Healing Pass
                 tag = "Primary Pass"
+                first_line = ""
                 try:
                     with open(file_p, "r", encoding="utf-8") as hf:
                         first_line = hf.readline()
@@ -2627,6 +3501,10 @@ class Backend(QObject):
                             tag = "Healing Pass (Retry)"
                 except Exception:
                     pass
+                if "INTERRUPTED" in first_line:
+                    interrupted_rows.append({"node": node_idx, "header": first_line.strip().lstrip("#").strip(),
+                                             "tag": tag})
+                    continue
 
                 data = np.loadtxt(file_p, unpack=True)
                 if data.ndim < 2 or data.shape[1] == 0:
@@ -2743,7 +3621,13 @@ class Backend(QObject):
                     f.write(f"  * Éxito en Pase Primario:          {primary_success}/{len(primary_rows)} ({primary_success/max(1,len(primary_rows))*100:.1f}%)\n")
                     f.write(f"  * Nodos Reintentados (Healing):    {len(healing_rows)}\n")
                     f.write(f"  * Recuperados en Healing Pass:     {healing_success}/{len(healing_rows)} ({healing_success/max(1,len(healing_rows))*100:.1f}%)\n")
-                f.write(f"- Timeouts / Sin Salto Finales:      {total_cnt - success_cnt} ({100.0 - success_rate:.1f}%)\n\n")
+                f.write(f"- Timeouts / Sin Salto Finales:      {total_cnt - success_cnt} ({100.0 - success_rate:.1f}%)\n")
+                if interrupted_rows:
+                    f.write(f"- Nodos Interrumpidos (en revisión): {len(interrupted_rows)} — fuera de estas estadísticas: "
+                            f"estuvieron expuestos sin decisión del criterio\n")
+                    for r in interrupted_rows:
+                        f.write(f"  * {r['node']:03d}: {r['header']}\n")
+                f.write("\n")
 
                 f.write(f"- Tiempo Raw Promedio <t_raw>:   {np.mean(t_raw_vals):.3f} ± {np.std(t_raw_vals):.3f} s  (Min: {np.min(t_raw_vals):.3f} s, Max: {np.max(t_raw_vals):.3f} s)\n")
                 f.write(f"- Tiempo Step Promedio <t_step>: {np.mean(t_step_vals):.3f} ± {np.std(t_step_vals):.3f} s  (Min: {np.min(t_step_vals):.3f} s, Max: {np.max(t_step_vals):.3f} s)\n")
@@ -2815,6 +3699,8 @@ class Backend(QObject):
         })
 
     def _grid_detect(self):
+        if self._halted("el paso al nodo siguiente"):
+            return
         # Si estamos ejecutando el pase de autocompletitud (Healing Pass)
         if getattr(self, "is_healing_pass", False):
             self.healing_index_in_queue += 1
@@ -2826,6 +3712,10 @@ class Backend(QObject):
             # Fin del pase principal: verificar si se activa Healing Pass para nodos no impresos
             if getattr(self, "auto_complete_enabled", False):
                 failed_nodes = [idx for idx, status in self.node_results.items() if status == "timeout"]
+                if self.confirm_cfg.enabled:
+                    to_confirm = [idx for idx, status in self.node_results.items() if status == INTERRUPTED]
+                    self._confirm_pending = set(to_confirm)
+                    failed_nodes = sorted(set(failed_nodes) | set(to_confirm))
                 if failed_nodes:
                     print(f"[Healing Pass] 🔄 Iniciando reintento de {len(failed_nodes)} nodos no impresos: {failed_nodes}")
                     self.is_healing_pass = True
@@ -2848,6 +3738,8 @@ class Backend(QObject):
         Posiciona en el nodo, evalúa la necesidad de corrección de deriva XY en P0 (cada N partículas),
         realiza autofoco in-situ en el sitio exacto y activa la traza con tiempo extendido (+10s).
         """
+        if self._halted("el Healing Pass"):
+            return
         if not getattr(self, "healing_failed_queue", None) or self.healing_index_in_queue >= len(self.healing_failed_queue):
             print("[Healing Pass] 🎉 Todos los nodos del pase de autocompletitud han sido procesados.")
             self.is_healing_pass = False
@@ -2873,7 +3765,7 @@ class Backend(QObject):
             pi.MOV([1, 2], [self.startX, self.startY])
             time.sleep(0.05)
             up_flipper(); time.sleep(0.5)
-            self.grid_autofocusSignal.emit(self.mode_printing)
+            self._emit_autofocus()
         else:
             target_x = self.grid_x[self.i_global] + self.startX
             target_y = self.grid_y[self.i_global] + self.startY
@@ -2882,9 +3774,13 @@ class Backend(QObject):
             self.autofocus_stage = "insitu_autofocus"
             up_flipper(); time.sleep(0.5)
             print(f"[Healing Pass] 🔍 Autofoco in-situ en nodo {self.i_global} ({target_x:.3f}, {target_y:.3f}) µm...")
-            self.grid_autofocusSignal.emit(self.mode_printing)
+            self._emit_autofocus()
 
     def _finalize_grid_measurement(self):
+        set_routine_running(f"grilla {self.mode_arg}", False)
+        self.run_state = GridRunState.FINISHED
+        self.run_state = GridRunState.IDLE
+        self._cancel_hold_wait()
         finished_folder = getattr(self, 'new_folder', self.old_folder)
         self.file_path = self.old_folder
         self.mode_printing = "none"
@@ -2934,6 +3830,7 @@ class Backend(QObject):
             })
 
     @pyqtSlot()
+    @_stage
     def grid_pause(self):
         try: close_shutter(self.laser); self.grid_trace_stopSignal.emit()
         except Exception: pass
@@ -2943,10 +3840,22 @@ class Backend(QObject):
         except Exception: pass
         self.is_paused = True
         self.mode_printing = "none"
+        self._cancel_hold_wait()
+        if self.t_halt is None:
+            self.t_halt = _monotonic()
+        if self.run_state == GridRunState.RUNNING:
+            self.run_state = GridRunState.PAUSED
+        # Una Pausa durante la exposición deja el nodo "interrupted" (H7; respuesta 1 del 2026-10-02): no se
+        # reexpone al reanudar.
+        if self._node_t_open is not None and not self._node_decided:
+            self._finalize_interrupted_node(PAUSE_CAUSE)
         print(f"[Measurements] ⏸️ Impresión pausada en nodo {self.i_global}. Presione 'Play ►' para reanudar.")
 
     @pyqtSlot()
     def grid_next_index(self):
+        if self._stopped():
+            print("[Measurements] ⛔ Parada de emergencia: 'siguiente índice' no mueve hasta Rearmar.")
+            return
         self.i_global += 1
         self.indexSignal.emit(self.i_global)
         self._grid_move()
@@ -2963,27 +3872,78 @@ class Backend(QObject):
             return
         self.i_global = new_index
 
+    # ── Traza completa del nodo ───────────────────────────────────────────────
+
+    def _reset_node_trace(self):
+        """Historial de la traza del nodo en curso, para el NP_xxx.txt. La traza emite en cada tick sólo las
+        últimas SEND_WINDOW muestras (ANOM-TRACE-02): el criterio usa esa ventana, pero el archivo tiene que llevar
+        el nodo entero, como el legado. Antes se guardaba la ventana con un eje de tiempo de `ptr` puntos, y en una
+        impresión de más de SEND_WINDOW ticks (≈ 70–95 s) los largos no coincidían y el archivo no se escribía."""
+        self._node_pd: list = []
+        self._node_bs: list = []
+        self._node_seen = 0
+
+    def _append_node_trace(self, count: int, pd_window, bs_window):
+        """Agrega al historial sólo las muestras nuevas del tick: `count` es el contador de la traza del nodo (se
+        reinicia en cada nodo) y las ventanas terminan en esa muestra."""
+        new = int(count) - int(self._node_seen)
+        if new <= 0:
+            return
+        pd_w = np.atleast_1d(np.asarray(pd_window, dtype=float)).ravel()   # ventana o muestra suelta
+        bs_w = np.atleast_1d(np.asarray(bs_window, dtype=float)).ravel()
+        k = min(new, len(pd_w), len(bs_w))
+        if k < new:
+            print(f"[Measurements] ⚠️ Traza del nodo {self.i_global}: faltan {new - k} muestras entre ticks.")
+        if k > 0:
+            self._node_pd.extend(float(v) for v in pd_w[-k:])
+            self._node_bs.extend(float(v) for v in bs_w[-k:])
+        self._node_seen = int(count)
+
+    def _node_trace_columns(self):
+        """(t, PD, BS) del nodo entero con el mismo largo. El tiempo es el eje sintético del legado,
+        linspace(0.01, t_real, n), que es lo que leen los análisis existentes."""
+        n = min(len(self._node_pd), len(self._node_bs))
+        t = list(np.linspace(0.01, self.timer_real, n)) if n else []
+        return t, self._node_pd[:n], self._node_bs[:n]
+
     # ── Guardado ──────────────────────────────────────────────────────────────
 
     def _save_trace(self):
         ts   = f"NP_{int(self.i_global):03d}"
         name = os.path.join(self.new_folder, f"{ts}.txt")
-        t    = list(np.linspace(0.01, self.timer_real, self.ptr))
+        t, pd_full, bs_full = self._node_trace_columns()
 
         status_val = self.node_results.get(self.i_global, "UNKNOWN")
         is_healing = getattr(self, "is_healing_pass", False)
+
+        if status_val == INTERRUPTED:
+            meta = self.node_meta.get(self.i_global)
+            cause = meta.cause if meta is not None else "?"
+            pass_tag = " - Healing Pass - Retry" if is_healing else ""
+            hdr_status = f"INTERRUPTED ({cause}, t_exp = {self.timer_real:.1f} s){pass_tag}"
+            hdr = f"Status: {hdr_status}\nTime_s\tPhotodiode_V\tPhotodiode_BS_V"
+            np.savetxt(name, np.column_stack([t, pd_full, bs_full]) if t
+                       else np.empty((0, 3)), fmt="%.3e", header=hdr)
+            if getattr(self, "h5_container", None):
+                try:
+                    self.h5_container.add_node_data(node_idx=self.i_global, status=status_val,
+                                                    t_print=self.timer_real)
+                except Exception as e:
+                    print(f"[HDF5 Warning] Error al registrar el nodo interrumpido {self.i_global}: {e}")
+            return
 
         hdr_status = f"SUCCESS (Healing Pass - Retry, t_print={self.timer_real:.2f}s)" if (is_healing and status_val == "success") else \
                      (f"TIMEOUT (Healing Pass - Retry, t_print={self.timer_real:.2f}s)" if (is_healing and status_val != "success") else \
                      (f"SUCCESS (Primary Pass, t_print={self.timer_real:.2f}s)" if status_val == "success" else f"TIMEOUT (Primary Pass, t_print={self.timer_real:.2f}s)"))
 
         hdr = f"Status: {hdr_status}\nTime_s\tPhotodiode_V\tPhotodiode_BS_V"
-        np.savetxt(name, np.transpose([t, self.data1, self.data_BS]), fmt="%.3e", header=hdr)
+        np.savetxt(name, np.column_stack([t, pd_full, bs_full]) if t else np.empty((0, 3)),
+                   fmt="%.3e", header=hdr)
 
         # Registro en Contenedor Científico HDF5 (.h5)
         if getattr(self, "h5_container", None):
             try:
-                trace_matrix = np.column_stack([t, self.data1, self.data_BS])
+                trace_matrix = np.column_stack([t, pd_full, bs_full]) if t else np.empty((0, 3))
                 self.h5_container.add_node_data(
                     node_idx=self.i_global,
                     trace=trace_matrix,
@@ -3020,15 +3980,10 @@ class Backend(QObject):
             except Exception:
                 pass
 
-            if arr_tr.dtype != np.uint8 and arr_tr.dtype != np.uint16:
-                arr_min = float(np.min(arr_tr))
-                arr_max = float(np.max(arr_tr))
-                rng = max(1e-9, arr_max - arr_min)
-                arr_norm = (arr_tr - arr_min) / rng
-                arr_uint = (arr_norm * 65535).astype(np.uint16)
-            else:
-                arr_uint = arr_tr
-            Image.fromarray(arr_uint).save(os.path.join(folder, f"{suffix}.tiff"))
+            # TIFF crudo en float32, como el legado (Printing_ps.py:800-816). Antes se normalizaba a uint16 por
+            # imagen sin guardar el mínimo ni el máximo, y se perdía la intensidad absoluta (DEC-054).
+            arr_tif = arr_tr if arr_tr.dtype in (np.uint8, np.uint16) else np.asarray(arr_tr, dtype=np.float32)
+            Image.fromarray(np.ascontiguousarray(arr_tif)).save(os.path.join(folder, f"{suffix}.tiff"))
 
     def _save_rescaled_scan(self, image_scaled: np.ndarray):
         ts   = f"NPscan_rescaled_{int(self.i_global):03d}"

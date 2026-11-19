@@ -720,14 +720,25 @@ class PySpectrumCalibrationPort:
         return blockers, warnings
 
     def begin(self) -> Optional[str]:
+        from core.nidaq import RoutineWatchdogLease
         from pyspectrum.services.spectrometer_shutter import open_spectrometer_shutter
         r = open_spectrometer_shutter(self.camera, self.spectrometer)
-        return None if r.ok else f"El obturador del espectrómetro no abrió: {r.detail}"
+        if not r.ok:
+            return f"El obturador del espectrómetro no abrió: {r.detail}"
+        # La calibración es una rutina del watchdog de rutinas mientras dura (DEC-052).
+        self._wd = RoutineWatchdogLease("calibración de λ")
+        self._wd.begin()
+        return None
 
     def end(self) -> None:
         from pyspectrum.services.spectrometer_shutter import close_spectrometer_shutter
-        self.set_laser(False)
-        close_spectrometer_shutter(self.camera, self.spectrometer)
+        try:
+            self.set_laser(False)
+            close_spectrometer_shutter(self.camera, self.spectrometer)
+        finally:
+            wd = getattr(self, "_wd", None)
+            if wd is not None:
+                wd.end()
 
     def tick(self) -> None:
         self._tick()

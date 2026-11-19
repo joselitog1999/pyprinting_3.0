@@ -12,6 +12,12 @@ import tempfile
 import numpy as np
 from typing import Tuple, Dict, Any, Optional
 import pandas as pd
+import importlib.util
+import pytest
+
+# picasso es opcional (requirements-opcional.txt): sin él, estos tests se saltean en vez de fallar.
+requires_picasso = pytest.mark.skipif(importlib.util.find_spec("picasso") is None,
+                                      reason="picasso no está instalado (requirements-opcional.txt)")
 
 # Asegurar que el directorio raíz esté en sys.path
 _curr = Path(__file__).resolve().parent
@@ -320,6 +326,7 @@ def test_localization_pipeline_coordinates():
             os.remove(tmp_csv)
 
 
+@requires_picasso
 def test_picasso_autoscale_and_inversion():
     """Verifica el auto-escalado dinámico a 16-bit y la inversión en Picasso."""
     from core.localization_pipeline import localize_picasso
@@ -380,6 +387,7 @@ def test_roi_filter_logic():
     assert list(filtered['x']) == [50.0, 100.0, 250.0]
 
 
+@requires_picasso
 def test_benchmark_30x30_500_file():
     """Verifica la metrología real con el archivo confocal reserva/30x30_500.tiff si existe."""
     sample_file = "reserva/30x30_500.tiff"
@@ -495,6 +503,7 @@ def test_cluster_detection_and_resolution():
     assert len(df_com) == 25  # Se fusionan las 2 partículas en 1 en su centro de masa
 
 
+@requires_picasso
 def test_reserva_30x30_500_vacancies_and_consistency():
     """Valida la consistencia física y ausencia de vacancias espurias fuera de grilla en 30x30_500.tiff."""
     sample_file = Path(__file__).resolve().parent.parent / "reserva" / "30x30_500.tiff"

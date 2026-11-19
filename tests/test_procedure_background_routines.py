@@ -197,7 +197,9 @@ def lum(tmp_path, monkeypatch):
 
 
 def _grid_cfg(laser, **kw):
-    c = {"laser": laser, "exp_time": 0.02, "autofocus_every": 5, "save_dir": "", "mirror": "up"}
+    # una exposición por nodo, sin centrado ni autofoco: no hace falta el satélite (DEC-054)
+    c = {"laser": laser, "exp_time": 0.02, "autofocus_every": 0, "center_enabled": False, "minimap_enabled": False,
+         "save_dir": "", "mirror": "up"}
     c.update(kw)
     return c
 

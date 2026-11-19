@@ -104,3 +104,21 @@ def test_frontend_get_data_uses_received_array_length_not_global_counter(app):
     x_data, y_data = frontend.curve_L1.getData()
     assert x_data is not None and len(x_data) == 1000, \
         "Debe recortar a las últimas SHOW=1000 muestras usando la longitud real recibida"
+
+
+# ── Calibración de potencia en el BS (paridad legado, 2026-11-19) ───────────
+
+def test_power_bs_calibration_is_saved_like_the_legacy(app, tmp_path):
+    """"set Calibration" de la ventana Power in BS calculaba la pendiente y la ordenada y no las guardaba
+    (`set_calibration_bs` estaba vacío). El legado escribe Calibration_Power<YYYYmmdd-HHMMSS>.txt en la carpeta
+    de datos: encabezado y tres líneas (láser, pendiente en mW/V, ordenada en mW)."""
+    backend = trace_mod.Backend()
+    backend.file_path = str(tmp_path)
+    backend.laser1 = "532 nm (green)"
+    backend.set_calibration_bs(3.25, 0.125)
+
+    files = list(tmp_path.glob("Calibration_Power*.txt"))
+    assert len(files) == 1, "Se escribe un archivo Calibration_Power<ts>.txt"
+    lines = files[0].read_text(encoding="utf-8").splitlines()
+    assert lines == ["# Laser, Slope (mW/V), Intercept (mW)", "532 nm (green)", "3.25", "0.125"]
+    assert backend.calibration_bs == (3.25, 0.125)
