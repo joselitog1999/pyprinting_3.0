@@ -1950,6 +1950,7 @@ class Backend(QObject):
         self.timeaxis: list  = []
         self.data1: list     = []
         self.data_BS: list   = []
+        self._reset_node_trace()
         self.timer_real     = 0.0
         self.timer_inicio   = 0.0
 
@@ -2977,6 +2978,7 @@ class Backend(QObject):
         self._node_decided = False
         self.exposed.add((int(self.i_global), self._attempt()))
         self.ptr, self.timeaxis, self.data1, self.data_BS = 0, [], [], []   # la traza de ESTE nodo
+        self._reset_node_trace()
         time.sleep(0.01)
         self.timer_inicio = time.time()
         self.hold_counter = 0
@@ -3036,7 +3038,9 @@ class Backend(QObject):
             print(f"[Measurements] ⚠️ Cierre del nodo interrumpido: {e}")
         i = self.i_global
         self.timer_real = round(t_exp, 2)
-        early = [float(v) for v in list(self.data1)[:5]]
+        # Las primeras muestras del NODO (el historial), no de la ventana: pasadas SEND_WINDOW muestras, la
+        # ventana ya no empieza en la apertura.
+        early = [float(v) for v in (self._node_pd or list(self.data1))[:5]]
         self.node_plateau[i] = float(np.median(early)) if early else None
         self.node_results[i] = INTERRUPTED
         self.node_meta[i] = NodeMeta(str(cause), float(t_exp), int(get_close_epoch().epoch),
@@ -3172,6 +3176,7 @@ class Backend(QObject):
         self.timeaxis = data[1]
         self.data1    = data[2]
         self.data_BS  = data[6] if len(data) > 6 else data[5]
+        self._append_node_trace(self.ptr, self.data1, self.data_BS)
 
         # Lectura integrada de ventana móvil para I_old (baseline) e I_new (señal evento)
         if len(data) >= 6:
@@ -3867,12 +3872,46 @@ class Backend(QObject):
             return
         self.i_global = new_index
 
+    # ── Traza completa del nodo ───────────────────────────────────────────────
+
+    def _reset_node_trace(self):
+        """Historial de la traza del nodo en curso, para el NP_xxx.txt. La traza emite en cada tick sólo las
+        últimas SEND_WINDOW muestras (ANOM-TRACE-02): el criterio usa esa ventana, pero el archivo tiene que llevar
+        el nodo entero, como el legado. Antes se guardaba la ventana con un eje de tiempo de `ptr` puntos, y en una
+        impresión de más de SEND_WINDOW ticks (≈ 70–95 s) los largos no coincidían y el archivo no se escribía."""
+        self._node_pd: list = []
+        self._node_bs: list = []
+        self._node_seen = 0
+
+    def _append_node_trace(self, count: int, pd_window, bs_window):
+        """Agrega al historial sólo las muestras nuevas del tick: `count` es el contador de la traza del nodo (se
+        reinicia en cada nodo) y las ventanas terminan en esa muestra."""
+        new = int(count) - int(self._node_seen)
+        if new <= 0:
+            return
+        pd_w = np.atleast_1d(np.asarray(pd_window, dtype=float)).ravel()   # ventana o muestra suelta
+        bs_w = np.atleast_1d(np.asarray(bs_window, dtype=float)).ravel()
+        k = min(new, len(pd_w), len(bs_w))
+        if k < new:
+            print(f"[Measurements] ⚠️ Traza del nodo {self.i_global}: faltan {new - k} muestras entre ticks.")
+        if k > 0:
+            self._node_pd.extend(float(v) for v in pd_w[-k:])
+            self._node_bs.extend(float(v) for v in bs_w[-k:])
+        self._node_seen = int(count)
+
+    def _node_trace_columns(self):
+        """(t, PD, BS) del nodo entero con el mismo largo. El tiempo es el eje sintético del legado,
+        linspace(0.01, t_real, n), que es lo que leen los análisis existentes."""
+        n = min(len(self._node_pd), len(self._node_bs))
+        t = list(np.linspace(0.01, self.timer_real, n)) if n else []
+        return t, self._node_pd[:n], self._node_bs[:n]
+
     # ── Guardado ──────────────────────────────────────────────────────────────
 
     def _save_trace(self):
         ts   = f"NP_{int(self.i_global):03d}"
         name = os.path.join(self.new_folder, f"{ts}.txt")
-        t    = list(np.linspace(0.01, self.timer_real, self.ptr))
+        t, pd_full, bs_full = self._node_trace_columns()
 
         status_val = self.node_results.get(self.i_global, "UNKNOWN")
         is_healing = getattr(self, "is_healing_pass", False)
@@ -3882,10 +3921,8 @@ class Backend(QObject):
             cause = meta.cause if meta is not None else "?"
             pass_tag = " - Healing Pass - Retry" if is_healing else ""
             hdr_status = f"INTERRUPTED ({cause}, t_exp = {self.timer_real:.1f} s){pass_tag}"
-            n = min(len(self.data1), len(self.data_BS))
-            t = list(np.linspace(0.01, self.timer_real, n)) if n else []
             hdr = f"Status: {hdr_status}\nTime_s\tPhotodiode_V\tPhotodiode_BS_V"
-            np.savetxt(name, np.column_stack([t, list(self.data1)[:n], list(self.data_BS)[:n]]) if n
+            np.savetxt(name, np.column_stack([t, pd_full, bs_full]) if t
                        else np.empty((0, 3)), fmt="%.3e", header=hdr)
             if getattr(self, "h5_container", None):
                 try:
@@ -3900,12 +3937,13 @@ class Backend(QObject):
                      (f"SUCCESS (Primary Pass, t_print={self.timer_real:.2f}s)" if status_val == "success" else f"TIMEOUT (Primary Pass, t_print={self.timer_real:.2f}s)"))
 
         hdr = f"Status: {hdr_status}\nTime_s\tPhotodiode_V\tPhotodiode_BS_V"
-        np.savetxt(name, np.transpose([t, self.data1, self.data_BS]), fmt="%.3e", header=hdr)
+        np.savetxt(name, np.column_stack([t, pd_full, bs_full]) if t else np.empty((0, 3)),
+                   fmt="%.3e", header=hdr)
 
         # Registro en Contenedor Científico HDF5 (.h5)
         if getattr(self, "h5_container", None):
             try:
-                trace_matrix = np.column_stack([t, self.data1, self.data_BS])
+                trace_matrix = np.column_stack([t, pd_full, bs_full]) if t else np.empty((0, 3))
                 self.h5_container.add_node_data(
                     node_idx=self.i_global,
                     trace=trace_matrix,

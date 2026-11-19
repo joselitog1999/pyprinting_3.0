@@ -199,6 +199,7 @@ Fuentes (locales en `docs/bibliografia/` salvo que se indique):
 | BANCO-71 | La llave del láser como única parada física | C-01 Ronda 4, R4-17 | Sin accionar nada | ☐ |
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
+| BANCO-73 | ¿El Growth del legado (REC Kinetics) funciona en el banco? | Paridad legado ↔ 3.0 (2026-11-19) | Legado, tapa puesta, sin láser | ☐ |
 
 ---
 
@@ -417,6 +418,21 @@ estable si la prueba adquiere datos.
 - **Resultado (2026-09-28, premisa):** en la sesión del legado, el Shamrock tiene
   `ShamrockGetNumberPixels = 1002` y `ShamrockGetPixelWidth = 8.0` µm, mientras que la cámara tiene
   1004 columnas. La premisa de `SW-004` queda confirmada; falta la medición con la lámpara.
+
+### ☐ BANCO-73 — ¿El Growth del legado (REC Kinetics) funciona en el banco?
+- **Origen**: revisión de paridad legado ↔ 3.0 (2026-11-19). El investigador no sabe si funciona.
+- **Por qué importa**: decide si la rutina de crecimiento de 3.0 copia lo que el legado **hace** o lo que
+  **quería** hacer. Leyendo el código, con pylablib 1.4.3 el REC Kinetics debería fallar:
+  `StepandGlue_ps.py:1646, 1653` asignan `self.myAndor.set_acquisition_mode = 'kinetic'` como atributo, lo que
+  tapa el método; `setup_kinetic_mode` de pylablib lo llama por dentro (`AndorSDK2.py:750`) y recibiría un
+  string (`TypeError`). Además `read_newst_image` (`:1672`) no existe en pylablib 1.4.3.
+- **Procedimiento** (cámara con la tapa puesta, **sin láser**, Solis cerrado): en el legado, pestaña
+  "Measurment spectrum", exposición 0.1 s, "Number of Kinetics Serial" 20, pulsar "REC/STOP Kinetics".
+  Anotar el traceback de la consola si aparece, y si se crea la carpeta `<ts>_Kinetics_Liveview_Spectrum` con
+  los `Line_Spectrum_step_####.txt`. En la consola del legado anotar también
+  `import pylablib; pylablib.__version__` y la ruta de `StepandGlue_ps.py` que corre.
+- **Aceptación**: cualquier resultado sirve; se anota.
+- **Resultado**: —
 
 ---
 

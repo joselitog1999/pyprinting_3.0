@@ -128,3 +128,59 @@ def test_grid_change_index_applies_when_idle(app):
     backend.grid_change_index(12)
 
     assert backend.i_global == 12, "Debe aplicar el cambio cuando no hay impresión activa"
+
+
+# ── NP_xxx.txt con la traza completa del nodo (paridad legado, 2026-11-19) ───
+
+def _feed_like_trace(backend, pd, bs):
+    """Emite los ticks como modules/trace.py: el tick n lleva el contador n y sólo las últimas SEND_WINDOW
+    muestras (ANOM-TRACE-02)."""
+    from modules.trace import SEND_WINDOW
+    t = np.arange(len(pd)) * 0.047
+    for n in range(1, len(pd) + 1):
+        sl = slice(max(0, n - SEND_WINDOW), n)
+        backend.grid_trace_detect([n, t[sl], pd[sl], np.zeros(n)[sl], 1.0, 1.0, bs[sl], 1.0])
+
+
+def test_np_file_keeps_the_whole_trace_of_a_long_print(app, tmp_path):
+    """Una impresión de más de SEND_WINDOW ticks (≈ 70–95 s) guardaba sólo la ventana final y el eje de tiempo
+    con el contador total: los largos no coincidían y el NP_xxx.txt no se escribía (ValueError). El legado
+    guarda la traza entera del nodo."""
+    from modules.trace import SEND_WINDOW
+    backend = meas_mod.Backend(mode="printing")
+    backend.timer_inicio = time.time()
+    backend._reset_node_trace()
+    n = SEND_WINDOW + 500
+    pd = np.linspace(1.0, 2.0, n)
+    bs = np.linspace(0.5, 0.6, n)
+    _feed_like_trace(backend, pd, bs)
+
+    backend.new_folder = str(tmp_path)
+    backend.i_global = 3
+    backend.timer_real = round(n * 0.047, 2)
+    backend.node_results = {3: "success"}
+    backend._save_trace()
+
+    saved = np.loadtxt(tmp_path / "NP_003.txt")
+    assert saved.shape == (n, 3), "El NP_xxx.txt lleva todas las muestras del nodo, no sólo la ventana final"
+    np.testing.assert_allclose(saved[:, 1], pd, rtol=1e-3)
+    np.testing.assert_allclose(saved[:, 2], bs, rtol=1e-3)
+
+
+def test_node_trace_history_restarts_with_each_node(app, tmp_path):
+    backend = meas_mod.Backend(mode="printing")
+    backend.timer_inicio = time.time()
+    backend._reset_node_trace()
+    _feed_like_trace(backend, np.full(30, 9.0), np.full(30, 9.0))
+    backend._reset_node_trace()                       # el nodo siguiente
+    _feed_like_trace(backend, np.full(12, 1.0), np.full(12, 0.5))
+
+    backend.new_folder = str(tmp_path)
+    backend.i_global = 4
+    backend.timer_real = 0.6
+    backend.node_results = {4: "success"}
+    backend._save_trace()
+
+    saved = np.loadtxt(tmp_path / "NP_004.txt")
+    assert saved.shape == (12, 3)
+    assert np.all(saved[:, 1] == 1.0), "Ninguna muestra del nodo anterior"

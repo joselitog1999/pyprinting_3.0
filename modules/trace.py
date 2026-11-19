@@ -644,7 +644,18 @@ class Backend(QObject):
 
     @pyqtSlot(float, float)
     def set_calibration_bs(self, slope: float, intercept: float):
-        pass
+        """Guarda la calibración de potencia de la ventana Power in BS como el legado (Trace_ps.py,
+        save_calibration_BS): Calibration_Power<YYYYmmdd-HHMMSS>.txt en la carpeta de datos, con el encabezado
+        "Laser, Slope (mW/V), Intercept (mW)" y una línea por valor. Antes este slot estaba vacío."""
+        self.calibration_bs = (float(slope), float(intercept))
+        laser = getattr(self, "laser1", None) or (SHUTTERS[0] if SHUTTERS else "")
+        name = os.path.join(self.file_path, f"Calibration_Power{time.strftime('%Y%m%d-%H%M%S')}.txt")
+        try:
+            np.savetxt(name, [str(laser), f"{float(slope):g}", f"{float(intercept):g}"], fmt="%s",
+                       header="Laser, Slope (mW/V), Intercept (mW)", encoding="utf-8")
+            print(f"[Trace] Calibración de potencia guardada: {name}")
+        except OSError as e:
+            print(f"[Trace] ⚠️ No se pudo guardar la calibración de potencia en {name}: {e}")
 
     # ── Adquisición periódico ─────────────────────────────────────────────────
 
