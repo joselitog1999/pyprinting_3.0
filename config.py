@@ -56,10 +56,10 @@ PI_SERIAL    = "0119048050"
 PI_AXES      = [1, 2, 3]
 PI_HOME_POS  = [50.0, 50.0, 10.0]
 PI_STAGE_RANGE_UM = 100.0          # recorrido X e Y en lazo cerrado
-# Recorrido Z en lazo cerrado (DEC-036). La platina declarada es una PI P-517.3CD, cuya hoja de
-# datos da 100 x 100 x 20 µm; antes se acotaba Z a 100 µm como X e Y. Se adopta la cota más
-# restrictiva hasta confirmar con el propio controlador (qTMN/qTMX, prueba BANCO-17): un límite
-# más estricto sólo puede rechazar movimientos, nunca dañar nada.
+# Recorrido Z en lazo cerrado (DEC-036). La platina es una PI P-517.3CD: 100 x 100 µm en X e Y
+# (confirmado por el investigador el 2026-11-19; BANCO-17 respondida) y 20 µm en Z según su hoja de
+# datos. Antes se acotaba Z a 100 µm como X e Y; un límite más estricto sólo puede rechazar
+# movimientos, nunca dañar nada.
 PI_Z_RANGE_UM = 20.0
 PI_AXIS_RANGE_UM = {1: PI_STAGE_RANGE_UM, 2: PI_STAGE_RANGE_UM, 3: PI_Z_RANGE_UM}
 
@@ -277,6 +277,42 @@ def _close_shutters_for_stage(reason: str, trip: bool) -> None:
         print(f"[PI] No se pudieron cerrar los obturadores tras la falla de la platina: {e}")
 
 
+# Tope de la espera on-target del home explícito (DEC-053). El home recorre a lo sumo ~50 µm, que la
+# P-517 hace en milisegundos; es el mismo tope de 3 s que tenía el home al conectar.
+PI_HOME_TIMEOUT_S = 3.0
+
+
+def _go_home(stage, timeout_s: float | None = None) -> bool:
+    """Lleva la platina a PI_HOME_POS (DEC-053). Es la única acción que la manda a home: conectar y
+    soltar la platina ya no la mueven.
+
+    1. Cierra todos los obturadores y exige la confirmación de la placa: si no se confirma el cierre,
+       no mueve (DEC-036; el home recorre decenas de µm).
+    2. Manda el MOV, que respeta la parada de emergencia (`_motion_held`), el recorrido de cada eje y
+       el rechazo con la platina desconectada.
+    3. Espera la confirmación on-target con tope. Devuelve True sólo si la platina confirmó que llegó;
+       antes, el home al conectar la daba por llegada a los 3 s aunque no hubiera llegado."""
+    timeout = PI_HOME_TIMEOUT_S if timeout_s is None else float(timeout_s)
+    try:
+        from core import nidaq
+        closed = bool(nidaq.close_all_shutters())
+    except Exception as e:
+        print(f"[PI] Home cancelado: no se pudieron cerrar los obturadores ({e}).")
+        return False
+    if not closed:
+        print("[PI] Home cancelado: la placa no confirmó el cierre de los obturadores.")
+        return False
+    if stage.MOV(PI_AXES, list(PI_HOME_POS)) is False:
+        print("[PI] Home rechazado (platina desconectada o parada de emergencia activa).")
+        return False
+    ok = wait_on_target(PI_AXES, timeout_s=timeout, stage=stage)
+    if ok:
+        print(f"[PI] Platina en home {list(PI_HOME_POS)} µm.")
+    else:
+        print(f"[PI] Home sin confirmación on-target en {timeout:.1f} s.")
+    return ok
+
+
 class _MockPI:
     """
     Simula la platina PI E-517.
@@ -371,6 +407,9 @@ class _MockPI:
     def VCO(self, *a, **k):  pass
     def ONL(self, *a, **k):  pass
     def DCO(self, *a, **k):  pass
+
+    def go_home(self, timeout_s: float | None = None) -> bool:
+        return _go_home(self, timeout_s)
 
     def qIDN(self): return "PI E-517 [MOCK]"
 
@@ -477,18 +516,14 @@ class _PIController:
                 except Exception as enum_err:
                     print(f"[PI] Aviso al enumerar USB PI: {enum_err}")
 
-                # 4. Conectar al controlador seleccionado. Antes de mandar la platina a home,
-                # cerrar todos los obturadores: el home mueve decenas de µm (DEC-036).
+                # 4. Conectar al controlador seleccionado. Conectar NO mueve la platina (DEC-053):
+                # se lee la posición y queda donde está; el home es la acción aparte go_home().
+                # Los obturadores se cierran igual antes de encender el servo (DEC-036): si el
+                # servo diera un salto al encenderse (BANCO-19), ningún láser está abierto.
                 self._dev.ConnectUSB(conn_target)
-                _close_shutters_for_stage("conexión de la platina (home)", trip=False)
+                _close_shutters_for_stage("conexión de la platina", trip=False)
                 self._dev.SVO(PI_AXES, [True] * 3)
                 self._dev.VCO(PI_AXES, [False] * 3)
-                self._dev.MOV(PI_AXES, PI_HOME_POS)
-                t_start = time.time()
-                while not all(self._dev.qONT(PI_AXES).values()):
-                    time.sleep(0.01)
-                    if time.time() - t_start > 3.0:
-                        break
                 self._connected = True
                 # Sincronizar posición leída
                 try:
@@ -525,15 +560,14 @@ class _PIController:
             return getattr(self, "_last_error", "")
 
     def disconnect(self) -> None:
-        import time
+        """Suelta el USB sin mover la platina (DEC-053; antes la mandaba a (0, 0, 0)). El servo
+        queda encendido en la controladora, sosteniendo la posición."""
         with self._lock:
             if not self._connected or self._dev is None:
                 self._connected = False
                 return
             _close_shutters_for_stage("desconexión de la platina", trip=False)
             try:
-                self._dev.MOV(PI_AXES, [0, 0, 0])
-                time.sleep(0.05)
                 self._dev.CloseConnection()
             except Exception as e:
                 print(f"[PI] Error al desconectar: {e}")
@@ -568,8 +602,8 @@ class _PIController:
     def _stage_fault(self, reason: str) -> None:
         """Pérdida de comunicación con una platina que ESTABA conectada (DEC-036): se declara
         desconectada, se cierran los obturadores y se activa el interlock. No se reconecta:
-        eso lo decide el operador desde el Dashboard, y connect() cierra los obturadores antes
-        del home. El legado nunca se desconectaba; si pasa, es un evento a investigar."""
+        eso lo decide el operador desde el Dashboard; connect() cierra los obturadores y no mueve
+        la platina (DEC-053). El legado nunca se desconectaba; si pasa, es un evento a investigar."""
         self._connected = False
         self._last_error = reason
         print(f"[PI] FALLA DE COMUNICACIÓN: {reason}. Platina declarada desconectada; obturadores "
@@ -651,8 +685,8 @@ class _PIController:
                     self._dev.MOV(axes_list, targets_list)
                 except Exception as e:
                     if _is_stage_comm_error(e):
-                        # Sin reconexión automática (DEC-036): una reconexión llama a connect(),
-                        # que manda la platina a home a mitad de la rutina y con el láser abierto.
+                        # Sin reconexión automática (DEC-036): reconectar lo decide el operador,
+                        # con los obturadores cerrados y la rutina pausada.
                         self._stage_fault(f"MOV falló ({e})")
                     else:
                         # Rechazo del firmware: la conexión sigue viva, el comando no se ejecutó.
@@ -673,6 +707,10 @@ class _PIController:
             # rutina que dependa del movimiento abortará al no confirmarse on-target.
             print(f"[PI] MOV rechazado: platina desconectada {dict(zip(axes_list, targets_list))}")
             return False
+
+    def go_home(self, timeout_s: float | None = None) -> bool:
+        """Home explícito (DEC-053): ver `_go_home`."""
+        return _go_home(self, timeout_s)
 
     def qIDN(self):
         """Identificación leída una vez al conectar. No consulta el bus: el *IDN? en cada lectura

@@ -1808,6 +1808,53 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * `BANCO-16` and `BANCO-71` become essential: with no deadline on manual operation, the laser key is the stop if the program hangs.
 * **Outcome:** **ACCEPTED** (full-suite result in the commit).
 
+### DEC-053: Connecting or Releasing the PI Stage Does Not Move It — Home Is an Explicit Button (2026-11-19)
+* **Context:**
+  * The researcher asked that opening the launcher, or a program launched from it, take no instrument automatically, except PySpectrum and the Camera suite. The goal is to keep instruments free for other programs and to keep the data bus unoccupied.
+  * The survey of what each program opens:
+    * the launcher, the Láser 532 window, the Hardware Dashboard and the analysers open nothing at start;
+    * the Canon camera connects only with its button, in the right microscope and in the Camera suite;
+    * the Andor camera and the Shamrock are opened only by PySpectrum;
+    * the right microscope and the counter-propagating microscope connect the stage and the NI board at start.
+  * The researcher's answers (Round 1):
+    * the stage and the NI board keep connecting automatically, because no other program uses them;
+    * the shutter lines are out of scope;
+    * PySpectrum keeps connecting everything at start.
+  * What remained was a side effect of connecting. `pi.connect()` sent the stage home to (50, 50, 10) µm, and `disconnect()` sent it to (0, 0, 0). Every connect, and every operator "Reconectar" (dock, Dashboard re-scan, the grid's "Reconectar y Reanudar"), moved the sample tens of µm.
+  * The researcher chose "no se mueve": connecting and releasing leave the stage where it is, and home becomes a separate button.
+  * Two defects of the old home-on-connect also go away:
+    * it waited only 3 s for on-target and then marked the stage connected whether or not it had arrived;
+    * it sent the MOV without checking that the shutters had confirmed closed.
+* **Decision (engine, `config.py`):**
+  * `_PIController.connect()`:
+    * opens the USB, closes the shutters (`DEC-036`, kept in case switching the servo on jolts the stage), switches the servo on and VCO off;
+    * **reads the position** into the cache, sends no `MOV`, and releases the stage interlock as before.
+  * `_PIController.disconnect()`: closes the shutters and the USB **without moving**. The servo stays on in the controller, holding the position.
+  * New `go_home(timeout_s=PI_HOME_TIMEOUT_S)` on `_PIController` and `_MockPI`, through `config._go_home`. It is the only path to `PI_HOME_POS`:
+    1. closes all shutters and requires the board's confirmation, or does not move;
+    2. sends the `MOV`, which honours the E-STOP motion hold, the per-axis travel clamp and the refusal when disconnected;
+    3. waits for on-target with `PI_HOME_TIMEOUT_S` = 3 s and returns `False` if the stage did not confirm.
+  * **Unchanged:**
+    * no automatic reconnection (`DEC-036`);
+    * the USB device selection by serial;
+    * PySpectrum's close-time question to park the stage at home (`pyspectrum/services/shutdown.py`), which is an explicit, confirmed action.
+* **Decision (GUI, `core/nanopositioning.py`):**
+  * A "⌂ Home (50, 50, 10) µm" button sits next to "🔌 Reconectar" in the Nanopositioning dock, which also appears in PySpectrum.
+  * It is wired once even though the frontend and backend connect to each other in both directions.
+  * It follows the same enabling rule as the other motion controls (`set_actuators_enabled`). Its tooltip says it closes the shutters first and that connecting no longer moves the stage.
+  * `Backend.go_home()` treats an unconfirmed home like any unconfirmed move.
+  * The Dashboard's re-scan tooltip and confirmation no longer announce a home.
+* **Tests (`tests/test_pi_stage_resilience.py`):**
+  * connect sends no `MOV`, closes the shutters before the servo, reads the position and clears the interlock;
+  * disconnect sends no `MOV`;
+  * `go_home` closes the shutters before the `MOV` and does not move without a confirmed close;
+  * `go_home` returns `False` when the stage does not arrive, when the E-STOP holds motion, or when the stage is disconnected;
+  * the mock goes home;
+  * the dock button runs one home and is disabled with the other actuators;
+  * the grid's reconnect-and-resume makes no home move.
+* **Bench:** `BANCO-19` adds a check that switching the servo on at connect does not jolt the stage (lasers off).
+* **Outcome:** **ACCEPTED**.
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

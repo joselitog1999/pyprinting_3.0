@@ -120,7 +120,7 @@ class HardwareDashboardWidget(QFrame):
         self.btn_rescan.setToolTip(
             "Re-escanea y reconecta los instrumentos del perfil. Reinicia la cámara Andor (su enfriador "
             "se apaga y tarda minutos en volver a −60 °C) y reconecta la platina PI si su conexión se "
-            "había perdido, lo que la lleva a home (50, 50, 10) µm. Pide confirmación.")
+            "había perdido; conectar no la mueve (DEC-053). Pide confirmación.")
         self.btn_rescan.clicked.connect(self._confirm_rescan)
 
         self.btn_clear_log = QPushButton("🧹 Limpiar Bitácora")
@@ -333,7 +333,7 @@ class HardwareDashboardWidget(QFrame):
             self, "Reescanear el hardware",
             "Reescanear reconecta los instrumentos del perfil:\n\n"
             "• la cámara Andor se reinicia: su enfriador se apaga y tarda minutos en volver a −60 °C;\n"
-            "• la platina PI, si su conexión se había perdido, se reconecta y va a home (50, 50, 10) µm.\n\n"
+            "• la platina PI, si su conexión se había perdido, se reconecta sin moverse (DEC-053).\n\n"
             "Se rechaza si hay una rutina en curso o una E-STOP activa. ¿Continuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         if answer == QMessageBox.StandardButton.Yes:

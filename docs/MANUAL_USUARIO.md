@@ -12,6 +12,7 @@
 
 0. [Biblioteca de Fundamentos Físicos, Electrodinámica y Nanomateriales](#0-biblioteca-de-fundamentos-físicos-electrodinámica-y-nanomateriales)
 1. [Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")](#1-panel-de-inicio-principal-mainpy--bienvenidos-al-printing)
+   - [1.0 Instalación y arranque en la PC del banco](#10-instalación-y-arranque-en-la-pc-del-banco)
    - [1.1 Visión General, Filosofía de Diseño y Arquitectura Multihilo](#11-visión-general-filosofía-de-diseño-y-arquitectura-multihilo)
    - [1.2 Selección Global de Modo Seguro (`SAFE_MODE`) vs. Modo Laboratorio Real](#12-selección-global-de-modo-seguro-safe_mode-vs-modo-laboratorio-real)
    - [1.3 Navegación e Índice de Módulos en Grilla Simétrica $3 \times 3$](#13-navegación-e-índice-de-módulos-en-grilla-simétrica-3-times-3)
@@ -62,6 +63,59 @@
 
 ## 1. Panel de Inicio Principal (`main.py` — "Bienvenidos al printing")
 
+### 1.0 Instalación y arranque en la PC del banco
+
+**Requisitos del sistema** (se instalan una vez, fuera de Python):
+
+| Requisito | Para qué | Si falta |
+| :--- | :--- | :--- |
+| Windows 10/11 de 64 bits | todo | — |
+| **Python 3.11 de 64 bits** (python.org, con el lanzador `py`) | pylablib 1.4.3 trae la extensión de la cámara Andor sólo para 3.11, como el entorno del legado | la cámara Andor no se importa |
+| Driver **NI-DAQmx** | placa PCIe-6353 (`Dev1`): obturadores, flippers, fotodiodos, traza | sólo funciona el modo seguro |
+| Software de **PI** (DLL GCS2, `PI_GCS2_DLL_x64.dll`) | controladora E-517 de la platina | la platina no conecta |
+| **Andor Solis** en `C:\Program Files\Andor SOLIS` | la DLL de la cámara que carga pylablib (`atmcd64d_legacy.dll`, la misma que el legado) y `SPECTROG.INI` del Shamrock | la cámara no conecta; el Shamrock arranca sin su INI |
+| Driver USB de Canon | cámara réflex (EDSDK, incluido en `ESDK_CANON/`) | la Suite de Cámara no ve la réflex |
+
+Las DLL del Shamrock (`ShamrockCIF.dll`, `atshamrock.dll`) vienen en el repositorio, en
+`pyspectrum/drivers/libs/Windows/64/`, y son las mismas que usa el legado.
+
+**Instalar o actualizar** (desde la carpeta del repositorio):
+```powershell
+git pull
+powershell -ExecutionPolicy Bypass -File tools\install\instalar.ps1 -AccesoDirecto
+```
+El instalador no abre ningún instrumento. Hace lo siguiente:
+1. busca Python 3.11 de 64 bits;
+2. crea `.venv`, o lo reutiliza si ya es 3.11;
+3. instala `requirements.txt` y después `pylablib==1.4.3` con `--no-deps`, porque sus dependencias `pyft232` y PyQt5 rompen el entorno;
+4. quita `pyft232` y PyQt5 si quedaron de antes;
+5. comprueba que se importe cada módulo, incluida la cámara Andor;
+6. revisa los requisitos de la tabla y avisa los que faltan;
+7. con `-AccesoDirecto`, crea **PyPrinting 3.0** en el Escritorio;
+8. guarda las versiones en `logs\instalacion_<fecha>.log`, con el commit, la versión del driver NI-DAQmx y `pip freeze`. Es lo que pide BANCO-23.
+
+Con `-Opcional` instala además picasso (localización sub-píxel en la Suite de Cámara). Si el instalador
+termina con **FALLA**, no abrir los programas en modo laboratorio: revisar el informe.
+
+**Iniciar:** con el acceso directo o con `iniciar_pyprinting.bat`, que abre `main.py` con `.venv`. Antes de
+abrir PySpectrum 3.0, cerrar Andor Solis y el PySpectrum legado: la cámara y el Shamrock se abren desde un
+solo programa por vez.
+
+**Variables de entorno** (opcionales; en el banco, normalmente ninguna):
+
+| Variable | Valor por defecto | Uso |
+| :--- | :--- | :--- |
+| `PYPRINTING_SAFE` | `0` (hardware real) | `1` = modo seguro. La pone el lanzador según su casilla (§1.2) |
+| `PYSPECTRUM_ANDOR_BACKEND` | `pylablib` | **No definirla en el banco.** `ctypes` elige el driver propio, fuera de uso (BANCO-23) |
+| `PYSPECTRUM_ANDOR_DLL_DIR` | la búsqueda de pylablib (Andor Solis) | carpeta de otra DLL de la cámara |
+| `PYSPECTRUM_CALIBRATION_PATH` | `%LOCALAPPDATA%\PyPrinting\pyspectrum\shamrock_calibration.jsonl` | archivo de calibraciones del Shamrock |
+| `PYPRINTING_DETECTION_MIRROR_STATE` | junto al archivo de calibraciones | estado del espejo de detección entre sesiones |
+| `PYPRINTING_LEGACY_MIRROR_STATUS` | sin definir | archivos de estado del espejo de los legados, sólo informativos (BANCO-64) |
+| `PYSPECTRUM_ROUTINE_DATA_DIR` | `Documentos\Data_PySpectrum` | carpeta de datos de las rutinas de PySpectrum |
+
+Los datos de PyPrinting van a `C:\Users\PRINTING\Documents\Data_Printing` si esa carpeta existe; si no,
+a `Documentos\Data_Printing` del usuario.
+
 ### 1.1 Visión General, Filosofía de Diseño y Arquitectura Multihilo
 La suite **PyPrinting 3.0** está construida sobre una arquitectura modular desacoplada basada en **Python 3 / PyQt6** y **`pyqtgraph`**. Para evitar cuelgues de la interfaz gráfica durante operaciones de hardware de alta frecuencia (como el escaneo por rampa a $10\ \text{kHz}$ o la transmisión de video réflex), la aplicación utiliza un patrón **Frontend / Backend** con hilos dedicados (`QThread` y `moveToThread`).
 
@@ -79,7 +133,7 @@ graph TD
     App --> UIThread[Hilo Principal GUI PyQt6]
     App --> WorkerThread[Hilo de Control Backend QThread]
 
-    WorkerThread --> PI[Platina Piezo PI E-517/E-736]
+    WorkerThread --> PI[Platina Piezo PI E-517 / P-517.3CD]
     WorkerThread --> NIDAQ[Tarjeta NI-DAQmx Dev1 1.0 MS/s]
     WorkerThread --> Canon[Canon EOS EDSDK 64-bit 25 FPS]
 ```
@@ -94,8 +148,8 @@ En la barra superior del panel principal **`main.py`** se encuentra el selector 
   - Genera ruido gaussiano síncrono con pulsos sintéticos de trigger para simular perfiles confocales 2D/3D y trazas temporales.
   - Habilita una cámara sintética basada en patrones fotónicos móviles para probar la interfaz gráfica sin instrumentos físicos.
 * **Modo Laboratorio Real (`PYPRINTING_SAFE=0`)**:
-  - Inicializa la comunicación por socket C/DLL con la controladora PI E-517/E-736.
-  - Conecta la tarjeta **National Instruments PCIe-6323 / USB-6343** (Dispositivo `Dev1`).
+  - Inicializa la comunicación con la controladora PI E-517 (platina P-517.3CD) por USB, con la DLL GCS2 de PI.
+  - Conecta la tarjeta **National Instruments PCIe-6353** (Dispositivo `Dev1`).
   - Abre la sesión nativa **Canon EDSDK v13.x** para la cámara réflex.
 
 ---
@@ -263,7 +317,7 @@ El desplazamiento óptimo en Z corresponde al máximo de $r(z)$, garantizando en
 > [!NOTE] Especificación Formal de Cinemática y Metadatos
 > Para la deducción matricial completa de las transformaciones afines y la sincronización inter-módulos, consultar el reporte canónico **`[[SYS-103_Regimenes_Coordenadas_e_Invariancia_Cinematica]]`**.
 
-En la plataforma **PyPrinting 3.0**, la muestra se encuentra montada sobre una platina piezoeléctrica triaxial Physik Instrumente (PI E-517/E-736, rango $0.0 - 100.0\ \mu\text{m}$), mientras que el haz láser focalizado se mantiene estático en el espacio del laboratorio.
+En la plataforma **PyPrinting 3.0**, la muestra se encuentra montada sobre una platina piezoeléctrica triaxial Physik Instrumente (controladora PI E-517, platina P-517.3CD: $0$–$100\ \mu\text{m}$ en X e Y, $0$–$20\ \mu\text{m}$ en Z), mientras que el haz láser focalizado se mantiene estático en el espacio del laboratorio.
 
 #### 1. Cinemática de Movimiento Relativo (Muestra vs. Láser)
 Cuando la platina desplaza mecánicamente la muestra con velocidad $\mathbf{v}_{\text{sample}}$, el punto focal del láser respecto al sustrato se mueve con velocidad exactamente opuesta:
@@ -434,13 +488,14 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
 * **Telemetría y Estado Físico en Tiempo Real**:
   - `🟢 PI Física (SN: 0119048050)`: La controladora física responde activamente mediante health-check periódico basado en el estado de conexión en memoria del lado del host, sin saturar el bus USB con consultas de identidad (`*IDN?`) repetidas durante movimiento activo.
   - `🟡 Modo Virtual (Desconectada)`: Advierte explícitamente si el hardware está apagado o desconectado. Con la platina desconectada, los movimientos **se rechazan** (consola: `[PI] MOV rechazado: platina desconectada ...`): no hay desplazamiento simulado en silencio. El movimiento virtual (`[PI VIRTUAL] MOV ...`) existe sólo si el operador aisló la platina a propósito desde el Tablero de Hardware.
-  - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas. Al conectar, el programa **cierra todos los obturadores antes** de llevar la platina a la posición de inicio.
+  - **Botón `🔌 Reconectar` Directo**: Permite inicializar la conexión física en caliente tras encender la controladora E-517 en la mesa óptica, sin necesidad de reiniciar la aplicación ni perder el plano focal ni el origen de coordenadas. Al conectar, el programa **cierra todos los obturadores**, enciende el servo y **lee la posición: la platina no se mueve** (`DEC-053`). Desconectar tampoco la mueve.
+  - **Botón `⌂ Home (50, 50, 10) µm`**: es la única acción que lleva la platina a la posición de inicio. Cierra todos los obturadores y no mueve si la placa no confirma el cierre, si la platina está desconectada o con la parada de emergencia activa; avisa si la platina no confirma la llegada. Se deshabilita junto con los demás controles de movimiento.
 
 > [!NOTE]
 > **Resiliencia ante rechazos de comando (`SYS-205`)**: un intento de mover la platina a una coordenada fraccionalmente fuera de su recorrido — $0$–$100\ \mu\text{m}$ en X e Y, $0$–$20\ \mu\text{m}$ en Z (platina P-517.3CD) — por ejemplo por una corrección de deriva acumulada, **no** provoca una desconexión: el driver recorta el valor al límite del eje y sigue operando. Una colisión transitoria de lectura durante un movimiento se reintenta automáticamente y no conmuta el indicador por sí sola.
 
 > [!CAUTION]
-> **Pérdida real de comunicación con la platina (`DEC-036`).** Si la comunicación con la controladora se pierde de verdad (cable USB, alimentación), el programa **no reconecta solo**: reconectar lleva la platina a la posición de inicio, y eso no puede ocurrir a mitad de una rutina. En cambio, declara la platina desconectada, **cierra todos los obturadores y no permite abrir ninguno** hasta que el operador reconecte con `🔌 Reconectar` (o `🔌 Reconectar y Reanudar` en Mediciones). La rutina en curso se detiene: los escaneos confocales se abortan y la impresión de grillas se pausa. En el legado esto nunca ocurrió: si pasa, anótelo antes de seguir.
+> **Pérdida real de comunicación con la platina (`DEC-036`).** Si la comunicación con la controladora se pierde de verdad (cable USB, alimentación), el programa **no reconecta solo**: reconectar es una decisión del operador, con los obturadores cerrados y la rutina detenida. En cambio, declara la platina desconectada, **cierra todos los obturadores y no permite abrir ninguno** hasta que el operador reconecte con `🔌 Reconectar` (o `🔌 Reconectar y Reanudar` en Mediciones). La rutina en curso se detiene: los escaneos confocales se abortan y la impresión de grillas se pausa. En el legado esto nunca ocurrió: si pasa, anótelo antes de seguir.
 * **Perfil de Conexión de Inicio (`pyprinting`)**:
   - Al abrir `PyPrinting 3.0` (`app.py`), el sistema aísla el bus USB activando únicamente la **Platina PI** y la **Tarjeta NI-DAQmx**. Los periféricos pesados (cámara réflex Canon y espectrómetros Andor) se mantienen desconectados por defecto y en espera de activación bajo demanda, garantizando un arranque ultrarrápido y previniendo colisiones de puertos USB.
 
@@ -615,7 +670,7 @@ Qué hace el sistema automáticamente, sin intervención del operador, en el ins
 
 Qué debe hacer el operador al ver este diálogo:
 1. Verificar físicamente el cable USB y la alimentación eléctrica de la controladora PI E-517.
-2. Presionar el botón **`🔌 Reconectar y Reanudar`** del propio diálogo. La reconexión lleva la platina a la posición de inicio **con los obturadores cerrados** y libera el bloqueo.
+2. Presionar el botón **`🔌 Reconectar y Reanudar`** del propio diálogo. La reconexión **no mueve la platina** (`DEC-053`): cierra los obturadores, libera el bloqueo y la grilla vuelve directo al nodo pendiente.
 3. Si la reconexión es exitosa, el experimento **continúa automáticamente desde la partícula exacta donde se detuvo** — no es necesario, ni recomendable, volver a crear o cargar la grilla, ni presionar `Play ►` de nuevo.
 4. Si la reconexión falla (el mensaje se repite), revisar la conexión física nuevamente antes de reintentar.
 
@@ -1014,8 +1069,8 @@ Para operar de forma coordinada con el Microscopio Contrapropagante ([`contrapro
    - Los botones de detención y guardado confocal permanecen activos.
 5. **Telemetría Continua**: Las lecturas en vivo de posición XYZ de la platina PI y la señal del fotodiodo vía NI-DAQmx continúan transmitiéndose sin colisiones de hilos.
 6. **PyPrinting y el contrapropagante como huéspedes (paso 13, `DEC-040`; R4-J):** el contrapropagante abierto desde PySpectrum tampoco conecta la platina al abrirse. Lo siguiente vale para PyPrinting. El PyPrinting que se abre desde el menú de PySpectrum usa la platina, las tareas de la placa y el espejo de detección de PySpectrum, pero no los administra:
-   - al abrirse **no conecta la platina** (conectarla la mandaría a home y liberaría su interlock) ni cambia el perfil de hardware. Si PySpectrum no tiene la platina conectada, el satélite la ve desconectada;
-   - al cerrarlo, cierra los obturadores, guarda la posición y detiene su cámara Canon. **No desconecta la platina**, que en PyPrinting suelto la lleva a (0, 0, 0), y tampoco cierra las tareas de la placa ni mueve el espejo;
+   - al abrirse **no conecta la platina** (es del anfitrión, y conectarla liberaría su interlock) ni cambia el perfil de hardware. Si PySpectrum no tiene la platina conectada, el satélite la ve desconectada;
+   - al cerrarlo, cierra los obturadores, guarda la posición y detiene su cámara Canon. **No desconecta la platina**, que es del anfitrión, y tampoco cierra las tareas de la placa ni mueve el espejo;
    - si se lo vuelve a abrir, se crea uno nuevo.
 
    PyPrinting suelto (`python app.py`) sigue igual que antes.

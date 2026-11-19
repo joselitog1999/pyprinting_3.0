@@ -11,10 +11,12 @@ Verifica:
      sigue viva) de una falla de comunicación (cualquier otra excepción, o GCSError con código
      negativo o no numérico).
   3. DEC-036: ante una falla de comunicación la platina se declara desconectada, se cierran los
-     obturadores y se activa el interlock "Platina PI". No hay reconexión automática: una
-     reconexión manda la platina a home a mitad de la rutina.
+     obturadores y se activa el interlock "Platina PI". No hay reconexión automática: la decide
+     el operador.
   4. qONT() nunca inventa un on-target: ante cualquier falla informa False.
-  5. connect() cierra los obturadores antes del home y es la acción que libera el interlock.
+  5. DEC-053: connect() cierra los obturadores antes de encender el servo, NO mueve la platina (lee
+     su posición) y es la acción que libera el interlock; disconnect() no la mueve; go_home() es el
+     único home: exige el cierre confirmado, respeta la parada de emergencia y confirma on-target.
   6. config.wait_on_target() confirma la llegada con tope de tiempo y nunca sigue como si la
      platina hubiera llegado.
   7. modules/measurements.py::Backend: pre-flight de rango, pausa ante pérdida de comunicación
@@ -101,14 +103,18 @@ class _FakeGCSDevice:
         if self.log is not None:
             self.log.append("ConnectUSB")
 
-    def SVO(self, *a, **k): pass
+    def SVO(self, *a, **k):
+        if self.log is not None:
+            self.log.append("SVO")
+
     def VCO(self, *a, **k): pass
 
     def IsConnected(self):
         return True
 
     def CloseConnection(self):
-        pass
+        if self.log is not None:
+            self.log.append("CloseConnection")
 
 
 def _make_connected_controller() -> tuple[_PIController, _FakeGCSDevice]:
@@ -331,10 +337,13 @@ class TestPIControllerResilience(_StageInterlockGuard):
         self.assertFalse(ctrl.connected)
         self.assertInterlock(True)
 
-    def test_connect_closes_shutters_before_homing(self):
+    def test_connect_does_not_move_the_stage(self):
+        """DEC-053: conectar lee la posición y deja la platina donde está. Los obturadores se cierran
+        antes de encender el servo y la conexión libera el interlock."""
         log = []
         fake_dev = _FakeGCSDevice()
         fake_dev.log = log
+        fake_dev._pos = {"1": 12.5, "2": 34.0, "3": 5.25}
         ctrl = _PIController()
         ctrl._dev = fake_dev
         real_close = config_mod._close_shutters_for_stage
@@ -344,10 +353,111 @@ class TestPIControllerResilience(_StageInterlockGuard):
             self.assertTrue(ctrl.connect())
         finally:
             config_mod._close_shutters_for_stage = real_close
-        self.assertIn("MOV", log)
-        self.assertLess(log.index("cerrar"), log.index("MOV"), "Obturadores cerrados ANTES del home")
+        self.assertEqual(fake_dev.mov_calls, [], "Conectar no manda ningún MOV (DEC-053)")
+        self.assertLess(log.index("cerrar"), log.index("SVO"), "Obturadores cerrados ANTES del servo")
+        self.assertEqual(ctrl._pos, {1: 12.5, 2: 34.0, 3: 5.25}, "Posición leída, no supuesta en home")
         self.assertEqual(ctrl._idn, "PI E-517 [FAKE]")
         self.assertInterlock(False)
+
+    def test_disconnect_does_not_move_the_stage(self):
+        """DEC-053: soltar la platina cierra los obturadores y el USB, sin mandarla a (0, 0, 0)."""
+        ctrl, fake_dev = _make_connected_controller()
+        log = []
+        fake_dev.log = log
+        real_close = config_mod._close_shutters_for_stage
+        config_mod._close_shutters_for_stage = lambda reason, trip: log.append("cerrar")
+        try:
+            ctrl.disconnect()
+        finally:
+            config_mod._close_shutters_for_stage = real_close
+        self.assertEqual(fake_dev.mov_calls, [], "Soltar no manda ningún MOV (DEC-053)")
+        self.assertEqual(log, ["cerrar", "CloseConnection"])
+        self.assertFalse(ctrl.connected)
+
+
+class TestGoHome(unittest.TestCase):
+    """DEC-053: go_home() es la única acción que manda la platina a PI_HOME_POS."""
+
+    def setUp(self):
+        self.log = []
+        self._real_close = nidaq.close_all_shutters
+        self.close_result = True
+
+        def _close(*a, **k):
+            self.log.append("cerrar")
+            return self.close_result
+        nidaq.close_all_shutters = _close
+
+    def tearDown(self):
+        nidaq.close_all_shutters = self._real_close
+
+    def _ctrl(self):
+        ctrl, fake_dev = _make_connected_controller()
+        fake_dev.log = self.log
+        return ctrl, fake_dev
+
+    def test_closes_shutters_then_moves_home_and_confirms(self):
+        ctrl, fake_dev = self._ctrl()
+        self.assertTrue(ctrl.go_home(timeout_s=0.5))
+        self.assertEqual(fake_dev.mov_calls, [([1, 2, 3], list(config_mod.PI_HOME_POS))])
+        self.assertLess(self.log.index("cerrar"), self.log.index("MOV"), "Obturadores cerrados ANTES del home")
+
+    def test_no_move_without_confirmed_close(self):
+        self.close_result = False
+        ctrl, fake_dev = self._ctrl()
+        self.assertFalse(ctrl.go_home(timeout_s=0.5))
+        self.assertEqual(fake_dev.mov_calls, [], "Sin cierre confirmado no se mueve")
+
+    def test_false_when_stage_does_not_arrive(self):
+        """Antes el home al conectar daba la platina por llegada a los 3 s aunque no hubiera llegado."""
+        ctrl, fake_dev = self._ctrl()
+        fake_dev.on_target = False
+        self.assertFalse(ctrl.go_home(timeout_s=0.05))
+        self.assertEqual(len(fake_dev.mov_calls), 1)
+
+    def test_emergency_stop_holds_the_home(self):
+        ctrl, fake_dev = self._ctrl()
+        real_held = config_mod._motion_held
+        config_mod._motion_held = lambda *a, **k: True
+        try:
+            self.assertFalse(ctrl.go_home(timeout_s=0.5))
+        finally:
+            config_mod._motion_held = real_held
+        self.assertEqual(fake_dev.mov_calls, [], "La parada de emergencia retiene el home")
+
+    def test_disconnected_stage_refuses_the_home(self):
+        ctrl, fake_dev = self._ctrl()
+        ctrl._connected = False
+        self.assertFalse(ctrl.go_home(timeout_s=0.5))
+        self.assertEqual(fake_dev.mov_calls, [])
+
+    def test_mock_stage_goes_home(self):
+        pi.connect()
+        pi.MOV([1, 2, 3], [10.0, 20.0, 3.0])
+        self.assertTrue(pi.go_home(timeout_s=0.5))
+        pos = pi.qPOS()
+        self.assertEqual([pos["1"], pos["2"], pos["3"]], [float(v) for v in config_mod.PI_HOME_POS])
+
+    def test_nanopositioning_home_button_runs_once(self):
+        """El botón Home del dock dispara un solo home aunque frontend y backend se conecten entre sí
+        en los dos sentidos (Frontend.make_connection y Backend.make_connection)."""
+        from core.nanopositioning import Frontend, Backend
+        calls = []
+        real_go_home = pi.go_home
+        pi.go_home = lambda *a, **k: calls.append(1) or True
+        try:
+            fe, be = Frontend(), Backend(connect_stage=False)
+            fe.make_connection(be)
+            be.make_connection(fe)
+            fe.home_button.click()
+            app.processEvents()
+            self.assertEqual(calls, [1])
+            fe.set_actuators_enabled(False)
+            self.assertFalse(fe.home_button.isEnabled(),
+                             "Home sigue la regla de los demás controles de movimiento")
+        finally:
+            pi.go_home = real_go_home
+            fe.deleteLater()
 
 
 class _StubStage:
@@ -485,7 +595,24 @@ class TestStageDisconnectPauseResume(unittest.TestCase):
         self.backend._grid_move()
         self.assertTrue(self.backend.is_paused)
 
-        self.backend.resume_after_reconnect()
+        # DEC-053: reconectar no pasa por home; el único movimiento va al nodo pendiente. Con la platina
+        # real lo garantiza connect() sin MOV (test_connect_does_not_move_the_stage); acá se registra
+        # cada MOV de la reanudación.
+        movs: list = []
+        real_mov = pi.MOV
+
+        def _recording_mov(axes, targets):
+            movs.append((axes, targets))
+            return real_mov(axes, targets)
+        pi.MOV = _recording_mov
+        try:
+            self.backend.resume_after_reconnect()
+        finally:
+            pi.MOV = real_mov
+        home = [float(v) for v in config_mod.PI_HOME_POS]
+        self.assertNotIn(([1, 2, 3], home), [(list(a) if not isinstance(a, int) else [a],
+                                              [float(t) for t in (tg if not isinstance(tg, (int, float)) else [tg])])
+                                             for a, tg in movs], "La reanudación no pasa por home")
 
         self.assertFalse(self.backend.is_paused)
         self.assertEqual(self.backend.mode_printing, "printing")

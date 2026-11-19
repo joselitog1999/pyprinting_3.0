@@ -471,7 +471,7 @@ class Backend(QObject):
 
     def __init__(self, *args, host: HostContext | None = None, **kwargs):
         super().__init__(*args, **kwargs)
-        # Suelto: conecta la platina (home) y fija su perfil, como siempre. Hospedado (paso 13, V2 y V11):
+        # Suelto: conecta la platina (sin moverla, DEC-053) y fija su perfil. Hospedado (paso 13, V2 y V11):
         # ni una cosa ni la otra; si el anfitrión no conectó la platina, el huésped la ve no conectada.
         self.host = host
         self._guest_report: GuestShutdownReport | None = None

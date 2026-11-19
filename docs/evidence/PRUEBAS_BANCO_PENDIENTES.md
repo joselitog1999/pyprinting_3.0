@@ -143,9 +143,9 @@ Fuentes (locales en `docs/bibliografia/` salvo que se indique):
 | BANCO-12 | Imagen 2D con ROI: forma y filas correctas | `DEC-030` | 3.0 en hardware | ☐ |
 | BANCO-13 | Banda de ranura objetivo en Orden Cero | `DEC-031`, `DEC-033` | 3.0 en hardware | ☐ |
 | BANCO-14 | Corrimiento del eje del legado (1002 vs 1004 px) | `SW-004` | Legado y 3.0 + lámpara de calibración | ◐ premisa confirmada |
-| BANCO-15 | Mapeo línea DAQ ↔ servo de cada obturador y polaridad | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
+| BANCO-15 | Mapeo línea DAQ ↔ servo de cada obturador y polaridad | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ◐ procedimiento del operador (2026-11-19) |
 | BANCO-16 | Posición del servo de 532 nm al encender, reiniciar NI y cerrar el programa | `DEC-036` | **Láseres apagados** | ☐ |
-| BANCO-17 | Modelo y recorrido real de la platina (qCST, qTMN/qTMX) | `DEC-036` | PyPrinting cerrado; `tools/bench/pi_stage_probe.py` | ☐ |
+| BANCO-17 | Modelo y recorrido real de la platina (qCST, qTMN/qTMX) | `DEC-036` | PyPrinting cerrado; `tools/bench/pi_stage_probe.py` | ✅ 2026-11-19 (investigador) |
 | BANCO-18 | Aviso de "cierre sin confirmar" ante una falla real de la placa | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
 | BANCO-72 | Watchdog sólo de rutinas: la apertura manual no se corta; una rutina larga sana tampoco | `DEC-052` | **Láseres apagados** | ☐ |
 | BANCO-19 | Pérdida de comunicación con la platina durante una rutina | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
@@ -426,10 +426,18 @@ Requisito común: **todos los láseres apagados** (llave o interlock de emisión
 láser), de modo que abrir un obturador no emita luz. Estas pruebas verifican la lógica de
 control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarlas.
 
-### ☐ BANCO-15 — Mapeo línea DAQ ↔ servo de cada obturador y polaridad
+### ◐ BANCO-15 — Mapeo línea DAQ ↔ servo de cada obturador y polaridad
+- **Pasa a procedimiento del operador (investigador, 2026-11-19).** La polaridad no hace falta
+  conocerla de antemano: se configura por línea (`config.SHUTTER_POLARITY`) y los obturadores son
+  intercambiables. Al instalar o al cambiar un obturador, el operador prueba la polaridad y la fija.
+  No bloquea el despliegue; se hace con los láseres apagados en la misma visita que el resto del
+  Grupo E.
 - **Verifica**: que cada obturador responde a la línea que el código le asigna. `config.py`
   dice 532 nm → `port0/line11` (activo en BAJO), 637 nm → `line8`, 592 nm → `line9`,
   808 nm → `line10`. La documentación anterior decía `line0:3`.
+  - Ojo: la copia de `pyspectrum-legacy` del 2026-08-20 tiene el mapa anterior (`[9, 10, 11, 12]` para
+    532/594/637/808). R2-1 dice que ese era un cableado anterior. Al hacer esta prueba, anotar también qué
+    copia del legado corre en el banco y con qué mapa.
 - **Procedimiento**: desde el panel de obturadores, abrir y cerrar cada uno por separado;
   observar qué servo se mueve y en qué posición queda en cada caso.
 - **Aceptación**: cada casilla mueve su propio servo; "abierto" y "cerrado" coinciden con la
@@ -451,7 +459,9 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
   de 532 nm sólo se enciende con PyPrinting ya iniciado.
 - **Resultado**: posición en (a), (b), (c) y (d).
 
-### ☐ BANCO-17 — Modelo y recorrido real de la platina
+### ✅ BANCO-17 — Modelo y recorrido real de la platina
+- **Respondida (investigador, 2026-11-19):** el recorrido es 100 × 100 µm en X e Y. Z queda en 20 µm
+  según la hoja de datos de la P-517.3CD. La sonda queda como control opcional.
 - **Verifica**: que la platina es la P-517.3CD que declaran README y METACONTEXT (hoja de datos
   de PI: 100 × 100 × 20 µm) y que el límite de 20 µm en Z que adoptó `DEC-036` es el correcto.
 - **Procedimiento**: `python tools\bench\pi_stage_probe.py`, con PyPrinting y PIMikroMove
@@ -490,6 +500,15 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
   controlador E-517 a mitad de camino.
 - **Aceptación**: la rutina se detiene, los obturadores quedan cerrados, la platina no se
   mueve a (50, 50, 10) µm y reconectar requiere una acción del operador desde el Dashboard.
+- **Agregado (`DEC-053`, 2026-11-19): conectar y soltar no mueven la platina.** Con la platina en una
+  posición distinta de home (p. ej. (20, 70, 5) µm):
+  1. pulsar `🔌 Reconectar`: la posición mostrada no cambia y el servo enciende **sin salto** (mirar la
+     imagen en vivo o la posición durante 2 s). Es el supuesto de `DEC-053`: la E-517 toma como destino
+     la posición actual al encender el servo;
+  2. reconectar y reanudar la grilla: la platina va directo al nodo pendiente, sin pasar por home;
+  3. cerrar PyPrinting: la platina queda donde estaba, ya no va a (0, 0, 0);
+  4. pulsar `⌂ Home`: los obturadores se cierran y la platina llega a (50, 50, 10) µm.
+  - Si el servo salta al encenderse, no corregir en el momento: anotar el salto y reabrir `DEC-053`.
 - **Resultado**: —
 
 ---
@@ -555,6 +574,13 @@ obturador ni se mueve nada.
 - **Procedimiento**: en la consola del entorno de PyPrinting, anotar la versión del driver
   NI-DAQmx (NI MAX → Software) y las de `nidaqmx`, `pipython`, `PyQt6` y `numpy`
   (`python -m pip show nidaqmx pipython PyQt6 numpy`). Python ya se sabe: 3.11.13.
+  - **Desde el 2026-11-19 lo hace el instalador**: `tools\install\instalar.ps1` deja en
+    `logs\instalacion_<fecha>.log` el commit, Python, la versión del driver NI-DAQmx, la DLL de PI
+    y `pip freeze`. Basta con pegar ese informe acá.
+  - Las DLL de la cámara y del Shamrock son las que el investigador entregó en el repositorio,
+    compatibles con pylablib (2026-11-19). El `atmcd64d.dll` del repositorio es idéntico byte a byte al
+    de la carpeta del legado. Por defecto pylablib carga `C:\Program Files\Andor SOLIS\atmcd64d_legacy.dll`,
+    igual que el legado; `PYSPECTRUM_ANDOR_DLL_DIR` apunta a otra carpeta si se quiere.
 - **Resultado (2026-09-28, investigador, parcial):**
   - pylablib 1.4.3 en el entorno del legado;
   - el resto, "son las de `requirements.txt`" según el investigador. Queda como dato EXPERIMENTAL
