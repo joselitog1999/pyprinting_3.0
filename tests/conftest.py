@@ -186,11 +186,22 @@ def _isolate_open_hold():
     quedó registrada haría que un "Cerrar todos" posterior retuviera. La época no se toca: es monótona y cada
     consumidor la compara con la que anotó."""
     from core import nidaq
+
+    def _reset_routine_watchdog():
+        # El watchdog de rutinas (DEC-052) también es del proceso: una rutina que quedó registrada haría que la
+        # apertura manual del test siguiente armara un plazo, y un plazo elegido en un test lo heredaría el otro.
+        with nidaq._watchdog_lock:
+            nidaq._watchdog_routines.clear()
+            nidaq._watchdog_deadline = None
+            nidaq._default_timeout_s = 30.0
+
     nidaq._open_hold_until = 0.0
     nidaq._routines_running.clear()
+    _reset_routine_watchdog()
     yield
     nidaq._open_hold_until = 0.0
     nidaq._routines_running.clear()
+    _reset_routine_watchdog()
     # La parada de emergencia (R4-17 fase 4) también es del proceso: un test que la dejó activa rechazaría todas
     # las aperturas y los movimientos de los siguientes. Los participantes que registró se van con él.
     from core import estop_state, emergency_stop

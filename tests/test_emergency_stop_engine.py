@@ -120,7 +120,7 @@ def test_no_opening_requested_after_the_stop_succeeds(coordinator):
     def opener():
         while not stop.is_set():
             t_call = time.monotonic()
-            ok = nidaq.open_shutter(LASER, timeout_s=None)
+            ok = nidaq.open_shutter(LASER)
             calls.append((t_call, ok))
             if ok:
                 nidaq.close_shutter(LASER)
@@ -152,7 +152,7 @@ def test_an_opening_waiting_for_the_board_when_the_stop_arrives_does_not_write()
     th = threading.Thread(target=hang, daemon=True)
     th.start()
     assert held.wait(1.0)
-    opener = threading.Thread(target=lambda: done.append(nidaq.open_shutter(LASER, timeout_s=None)), daemon=True)
+    opener = threading.Thread(target=lambda: done.append(nidaq.open_shutter(LASER)), daemon=True)
     opener.start()
     time.sleep(0.05)                                      # el opener ya pasó la revisión previa y espera
     assert not done
@@ -226,12 +226,15 @@ def test_rearm_fails_with_an_old_generation_and_with_a_busy_routine(coordinator)
 def test_the_heartbeat_does_not_arm_the_watchdog_during_the_stop(coordinator):
     coordinator.trigger("test")
     assert _wait(lambda: nidaq.get_emergency_state().confirmed)
-    nidaq.heartbeat_shutter(30.0)
+    with nidaq.routine_watchdog("test"):                 # el plazo es sólo de las rutinas (DEC-052)
+        nidaq.heartbeat_shutter()
+        assert not nidaq.is_watchdog_armed()
+        _rearm(coordinator)
+        assert nidaq.open_shutter(LASER)
+        nidaq.heartbeat_shutter()
+        assert nidaq.is_watchdog_armed()
+        nidaq.close_shutter(LASER)
     assert not nidaq.is_watchdog_armed()
-    _rearm(coordinator)
-    nidaq.heartbeat_shutter(30.0)
-    assert nidaq.is_watchdog_armed()
-    nidaq.heartbeat_shutter(None)
 
 
 def test_no_stage_move_until_rearm_also_by_hand(coordinator):

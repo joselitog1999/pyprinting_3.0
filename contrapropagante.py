@@ -43,7 +43,11 @@ from config import (pi, SHUTTERS, DEFAULT_DATA_PATH, LAST_POS_FILE, SAFE_MODE,
                     DEFAULT_CONFOCAL_PIXELS_X, DEFAULT_CONFOCAL_PIXELS_Y,
                     DEFAULT_CONFOCAL_FILTER_PERCENT, PI_SERVO_TIME, wait_on_target)
 from nidaq import (open_shutter, close_shutter, close_all_shutters, heartbeat_shutter,
-                   channels_photodiodos, channels_triggers, PD_CHANS_LIST, RATE_MULTICHANNEL)
+                   channels_photodiodos, channels_triggers, PD_CHANS_LIST, RATE_MULTICHANNEL,
+                   RoutineWatchdogLease)
+
+# El escaneo es una rutina del watchdog (DEC-052): se registra al arrancar y se suelta en cada salida.
+_SCAN_WD = RoutineWatchdogLease("escaneo contrapropagante")
 from psf import (center_of_mass, center_of_gauss2D, center_of_donut2D)
 from nanopositioning import Frontend as NanoFrontend, Backend as NanoBackend
 from shutters import Frontend as ShuttersFrontend, Backend as ShuttersBackend
@@ -602,6 +606,7 @@ class ConfocalDualBackend(QObject):
         else:
             configure_fn(self.x_pos)
 
+        _SCAN_WD.begin()
         open_shutter(SHUTTERS[self.top_laser_idx])
         open_shutter(SHUTTERS[self.bot_laser_idx])
         timer.start(0)
@@ -613,6 +618,7 @@ class ConfocalDualBackend(QObject):
             if timer is not None and timer.isActive():
                 timer.stop()
         close_all_shutters()
+        _SCAN_WD.end()
         xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
         yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
         zp = getattr(self, "z_start", getattr(self, "z_pos", 50.0))
@@ -673,6 +679,7 @@ class ConfocalDualBackend(QObject):
             if timer is not None and timer.isActive():
                 timer.stop()
         close_all_shutters()
+        _SCAN_WD.end()
         print("[Contrapropagante] Escaneo ABORTADO por falla de la platina: obturadores cerrados.")
 
     def _wait_axis_settle(self, axes, timeout_s: float = 0.05) -> bool:
@@ -759,6 +766,7 @@ class ConfocalDualBackend(QObject):
         medir CM, volver a la posición de inicio y emitir la señal de fin que corresponda."""
         timer.stop()
         close_all_shutters()
+        _SCAN_WD.end()
         self.measure_CM()
         xp = getattr(self, "x_start", getattr(self, "x_pos", 50.0))
         yp = getattr(self, "y_start", getattr(self, "y_pos", 50.0))
@@ -777,7 +785,7 @@ class ConfocalDualBackend(QObject):
             self._finish_ramp_scan(self.PDtimer_rampxy)
             return
 
-        heartbeat_shutter()  # ANOM-CONFOCAL-02: respeta la política global, no la hardcodea a 30.0
+        heartbeat_shutter()  # DEC-052: latido del escaneo, con el plazo del panel
         dy = self.range_y / self.Ny
         target_y = getattr(self, "y_min", self.y_pos - self.range_y / 2) + dy / 2 + self.i * dy
         pi.MOV(2, target_y)

@@ -83,9 +83,10 @@ def test_grid_trace_detect_renewal_keeps_shutter_open_past_short_global_timeout(
     prev_default = nq.get_default_shutter_timeout()
     laser = nq.SHUTTERS[0]
     idx = nq.SHUTTERS.index(laser)
+    nq.begin_routine_watchdog("grilla de prueba")   # la grilla es una rutina del watchdog (DEC-052)
     try:
         nq.set_default_shutter_timeout(0.3)
-        nq.open_shutter(laser)  # arma el watchdog con la política global (0.3s)
+        nq.open_shutter(laser)  # dentro de la rutina, la apertura arma el plazo (0.3 s)
         assert nq.is_watchdog_armed()
 
         backend = meas_mod.Backend(mode="printing")
@@ -103,6 +104,7 @@ def test_grid_trace_detect_renewal_keeps_shutter_open_past_short_global_timeout(
 
         nq.close_shutter(laser)
     finally:
+        nq.end_routine_watchdog("grilla de prueba")
         nq.set_default_shutter_timeout(prev_default)
 
 

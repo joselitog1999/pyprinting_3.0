@@ -9,7 +9,7 @@ La lógica real solo se instancia si SAFE_MODE = False.
 Confirmación de obturadores (DEC-036): el estado de un obturador es una afirmación que el
 software sólo puede hacer después de que la escritura en la placa haya tenido éxito
 (DEC-014). Un cierre que no se pudo confirmar se trata como un obturador ABIERTO: queda en
-`get_unconfirmed_shutters()`, el watchdog sigue reintentando y se avisa por
+`get_unconfirmed_shutters()`, el hilo del watchdog sigue reintentando y se avisa por
 `register_shutter_fault_callback()`. Fuera de SAFE_MODE no hay simulador de respaldo: una
 tarea DAQmx que no se puede crear deja la placa "no disponible" y activa un interlock que
 bloquea toda apertura de obturadores.
@@ -19,6 +19,7 @@ import time
 import sys
 import atexit
 import threading
+from contextlib import contextmanager
 from enum import Enum
 from typing import Callable, Optional, NamedTuple
 import numpy as np
@@ -161,14 +162,15 @@ _shutter_fault_callbacks: list[Callable[[str, str, bool], None]] = []
 _shutter_interlocks: dict[str, str] = {}
 _DAQ_INTERLOCK = "NI-DAQmx"
 
-# Política global de auto-cierre (SYS-201): fuente única de verdad para el timeout que
-# open_shutter()/heartbeat_shutter() usan cuando se llaman SIN un timeout_s explícito.
-# Antes, ambas funciones hardcodeaban 30.0 como default de parámetro, así que cualquier
-# rutina experimental que abriera un shutter sin pasar timeout_s reseteaba silenciosamente
-# la política "Sin límite (Modo Alineación)" elegida por el usuario en el dock de Shutters
-# (core/shutters.py::Backend.set_autoclose_timeout) en cuanto arrancaba. Ver DECISION_LOG.
+# Watchdog de RUTINAS (DEC-052). El plazo existe sólo mientras alguna rutina está registrada
+# (begin_routine_watchdog / routine_watchdog / set_routine_running) y tiene un obturador abierto:
+# la operación manual (dock de Shutters, ventana Láser 532, traza F1) nunca arma el plazo y un
+# láser abierto a mano no se cierra solo. El valor lo elige el operador en el Control Panel de
+# impresión o en el panel izquierdo de PySpectrum; None = "Sin límite". Antes (SYS-201, DEC-010)
+# el plazo valía para toda apertura y cortaba la operación manual.
 _default_timeout_s: float | None  = 30.0
-_SENTINEL = object()
+# Rutinas registradas en el watchdog (nombre → cantidad de registros vigentes con ese nombre).
+_watchdog_routines: dict[str, int] = {}
 
 
 # ── Época de cierre y retención de apertura (C-01 Ronda 4, R4-17 fase 3; DEC-046) ─────────────
@@ -289,9 +291,15 @@ def is_close_confirmed(epoch: int) -> bool:
 
 
 def set_routine_running(name: str, running: bool) -> None:
-    """Una rutina (la grilla) avisa que empieza o que terminó."""
+    """Una rutina (la grilla) avisa que empieza o que terminó. También la registra en el watchdog de rutinas
+    (DEC-052). El registro de `_routines_running` (retención de "Cerrar todos") sigue siendo sólo de la grilla."""
     with _epoch_lock:
+        was = str(name) in _routines_running
         (_routines_running.add if running else _routines_running.discard)(str(name))
+    if running and not was:
+        begin_routine_watchdog(name)
+    elif not running and was:
+        end_routine_watchdog(name)
 
 
 def any_routine_running() -> bool:
@@ -476,10 +484,9 @@ def operator_close_shutter(name: str, detail: str = "") -> bool:
     return close_shutter(name)
 
 
-def set_default_shutter_timeout(timeout_s: float | None) -> None:
-    """Establece la política global de auto-cierre. Toda llamada posterior a open_shutter()/
-    heartbeat_shutter() sin timeout_s explícito usará este valor. None o <= 0 activa el Modo
-    Alineación continua (sin límite) de inmediato, incluso si un shutter ya está abierto."""
+def set_routine_watchdog_timeout(timeout_s: float | None) -> None:
+    """Fija el plazo del watchdog de rutinas (DEC-052). None o <= 0 = "Sin límite": desarma el plazo vigente.
+    Con un valor y un plazo ya armado, el plazo se vuelve a contar desde ahora con el valor nuevo."""
     global _default_timeout_s, _watchdog_deadline
     with _watchdog_lock:
         if timeout_s is None or timeout_s <= 0:
@@ -487,12 +494,96 @@ def set_default_shutter_timeout(timeout_s: float | None) -> None:
             _watchdog_deadline = None
         else:
             _default_timeout_s = float(timeout_s)
+            if _watchdog_deadline is not None:
+                _watchdog_deadline = time.time() + max(0.1, _default_timeout_s)
 
 
-def get_default_shutter_timeout() -> float | None:
-    """Devuelve la política global de auto-cierre actual (None = sin límite)."""
+def get_routine_watchdog_timeout() -> float | None:
+    """El plazo del watchdog de rutinas (None = sin límite)."""
     with _watchdog_lock:
         return _default_timeout_s
+
+
+# Nombres anteriores (SYS-201): el valor ahora rige sólo dentro de las rutinas.
+set_default_shutter_timeout = set_routine_watchdog_timeout
+get_default_shutter_timeout = get_routine_watchdog_timeout
+
+
+def begin_routine_watchdog(name: str) -> None:
+    """Registra una rutina en el watchdog (DEC-052). No arma el plazo: lo arma la primera apertura o el primer
+    latido con un obturador abierto. Se puede anidar: cada begin necesita su end."""
+    with _watchdog_lock:
+        key = str(name)
+        _watchdog_routines[key] = _watchdog_routines.get(key, 0) + 1
+
+
+def end_routine_watchdog(name: str) -> None:
+    """Desregistra una rutina. Con la última, el plazo se desarma aunque quede un láser abierto a mano."""
+    global _watchdog_deadline
+    with _watchdog_lock:
+        key = str(name)
+        n = _watchdog_routines.get(key, 0) - 1
+        if n > 0:
+            _watchdog_routines[key] = n
+        else:
+            _watchdog_routines.pop(key, None)
+        if not _watchdog_routines:
+            _watchdog_deadline = None
+
+
+@contextmanager
+def routine_watchdog(name: str):
+    """`with routine_watchdog("escaneo confocal"): ...` — registra la rutina mientras dura el bloque."""
+    begin_routine_watchdog(name)
+    try:
+        yield
+    finally:
+        end_routine_watchdog(name)
+
+
+class RoutineWatchdogLease:
+    """Registro idempotente de una rutina que vive en timers o señales (escaneo confocal, Step & Glue), donde
+    un `with` no alcanza: `begin()` al arrancar y `end()` en cada salida (fin, Stop, parada, falla, cierre).
+    Repetir `begin()` o `end()` no hace nada, así que llamar a `end()` en todas las salidas es seguro y una
+    salida olvidada no deja dos registros."""
+
+    def __init__(self, name: str):
+        self.name = str(name)
+        self._held = False
+        self._lock = threading.Lock()
+
+    def begin(self) -> None:
+        with self._lock:
+            if not self._held:
+                begin_routine_watchdog(self.name)
+                self._held = True
+
+    def end(self) -> None:
+        with self._lock:
+            if self._held:
+                end_routine_watchdog(self.name)
+                self._held = False
+
+    @property
+    def active(self) -> bool:
+        return self._held
+
+
+def get_watchdog_routines() -> list[str]:
+    """Rutinas registradas en el watchdog."""
+    with _watchdog_lock:
+        return sorted(_watchdog_routines)
+
+
+def is_routine_watchdog_active() -> bool:
+    with _watchdog_lock:
+        return bool(_watchdog_routines)
+
+
+def _any_shutter_open() -> bool:
+    """Algún obturador comandado abierto o con un cierre sin confirmar (se trata como abierto)."""
+    return bool(_unconfirmed_shutters) or any(
+        s == SHUTTER_POLARITY[sh] for s, sh in zip(_shutter_signal, SHUTTERS))
 
 
 def _watchdog_loop():
@@ -506,15 +597,20 @@ def _watchdog_loop():
         if dl is not None and now > dl:
             with _watchdog_lock:
                 _watchdog_deadline = None
+                routines = sorted(_watchdog_routines)
+            if not routines:
+                # La última rutina terminó entre la lectura y ahora: no hay nada que cortar (DEC-052).
+                continue
+            who = ", ".join(routines)
             try:
                 # Si no confirma, close_all_shutters() deja _retry_due armado: el reintento
                 # sigue en este mismo hilo aunque el plazo ya se haya consumido.
-                close_all_shutters(CloseCause.WATCHDOG, "heartbeat expirado")
+                close_all_shutters(CloseCause.WATCHDOG, f"rutina sin latido: {who}")
             except Exception as err:
                 try: print(f"[WATCHDOG Error] Error en cierre forzado: {err}")
                 except Exception: pass
             try:
-                print("[WATCHDOG WARNING] Heartbeat expirado: forzando CIERRE INMEDIATO de obturadores por seguridad!")
+                print(f"[WATCHDOG WARNING] La rutina ({who}) dejó de latir: CIERRE de todos los obturadores.")
             except Exception:
                 pass
             for cb in list(_watchdog_callbacks):
@@ -539,12 +635,12 @@ def _start_closer_thread() -> None:
     t.start()
 
 
-def heartbeat_shutter(timeout_s: float | None = _SENTINEL) -> None:
-    """Renueva el temporizador de vida del obturador para proteger la muestra.
-    Si no se pasa timeout_s explícitamente, usa la política global vigente
-    (get_default_shutter_timeout(), fijada por el usuario en el dock de Shutters). Un
-    timeout_s explícito (numérico o None) siempre tiene prioridad sobre la política global.
-    None o <= 0 desactiva la fecha límite (Modo Alineación continua)."""
+def heartbeat_shutter() -> None:
+    """Latido de una rutina (DEC-052): renueva el plazo del watchdog de rutinas con el valor del panel.
+
+    No hace nada si no hay ninguna rutina registrada (la operación manual no tiene plazo) ni si no hay ningún
+    obturador abierto. Una rutina que sostiene un láser abierto llama a esto en cada iteración, desde el hilo
+    que hace el trabajo: si el plazo vence, se cierran todos los obturadores y la rutina se aborta."""
     global _watchdog_deadline
     if estop_state.is_active():
         # Durante la parada el latido no arma el plazo (R4-17 fase 4): después del cierre confirmado el watchdog
@@ -552,11 +648,14 @@ def heartbeat_shutter(timeout_s: float | None = _SENTINEL) -> None:
         # cierre sin confirmar va por _retry_due y no depende de esto.
         return
     with _watchdog_lock:
-        effective = _default_timeout_s if timeout_s is _SENTINEL else timeout_s
-        if effective is None or effective <= 0:
+        if not _watchdog_routines:
+            return
+        if _default_timeout_s is None or _default_timeout_s <= 0:
             _watchdog_deadline = None
-        else:
-            _watchdog_deadline = time.time() + max(0.1, float(effective))
+            return
+        if not _any_shutter_open():
+            return
+        _watchdog_deadline = time.time() + max(0.1, float(_default_timeout_s))
 
 
 def get_watchdog_remaining_time() -> float | None:
@@ -817,12 +916,12 @@ def _reconfirm_unconfirmed_shutters() -> None:
 #  API PÚBLICA  — misma en ambos modos
 # ══════════════════════════════════════════════════════════════════════════════
 
-def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> bool:
-    """Abre un shutter y arma/renueva el watchdog. Devuelve True sólo si la placa confirmó la
-    escritura (o en SAFE_MODE / aislado). Si no se pasa timeout_s explícitamente, usa la
-    política global vigente (get_default_shutter_timeout()) en vez de un valor hardcodeado,
-    para que la elección del usuario en el dock de Shutters ("Auto-cierre" / "Sin límite") se
-    respete también cuando una rutina experimental abre el shutter.
+def open_shutter(name: str) -> bool:
+    """Abre un shutter. Devuelve True sólo si la placa confirmó la escritura (o en SAFE_MODE / aislado).
+
+    Watchdog (DEC-052): con una rutina registrada, la apertura arma o renueva el plazo de la rutina; sin
+    rutina (operación manual desde el dock o la ventana Láser 532) no arma nada y el obturador queda abierto
+    hasta que el operador lo cierre.
 
     Un interlock activo (placa no disponible, falla de la platina) bloquea la apertura, y también la retención de
     "Cerrar todos" (`get_open_hold_remaining_s()`, R4-17 fase 3): se revisa antes de pedir el candado y otra vez
@@ -853,9 +952,6 @@ def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> bool:
             desired = list(_shutter_signal)
             desired[idx] = SHUTTER_POLARITY[name]
             err, simulated, recovered, recovered_open = _apply_shutter_lines(desired)
-            # El watchdog se arma aunque la escritura falle: si el obturador llegó a abrirse,
-            # el plazo lo cierra igual.
-            heartbeat_shutter(timeout_s)
             notes += _confirmed_notes(recovered, recovered_open)
             if err is None:
                 if simulated:
@@ -866,6 +962,10 @@ def open_shutter(name: str, timeout_s: float | None = _SENTINEL) -> bool:
                 notes.append((name, f"apertura no confirmada: {err}", False))
                 notes += _mark_all_unconfirmed(err, f"falló la apertura de {name}")
                 ok = False
+            # Dentro de una rutina el plazo se arma aunque la escritura falle: si el obturador llegó a
+            # abrirse, el plazo lo cierra igual (las líneas sin confirmar cuentan como abiertas, por eso
+            # va después de marcarlas). Fuera de una rutina no hace nada (DEC-052).
+            heartbeat_shutter()
     if stopped:
         _print_estop_rejection(name)
     if held:
@@ -892,8 +992,9 @@ def _print_hold_rejection(name: str) -> None:
 def close_shutter(name: str) -> bool:
     """Cierra un shutter. Devuelve True sólo si la placa confirmó la escritura. Si tras
     SHUTTER_CLOSE_RETRIES intentos no se confirma, el obturador se trata como abierto: queda
-    en get_unconfirmed_shutters(), el watchdog sigue armado y reintenta cada
-    WATCHDOG_RETRY_INTERVAL_S, y se avisa una vez por register_shutter_fault_callback()."""
+    en get_unconfirmed_shutters(), el hilo del watchdog lo reintenta cada
+    WATCHDOG_RETRY_INTERVAL_S (con o sin rutina: el reintento es por evento, no por plazo) y se
+    avisa una vez por register_shutter_fault_callback()."""
     if name not in SHUTTERS:
         raise ValueError(f"Shutter desconocido: {name}")
     notes: list[tuple[str, str, bool]] = []
@@ -977,10 +1078,9 @@ def _close_all_locked_write() -> bool:
 
 def get_open_shutter_names() -> list[str]:
     """Devuelve los nombres de los shutters abiertos o que no se pudieron confirmar cerrados
-    (se tratan como abiertos, DEC-036). No usar is_watchdog_armed() como proxy: en Modo
-    Alineación (timeout=None, "Sin límite") un shutter puede estar físicamente abierto con el
-    watchdog desarmado a propósito, así que is_watchdog_armed()==False no implica que no haya
-    láser abierto."""
+    (se tratan como abiertos, DEC-036). No usar is_watchdog_armed() como proxy: un shutter
+    abierto a mano (sin rutina, DEC-052) o con "Sin límite" está físicamente abierto con el
+    watchdog desarmado, así que is_watchdog_armed()==False no implica que no haya láser abierto."""
     with _nidaq_lock:
         return [name for name, sig in zip(SHUTTERS, _shutter_signal)
                 if sig == SHUTTER_POLARITY[name] or name in _unconfirmed_shutters]

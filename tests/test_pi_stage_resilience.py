@@ -229,7 +229,7 @@ class TestPIControllerResilience(_StageInterlockGuard):
         fake_dev.mov_exception = OSError("USB desconectado")
         fake_dev.mov_exception_count = 1
         ctrl.MOV(1, 50.0)
-        self.assertFalse(nidaq.open_shutter(nidaq.SHUTTERS[1], timeout_s=None),
+        self.assertFalse(nidaq.open_shutter(nidaq.SHUTTERS[1]),
                          "Con la platina en falla no se puede abrir ningún obturador")
         self.assertTrue(ctrl.connect())
         self.assertInterlock(False)

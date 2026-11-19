@@ -147,6 +147,7 @@ Fuentes (locales en `docs/bibliografia/` salvo que se indique):
 | BANCO-16 | Posición del servo de 532 nm al encender, reiniciar NI y cerrar el programa | `DEC-036` | **Láseres apagados** | ☐ |
 | BANCO-17 | Modelo y recorrido real de la platina (qCST, qTMN/qTMX) | `DEC-036` | PyPrinting cerrado; `tools/bench/pi_stage_probe.py` | ☐ |
 | BANCO-18 | Aviso de "cierre sin confirmar" ante una falla real de la placa | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
+| BANCO-72 | Watchdog sólo de rutinas: la apertura manual no se corta; una rutina larga sana tampoco | `DEC-052` | **Láseres apagados** | ☐ |
 | BANCO-19 | Pérdida de comunicación con la platina durante una rutina | `DEC-036` | PyPrinting 3.0, **láseres apagados** | ☐ |
 | BANCO-20 | Qué está conectado en `ai3`: trigger Z de la E-517 o fotodiodo de 808 nm | C-44, R2-6 | Inspección del cableado | ✅ 2026-09-28 (reabre C-44) |
 | BANCO-22 | Inventario que falta: placa (serie, BNC de P0.8–P0.11), fotodiodos (ganancia, `ai`), referencia de λ, desmontaje de la cámara, circuito de los obturadores | R1-1, D-11, C-01 R1 | Inspección, NI MAX | ◐ 2026-10-04 (resto respondido) |
@@ -461,12 +462,25 @@ control, no la óptica. PyPrinting 3.0 no se usa en producción hasta completarl
 - **Resultado**: pegar el bloque `RESUMEN`.
 
 ### ☐ BANCO-18 — Aviso de "cierre sin confirmar" ante una falla real de la placa
-- **Verifica**: que un cierre que la placa no confirma se trata como abierto, con el watchdog
-  reintentando y el banner persistente.
+- **Verifica**: que un cierre que la placa no confirma se trata como abierto, con el hilo del
+  watchdog reintentando y el banner persistente. Desde `DEC-052` el reintento sigue igual pero no
+  hay plazo en la operación manual: un obturador abierto desde el panel no se cierra solo.
 - **Procedimiento**: con un obturador abierto desde el panel, reiniciar la placa desde NI MAX
   ("Reset Device") para invalidar la tarea; luego cerrarlo desde el panel.
 - **Aceptación**: el panel muestra "CIERRE SIN CONFIRMAR" en rojo y la casilla sigue marcada;
   la consola registra los reintentos; al reiniciar PyPrinting el obturador cierra.
+- **Resultado**: —
+
+### ☐ BANCO-72 — Watchdog sólo de rutinas (`DEC-052`; láseres apagados)
+- **Verifica**: que la operación manual no tiene plazo y que una rutina sí.
+- **Procedimiento** (llave de los láseres apagada; mirar el servo o el LED de la placa):
+  1. con el Watchdog de rutinas en 30 s, abrir el 532 desde el dock y esperar 60 s; repetir desde la
+     ventana Láser 532;
+  2. con el 637 abierto a mano, correr un escaneo confocal corto con el 532 y dejarlo terminar;
+  3. elegir 30 s y correr un Step & Glue con una exposición de 40 s por ventana.
+- **Aceptación**: (1) el obturador sigue abierto y la casilla marcada; (2) al terminar el escaneo el
+  637 sigue abierto; (3) el barrido **no** se corta (late durante la exposición). Si se corta,
+  anotar en qué ventana: el latido no llega desde el hilo de la adquisición.
 - **Resultado**: —
 
 ### ☐ BANCO-19 — Pérdida de comunicación con la platina durante una rutina

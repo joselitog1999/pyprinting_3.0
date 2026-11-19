@@ -3,8 +3,11 @@
 shutters.py — Control de shutters, flippers y láser 532 nm
 PyPrinting — UNSAM Nanofotónica  —  PyQt6
 
-Control de obturadores digitales con fail-safe watchdog,
-selector de auto-cierre / modo alineación continua y sincronización bidireccional UI.
+Control MANUAL de obturadores digitales y sincronización bidireccional UI.
+
+La operación manual no tiene plazo (DEC-052): un obturador abierto desde este dock queda abierto hasta que el
+operador lo cierre. El watchdog vigila sólo a las rutinas; su plazo se elige en el Control Panel de impresión y en el
+panel izquierdo de PySpectrum (`core/ui/routine_watchdog_widget.py`).
 """
 from __future__ import annotations
 
@@ -25,10 +28,10 @@ from config  import SHUTTERS, SHUTTER_POLARITY, LASER_532_V_MIN, LASER_532_V_MAX
 try:
     from core.nidaq import (open_shutter, close_shutter, close_all_shutters, up_flipper, down_flipper,
                             flipper_notch532, set_laser532_voltage, close_all_tasks,
-                            heartbeat_shutter, get_watchdog_remaining_time,
+                            get_watchdog_remaining_time,
                             register_watchdog_callback, unregister_watchdog_callback,
                             register_flipper_callback, unregister_flipper_callback,
-                            is_flipper_high_power, set_default_shutter_timeout,
+                            is_flipper_high_power,
                             register_shutter_fault_callback, unregister_shutter_fault_callback,
                             get_unconfirmed_shutters,
                             operator_close_all, operator_close_shutter, is_close_confirmed,
@@ -36,10 +39,10 @@ try:
 except ImportError:
     from nidaq   import (open_shutter, close_shutter, close_all_shutters, up_flipper, down_flipper,
                          flipper_notch532, set_laser532_voltage, close_all_tasks,
-                         heartbeat_shutter, get_watchdog_remaining_time,
+                         get_watchdog_remaining_time,
                          register_watchdog_callback, unregister_watchdog_callback,
                          register_flipper_callback, unregister_flipper_callback,
-                         is_flipper_high_power, set_default_shutter_timeout,
+                         is_flipper_high_power,
                          register_shutter_fault_callback, unregister_shutter_fault_callback,
                          get_unconfirmed_shutters,
                          operator_close_all, operator_close_shutter, is_close_confirmed,
@@ -63,7 +66,6 @@ class Frontend(QFrame):
     flipper_signal           = pyqtSignal(bool)
     flipper_notch532_signal  = pyqtSignal(bool)
     laser532_signal          = pyqtSignal(float)
-    autoclose_timeout_signal = pyqtSignal(object)
     watchdog_triggered_signal = pyqtSignal()
     flipper_hardware_signal  = pyqtSignal(bool)
     shutter_fault_signal     = pyqtSignal(str, str, bool)   # (obturador, detalle, confirmado)
@@ -156,7 +158,7 @@ class Frontend(QFrame):
         if pending:
             self.lbl_fault_banner.setText(
                 "⚠️ CIERRE SIN CONFIRMAR: " + ", ".join(pending)
-                + " — se tratan como ABIERTOS; el watchdog sigue reintentando el cierre.")
+                + " — se tratan como ABIERTOS; se sigue reintentando el cierre.")
             self.lbl_fault_banner.setStyleSheet(
                 "color: #11111b; background-color: #f38ba8; font-weight: bold; font-size: 8pt; "
                 "padding: 3px; border-radius: 3px;")
@@ -172,8 +174,8 @@ class Frontend(QFrame):
 
     @pyqtSlot()
     def _on_watchdog_triggered(self):
-        """Sincroniza la UI cuando el watchdog de hardware fuerza el cierre de obturadores. Un
-        obturador cuyo cierre no se confirmó sigue marcado (se trata como abierto, DEC-036)."""
+        """Sincroniza la UI cuando el watchdog de una rutina fuerza el cierre de todos los obturadores (también los
+        abiertos a mano, DEC-052). Un obturador cuyo cierre no se confirmó sigue marcado (DEC-036)."""
         for name, btn in zip(SHUTTERS, (self.shutter0button, self.shutter1button,
                                         self.shutter2button, self.shutter3button)):
             if name in self._unconfirmed:
@@ -306,17 +308,6 @@ class Frontend(QFrame):
     def set_notch532(self, down: bool):
         self._notch532_check(down)
 
-    def get_selected_timeout(self) -> float | None:
-        if not self.chk_autoclose.isChecked():
-            return None
-        return self.combo_timeout.currentData()
-
-    def _on_security_mode_changed(self):
-        to = self.get_selected_timeout()
-        self.combo_timeout.setEnabled(self.chk_autoclose.isChecked())
-        self.autoclose_timeout_signal.emit(to)
-        self._update_security_status()
-
     def _refresh_close_all_label(self):
         try:
             from core.emergency_stop import get_emergency_coordinator
@@ -330,7 +321,7 @@ class Frontend(QFrame):
     def _close_all_shutters_clicked(self):
         """Cierra los cuatro y desmarca sólo si la placa lo confirmó (R4-17 fase 1). Antes desmarcaba primero e
         ignoraba el resultado: un cierre fallido quedaba como si nada. Si falla, los avisos de DEC-036 dejan cada
-        obturador marcado en rojo con el banner, y el watchdog reintenta.
+        obturador marcado en rojo con el banner, y el hilo del watchdog reintenta el cierre.
 
         Es un corte del operador (R4-17 fase 3): con una grilla corriendo, el nodo en exposición queda
         "interrumpido" y las aperturas se retienen `OPERATOR_HOLD_S`; la grilla sigue después."""
@@ -344,25 +335,23 @@ class Frontend(QFrame):
                     btn.blockSignals(False)
         self._update_security_status()
 
+    MANUAL_STATUS_TEXT = "Operación manual: sin auto-cierre"
+    MANUAL_OPEN_TEXT = "Láser abierto a mano: queda abierto hasta que lo cierres"
+
     def _update_security_status(self):
-        to = self.get_selected_timeout()
+        """La operación manual no tiene plazo (DEC-052): la etiqueta sólo recuerda que un láser abierto acá sigue
+        abierto. El plazo de las rutinas se muestra en el Control Panel de impresión y en PySpectrum."""
         any_open = any(
             btn.isChecked() for btn in (self.shutter0button, self.shutter1button, self.shutter2button, self.shutter3button)
             if btn is not None
         )
-        if to is None:
-            self.lbl_security_status.setText("⚠️ MODO ALINEACIÓN (Sin auto-cierre)")
-            self.lbl_security_status.setStyleSheet("color: #fab387; font-weight: bold; font-size: 8pt;")
-        elif any_open:
-            rem = get_watchdog_remaining_time()
-            if rem is not None:
-                self.lbl_security_status.setText(f"⏱️ Auto-cierre en: {rem:.0f} s")
-            else:
-                self.lbl_security_status.setText(f"⏱️ Auto-cierre activo ({int(to)} s)")
-            self.lbl_security_status.setStyleSheet("color: #a6e3a1; font-weight: bold; font-size: 8pt;")
+        if any_open:
+            text, style = self.MANUAL_OPEN_TEXT, "color: #fab387; font-weight: bold; font-size: 8pt;"
         else:
-            self.lbl_security_status.setText(f"⏱️ Auto-cierre armado ({int(to)} s)")
-            self.lbl_security_status.setStyleSheet("color: #a6adc8; font-size: 8pt;")
+            text, style = self.MANUAL_STATUS_TEXT, "color: #a6adc8; font-size: 8pt;"
+        if self.lbl_security_status.text() != text:
+            self.lbl_security_status.setText(text)
+        self.lbl_security_status.setStyleSheet(style)
 
     # ── GUI ───────────────────────────────────────────────────────────────────
 
@@ -433,8 +422,8 @@ class Frontend(QFrame):
 
         main_layout.addLayout(grid)
 
-        # ── Control de Seguridad / Watchdog / Modo Alineación (Opción 3) ───────
-        sec_box = QGroupBox("Seguridad & Watchdog")
+        # ── Seguridad (DEC-052: la operación manual no tiene plazo; el watchdog es sólo de las rutinas) ──
+        sec_box = QGroupBox("Seguridad")
         sec_box.setStyleSheet("""
             QGroupBox {
                 font-size: 8.5pt;
@@ -456,37 +445,13 @@ class Frontend(QFrame):
         sec_layout.setContentsMargins(6, 6, 6, 6)
         sec_layout.setSpacing(4)
 
-        row_ctrl = QHBoxLayout()
-        self.chk_autoclose = QCheckBox("Auto-cierre")
-        self.chk_autoclose.setChecked(True)
-        self.chk_autoclose.setStyleSheet("color: #cdd6f4; font-size: 8.5pt;")
-        self.chk_autoclose.setToolTip("Cierra los shutters automáticamente tras el tiempo seleccionado si no hay actividad.")
-        self.chk_autoclose.toggled.connect(self._on_security_mode_changed)
-
-        self.combo_timeout = QComboBox()
-        self.combo_timeout.addItem("30 s (Predeterminado)", 30.0)
-        self.combo_timeout.addItem("60 s (1 min)", 60.0)
-        self.combo_timeout.addItem("300 s (5 min)", 300.0)
-        self.combo_timeout.addItem("600 s (10 min)", 600.0)
-        self.combo_timeout.addItem("Sin límite (Alineación)", None)
-        self.combo_timeout.setStyleSheet("""
-            QComboBox {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                border: 1px solid #45475a;
-                border-radius: 3px;
-                padding: 2px 6px;
-                font-size: 8.5pt;
-            }
-        """)
-        self.combo_timeout.currentIndexChanged.connect(self._on_security_mode_changed)
-
-        row_ctrl.addWidget(self.chk_autoclose)
-        row_ctrl.addWidget(self.combo_timeout)
-        sec_layout.addLayout(row_ctrl)
-
-        self.lbl_security_status = QLabel("⏱️ Auto-cierre armado (30 s)")
+        self.lbl_security_status = QLabel(self.MANUAL_STATUS_TEXT)
         self.lbl_security_status.setStyleSheet("color: #a6adc8; font-size: 8pt;")
+        self.lbl_security_status.setToolTip(
+            "<b>Operación manual</b><br>Un obturador abierto desde este dock queda abierto hasta que lo cierres: "
+            "no hay cierre automático por tiempo.<br>El <b>watchdog de rutinas</b> (Control Panel de impresión, "
+            "panel izquierdo de PySpectrum) vigila sólo a las rutinas; si una se cuelga con un láser abierto, "
+            "cierra todos los obturadores, también los abiertos a mano (DEC-052).")
         sec_layout.addWidget(self.lbl_security_status)
 
         # DEC-036: banner persistente de obturadores sin confirmar / aperturas rechazadas.
@@ -536,44 +501,28 @@ class Backend(QObject):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.current_timeout: float | None = 30.0
 
-    @pyqtSlot(object)
-    def set_autoclose_timeout(self, timeout_val: float | None):
-        self.current_timeout = timeout_val
-        # Propagar a la política GLOBAL (core/nidaq.py) para que toda rutina experimental que
-        # abra un shutter sin pasar timeout_s explícito (la inmensa mayoría) respete de
-        # inmediato esta elección, no solo los shutter0-3 de este propio dock (bug corregido:
-        # antes open_shutter()/heartbeat_shutter() hardcodeaban 30.0 y la ignoraban).
-        set_default_shutter_timeout(timeout_val)
-        # Si hay obturadores abiertos en hardware, actualizar el watchdog inmediatamente
-        try:
-            any_open = any(s == SHUTTER_POLARITY[sh] for s, sh in zip(_shutter_signal, SHUTTERS))
-            if any_open:
-                heartbeat_shutter(timeout_val)
-        except Exception:
-            pass
-
-    # Los botones del dock: cerrar uno es un corte del operador, igual que "Cerrar todos" (R4-17 fase 3; BANCO-67):
+    # Los botones del dock son operación manual (DEC-052): abrir no arma ningún plazo.
+    # Cerrar uno es un corte del operador, igual que "Cerrar todos" (R4-17 fase 3; BANCO-67):
     # el nodo de una grilla en exposición queda "interrumpido" y no "timeout".
     @pyqtSlot(bool)
     def shutter0(self, state: bool):
         if state:
-            open_shutter(SHUTTERS[0], timeout_s=self.current_timeout)
+            open_shutter(SHUTTERS[0], )
         else:
             operator_close_shutter(SHUTTERS[0])
 
     @pyqtSlot(bool)
     def shutter1(self, state: bool):
         if state:
-            open_shutter(SHUTTERS[1], timeout_s=self.current_timeout)
+            open_shutter(SHUTTERS[1], )
         else:
             operator_close_shutter(SHUTTERS[1])
 
     @pyqtSlot(bool)
     def shutter2(self, state: bool):
         if state:
-            open_shutter(SHUTTERS[2], timeout_s=self.current_timeout)
+            open_shutter(SHUTTERS[2], )
         else:
             operator_close_shutter(SHUTTERS[2])
 
@@ -581,7 +530,7 @@ class Backend(QObject):
     def shutter3(self, state: bool):
         if len(SHUTTERS) > 3:
             if state:
-                open_shutter(SHUTTERS[3], timeout_s=self.current_timeout)
+                open_shutter(SHUTTERS[3], )
             else:
                 operator_close_shutter(SHUTTERS[3])
 
@@ -613,7 +562,6 @@ class Backend(QObject):
         frontend.flipper_signal.connect(self.power_change)
         frontend.flipper_notch532_signal.connect(self.notch532_change)
         frontend.laser532_signal.connect(self.set_laser532)
-        frontend.autoclose_timeout_signal.connect(self.set_autoclose_timeout)
         frontend.closeSignal.connect(self.close)
 
         # Sincronización Backend -> Frontend

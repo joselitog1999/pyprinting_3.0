@@ -7,6 +7,7 @@
 - corre el cuerpo de la rutina en un `QThread` con un `GridRunner`, así la GUI y el E-STOP siguen
   respondiendo durante una exposición (R4-K, P1);
 - expone Stop, pausa, seguir y "siguiente" como eventos seguros entre hilos;
+- registra la rutina en el watchdog de rutinas mientras corre (DEC-052);
 - al terminar, pase lo que pase: cierra los láseres de la rutina y el obturador del espectrómetro,
   devuelve el espejo a donde lo confirmó el operador (salvo con E-STOP), suelta la sesión y avisa.
 """
@@ -53,12 +54,23 @@ class RoutineControl:
 class _Worker(QtCore.QObject):
     finished = pyqtSignal(str)
 
-    def __init__(self, body, runner, ctl, cleanup):
+    def __init__(self, body, runner, ctl, cleanup, name: str = "rutina de PySpectrum"):
         super().__init__()
         self.body, self.runner, self.ctl, self.cleanup = body, runner, ctl, cleanup
+        self.name = name
 
     @pyqtSlot()
     def run(self):
+        # La rutina queda registrada en el watchdog de rutinas (DEC-052) hasta después de la limpieza, que es la
+        # que cierra sus láseres: el plazo sólo la vigila mientras corre, nunca a la operación manual.
+        from core.nidaq import begin_routine_watchdog, end_routine_watchdog
+        begin_routine_watchdog(self.name)
+        try:
+            self._run()
+        finally:
+            end_routine_watchdog(self.name)
+
+    def _run(self):
         outcome = "done"
         try:
             outcome = self.body(self.runner, self.ctl) or "done"
@@ -126,7 +138,7 @@ class RoutineThread(QtCore.QObject):
         self.ctl = RoutineControl()
         runner = GridRunner(camera, should_abort=self.ctl.should_abort, **(runner_kwargs or {}))
         self._thread = QtCore.QThread()
-        self._worker = _Worker(body, runner, self.ctl, self._cleanup)
+        self._worker = _Worker(body, runner, self.ctl, self._cleanup, name=self.session_name)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         # El hilo termina apenas termina el cuerpo, sin esperar al hilo de la GUI: `shutdown` espera el hilo

@@ -1,13 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-test_shutter_alignment_and_heartbeat.py — Pruebas unitarias para:
-1. Modo Alineación continua (timeout_s=None) sin corte de Watchdog
-2. Renovación de Heartbeat durante adquisición activa (Trace)
-3. Callback del Watchdog y desmarcado automático en la UI
-4. Selección de Modo Alineación en el panel de Shutters
+test_shutter_alignment_and_heartbeat.py — El watchdog es sólo de las rutinas (DEC-052).
+
+Antes (DEC-002, DEC-010, SYS-201) toda apertura armaba un plazo global de 30 s: un láser abierto a mano desde el dock
+de Shutters o la ventana Láser 532 se cerraba solo, y el selector "Auto-cierre / Sin límite" vivía en el dock. Ahora:
+
+1. La operación manual (dock, Láser 532, traza F1) no arma ningún plazo: el láser queda abierto hasta que el operador
+   lo cierre.
+2. Una rutina registrada (`routine_watchdog`, `RoutineWatchdogLease`, `set_routine_running`) que tiene un láser abierto
+   arma el plazo al abrir o al latir; si deja de latir, se cierran TODOS los obturadores (también los manuales).
+3. Al terminar la última rutina el plazo se desarma, aunque quede un láser manual abierto.
+4. El plazo se elige en el Control Panel de impresión y en el panel izquierdo de PySpectrum
+   (`RoutineWatchdogSelector`), un valor por proceso; el dock ya no tiene selector.
+5. Ningún módulo de producción fija un plazo propio, y todo módulo que abre un láser es manual o se registra.
+
 PyPrinting 3.0 — UNSAM Nanofotónica
 """
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -18,194 +28,294 @@ if str(BASE_DIR) not in sys.path:
 
 os.environ["PYPRINTING_SAFE"] = "1"
 
-# `config` debe importarse ANTES que PyQt6: este entorno tiene dos instalaciones de PyQt6
-# para Python 3.13 (la de conda base, con DLLs nativas rotas, y la de .venv/, funcional).
-# config.py antepone .venv/Lib/site-packages a sys.path al importarse — si PyQt6 se importa
-# primero, Python lo resuelve desde la instalación rota y falla con "DLL load failed while
-# importing QtWidgets" de forma determinística (no es un problema de entorno intermitente).
+# `config` debe importarse ANTES que PyQt6: config.py antepone .venv/Lib/site-packages a sys.path (ver la nota
+# histórica de este archivo en git: con el orden inverso, PyQt6 se resuelve desde una instalación rota).
 import config  # noqa: F401
 from PyQt6.QtWidgets import QApplication
 import core.nidaq as nq
 from core.shutters import Frontend as ShuttersFrontend, Backend as ShuttersBackend
 
 
-def test_indefinite_alignment_mode():
-    print("\n--- Test 1: Modo Alineacion Continua (timeout_s=None) ---")
-    laser = "532 nm (green)"
-    idx = nq.SHUTTERS.index(laser)
-
-    # Abrir sin timeout (modo alineacion)
-    nq.open_shutter(laser, timeout_s=None)
-    assert nq._shutter_signal[idx] == nq.SHUTTER_POLARITY[laser], "El shutter debe estar abierto"
-    assert not nq.is_watchdog_armed(), "El watchdog NO debe estar armado en modo alineacion"
-    assert nq.get_watchdog_remaining_time() is None, "El tiempo restante debe ser None"
-
-    # Esperar 0.5 s (si tuviera timeout corto se cerraria)
-    time.sleep(0.5)
-    assert nq._shutter_signal[idx] == nq.SHUTTER_POLARITY[laser], "El shutter debe permanecer abierto en modo alineacion"
-    print("PASS: Shutter se mantiene abierto sin corte por Watchdog.")
-
-    nq.close_shutter(laser)
-    assert nq._shutter_signal[idx] != nq.SHUTTER_POLARITY[laser], "El shutter debe cerrarse tras close_shutter"
+def _is_open(name: str) -> bool:
+    return nq._shutter_signal[nq.SHUTTERS.index(name)] == nq.SHUTTER_POLARITY[name]
 
 
-def test_heartbeat_renewal_active_trace():
-    print("\n--- Test 2: Renovacion de Heartbeat durante bucle activo (Traza) ---")
-    laser = "637 nm (red)"
-    idx = nq.SHUTTERS.index(laser)
-
-    # Abrir con timeout corto: 0.3 segundos
-    nq.open_shutter(laser, timeout_s=0.3)
-    assert nq.is_watchdog_armed(), "El watchdog debe estar armado"
-
-    # Simular bucle de traza activo renovando heartbeat cada 0.1s durante 0.5s totales
-    for _ in range(5):
-        time.sleep(0.1)
-        nq.heartbeat_shutter(0.3)
-        assert nq._shutter_signal[idx] == nq.SHUTTER_POLARITY[laser], "El shutter no debe cerrarse mientras haya heartbeat"
-
-    print("PASS: El shutter supero los 0.5 s (timeout original 0.3 s) gracias al latido activo.")
-    nq.close_shutter(laser)
+def _close_everything():
+    nq.close_all_shutters()
 
 
-def test_watchdog_callback_and_ui_sync(app):
-    print("\n--- Test 3: Sincronizacion de UI ante cierre por Watchdog ---")
-    frontend = ShuttersFrontend()
-    backend = ShuttersBackend()
-    backend.make_connection(frontend)
+# ── 1. Operación manual: sin plazo ────────────────────────────────────────────
 
-    # Verificar timeout por defecto = 30s
-    assert frontend.get_selected_timeout() == 30.0
-
-    # Abrir shutter 0 en hardware con timeout corto de 0.2 s
-    frontend.shutter0button.setChecked(True)
-    nq.open_shutter(nq.SHUTTERS[0], timeout_s=0.2)
-    idx0 = nq.SHUTTERS.index(nq.SHUTTERS[0])
-    assert nq._shutter_signal[idx0] == nq.SHUTTER_POLARITY[nq.SHUTTERS[0]], "El shutter 0 debe estar abierto"
-
-    # Esperar que expire el watchdog (0.5 s)
-    time.sleep(0.5)
-    app.processEvents()
-
-    # Comprobar que en hardware se cerro y en la UI se desmarco
-    assert nq._shutter_signal[idx0] != nq.SHUTTER_POLARITY[nq.SHUTTERS[0]], "El hardware debe haber cerrado el shutter"
-    assert not frontend.shutter0button.isChecked(), "La UI debe desmarcar automaticamente la casilla tras cierre de watchdog"
-    print("PASS: La UI se sincronizo y desmarco la casilla tras el cierre forzado del Watchdog.")
-
-    frontend.close()
+def test_manual_open_never_arms_the_deadline():
+    laser = nq.SHUTTERS[0]
+    nq.set_routine_watchdog_timeout(0.2)
+    try:
+        assert nq.open_shutter(laser)
+        assert not nq.is_watchdog_armed(), "una apertura manual no arma el plazo"
+        assert nq.get_watchdog_remaining_time() is None
+        time.sleep(0.5)
+        assert _is_open(laser), "un láser abierto a mano no se cierra solo"
+    finally:
+        _close_everything()
 
 
-def test_ui_alignment_mode_selection(app):
-    print("\n--- Test 4: Seleccion de Modo Alineacion en Frontend UI ---")
-    frontend = ShuttersFrontend()
-    backend = ShuttersBackend()
-    backend.make_connection(frontend)
-
-    # Cambiar a Sin limite (Alineacion) mediante findData(None)
-    idx_align = frontend.combo_timeout.findData(None)
-    assert idx_align >= 0, "Debe existir la opcion de alineacion con data None"
-    frontend.combo_timeout.setCurrentIndex(idx_align)
-    app.processEvents()
-
-    assert backend.current_timeout is None, "El backend debe haber recibido timeout None"
-    assert "ALINEACI" in frontend.lbl_security_status.text().upper(), "El label debe indicar Modo Alineacion"
-
-    # Abrir shutter 1 en modo alineacion
-    frontend.shutter1button.setChecked(True)
-    frontend._shutter1_check()
-    app.processEvents()
-
-    idx1 = nq.SHUTTERS.index(nq.SHUTTERS[1])
-    assert nq._shutter_signal[idx1] == nq.SHUTTER_POLARITY[nq.SHUTTERS[1]]
-    assert not nq.is_watchdog_armed()
-
-    # Cerrar todos desde el boton de Frontend
-    frontend.btn_close_all.click()
-    app.processEvents()
-
-    assert not frontend.shutter1button.isChecked()
-    assert nq._shutter_signal[idx1] != nq.SHUTTER_POLARITY[nq.SHUTTERS[1]]
-    print("PASS: Selector de Modo Alineacion y boton 'Cerrar Todos' validados exitosamente.")
-
-    frontend.close()
-
-
-def test_experimental_routine_respects_global_alignment_policy(app):
-    """PASO 1 (unificacion de politica de timeout): si el usuario selecciona 'Sin limite
-    (Modo Alineacion)' en el dock de Shutters, una rutina experimental que llama a
-    open_shutter(laser) SIN pasar timeout_s -- el patron real usado en confocal.py,
-    measurements.py, focus.py, growth_kinetics.py, etc. -- debe heredar esa politica
-    global, no rearmar el watchdog a 30s como ocurria antes de unificar
-    core/nidaq.py::set_default_shutter_timeout() con core/shutters.py::set_autoclose_timeout()."""
-    print("\n--- Test 5: Rutina experimental respeta la politica global 'Sin limite' ---")
-    frontend = ShuttersFrontend()
-    backend = ShuttersBackend()
-    backend.make_connection(frontend)
-
-    # El usuario elige "Sin limite" en el dock ANTES de arrancar cualquier rutina
-    idx_align = frontend.combo_timeout.findData(None)
-    assert idx_align >= 0
-    frontend.combo_timeout.setCurrentIndex(idx_align)
-    app.processEvents()
-    assert nq.get_default_shutter_timeout() is None, "La politica global debe quedar en None tras elegir Sin limite"
-
-    # Simula una rutina experimental (Confocal, Measurements, Focus...) abriendo el
-    # shutter SIN timeout_s explicito -- exactamente la firma que usan esos modulos.
-    laser = nq.SHUTTERS[2]
-    nq.open_shutter(laser)
-    assert nq._shutter_signal[nq.SHUTTERS.index(laser)] == nq.SHUTTER_POLARITY[laser]
-    assert not nq.is_watchdog_armed(), (
-        "open_shutter(laser) sin timeout_s explicito NO debe rearmar el watchdog a 30s "
-        "cuando la politica global es Sin Limite (bug corregido en DEC-010)"
-    )
-
-    nq.close_shutter(laser)
-    frontend.close()
-    print("PASS: open_shutter() sin argumento hereda la politica global 'Sin limite'.")
-
-
-def test_experimental_routine_respects_global_30s_policy(app):
-    """Camino inverso del test anterior: con la politica global en 30 s (el default de
-    fabrica), open_shutter(laser) sin argumento debe armar el watchdog a ~30 s -- para
-    confirmar que el fix no rompio el comportamiento por defecto de las rutinas."""
-    print("\n--- Test 6: Rutina experimental respeta la politica global de 30 s ---")
-    frontend = ShuttersFrontend()
-    backend = ShuttersBackend()
-    backend.make_connection(frontend)
-
-    idx_30 = frontend.combo_timeout.findData(30.0)
-    assert idx_30 >= 0
-    frontend.chk_autoclose.setChecked(True)
-    frontend.combo_timeout.setCurrentIndex(idx_30)
-    # Llamada directa (no solo dependiente de la señal currentIndexChanged): un Frontend
-    # recién creado ya arranca en el índice de 30s por defecto, así que si un test previo
-    # dejó la política global en otro valor, setCurrentIndex(idx_30) sería un no-op desde
-    # la perspectiva de Qt (el índice no "cambia") y jamás dispararía la señal.
-    frontend._on_security_mode_changed()
-    app.processEvents()
-    assert nq.get_default_shutter_timeout() == 30.0
-
+def test_heartbeat_without_a_routine_does_nothing():
     laser = nq.SHUTTERS[1]
-    nq.open_shutter(laser)
-    assert nq.is_watchdog_armed(), "open_shutter() sin argumento debe armar el watchdog cuando la politica global es 30s"
-    remaining = nq.get_watchdog_remaining_time()
-    assert remaining is not None and 20.0 < remaining <= 30.0
+    try:
+        assert nq.open_shutter(laser)
+        nq.heartbeat_shutter()
+        assert not nq.is_watchdog_armed(), "sin rutina, el latido no arma el plazo"
+    finally:
+        _close_everything()
 
-    nq.close_shutter(laser)
-    frontend.close()
-    print("PASS: open_shutter() sin argumento respeta la politica global de 30 s.")
+
+def test_manual_open_from_the_dock_stays_open(app):
+    frontend = ShuttersFrontend()
+    backend = ShuttersBackend()
+    backend.make_connection(frontend)
+    nq.set_routine_watchdog_timeout(0.2)
+    try:
+        frontend.shutter0button.setChecked(True)
+        app.processEvents()
+        assert _is_open(nq.SHUTTERS[0])
+        assert not nq.is_watchdog_armed()
+        time.sleep(0.5)
+        app.processEvents()
+        assert _is_open(nq.SHUTTERS[0]), "el dock es operación manual: no hay auto-cierre"
+        assert frontend.shutter0button.isChecked()
+        frontend._update_security_status()
+        assert frontend.lbl_security_status.text() == frontend.MANUAL_OPEN_TEXT
+    finally:
+        _close_everything()
+        frontend.close()
+
+
+def test_the_dock_has_no_autoclose_selector(app):
+    frontend = ShuttersFrontend()
+    try:
+        for attr in ("chk_autoclose", "combo_timeout", "get_selected_timeout", "autoclose_timeout_signal"):
+            assert not hasattr(frontend, attr), f"el dock ya no elige el plazo ({attr}); vive en el Control Panel"
+        assert not hasattr(ShuttersBackend(), "set_autoclose_timeout")
+        assert frontend.lbl_security_status.text() == frontend.MANUAL_STATUS_TEXT
+    finally:
+        frontend.close()
+
+
+def test_laser532_window_open_stays_open(app):
+    from modules.camera import Laser532Window
+    win = Laser532Window()
+    nq.set_routine_watchdog_timeout(0.2)
+    try:
+        win._toggle_shutter_532(True)
+        assert _is_open(nq.SHUTTERS[0])
+        assert not nq.is_watchdog_armed()
+        time.sleep(0.5)
+        assert _is_open(nq.SHUTTERS[0]), "la ventana Láser 532 es operación manual: no se cierra sola"
+        win._toggle_shutter_532(False)
+        assert not _is_open(nq.SHUTTERS[0])
+    finally:
+        _close_everything()
+        win.close()
+
+
+# ── 2. Rutinas: el plazo vigila mientras corren ───────────────────────────────
+
+def test_a_routine_that_stops_beating_closes_every_shutter_and_the_dock_follows(app):
+    frontend = ShuttersFrontend()
+    backend = ShuttersBackend()
+    backend.make_connection(frontend)
+    manual, routine_laser = nq.SHUTTERS[1], nq.SHUTTERS[0]
+    nq.set_routine_watchdog_timeout(0.2)
+    try:
+        frontend.shutter1button.setChecked(True)               # un láser abierto a mano
+        app.processEvents()
+        with nq.routine_watchdog("rutina colgada"):
+            assert nq.open_shutter(routine_laser)
+            assert nq.is_watchdog_armed()
+            time.sleep(0.6)                                    # la rutina no late
+            app.processEvents()
+            assert not _is_open(routine_laser)
+            assert not _is_open(manual), "al vencer el plazo de una rutina se cierran todos, también los manuales"
+            assert not frontend.shutter1button.isChecked(), "el dock refleja el cierre"
+            assert nq.get_close_epoch().cause == nq.CloseCause.WATCHDOG
+            assert "rutina colgada" in nq.get_close_epoch().detail
+    finally:
+        _close_everything()
+        frontend.close()
+
+
+def test_a_routine_that_keeps_beating_is_never_cut():
+    laser = nq.SHUTTERS[1]
+    nq.set_routine_watchdog_timeout(0.3)
+    try:
+        with nq.routine_watchdog("rutina sana"):
+            assert nq.open_shutter(laser)
+            for _ in range(8):                                 # 0.8 s > 0.3 s, latiendo cada 0.1 s
+                time.sleep(0.1)
+                nq.heartbeat_shutter()
+                assert _is_open(laser), "una rutina que late no se corta"
+    finally:
+        _close_everything()
+
+
+def test_the_end_of_a_routine_disarms_and_spares_a_manual_laser():
+    manual, routine_laser = nq.SHUTTERS[2], nq.SHUTTERS[0]
+    nq.set_routine_watchdog_timeout(0.2)
+    try:
+        assert nq.open_shutter(manual)
+        with nq.routine_watchdog("rutina corta"):
+            assert nq.open_shutter(routine_laser)
+            nq.heartbeat_shutter()
+            assert nq.is_watchdog_armed()
+            assert nq.close_shutter(routine_laser)
+            assert nq.is_watchdog_armed(), "queda un láser abierto: el plazo sigue mientras la rutina corre"
+        assert not nq.is_watchdog_armed(), "al terminar la última rutina el plazo se desarma"
+        time.sleep(0.5)
+        assert _is_open(manual), "el láser manual sobrevive al final de la rutina"
+    finally:
+        _close_everything()
+
+
+def test_a_beat_with_nothing_open_does_not_arm():
+    with nq.routine_watchdog("rutina sin láser"):
+        nq.heartbeat_shutter()
+        assert not nq.is_watchdog_armed()
+
+
+def test_sin_limite_disarms_routines_too():
+    laser = nq.SHUTTERS[0]
+    try:
+        with nq.routine_watchdog("rutina"):
+            assert nq.open_shutter(laser)
+            assert nq.is_watchdog_armed()
+            nq.set_routine_watchdog_timeout(None)
+            assert not nq.is_watchdog_armed()
+            nq.heartbeat_shutter()
+            assert not nq.is_watchdog_armed(), "con Sin límite el latido no arma"
+            nq.set_routine_watchdog_timeout(60.0)
+            nq.heartbeat_shutter()
+            rem = nq.get_watchdog_remaining_time()
+            assert rem is not None and 55.0 < rem <= 60.0
+    finally:
+        nq.set_routine_watchdog_timeout(30.0)
+        _close_everything()
+
+
+def test_lease_is_idempotent_and_nested_registrations_count():
+    lease = nq.RoutineWatchdogLease("escaneo")
+    lease.begin(); lease.begin()
+    assert nq.get_watchdog_routines() == ["escaneo"]
+    lease.end(); lease.end()
+    assert not nq.is_routine_watchdog_active()
+    with nq.routine_watchdog("a"):
+        with nq.routine_watchdog("a"):
+            pass
+        assert nq.is_routine_watchdog_active(), "el registro externo sigue vigente"
+    assert not nq.is_routine_watchdog_active()
+
+
+def test_the_grid_registration_also_registers_the_watchdog():
+    nq.set_routine_running("grilla printing", True)
+    try:
+        assert "grilla printing" in nq.get_watchdog_routines()
+    finally:
+        nq.set_routine_running("grilla printing", False)
+    assert not nq.is_routine_watchdog_active()
+
+
+# ── 3. El selector del panel ─────────────────────────────────────────────────
+
+def test_selector_sets_the_process_value_and_two_panels_stay_in_sync(app):
+    from core.ui.routine_watchdog_widget import RoutineWatchdogSelector
+    a, b = RoutineWatchdogSelector(), RoutineWatchdogSelector()
+    try:
+        assert a.selected_timeout() == 30.0 and b.selected_timeout() == 30.0
+        a.combo.setCurrentIndex(a.combo.findData(300.0))
+        assert nq.get_routine_watchdog_timeout() == 300.0
+        b.refresh()
+        assert b.selected_timeout() == 300.0, "el otro panel del proceso se resincroniza"
+        b.combo.setCurrentIndex(b.combo.findData(None))
+        assert nq.get_routine_watchdog_timeout() is None
+        a.refresh()
+        assert a.selected_timeout() is None and "sin corte" in a.lbl_state.text()
+    finally:
+        nq.set_routine_watchdog_timeout(30.0)
+        a.close(); b.close()
+
+
+def test_selector_shows_the_running_routine_and_its_countdown(app):
+    from core.ui.routine_watchdog_widget import RoutineWatchdogSelector
+    sel = RoutineWatchdogSelector()
+    try:
+        sel.refresh()
+        assert "sin rutina" in sel.lbl_state.text()
+        with nq.routine_watchdog("Step & Glue"):
+            assert nq.open_shutter(nq.SHUTTERS[0])
+            sel.refresh()
+            assert "Step & Glue" in sel.lbl_state.text() and "cierre en" in sel.lbl_state.text()
+    finally:
+        _close_everything()
+        sel.close()
+
+
+def test_both_programs_show_the_selector(app):
+    from modules import measurements as meas_mod
+    src = Path(meas_mod.__file__).read_text(encoding="utf-8")
+    assert "RoutineWatchdogSelector" in src, "el Control Panel de impresión tiene el selector"
+    lhp = (BASE_DIR / "pyspectrum" / "ui" / "left_hardware_panel.py").read_text(encoding="utf-8")
+    assert "RoutineWatchdogSelector" in lhp, "el panel izquierdo de PySpectrum tiene el selector"
+
+
+# ── 4. Contrato del código de producción ──────────────────────────────────────
+
+_PROD_DIRS = ("core", "modules", "pyspectrum", "analysis")
+_PROD_ROOT_FILES = ("app.py", "contrapropagante.py", "main.py")
+_SKIP = {"core/nidaq.py", "modules/camera_backup_pre_fusion.py"}
+# Operación manual (DEC-052): abren sin plazo. La traza abre a mano sólo en F1; en impresión la abre la grilla.
+_MANUAL = {"core/shutters.py", "modules/camera.py", "modules/trace.py"}
+_REGISTERS = ("routine_watchdog", "RoutineWatchdogLease", "set_routine_running", "begin_routine_watchdog")
+
+
+def _production_files():
+    for d in _PROD_DIRS:
+        for p in (BASE_DIR / d).rglob("*.py"):
+            yield p
+    for f in _PROD_ROOT_FILES:
+        p = BASE_DIR / f
+        if p.exists():
+            yield p
+
+
+def test_no_production_code_hardcodes_a_deadline():
+    offenders = []
+    for p in _production_files():
+        rel = p.relative_to(BASE_DIR).as_posix()
+        if rel in _SKIP:
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r"heartbeat_shutter\(\s*[^)\s]", text):
+            offenders.append(f"{rel}: {text[m.start():m.start() + 40]!r}")
+        for m in re.finditer(r"open_shutter\([^)]*timeout_s", text):
+            offenders.append(f"{rel}: {text[m.start():m.start() + 60]!r}")
+    assert not offenders, "el plazo es el del panel (DEC-052): " + "; ".join(offenders)
+
+
+def test_every_module_that_opens_a_laser_is_manual_or_registers_a_routine():
+    offenders = []
+    for p in _production_files():
+        rel = p.relative_to(BASE_DIR).as_posix()
+        if rel in _SKIP or rel in _MANUAL:
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        if not re.search(r"(?<![\w.])open_shutter\(|\.open_shutter\(|set_laser\(True|\.laser\([^)]*True", text):
+            continue
+        if any(k in text for k in _REGISTERS) or "RoutineThread" in text or "GridRunner" in text:
+            continue
+        offenders.append(rel)
+    assert not offenders, ("abren un láser sin registrarse en el watchdog de rutinas ni figurar como operación "
+                           "manual (DEC-052): " + ", ".join(offenders))
 
 
 if __name__ == "__main__":
-    app = QApplication.instance() or QApplication([])
-    test_indefinite_alignment_mode()
-    test_heartbeat_renewal_active_trace()
-    test_watchdog_callback_and_ui_sync(app)
-    test_ui_alignment_mode_selection(app)
-    test_experimental_routine_respects_global_alignment_policy(app)
-    test_experimental_routine_respects_global_30s_policy(app)
-
-    print("\n==================================================================")
-    print("TODAS LAS PRUEBAS DE SHUTTERS, WATCHDOG Y ALINEACION FUERON EXITOSAS!")
-    print("==================================================================")
-    sys.exit(0)
+    import pytest
+    raise SystemExit(pytest.main([__file__, "-q"]))

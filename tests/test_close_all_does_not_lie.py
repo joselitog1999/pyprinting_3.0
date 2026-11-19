@@ -46,7 +46,7 @@ def test_the_watchdog_retry_confirms_all_four_later(daq):
 
 def test_a_failed_open_leaves_all_four_unconfirmed(daq):
     daq.write_failures = 1
-    assert nidaq.open_shutter(LASER, timeout_s=5.0) is False
+    assert nidaq.open_shutter(LASER) is False
     assert sorted(nidaq.get_unconfirmed_shutters()) == sorted(nidaq.SHUTTERS)
     assert LASER in nidaq.get_open_shutter_names()                     # pudo haber abierto
     nidaq.close_shutter(LASER)
@@ -55,8 +55,8 @@ def test_a_failed_open_leaves_all_four_unconfirmed(daq):
 
 def test_a_failed_close_marks_an_intentionally_open_line_too(daq):
     nidaq.WATCHDOG_RETRY_INTERVAL_S = 60.0                              # que no se adelante el watchdog
-    assert nidaq.open_shutter(OTHER, timeout_s=None) is True
-    assert nidaq.open_shutter(LASER, timeout_s=None) is True
+    assert nidaq.open_shutter(OTHER) is True
+    assert nidaq.open_shutter(LASER) is True
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
     assert nidaq.close_shutter(LASER) is False
     assert sorted(nidaq.get_unconfirmed_shutters()) == sorted(nidaq.SHUTTERS)
@@ -101,7 +101,7 @@ def test_close_all_unchecks_only_after_a_confirmed_close(dock):
     nidaq.WATCHDOG_RETRY_INTERVAL_S = 60.0          # que el reintento no confirme antes de mirar la casilla
     idx = nidaq.SHUTTERS.index(LASER)
     btn = _buttons(fe)[idx]
-    assert nidaq.open_shutter(LASER, timeout_s=None)                       # el obturador abierto, y su casilla
+    assert nidaq.open_shutter(LASER)                       # el obturador abierto, y su casilla
     btn.blockSignals(True); btn.setChecked(True); btn.blockSignals(False)
     assert btn.isChecked() and LASER in nidaq.get_open_shutter_names()
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES
@@ -119,7 +119,7 @@ def test_close_all_unchecks_only_after_a_confirmed_close(dock):
 def test_close_all_with_a_working_board_unchecks_everything(dock):
     fe, daq = dock
     btn = _buttons(fe)[nidaq.SHUTTERS.index(LASER)]
-    assert nidaq.open_shutter(LASER, timeout_s=None)
+    assert nidaq.open_shutter(LASER)
     btn.blockSignals(True); btn.setChecked(True); btn.blockSignals(False)
     fe._close_all_shutters_clicked()
     _process()
@@ -132,7 +132,7 @@ def test_an_intentionally_open_line_stays_checked_and_red_until_confirmed(dock):
     nidaq.WATCHDOG_RETRY_INTERVAL_S = 60.0
     b_other = _buttons(fe)[nidaq.SHUTTERS.index(OTHER)]
     for name in (OTHER, LASER):
-        assert nidaq.open_shutter(name, timeout_s=None)
+        assert nidaq.open_shutter(name)
         b = _buttons(fe)[nidaq.SHUTTERS.index(name)]
         b.blockSignals(True); b.setChecked(True); b.blockSignals(False)
     daq.write_failures = nidaq.SHUTTER_CLOSE_RETRIES

@@ -34,7 +34,7 @@ def test_multithread_pi_and_nidaq():
                 
                 # Operaciones de shutter concurrentes
                 sh_name = SHUTTERS[worker_id % len(SHUTTERS)]
-                open_shutter(sh_name, timeout_s=5.0)
+                open_shutter(sh_name)
                 time.sleep(0.001)
                 close_shutter(sh_name)
         except Exception as e:
@@ -55,8 +55,11 @@ def test_multithread_pi_and_nidaq():
 def test_watchdog_auto_closure():
     print("Iniciando test del Watchdog Heartbeat Fail-Safe...")
     laser_name = "532 nm (green)"
-    # Abrir con timeout de 0.5 segundos
-    open_shutter(laser_name, timeout_s=0.5)
+    # El plazo es sólo de las rutinas (DEC-052): una rutina con plazo de 0.5 s que abre y deja de latir.
+    import core.nidaq as _nq
+    _nq.set_routine_watchdog_timeout(0.5)
+    _nq.begin_routine_watchdog("test de concurrencia")
+    open_shutter(laser_name)
     
     # Comprobar que está abierto
     idx = SHUTTERS.index(laser_name)
@@ -66,7 +69,11 @@ def test_watchdog_auto_closure():
     time.sleep(0.8)
     
     # Comprobar que el watchdog forzó el cierre
-    assert _shutter_signal[idx] != SHUTTER_POLARITY[laser_name], "El Watchdog debería haber forzado el cierre del shutter."
+    try:
+        assert _shutter_signal[idx] != SHUTTER_POLARITY[laser_name], "El Watchdog debería haber forzado el cierre del shutter."
+    finally:
+        _nq.end_routine_watchdog("test de concurrencia")
+        _nq.set_routine_watchdog_timeout(30.0)
     print("PASS: El Watchdog forzó el cierre seguro del obturador tras la expiración del heartbeat.")
     return True
 

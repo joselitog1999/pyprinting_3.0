@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (QApplication, QFrame, QWidget, QGridLayout,
 from PyQt6.QtGui     import QShortcut, QKeySequence
 
 from config  import pi, SHUTTERS, PI_STAGE_RANGE_UM, PI_Z_RANGE_UM, wait_on_target
-from nidaq   import get_close_epoch, is_emergency_stopped
+from nidaq   import get_close_epoch, is_emergency_stopped, routine_watchdog
 from core.grid_state import AutofocusResult
 from core.step_plausibility import check_autofocus
 from nidaq   import (open_shutter, close_shutter, heartbeat_shutter, channels_photodiodos,
@@ -179,15 +179,29 @@ class Frontend(QFrame):
 
 # ══════════════════════════════════════════════════════════════════════════════
 def _focus_routine(fn):
-    """Cuenta las rutinas de foco en curso: el foco está quieto para el rearme sólo sin ninguna (R4-17 fase 4b)."""
+    """Cuenta las rutinas de foco en curso: el foco está quieto para el rearme sólo sin ninguna (R4-17 fase 4b).
+    Además registra la rutina en el watchdog de rutinas mientras dura (DEC-052)."""
     @functools.wraps(fn)
     def wrapper(self, *a, **k):
         self._busy += 1
         try:
-            return fn(self, *a, **k)
+            with routine_watchdog("foco"):
+                return fn(self, *a, **k)
         finally:
             self._busy -= 1
     return wrapper
+
+
+def _watchdog_routine(name: str):
+    """Sólo el registro en el watchdog de rutinas (DEC-052), para las rutinas de foco que no cuentan para la
+    quietud del rearme."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(self, *a, **k):
+            with routine_watchdog(name):
+                return fn(self, *a, **k)
+        return wrapper
+    return deco
 
 
 class Backend(QObject):
@@ -274,7 +288,7 @@ class Backend(QObject):
         retries = 0
         gone = back = None
         while flag:
-            heartbeat_shutter(30.0)
+            heartbeat_shutter()
             gone, back, flag = self._ramp_lin()
             retries += 1
             if flag and retries >= self.MAX_RAMP_RETRIES:
@@ -286,6 +300,7 @@ class Backend(QObject):
     # ── Go to maximum ─────────────────────────────────────────────────────────
 
     @pyqtSlot(int)
+    @_watchdog_routine("foco: ir al máximo")
     def focus_go_to_maximum(self, color_laser: int):
         self.laser = SHUTTERS[color_laser]
         pos        = pi.qPOS()
@@ -300,7 +315,7 @@ class Backend(QObject):
             retries = 0
             while flag:
                 open_shutter(self.laser)
-                heartbeat_shutter(30.0)
+                heartbeat_shutter()
                 try:
                     gone, back, flag = self._ramp_lin()
                 finally:
@@ -365,7 +380,7 @@ class Backend(QObject):
                         # (el inicio de la rampa está 3.75 µm más abajo: la grilla imprimiría fuera de foco).
                         self._move_z(z_lock)
                         raise RuntimeError("[Focus] ABORT lock_focus: el obturador no abrió; el foco no se fija.")
-                    heartbeat_shutter(30.0)
+                    heartbeat_shutter()
                     try:
                         gone, _, flag = self._ramp_lin()
                     finally:
@@ -440,7 +455,7 @@ class Backend(QObject):
                 if cut:
                     valid, reason = False, cut
                     break
-                heartbeat_shutter(30.0)
+                heartbeat_shutter()
                 target, m = self._autocorr_target()
                 # La validez y los topes se evalúan ANTES de mover (R4-17 fase 5, DEC-050): un corte durante la rampa
                 # o un perfil no plausible no llevan Z al máximo de una correlación del ruido (E-6)

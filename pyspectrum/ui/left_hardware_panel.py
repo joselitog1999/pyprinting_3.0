@@ -134,9 +134,20 @@ class LeftHardwarePanel(QtWidgets.QWidget):
         vlo.addWidget(self._build_andor_group())
         vlo.addWidget(self._build_shamrock_group())
         vlo.addWidget(self._build_detection_mirror_group())
+        vlo.addWidget(self._build_routine_watchdog_group())
         vlo.addStretch()
         scroll.setWidget(container)
         outer.addWidget(scroll)
+
+    def _build_routine_watchdog_group(self) -> QtWidgets.QGroupBox:
+        """El plazo del watchdog de rutinas (DEC-052): el mismo valor que el Control Panel de impresión, uno por
+        proceso. La operación manual de los láseres no tiene plazo."""
+        from core.ui.routine_watchdog_widget import RoutineWatchdogSelector
+        box = QtWidgets.QGroupBox("⏱️ Watchdog de rutinas")
+        lay = QtWidgets.QVBoxLayout(box)
+        self.routine_watchdog_selector = RoutineWatchdogSelector(box)
+        lay.addWidget(self.routine_watchdog_selector)
+        return box
 
     def _build_detection_mirror_group(self) -> QtWidgets.QGroupBox:
         """Espejo de detección (R4-N 3, C-08): lo que cree el software y la resincronización. Sin sensor."""

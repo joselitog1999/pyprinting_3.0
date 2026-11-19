@@ -382,17 +382,13 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
   - **Desacoplamiento Estricto del Watchdog**: El flipper de potencia es un atenuador de densidad óptica y **no un obturador de corte de radiación**. Por tanto, el disparo del watchdog cierra los obturadores pero no altera la posición del flipper, preservando la configuración deseada por el operador.
   - **Auto-Recuperación de Tareas Zombi DAQ**: `core/nidaq.py` valida activamente el estado de las tareas de National Instruments (`is_task_done()`) y resetea las referencias a `None` tras `close_all_tasks()`, permitiendo reintentos automáticos sin lanzar excepciones `-200088`.
   - **`Notch 532 Flipper (Mirror up/down)`**: Conmuta el espejo de desviación hacia el filtro Notch de 532 nm mediante la línea digital `Dev1/port0/line7` (`set_notch532`).
-* **Sistema de Auto-Cierre de Seguridad & Watchdog**:
-  - **Casilla `Auto-cierre de seguridad`**: Activa o desactiva la protección contra radiación desatendida mediante un daemon independiente (`daemon=True`) que no se bloquea ante cálculos intensivos en la GUI.
-  - **Selector de Tiempo Máximo**: Menú desplegable con tiempos límite de radiación continua:
-    - `30s (Estándar)`: Protección estricta contra evaporación y foto-daño.
-    - `60s (1 min)`: Procedimientos de inspección rápida.
-    - `300s (5 min)`: Ajustes ópticos intermedios.
-    - `600s (10 min)`: Búsqueda exploratoria extensa.
-    - `Sin límite (Modo Alineación)`: Desactiva el corte por tiempo para sesiones de alineación óptica manual y colimación de cavidades.
-  - **Indicador Dinámico de Estado**: Muestra en tiempo real la cuenta regresiva hacia el corte (`⏱️ Auto-cierre en: Xs`), el modo seguro armado (`⏱️ Auto-cierre activo (Xs)`) o el modo alineación continua (`⚠️ MODO ALINEACIÓN (Sin auto-cierre)`).
+* **Operación manual: sin auto-cierre (desde el 2026-11-18, `DEC-052`)**:
+  - Un obturador abierto desde este dock **queda abierto hasta que lo cierres**. No hay cierre automático por tiempo en la operación manual: tampoco en la ventana **Láser 532** ni en la traza manual (F1).
+  - El recuadro **Seguridad** del dock lo recuerda: "Operación manual: sin auto-cierre", y en naranja mientras haya un láser abierto ("queda abierto hasta que lo cierres").
+  - Ya no hay casilla "Auto-cierre" ni selector de tiempo en este dock: el plazo es sólo de las rutinas y se elige en el **Control Panel** de impresión (ver el recuadro de abajo).
+  - **Si el programa se cuelga con un láser abierto a mano**, cortá con la **llave del láser** antes de cerrar el programa desde el Administrador de tareas: terminarlo a la fuerza no cierra ningún obturador (`BANCO-16`, `BANCO-71`).
   - **Botón `🚨 Cerrar Todos`**: Pulsador de corte de emergencia en un clic que fuerza el cierre inmediato de los 4 obturadores digitales.
-    - **Desde el 2026-10-02 (R4-17 fase 1, `DEC-044`):** las casillas se desmarcan **sólo si la placa confirmó el cierre**. Si la escritura falla, los obturadores quedan marcados en rojo con el banner "CIERRE SIN CONFIRMAR", se tratan como abiertos y el watchdog sigue reintentando.
+    - **Desde el 2026-10-02 (R4-17 fase 1, `DEC-044`):** las casillas se desmarcan **sólo si la placa confirmó el cierre**. Si la escritura falla, los obturadores quedan marcados en rojo con el banner "CIERRE SIN CONFIRMAR", se tratan como abiertos y se sigue reintentando el cierre (el reintento es por la falla, no por tiempo, y vale también en la operación manual).
     - **Después de cualquier escritura fallida** (abrir, cerrar o "Cerrar Todos") quedan sin confirmar **las cuatro líneas**, porque el estado real de la placa no se conoce. Una línea que tenías abierta a propósito sigue marcada, en rojo, hasta que una escritura buena la confirme.
     - "Cerrar Todos" no detiene la grilla. Para eso están la Pausa y, cuando exista, la parada de emergencia de PyPrinting (R4-17).
     - **Durante una grilla (R4-17 fase 3, `DEC-046`):**
@@ -403,10 +399,15 @@ El dock **`Shutters / Flipper`** centraliza la conmutación digital por relés y
       - si cae justo antes de un autofoco, el autofoco no se hace y Z queda donde estaba: no se barre ni se corrige el foco con el obturador cerrado.
     - Sin una grilla corriendo, "Cerrar Todos" cierra y no retiene nada.
     - **Con una grilla corriendo, el botón dice "Cerrar todos · la grilla sigue"** (R4-17 fase 4c). En el panel de impresión aparecen un aviso naranja por 20 s ("Cerraste los obturadores en el nodo N…") y la cuenta "La grilla sigue con el nodo N+1 en S s". Al lado está el botón de la parada de emergencia: la vecindad enseña la diferencia.
-  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog en la NI-DAQ fuerza un cierre de emergencia por expiración de tiempo o bloqueo de software, una señal Qt interrumpe la UI y desmarca automáticamente los botones activos de obturador, garantizando sincronismo absoluto entre el hardware real y la interfaz visual.
+  - **Sincronización Bidireccional Hardware-GUI**: Si el watchdog de una **rutina** fuerza el cierre porque la rutina dejó de latir, se cierran **los cuatro** obturadores (también los que abriste a mano) y una señal Qt desmarca las casillas del dock, para que la interfaz refleje el hardware real.
 
 > [!IMPORTANT]
-> **El selector de auto-cierre gobierna a TODO el software, no solo a este dock.** Antes, elegir `30s`, `60s`, `300s`, `600s` o `Sin límite (Modo Alineación)` solo afectaba a los 4 obturadores manuales de este panel — cualquier rutina automatizada (Confocal, Impresión, Espectroscopía) que abriera un láser internamente ignoraba la elección y volvía a aplicar 30 s por defecto. Esto ya no ocurre: la política elegida aquí se propaga de inmediato a **todos** los módulos del software en tiempo real, sin necesidad de reiniciar ninguna rutina en curso ni de reabrir ningún dock. Si necesita alinear manualmente durante minutos sin interrupciones, seleccionar `Sin límite (Modo Alineación)` aquí es suficiente — ya no es necesario preocuparse por que una rutina en segundo plano rearme el corte a 30 s.
+> **El watchdog es sólo de las rutinas (`DEC-052`, 2026-11-18).** Antes, toda apertura armaba un plazo de 30 s y un láser abierto a mano se cerraba solo; el selector vivía en este dock.
+> - **Dónde se elige:** fila **"Watchdog de rutinas"** del **Control Panel** de impresión y recuadro **"⏱️ Watchdog de rutinas"** del panel izquierdo de PySpectrum. Es un solo valor por programa: si PyPrinting corre como satélite de PySpectrum, cambiarlo en uno lo cambia en el otro.
+> - **Opciones:** `30 s` (predeterminado), `60 s`, `300 s`, `600 s` y `Sin límite`.
+> - **Qué vigila:** la grilla de impresión y dímeros, el escaneo confocal, el autofoco, el contrapropagante, Step & Glue, el escaneo lineal, las rutinas de grilla de PySpectrum (crecimiento, luminiscencia, dímeros), la calibración de λ y el mapa hiperespectral. Mientras corren con un láser abierto, laten en cada paso; si una deja de latir durante el plazo (por ejemplo, porque se colgó), se cierran **todos** los obturadores y la rutina se aborta.
+> - **Qué muestra:** "sin rutina en curso", o el nombre de la rutina y "cierre en N s si deja de latir".
+> - **Elegí un plazo mayor que el paso más largo de la rutina** (una exposición larga, un asentamiento lento). `Sin límite` desactiva el corte también en las rutinas.
 * **Modulación Analógica de Potencia**: El control de voltaje analógico DAC ($0.0 - 5.0\ \text{V}$, canal `ao2`) para el láser verde se encuentra desacoplado de este panel y se opera desde su ventana especializada **`Laser532Window`** (disponible desde el Lanzador Principal y menú **`Tools → Láser 532`**).
 
 ---

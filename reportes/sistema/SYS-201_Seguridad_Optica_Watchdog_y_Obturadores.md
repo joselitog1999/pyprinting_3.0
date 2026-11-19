@@ -8,6 +8,19 @@
 
 ---
 
+> [!WARNING]
+> **Actualizado por `DEC-052` (2026-11-18): el watchdog vigila sólo a las rutinas.** Lo que sigue describe la política
+> anterior (un plazo para toda apertura, elegido en el dock de Shutters) y se conserva como historia. Hoy:
+> - la **operación manual** (dock de Shutters, ventana Láser 532, traza F1) **no arma ningún plazo**: un láser abierto a
+>   mano queda abierto hasta que el operador lo cierre;
+> - una **rutina registrada** (`routine_watchdog`, `RoutineWatchdogLease`, `set_routine_running`) con un láser abierto
+>   arma el plazo al abrir o al latir; si deja de latir, se cierran **los cuatro** obturadores, también los manuales;
+> - al terminar la última rutina el plazo se desarma;
+> - el plazo (30 s por defecto, `_default_timeout_s`; `None` = "Sin límite") se elige en el Control Panel de impresión
+>   y en el panel izquierdo de PySpectrum (`core/ui/routine_watchdog_widget.py`); el dock ya no tiene selector;
+> - `open_shutter()` y `heartbeat_shutter()` ya no reciben `timeout_s`;
+> - el hilo `ShutterWatchdog`, su poll de 100 ms y el reintento de los cierres sin confirmar (`DEC-036`) no cambian.
+
 ## 🔗 Matriz de Referencias Cruzadas
 
 - **Reportes de Sistema Conexos:**

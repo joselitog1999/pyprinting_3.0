@@ -1013,6 +1013,12 @@ class Frontend(QFrame):
         plo.addWidget(QLabel("Target Index:"),  13, 0); plo.addWidget(self.indice_impresionEdit, 13, 1)
         plo.addWidget(QLabel("Progreso Lote:"), 13, 2); plo.addWidget(self.progress_bar,        13, 3)
 
+        # Fila 14: Watchdog de rutinas (DEC-052). Vale para todas las rutinas del proceso; la operación manual
+        # (dock de Shutters, Láser 532, traza F1) no tiene plazo.
+        from core.ui.routine_watchdog_widget import RoutineWatchdogSelector
+        self.routine_watchdog_selector = RoutineWatchdogSelector(pcW)
+        plo.addWidget(self.routine_watchdog_selector, 14, 0, 1, 4)
+
         # Focus shift & Drift correction widget
         fsW = QWidget(); flo = QGridLayout(fsW)
         flo.addWidget(QLabel("Autofocus every N"), 0, 0); flo.addWidget(self.autofocEdit, 0, 1)

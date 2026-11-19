@@ -383,6 +383,11 @@ class Backend(QtCore.QObject):
         self._runner = GridRunner(self.camera, should_abort=self._stop_event.is_set)
         self.laser_in_use = laser or (SHUTTERS[0] if SHUTTERS else "")
         self._scanning = True
+        # El mapa es una rutina del watchdog de rutinas hasta `_finish` (DEC-052).
+        from core.nidaq import RoutineWatchdogLease
+        if getattr(self, "_wd", None) is None:
+            self._wd = RoutineWatchdogLease("mapa hiperespectral")
+        self._wd.begin()
         try:
             self.camera.set_read_mode(READ_MODE_FVB)
             self.run_dark = self.dark.ensure(self._runner, self._exp_time)   # un fondo por mapa (R4-N)
@@ -411,6 +416,8 @@ class Backend(QtCore.QObject):
             return
         self._scanning = False
         self.scan_timer.stop()
+        if getattr(self, "_wd", None) is not None:
+            self._wd.end()
         runner = self._runner
         try:
             if runner is not None and not runner.close_lasers():

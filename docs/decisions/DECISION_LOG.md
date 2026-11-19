@@ -18,7 +18,7 @@
 | `DEC-007` | 2026-09-16 | Formal ADR: Dedicated `QThread` Worker for LineScan Spectroscopy (Considered Options & Traceability) | `ACCEPTED` | Software Architect, Instrumentation | `SYS-101`, `SYS-102`, `SYS-104`, complements `DEC-006` |
 | `DEC-008` | 2026-09-16 | Metrological Traceability of Transmittance/Extinction Datasets in LineScan Spectroscopy HDF5 (Raw vs. `_physical`) | `ACCEPTED — FULLY RESOLVED (2026-09-17)` | Scientific Reviewer, Metrology | `SYS-104`, `CAT-401`, `core/sif_processor.py` |
 | `DEC-009` | 2026-09-17 | Hardware-Safety Audit Remediation: Slit Clamp, Grating Settle Polling, Session Arbitration, Partial-Scan Reporting (P0) | `ACCEPTED` | Instrumentation, Software Architect, QA/UX Auditor, Metrology | `pyspectrum/drivers/shamrock_driver.py`, `pyspectrum/modules/step_and_glue.py`, `pyspectrum/modules/routines/linescan_spectroscopy.py` |
-| `DEC-010` | 2026-09-17 | Unified Global Shutter Auto-Close Policy (SYS-201) + Heartbeat Coverage Audit Across Scanning Loops | `ACCEPTED` | Instrumentation, Software Architect | `core/nidaq.py`, `core/shutters.py`, `modules/confocal.py`, `modules/focus.py`, `contrapropagante.py` |
+| `DEC-010` | 2026-09-17 | Unified Global Shutter Auto-Close Policy (SYS-201) + Heartbeat Coverage Audit Across Scanning Loops | `ACCEPTED — partly SUPERSEDED by DEC-052 (2026-11-18)`: the deadline is only for routines | Instrumentation, Software Architect | `core/nidaq.py`, `core/shutters.py`, `modules/confocal.py`, `modules/focus.py`, `contrapropagante.py` |
 | `DEC-011` | 2026-09-17 | PI E-517 Stage Connection Resilience: GCSError/Communication-Failure Isolation, MOV Clamping, Grid Pre-Flight Range Check, Pause/Resume on Real Disconnection | `ACCEPTED` | Instrumentation, Software Architect | `config.py`, `modules/measurements.py` |
 | `DEC-012` | 2026-09-18 | Universal Template Matching and Crystallographic Generalization for Hexagonal and Honeycomb Lattices in 2D Disorder Analyzer | `ACCEPTED` | Physicist, Computational Physicist, Metrology, Software Architect, Devil's Advocate | `core/lattice_disorder.py`, `analysis/lattice_disorder_gui.py`, `core/lattice_generator.py` (consumed, not modified), `MOD-08` |
 | `DEC-013` | 2026-09-18 | Multi-Agent Hardware-Safety Audit Remediation (Lotes 1-6): Focus Retry Caps, Trace Task Persistence, Printing Watchdog Renewal, Confocal Settling & Heartbeat Policy, Hyperspectral QThread + Shutter Lifecycle, Dual-Confocal PSF-Mode Parity | `ACCEPTED` | Instrumentation, Software Architect, Experimentalist, Devil's Advocate | `modules/focus.py`, `modules/trace.py`, `core/nidaq.py`, `modules/measurements.py`, `modules/confocal.py`, `contrapropagante.py`, `pyspectrum/modules/hyperspectral_confocal.py`, `pyspectrum/window.py` |
@@ -111,6 +111,12 @@ Chosen option: **Option C**, the only one that keeps the watchdog and abort path
 * **Correction (logged in `DEC-010`, 2026-09-17)**: the `test_shutter_alignment_and_heartbeat.py` "collection errors" cited above as a `PyQt6` DLL-loading artifact were misdiagnosed. The real cause was a missing pytest fixture (`app`) and, separately, a deterministic `sys.path` ordering issue (two `PyQt6` installs for Python 3.13 in this environment — see `DEC-010` for the full root cause and fix). Both are now fixed; see `DEC-010`.
 
 ### DEC-010: Unified Global Shutter Auto-Close Policy (SYS-201) + Heartbeat Coverage Audit Across Scanning Loops
+> [!WARNING]
+> **Partly SUPERSEDED by `DEC-052` (2026-11-18).** The deadline no longer applies to every opening: manual
+> operation (Shutters dock, Láser 532, trace F1) has none, and the value is chosen in the printing Control Panel and
+> in PySpectrum's left panel, not in the Shutters dock. `open_shutter()` and `heartbeat_shutter()` no longer take
+> `timeout_s`. The 30 s default, the 100 ms poll and the per-iteration heartbeat inside routines stay.
+
 * **Context**: `core/nidaq.py::open_shutter()`/`heartbeat_shutter()` hardcoded `timeout_s=30.0` as their Python default-parameter value. `core/shutters.py::Backend.set_autoclose_timeout()` (the slot behind the Shutters dock's "Auto-cierre" checkbox / timeout combo) only stored the choice in `self.current_timeout`, a per-instance attribute consulted **only** by that same dock's own `shutter0()`–`shutter3()` slots. Every other module opening a shutter — every experimental routine — calls `open_shutter(self.laser)` with no `timeout_s` argument, so it silently got the hardcoded `30.0` regardless of what the operator had selected in the dock, including "Sin límite (Modo Alineación)". Separately, several scanning loops opened a shutter once at the start of a multi-row/multi-point acquisition and never called `heartbeat_shutter()` again until the scan finished — if a single scan exceeded the (possibly silently-restored) 30 s deadline, the watchdog would force-close the shutter mid-scan, leaving the stage scanning in the dark.
 * **Decision**:
   1. **Global policy, `core/nidaq.py`**: added `_default_timeout_s` (module global) + `set_default_shutter_timeout()`/`get_default_shutter_timeout()`. `open_shutter()` and `heartbeat_shutter()` now default to a sentinel (`_SENTINEL`, an `object()` identity check, not `None` — `None` is itself a valid explicit "no limit" value and must stay distinguishable from "no argument passed") and fall back to `get_default_shutter_timeout()` only when the caller passed nothing. An explicit `timeout_s` argument (numeric or `None`) at any call site always wins over the global policy, preserving every existing explicit call site's behavior unchanged.
@@ -1723,6 +1729,84 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
   * as a defensive measure, the closer flags an attempt in flight (`_closer_active`), and `tests/conftest.py` waits for it at teardown, so a closer write cannot land in the next test;
   * the phase 5 stop-during-autofocus test now waits for the autofocus result and the focus to be quiescent, not only for the grid to be quiescent. The grid is quiet while the focus still finishes its ramp. In production, Rearm also waits for the focus.
 * **Outcome:** **ACCEPTED, disabled** (see the full-suite result in the commit).
+
+### DEC-052: The Shutter Watchdog Watches Only Routines — Manual Operation Has No Deadline (2026-11-18)
+* **Context:**
+  * Until now every shutter opening armed one global deadline (30 s by default, `DEC-010`, `SYS-201`), including manual ones. A laser opened from the Shutters dock, or from the Láser 532 window, closed itself after 30 s. The Láser 532 window never renews the deadline, so it closed while its button still read "Abierto".
+  * The deadline was only disarmed when every shutter was confirmed closed. A deadline left armed by a routine therefore also closed a laser opened by hand.
+  * The focus routines and the trace hardcoded `heartbeat_shutter(30.0)`, ignoring the operator's choice.
+  * In Step & Glue and the optical-support autofocus, the heartbeat comes from a GUI `QTimer` while the work runs on another thread. A busy GUI could let the deadline lapse with the routine healthy.
+  * The researcher reported that the automatic close caused more problems than it solved.
+* **Deliberation:**
+  * Round 1 (2026-11-18): an adversarial `devil-advocate` read found that the watchdog thread also carries the **retry of unconfirmed closes** (`DEC-036`). That retry is event-driven, not time-driven, and must survive.
+  * The only scenario the deadline covered alone was a frozen GUI with a laser open and the process killed. A hard kill does not run `atexit` either. The answer is procedural (the laser key first, `BANCO-71`) plus `BANCO-16`, not code.
+  * The researcher then narrowed the request: remove the watchdog **only for manual operation**, keep it **inside routines**, and move its setting to the control panel.
+  * Rounds 2-3, approved with the recommended options:
+    * one value for every routine of the process;
+    * the trace F1 counts as manual;
+    * an expired routine closes **all** shutters, manual ones included;
+    * the same selector also goes in PySpectrum's left panel.
+* **Decision (engine, `core/nidaq.py`):**
+  * `open_shutter(name)` loses its `timeout_s` argument.
+    * With a routine registered, it arms or renews the routine deadline, even when the write fails (the `DEC-036` "if it did open" case).
+    * Without a routine, it arms nothing.
+  * `heartbeat_shutter()` loses its argument. It renews the deadline only when a routine is registered **and** a shutter is open (commanded open or unconfirmed). Otherwise it does nothing.
+  * **Routine registry:**
+    * `begin_routine_watchdog(name)` / `end_routine_watchdog(name)` nest by count.
+    * `routine_watchdog(name)` is the context manager.
+    * `RoutineWatchdogLease(name)` is an idempotent registration for timer- or signal-driven routines.
+    * `set_routine_running()` (the grid) also registers.
+    * When the last routine ends, the deadline is disarmed even if a manual laser is still open.
+  * **Deadline value:**
+    * `set_routine_watchdog_timeout()` / `get_routine_watchdog_timeout()` set and read it, with the old names kept as aliases.
+    * `_default_timeout_s` is still 30 s; `None` means "Sin límite".
+    * Changing the value while armed restarts the count with the new value.
+  * **On expiry:** the watchdog closes all four shutters with cause `WATCHDOG` and detail `rutina sin latido: <names>`, and notifies the callbacks. An expiry with no routine left does nothing.
+  * **Unchanged:**
+    * the watchdog thread, its 100 ms poll and the retry of unconfirmed closes;
+    * the emergency stop and its closer;
+    * the excepthook, `atexit`, the board and stage interlocks;
+    * "Cerrar todos".
+* **Decision (routines registered):**
+  * **PyPrinting:**
+    * the grid, through `set_routine_running`;
+    * the confocal scan: a lease, released at every exit (end of each mode, Stop, E-STOP, stage fault, tilt cancel, close);
+    * the focus routines, through `_focus_routine` and `_watchdog_routine`;
+    * the counter-propagating scan: a lease, released at the end, Stop and stage fault.
+  * **PySpectrum:**
+    * `RoutineThread` (growth, luminescence, dimers, slit, dark), registered around the body and its cleanup;
+    * `run_windows` (Step & Glue);
+    * the linescan (reference, background, scan);
+    * the λ calibration port;
+    * the hyperspectral map (a lease until `_finish`).
+  * The trace no longer hardcodes 30 s. Manual F1 is unregistered, and in printing mode the grid's registration covers it.
+* **Decision (GUI):**
+  * **Shutters dock:**
+    * the "Auto-cierre" checkbox, the timeout combo and the countdown are removed;
+    * the group is renamed "Seguridad", with a fixed label: "Operación manual: sin auto-cierre" (amber while a laser is open: "queda abierto hasta que lo cierres");
+    * the unconfirmed-close banner now reads "se sigue reintentando el cierre".
+  * **New `core/ui/routine_watchdog_widget.py::RoutineWatchdogSelector`:**
+    * placed in the printing Control Panel (row 14) and in PySpectrum's left panel ("⏱️ Watchdog de rutinas");
+    * offers 30, 60, 300 or 600 s, or "Sin límite";
+    * shows the running routine and "cierre en N s si deja de latir";
+    * one value per process: in satellite mode each panel resyncs on refresh.
+* **Tests:**
+  * `tests/test_shutter_alignment_and_heartbeat.py` is rewritten as the DEC-052 contract, 19 tests. Among them:
+    * manual opens never arm, and the dock and the Láser 532 window stay open past the deadline;
+    * a routine that stops beating closes everything, the dock included;
+    * a beating routine is never cut;
+    * the end of a routine disarms and spares a manual laser;
+    * "Sin límite";
+    * the lease;
+    * the selector syncing two panels;
+    * a source gate: no production `heartbeat_shutter(<arg>)` or `open_shutter(..., timeout_s)`, and every module that opens a laser is manual or registers a routine.
+  * Tests adapted to the new contract: `test_close_all_does_not_lie`, `test_shutter_confirmation_and_interlocks`, `test_emergency_stop_engine`, `test_concurrency_watchdog`, `test_measurements`, `test_pyspectrum_stability_safety`, `test_pi_stage_resilience`, `run_all_diagnostics`.
+  * `tests/conftest.py` resets the routine registry, the deadline and the 30 s value around each test.
+* **Supersedes:** the auto-close-for-every-opening part of `DEC-002` and `DEC-010` (`SYS-201`). The 100 ms poll, the 30 s default and the per-iteration heartbeat inside routines stay.
+* **Bench:**
+  * `BANCO-18` is reworded: the retry is still the watchdog thread's, now without a deadline.
+  * `BANCO-16` and `BANCO-71` become essential: with no deadline on manual operation, the laser key is the stop if the program hangs.
+* **Outcome:** **ACCEPTED** (full-suite result in the commit).
 
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]

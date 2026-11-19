@@ -376,17 +376,23 @@ class TestPySpectrumSafety(unittest.TestCase):
         self.assertEqual(nidaq._shutter_signal[idx], not SHUTTER_POLARITY[laser])
 
     def test_heartbeat_watchdog_renewed_during_acquisition(self):
-        """Verifica que se arme el watchdog al abrir obturador y se desarme al cerrar."""
-        heartbeat_shutter(30.0)
-        self.assertTrue(is_watchdog_armed())
-        rem = get_watchdog_remaining_time()
-        self.assertIsNotNone(rem)
-        self.assertGreater(rem, 25.0)
-        self.assertLessEqual(rem, 30.0)
+        """Dentro de una rutina (DEC-052), el latido arma el plazo del panel con un láser abierto, y cerrar todo lo
+        desarma. Sin rutina, el mismo latido no arma nada."""
+        from core.nidaq import routine_watchdog
+        open_shutter(SHUTTERS[0])
+        heartbeat_shutter()
+        self.assertFalse(is_watchdog_armed(), "sin rutina, el latido no arma el plazo")
+        with routine_watchdog("adquisición de prueba"):
+            heartbeat_shutter()
+            self.assertTrue(is_watchdog_armed())
+            rem = get_watchdog_remaining_time()
+            self.assertIsNotNone(rem)
+            self.assertGreater(rem, 25.0)
+            self.assertLessEqual(rem, 30.0)
 
-        close_all_shutters()
-        self.assertFalse(is_watchdog_armed())
-        self.assertIsNone(get_watchdog_remaining_time())
+            close_all_shutters()
+            self.assertFalse(is_watchdog_armed())
+            self.assertIsNone(get_watchdog_remaining_time())
 
     def test_window_close_failsafe_shutter_sweep(self):
         """Verifica que el cierre de la ventana principal ejecute barrido fail-safe (close_all_shutters)."""

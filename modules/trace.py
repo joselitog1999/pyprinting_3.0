@@ -596,7 +596,7 @@ class Backend(QObject):
                 open_shutter(self.laser1)
             if hasattr(self, 'laser2') and self.laser2 not in ("None", "BS"):
                 open_shutter(self.laser2)
-        heartbeat_shutter(30.0)
+        heartbeat_shutter()
 
         self._n           = 0
         self.timer_inicio = time.time()
@@ -675,7 +675,7 @@ class Backend(QObject):
             return
         self._n += 1
         if self._n % 30 == 0:  # Cada ~1 segundo a 30 FPS: renueva el heartbeat del watchdog para alinear sin corte
-            heartbeat_shutter(30.0)
+            heartbeat_shutter()
 
         active_l1_name = getattr(self, 'laser1', SHUTTERS[0])
         active_l2_name = getattr(self, 'laser2', "None")
