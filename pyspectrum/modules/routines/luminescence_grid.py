@@ -61,6 +61,28 @@ class MiniMapSpec:
 
 
 @dataclass
+class NodeStepGlueSpec:
+    """Step & Glue en cada NP, como `Luminescence_steps_ps.py` + `StepandGlue_ps.py` del legado (DEC-055). Valores
+    por defecto: los de la pestaña Step & Glue del legado (400–800 nm, solape 0.2, 1 s)."""
+    start_nm: float = 400.0
+    end_nm: float = 800.0
+    overlap: float = 0.20
+    exposure_s: float = 1.0
+    background_roi: FiberROI = field(default_factory=lambda: FiberROI(200, 25))   # center_bkg del legado
+
+    def __post_init__(self):
+        if not float(self.start_nm) < float(self.end_nm):
+            raise ValueError(f"Rango del Step & Glue inválido: {self.start_nm}–{self.end_nm} nm")
+        if not (0.0 < float(self.overlap) < 1.0):
+            raise ValueError("El solape va entre 0 y 100 %")
+        if not float(self.exposure_s) > 0:
+            raise ValueError("La exposición tiene que ser positiva")
+
+
+MEASURE_MODES = ("minimap", "step_glue", "single")
+
+
+@dataclass
 class LuminescenceGridParams:
     laser: str
     autofocus_every: int = 2                       # 0 = nunca
@@ -72,14 +94,34 @@ class LuminescenceGridParams:
     refresh_reference: bool = False
     grid_name: str = "Load_grid"
     group_size: int = 1000                         # nodos por "columna" del legado (para Col_%03d)
+    measure: str = "minimap"                       # "minimap" | "step_glue" | "single" (DEC-055)
+    step_glue: NodeStepGlueSpec = field(default_factory=NodeStepGlueSpec)
+
+    def __post_init__(self):
+        if self.measure not in MEASURE_MODES:
+            raise ValueError(f"Medición {self.measure!r}: una de {MEASURE_MODES}")
+
+    @property
+    def mode(self) -> str:
+        """La medición efectiva: un mini-mapa apagado es una exposición única (compatibilidad con DEC-054)."""
+        if self.measure == "minimap" and not self.minimap.enabled:
+            return "single"
+        return self.measure
 
     @property
     def needs_optics(self) -> bool:
         return self.center_enabled or int(self.autofocus_every) > 0
 
+    @property
+    def exposure_s(self) -> float:
+        return float(self.step_glue.exposure_s if self.mode == "step_glue" else self.minimap.exposure_s)
+
     def summary(self) -> dict:
         d = asdict(self)
         d["roi"] = {"center_row": self.roi.center_row, "height": self.roi.height, "rows": list(self.roi.rows)}
+        b = self.step_glue.background_roi
+        d["step_glue"]["background_roi"] = {"center_row": b.center_row, "height": b.height, "rows": list(b.rows)}
+        d["mode"] = self.mode
         return d
 
 
@@ -141,9 +183,11 @@ class LuminescenceRunWriter:
         self.params = params
         self.wave = np.asarray(wave, dtype=np.float64)
         self.axis_source = axis_source
-        self.run_dir = os.path.join(save_dir, f"{stamp}_Luminescence_{params.grid_name}")
+        # el nombre de la corrida del legado: Luminescence_ps o Luminescence_steps_ps
+        kind = "Luminescence_Steps" if params.mode == "step_glue" else "Luminescence"
+        self.run_dir = os.path.join(save_dir, f"{stamp}_{kind}_{params.grid_name}")
         os.makedirs(self.run_dir, exist_ok=True)
-        self.h5_path = os.path.join(self.run_dir, f"{stamp}_Luminescence_{params.grid_name}.h5")
+        self.h5_path = os.path.join(self.run_dir, f"{stamp}_{kind}_{params.grid_name}.h5")
         self._dark = dark
         self._dark_header = dark_header
         self._correction = correction
@@ -155,7 +199,7 @@ class LuminescenceRunWriter:
         with h5py.File(self.h5_path, "w") as f:
             f.create_dataset("wavelength_nm", data=self.wave)
             f.attrs["wavelength_source"] = self.axis_source
-            f.attrs["read_mode"] = "Single-Track"
+            f.attrs["read_mode"] = "Image" if self.params.mode == "step_glue" else "Single-Track"
             f.attrs["fiber_rows"] = list(self.params.roi.rows)
             f.attrs["params_json"] = json.dumps(self.params.summary(), default=str)
             f.attrs["dark_header"] = self._dark_header
@@ -177,9 +221,12 @@ class LuminescenceRunWriter:
     def write_info(self, extra_rows: List[Tuple[str, object]]) -> str:
         p = self.params
         mm = p.minimap
+        sg = p.step_glue
+        step_glue = p.mode == "step_glue"
         rows = [
-            ("Laser", p.laser), ("Software", "PySpectrum 3.0 (DEC-054)"),
-            ("Read_mode", "Single-Track"), ("Fiber_rows", f"{p.roi.rows[0]}-{p.roi.rows[1]}"),
+            ("Laser", p.laser), ("Software", "PySpectrum 3.0 (DEC-054, DEC-055)"), ("Measure", p.mode),
+            ("Read_mode", "Image" if step_glue else "Single-Track"),
+            ("Fiber_rows", f"{p.roi.rows[0]}-{p.roi.rows[1]}"),
             ("Axis_source", self.axis_source), ("Axis_points", self.wave.size),
             ("Exposure_s", mm.exposure_s), ("Map_range_um", mm.range_um), ("Map_Nx", mm.nx), ("Map_Ny", mm.ny),
             ("Band_nm", f"{mm.band_nm[0]:g}-{mm.band_nm[1]:g}"), ("Map_CM_threshold", mm.cm_threshold),
@@ -189,11 +236,21 @@ class LuminescenceRunWriter:
             ("Trace_BS_sampling", "una muestra del BS por pixel del mapa (el legado: traza continua)"),
             ("Dark", "aparte, sin restar (ver el .h5)"),
         ]
+        if step_glue:
+            b = sg.background_roi
+            rows += [("StepGlue_nm", f"{sg.start_nm:g}-{sg.end_nm:g}"), ("StepGlue_overlap", sg.overlap),
+                     ("StepGlue_exposure_s", sg.exposure_s), ("Background_rows", f"{b.rows[0]}-{b.rows[1]}"),
+                     ("Line_Spectrum", "promedio de las filas de la fibra; ventanas concatenadas sin coser"),
+                     ("Glued_spectrum", "en el .h5 (coseno elevado de 3.0)")]
         return lf.write_info(self.run_dir, rows + list(extra_rows))
 
     def node_dir(self, index: int) -> str:
         col, npi = legacy_col_np(index, self.params.group_size)
         return os.path.join(self.run_dir, lf.node_folder_name("Slow_Confocal_Spectrum", col, npi))
+
+    def sg_node_dir(self, index: int) -> str:
+        col, npi = legacy_col_np(index, self.params.group_size)
+        return os.path.join(self.run_dir, lf.node_folder_name("Spectrum_luminescence", col, npi))
 
     def write_center(self, index: int, image, gone, back) -> None:
         lf.write_npscan_tiffs(self.run_dir, index, image, gone, back)
@@ -209,6 +266,8 @@ class LuminescenceRunWriter:
 
     def finish_node(self, index: int, node: "NodeRecord") -> None:
         import h5py
+        if node.sg_dir and node.sg_axes:
+            lf.write_step_glue(node.sg_dir, node.sg_axes, node.sg_frames, node.sg_fiber, node.sg_background)
         if node.map_dir:
             if node.map_image is not None and node.map_image.size:
                 lf.write_map_tiff(node.map_dir, node.map_image)
@@ -219,19 +278,28 @@ class LuminescenceRunWriter:
                 del f[name]
             g = f.create_group(name)
             g.attrs["status"] = node.status
-            g.attrs["nominal_um"] = list(node.nominal)
-            g.attrs["target_um"] = list(node.target)
+            # una grilla cargada sin Z deja z = None: en el .h5 va NaN (h5py no guarda None)
+            g.attrs["nominal_um"] = [np.nan if v is None else float(v) for v in node.nominal]
+            g.attrs["target_um"] = [np.nan if v is None else float(v) for v in node.target]
             if node.center_cm is not None:
                 g.attrs["center_cm_um"] = list(node.center_cm)
             if node.map_cm is not None:
                 g.attrs["map_cm_um"] = list(node.map_cm)
             g.attrs["autofocus"] = node.autofocus
             for key in ("center_image", "center_gone", "center_back", "map_image", "map_xs", "map_ys", "cube",
-                        "bs_t", "bs_v", "single_spectrum"):
+                        "bs_t", "bs_v", "single_spectrum", "glued_nm", "glued"):
                 val = getattr(node, key)
                 if val is not None and np.size(val):
                     g.create_dataset(key, data=np.asarray(val, dtype=np.float64),
                                      compression="gzip" if key == "cube" else None)
+            if node.sg_axes:                                   # Step & Glue: cada ventana, sin coser (DEC-055)
+                g.create_dataset("sg_axes_nm", data=np.vstack(node.sg_axes))
+                g.create_dataset("sg_fiber_mean", data=np.vstack(node.sg_fiber))
+                g.create_dataset("sg_background_mean", data=np.vstack(node.sg_background))
+                g.create_dataset("sg_centers_nm", data=np.asarray(node.sg_centers, dtype=np.float64))
+                g.attrs["sg_complete"] = bool(node.sg_complete)
+                g.attrs["sg_detail"] = node.sg_detail
+                g.attrs["sg_window_files"] = json.dumps([os.path.basename(str(p)) for p in node.sg_paths])
 
 
 @dataclass
@@ -253,6 +321,17 @@ class NodeRecord:
     bs_t: list = field(default_factory=list)
     bs_v: list = field(default_factory=list)
     single_spectrum: Optional[np.ndarray] = None
+    sg_dir: str = ""
+    sg_axes: list = field(default_factory=list)
+    sg_frames: list = field(default_factory=list)
+    sg_fiber: list = field(default_factory=list)
+    sg_background: list = field(default_factory=list)
+    sg_centers: list = field(default_factory=list)
+    sg_paths: list = field(default_factory=list)
+    sg_complete: bool = False
+    sg_detail: str = ""
+    glued_nm: Optional[np.ndarray] = None
+    glued: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -263,6 +342,7 @@ class NodeEvents:
     map_update: Callable[[np.ndarray, np.ndarray, np.ndarray], None] = lambda *_a: None
     spectrum: Callable[[np.ndarray, np.ndarray], None] = lambda *_a: None
     map_done: Callable[[np.ndarray, float, float], None] = lambda *_a: None
+    sg_window: Callable[[np.ndarray, np.ndarray, int, int], None] = lambda *_a: None   # eje, fibra, i, n
 
 
 class LuminescenceGridEngine:
@@ -270,7 +350,8 @@ class LuminescenceGridEngine:
 
     def __init__(self, runner, optics, params: LuminescenceGridParams, wave, writer: LuminescenceRunWriter,
                  read_bs: Callable[[], float], events: Optional[NodeEvents] = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, *, spectrometer=None, sg_plan=None, sg_request=None,
+                 run_windows: Optional[Callable] = None):
         self.runner = runner
         self.optics = optics
         self.p = params
@@ -280,6 +361,13 @@ class LuminescenceGridEngine:
         self.ev = events or NodeEvents()
         self.clock = clock
         self.ref_offset = (0.0, 0.0)
+        # Step & Glue por NP (DEC-055): el plan y el pedido se arman una vez por corrida (el backend)
+        self.spectrometer = spectrometer
+        self.sg_plan, self.sg_request = sg_plan, sg_request
+        if run_windows is None:
+            from pyspectrum.modules.step_glue_engine import run_windows as _rw
+            run_windows = _rw
+        self._run_windows = run_windows
 
     def _aborted(self) -> bool:
         return self.runner.aborted()
@@ -295,7 +383,11 @@ class LuminescenceGridEngine:
             r.move_to(x, y, z0)
 
             every = int(p.autofocus_every)
-            if every > 0 and index % every == 0:
+            focus_now = every > 0 and index % every == 0
+            step_glue = p.mode == "step_glue"
+            if step_glue and (focus_now or p.center_enabled):
+                r.set_power("low")                   # el legado enfoca y centra a potencia baja (upFlipper)
+            if focus_now:
                 self.ev.progress("Autofoco Z (lock del satélite)...")
                 sx, sy = (float(v) for v in p.af_shift_um)
                 if sx or sy:
@@ -317,8 +409,12 @@ class LuminescenceGridEngine:
                 self.ev.center(res.image, res.x_um, res.y_um)
                 cx, cy, _ = r.move_to(res.x_um, res.y_um, None)
 
+            if step_glue:
+                r.set_power("high")                  # y mide a potencia alta (downFlipper)
             r.set_mirror("down")
-            if p.minimap.enabled:
+            if step_glue:
+                self._step_glue(index, rec)
+            elif p.mode == "minimap":
                 self._minimap(index, rec, cx, cy)
             else:
                 self._single(rec)
@@ -340,6 +436,61 @@ class LuminescenceGridEngine:
                     self.writer.finish_node(index, rec)
                 except OSError as e:
                     print(f"[Luminiscencia] No se pudo guardar el nodo {index}: {e}")
+
+    def _step_glue(self, index: int, rec: NodeRecord) -> None:
+        """Step & Glue en el centro del NP, con el motor de la pestaña Step & Glue (`run_windows`) en modo Image. De
+        cada ventana: promedio de las filas de la fibra y del fondo, como el legado. Los archivos del legado llevan
+        las ventanas concatenadas sin coser; el .h5, además, el espectro cosido con las filas de la fibra."""
+        from pathlib import Path
+        from pyspectrum.calibration.halogen_lamp import sigmoidal_step_and_glue
+        from pyspectrum.modules.routines.grid_runner import _estopped
+        from pyspectrum.modules.step_glue_engine import StopReason
+        r, p, sg = self.runner, self.p, self.p.step_glue
+        if self.sg_plan is None or self.sg_request is None:
+            raise NodeFailed("Falta el plan del Step & Glue de la corrida.")
+        rec.sg_dir = self.writer.sg_node_dir(index)
+        n = len(self.sg_plan.centers)
+
+        def on_window(w):
+            frame = np.asarray(w.data, dtype=np.float64)
+            if frame.ndim != 2:
+                raise NodeFailed(f"La ventana {w.index + 1} no vino en modo Image (forma {frame.shape}).")
+            fiber = lf.rows_mean(frame, p.roi)
+            rec.sg_axes.append(np.asarray(w.wavelength_axis, dtype=np.float64))
+            rec.sg_frames.append(np.asarray(w.data))
+            rec.sg_fiber.append(fiber)
+            rec.sg_background.append(lf.rows_mean(frame, sg.background_roi))
+            rec.sg_centers.append(float(w.center_nm_requested))
+            if w.path is not None:
+                rec.sg_paths.append(w.path)
+            self.ev.progress(f"Step & Glue: ventana {w.index + 1} / {n}")
+            self.ev.sg_window(rec.sg_axes[-1], fiber, int(w.index), n)
+
+        def on_no_signal(w):
+            rec.sg_detail = f"ventana {w.index + 1} sin señal visible (se siguió)"
+            return True                              # en la grilla se sigue; se anota
+
+        if self._laser_needed():
+            r.laser(p.laser, True)
+        try:
+            res = self._run_windows(self.sg_plan, self.sg_request, r.camera, self.spectrometer,
+                                    run_dir=Path(rec.sg_dir) / "ventanas_3.0", should_abort=r._should_abort,
+                                    on_tick=r.tick, is_estopped=_estopped, on_window=on_window,
+                                    on_no_signal=on_no_signal)
+        finally:
+            if self._laser_needed():
+                r.laser(p.laser, False)
+        rec.sg_complete = bool(res.complete)
+        rec.sg_detail = "; ".join(t for t in (rec.sg_detail, str(res.detail)) if t)
+        if res.complete and rec.sg_fiber:
+            glued = sigmoidal_step_and_glue(rec.sg_axes, rec.sg_fiber)
+            if glued is not None:
+                rec.glued_nm, rec.glued = np.asarray(glued[0], dtype=np.float64), np.asarray(glued[1], dtype=np.float64)
+                self.ev.spectrum(rec.glued_nm, rec.glued)
+            return
+        if res.stop_reason in (StopReason.USER_STOP, StopReason.ESTOP):
+            raise GridAbort(f"Step & Glue detenido: {res.detail}")
+        raise NodeFailed(f"Step & Glue incompleto: {res.detail}")
 
     def _laser_needed(self) -> bool:
         return not self.p.minimap.laser_off

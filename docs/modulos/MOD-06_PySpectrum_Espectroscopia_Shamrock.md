@@ -570,6 +570,13 @@ El motor está en `pyspectrum/modules/routines/luminescence_grid.py` (sin Qt). E
 
 El TIFF `NPscan` de PyPrinting también pasó a float crudo. Antes se normalizaba a uint16 y se perdía la intensidad absoluta.
 
+**Luminiscencia S&G (`DEC-055`).** En la grilla, "Medición en cada NP = Step & Glue" sigue la secuencia de `Luminescence_steps_ps.py`:
+1. enfoca y centra a potencia baja;
+2. mide a potencia alta con el espejo abajo;
+3. recorre las ventanas con `step_glue_engine.run_windows`, con el plan de la corrida (ancho medido y márgenes) y la verificación previa especular.
+
+La lectura es en Image de cuadro completo (`GridRunner.use_full_image`). La fibra y el fondo se promedian por filas (`legacy_files.rows_mean`). Los archivos del legado (`legacy_files.write_step_glue`) llevan las ventanas concatenadas sin coser; el `.h5`, la fibra y el fondo de cada ventana y el espectro cosido con `sigmoidal_step_and_glue` sobre la fibra. El fondo de la grilla (oscuro) se toma en Image, aparte.
+
 **Límites:**
 - `Trace_BS.txt` tiene una muestra por píxel, no una traza continua.
 - El mini-mapa no hace dλ: es la suma en la banda, como el legado.

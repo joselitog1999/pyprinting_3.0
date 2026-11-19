@@ -200,7 +200,7 @@ Fuentes (locales en `docs/bibliografia/` salvo que se indique):
 | BANCO-32 | Corte de impresión real a baja potencia | C-01 | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-33 | Deriva del sistema (≥ 1 h tras termalizar) | `lab-invariants` §6 (deriva 30 nm/min provisoria) | **Láser a baja potencia, con aprobación** | ☐ |
 | BANCO-73 | ¿El Growth del legado (REC Kinetics) funciona en el banco? | Paridad legado ↔ 3.0 (2026-11-19) | Legado, tapa puesta, sin láser | ☐ |
-| BANCO-74 | Luminiscencia de 3.0 con la secuencia del legado; Single-Track contra la suma del cuadro Image | `DEC-054` | Lámpara sin láser; ⚠️ 532 a baja potencia, con aprobación | ☐ |
+| BANCO-74 | Luminiscencia de 3.0 con la secuencia del legado (mini-mapa y S&G); Single-Track contra la suma del cuadro Image | `DEC-054`, `DEC-055` | Lámpara sin láser; ⚠️ 532 a baja potencia, con aprobación | ☐ |
 
 ---
 
@@ -448,9 +448,15 @@ estable si la prueba adquiere datos.
      láser cerrado → espejo arriba. Revisar los archivos: TIFF `NPscan` crudos, `Slow_Confocal_Spectrum_Col_001_NP_000`
      con 25 `Spectrum_i_j.txt` de 1004 filas, el TIFF del mapa y `Trace_BS.txt`, `Info.txt` y el `.h5`.
   3. Abrir un `Spectrum_i_j.txt` y un `NPscan` con los scripts de análisis que se usan con el legado.
+  4. **Luminiscencia S&G (`DEC-055`), con la lámpara y sin láser** ("Láser apagado (scattering)"): grilla de 2 nodos,
+     medición "Step & Glue", 500–700 nm, 20 %, 0.1 s. Verificar el orden potencia baja → (centrado) → potencia alta →
+     espejo abajo → ventanas → espejo arriba, y que `Line_Spectrum_step_N.txt` y `Background_Line_Spectrum_step_N.txt`
+     tengan N × 1004 valores con la fibra por encima del fondo. Medir lo mismo con el legado (Luminescence Steps and
+     Glue) y comparar los perfiles de cada ventana.
 - **Aceptación**: el perfil del paso 1 coincide; la secuencia del paso 2 es la indicada; los archivos se leen con los
-  análisis del legado sin cambios.
-- **Si falla**: no corregir en el momento; anotar y reabrir `DEC-054`.
+  análisis del legado sin cambios; en el paso 4 las ventanas de 3.0 y del legado tienen la misma forma (los centros
+  difieren: 3.0 usa el ancho medido).
+- **Si falla**: no corregir en el momento; anotar y reabrir `DEC-054` o `DEC-055`.
 - **Resultado**: —
 
 ---

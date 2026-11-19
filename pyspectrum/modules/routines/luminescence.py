@@ -81,6 +81,7 @@ class LuminescencePanel(QtWidgets.QWidget):
     nextNodeGridSignal = pyqtSignal()
     abortGridSignal = pyqtSignal()
     fiberRoiChangedSignal = pyqtSignal(int, int)   # fila central y alto de la fibra (DEC-054)
+    measureModeChangedSignal = pyqtSignal(str)     # "minimap" | "step_glue" | "single" (DEC-055)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -341,9 +342,21 @@ class LuminescencePanel(QtWidgets.QWidget):
         ce.addWidget(QtWidgets.QLabel("Filtro (umbral CM):"), 1, 0); ce.addWidget(self.spin_center_thr, 1, 1)
         ctrl_vlo.addWidget(self.box_center)
 
-        # Mini-mapa
-        self.box_minimap = QtWidgets.QGroupBox("🗺️ Mini-mapa hiperespectral en cada NP")
-        self.box_minimap.setCheckable(True); self.box_minimap.setChecked(True)
+        # Medición en cada NP (DEC-055): mini-mapa (Luminescence_ps), Step & Glue (Luminescence_steps_ps) o una
+        # exposición en el centro
+        meas_row = QtWidgets.QHBoxLayout()
+        meas_row.addWidget(QtWidgets.QLabel("Medición en cada NP:"))
+        self.cmb_measure = QtWidgets.QComboBox()
+        for label, key in (("Mini-mapa", "minimap"), ("Step & Glue", "step_glue"), ("Espectro único", "single")):
+            self.cmb_measure.addItem(label, key)
+        self.cmb_measure.setToolTip("Mini-mapa: Luminescence_ps del legado. Step & Glue: Luminescence_steps_ps "
+                                    "(lectura Image, fibra y fondo por software). Espectro único: una exposición "
+                                    "en el centro.")
+        meas_row.addWidget(self.cmb_measure, stretch=1)
+        ctrl_vlo.addLayout(meas_row)
+
+        # Mini-mapa y fila de la fibra
+        self.box_minimap = QtWidgets.QGroupBox("🗺️ Mini-mapa hiperespectral y fila de la fibra")
         self.box_minimap.setToolTip("Una exposición por píxel alrededor del centro. Valor del mapa = Σ I(λ) dentro de "
                                     "la banda, sobre las filas de la fibra (Confocal_Spectrum_ps del legado). Apagado: "
                                     "una sola exposición en el centro.")
@@ -376,6 +389,25 @@ class LuminescencePanel(QtWidgets.QWidget):
         mm.addWidget(self.chk_laser_off, 7, 0, 1, 4)
         ctrl_vlo.addWidget(self.box_minimap)
 
+        self.box_sg = QtWidgets.QGroupBox("🧵 Step & Glue en cada NP")
+        self.box_sg.setToolTip("Como Luminescence_steps_ps del legado: potencia baja para enfocar y centrar, alta "
+                               "para medir; cada ventana en Image, con la fibra y el fondo promediados por filas. "
+                               "Archivos del legado sin coser; el .h5 lleva además el espectro cosido.")
+        sgl = QtWidgets.QGridLayout(self.box_sg)
+        self.spin_sg_start = dspin(150.0, 1500.0, 400.0, 1.0, 1, " nm")
+        self.spin_sg_end = dspin(150.0, 1500.0, 800.0, 1.0, 1, " nm")
+        self.spin_sg_overlap = dspin(5.0, 50.0, 20.0, 5.0, 0, " %", "Solape entre ventanas (legado: 0.2).")
+        self.spin_sg_exp = dspin(0.0001, 10.0, 1.0, 0.1, 4, " s", "Exposición por ventana (tope 10 s).")
+        self.spin_bkg_center = ispin(0, 1001, 200, "", "Fila central del fondo (desde 0; legado: 200).")
+        self.spin_bkg_height = ispin(1, 1002, 25, " filas")
+        sgl.addWidget(QtWidgets.QLabel("λ inicial / final:"), 0, 0)
+        sgl.addWidget(self.spin_sg_start, 0, 1); sgl.addWidget(self.spin_sg_end, 0, 2)
+        sgl.addWidget(QtWidgets.QLabel("Solape:"), 1, 0); sgl.addWidget(self.spin_sg_overlap, 1, 1)
+        sgl.addWidget(QtWidgets.QLabel("Exposición:"), 2, 0); sgl.addWidget(self.spin_sg_exp, 2, 1)
+        sgl.addWidget(QtWidgets.QLabel("Fondo fila / alto:"), 3, 0)
+        sgl.addWidget(self.spin_bkg_center, 3, 1); sgl.addWidget(self.spin_bkg_height, 3, 2)
+        ctrl_vlo.addWidget(self.box_sg)
+
         self.chk_refresh_ref = QtWidgets.QCheckBox("Corregir el origen con el centro del mapa")
         self.chk_refresh_ref.setToolTip("Como \"Refresh reference?\" del legado: el resto de la grilla se corre por "
                                         "(centro de masa del mapa − nodo nominal).")
@@ -400,10 +432,10 @@ class LuminescencePanel(QtWidgets.QWidget):
         self.spin_band_lo.valueChanged.connect(self._on_band_spin_changed)
         self.spin_band_hi.valueChanged.connect(self._on_band_spin_changed)
         for w in (self.spin_map_nx, self.spin_map_ny, self.spin_grid_exp, self.spin_center_px, self.spin_rows,
-                  self.spin_cols):
+                  self.spin_cols, self.spin_sg_start, self.spin_sg_end, self.spin_sg_overlap, self.spin_sg_exp):
             w.valueChanged.connect(self._update_estimate)
-        for b in (self.box_center, self.box_minimap):
-            b.toggled.connect(self._update_estimate)
+        self.box_center.toggled.connect(self._update_estimate)
+        self.cmb_measure.currentIndexChanged.connect(self._on_measure_changed)
 
         from pyspectrum.ui.background_row import BackgroundRow
         self.bg_row_grid = BackgroundRow(default_frames=1)           # un fondo por grilla (R4-N)
@@ -484,6 +516,11 @@ class LuminescencePanel(QtWidgets.QWidget):
         pg_lay.addWidget(self.plot_grid_map, 0, 0)
         pg_lay.addWidget(self.plot_center, 0, 1)
         pg_lay.addWidget(self.plot_minimap, 1, 0)
+        self.plot_sg = pg.PlotWidget(title="<b>Ventanas del Step & Glue (NP actual, fibra)</b>")
+        self.plot_sg.setLabels(bottom="Longitud de Onda (nm)", left="Intensidad (media de filas)")
+        self.plot_sg.hide()
+        self._sg_curves: list = []
+        pg_lay.addWidget(self.plot_sg, 1, 0)
         pg_lay.addWidget(self.plot_grid_spec, 1, 1)
         layout.addWidget(plots, stretch=3)
 
@@ -491,12 +528,43 @@ class LuminescencePanel(QtWidgets.QWidget):
         self._map_wave = None
         self._map_geom = None                 # (xs, ys)
         self._on_roi_changed()
-        self._update_estimate()
+        self._on_measure_changed()
         return page
 
     # ── Interacciones de la grilla (Ronda 3, DEC-054) ──
     MAP_PIXEL_OVERHEAD_S = 0.05      # mover y asentar por píxel del mapa (la lectura Single-Track es despreciable)
+    SG_WINDOW_NM = 103.0             # ventana nominal con 150 l/mm (el plan real usa la medida)
+    SG_WINDOW_OVERHEAD_S = 0.9       # mover la red, asentar (0.3 s) y leer un cuadro completo
     CENTER_LINE_S = 0.12             # una línea de la rampa del confocal en el caso típico (1/8.3 Hz)
+
+    def _mode(self) -> str:
+        return str(self.cmb_measure.currentData())
+
+    def _on_measure_changed(self, *_):
+        """Muestra los controles y el gráfico de la medición elegida (DEC-055)."""
+        mode = self._mode()
+        minimap = mode == "minimap"
+        for w in (self.spin_map_range, self.spin_map_nx, self.spin_map_ny, self.chk_map_lock, self.spin_band_lo,
+                  self.spin_band_hi, self.spin_map_thr):
+            w.setEnabled(minimap)
+        self.spin_map_ny.setEnabled(minimap and not self.chk_map_lock.isChecked())
+        self.spin_grid_exp.setEnabled(mode != "step_glue")
+        self.box_sg.setVisible(mode == "step_glue")
+        self.plot_minimap.setVisible(mode != "step_glue")
+        self.plot_sg.setVisible(mode == "step_glue")
+        self.chk_refresh_ref.setEnabled(minimap)
+        self.measureModeChangedSignal.emit(mode)
+        self._update_estimate()
+
+    @pyqtSlot(np.ndarray, np.ndarray, int, int)
+    def update_sg_window(self, wave: np.ndarray, fiber: np.ndarray, index: int, total: int):
+        if index == 0:
+            for c in self._sg_curves:
+                self.plot_sg.removeItem(c)
+            self._sg_curves = []
+        hue = pg.intColor(index, hues=max(total, 1))
+        self._sg_curves.append(self.plot_sg.plot(np.asarray(wave), np.asarray(fiber), pen=pg.mkPen(hue, width=1.5)))
+        self.plot_sg.setTitle(f"<b>Ventanas del Step & Glue — {index + 1} / {total}</b>")
 
     def _on_nx_changed(self, v: int):
         if self.chk_map_lock.isChecked():
@@ -533,9 +601,15 @@ class LuminescencePanel(QtWidgets.QWidget):
         per = 0.0
         if self.box_center.isChecked():
             per += self.CENTER_LINE_S * self.spin_center_px.value()
-        if self.box_minimap.isChecked():
+        mode = self._mode() if hasattr(self, "cmb_measure") else "minimap"
+        if mode == "minimap":
             per += self.spin_map_nx.value() * self.spin_map_ny.value() * (self.spin_grid_exp.value()
                                                                          + self.MAP_PIXEL_OVERHEAD_S)
+        elif mode == "step_glue":
+            span = max(0.0, self.spin_sg_end.value() - self.spin_sg_start.value())
+            step = self.SG_WINDOW_NM * (1.0 - self.spin_sg_overlap.value() / 100.0)
+            windows = 1 + int(np.ceil(max(0.0, span - self.SG_WINDOW_NM) / step)) if step > 0 else 1
+            per += windows * (self.spin_sg_exp.value() + self.SG_WINDOW_OVERHEAD_S)
         else:
             per += self.spin_grid_exp.value()
         total = per * n
@@ -630,7 +704,11 @@ class LuminescencePanel(QtWidgets.QWidget):
             "af_shift_x": self.spin_af_shift_x.value(), "af_shift_y": self.spin_af_shift_y.value(),
             "center_enabled": self.box_center.isChecked(), "center_range_um": self.spin_center_range.value(),
             "center_pixels": self.spin_center_px.value(), "center_threshold": self.spin_center_thr.value(),
-            "minimap_enabled": self.box_minimap.isChecked(), "map_range_um": self.spin_map_range.value(),
+            "measure": self._mode(), "minimap_enabled": self._mode() == "minimap",
+            "sg_start_nm": self.spin_sg_start.value(), "sg_end_nm": self.spin_sg_end.value(),
+            "sg_overlap": self.spin_sg_overlap.value() / 100.0, "sg_exposure_s": self.spin_sg_exp.value(),
+            "bkg_center_row": self.spin_bkg_center.value(), "bkg_height": self.spin_bkg_height.value(),
+            "map_range_um": self.spin_map_range.value(),
             "map_nx": self.spin_map_nx.value(), "map_ny": self.spin_map_ny.value(),
             "band_lo_nm": self.spin_band_lo.value(), "band_hi_nm": self.spin_band_hi.value(),
             "map_cm_threshold": self.spin_map_thr.value(),
@@ -670,7 +748,7 @@ class LuminescencePanel(QtWidgets.QWidget):
     def update_grid_spectrum(self, wave: np.ndarray, spec: np.ndarray):
         self.curve_grid_spec.setData(wave, self.bg_row_grid.for_display(spec))
         self._map_wave = wave
-        if self.box_minimap.isChecked():
+        if self._mode() == "minimap":
             self._map_spectra.append(np.asarray(spec, dtype=float))
 
     @pyqtSlot()
@@ -717,7 +795,7 @@ class LuminescenceWidget(QtWidgets.QDialog):
         self.on_grid_finished = self.panel.on_grid_finished
         self.set_origin_fields = self.panel.set_origin_fields
         for name in ("update_center_image", "update_minimap", "update_minimap_done", "show_preflight",
-                     "fiberRoiChangedSignal"):
+                     "fiberRoiChangedSignal", "update_sg_window", "measureModeChangedSignal"):
             setattr(self, name, getattr(self.panel, name))
 
 
@@ -745,6 +823,7 @@ class LuminescenceBackend(QtCore.QObject):
     gridMapSignal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray)      # mini-mapa parcial, xs, ys
     gridMapDoneSignal = pyqtSignal(np.ndarray, float, float)            # mini-mapa y su centro de masa (µm)
     gridPreflightSignal = pyqtSignal(str)                               # "" = sin aviso; si no, por qué no arranca
+    gridStepGlueWindowSignal = pyqtSignal(np.ndarray, np.ndarray, int, int)   # eje, fibra, ventana, total (DEC-055)
 
     SESSION_NAME_POINT = "Fotoluminiscencia"
     SESSION_NAME_GRID = "Fotoluminiscencia en Grilla"
@@ -815,11 +894,14 @@ class LuminescenceBackend(QtCore.QObject):
         if hasattr(widget, "lbl_status"):
             self.statusSignal.connect(widget.lbl_status.setText)
         for sig, slot in ((self.gridCenterImageSignal, "update_center_image"), (self.gridMapSignal, "update_minimap"),
-                          (self.gridMapDoneSignal, "update_minimap_done"), (self.gridPreflightSignal, "show_preflight")):
+                          (self.gridMapDoneSignal, "update_minimap_done"), (self.gridPreflightSignal, "show_preflight"),
+                          (self.gridStepGlueWindowSignal, "update_sg_window")):
             if hasattr(widget, slot):
                 sig.connect(getattr(widget, slot))
         if hasattr(widget, "fiberRoiChangedSignal"):
             widget.fiberRoiChangedSignal.connect(self.set_fiber_roi)
+        if hasattr(widget, "measureModeChangedSignal"):
+            widget.measureModeChangedSignal.connect(self.set_measure_mode)
         widget.update_notch_status(self._notch_down)
         if hasattr(widget, "bg_row_point"):
             from pyspectrum.modules.routines.routine_dark import wire_row
@@ -835,12 +917,25 @@ class LuminescenceBackend(QtCore.QObject):
         except ValueError as e:
             self.statusSignal.emit(f"⛔ {e}")
 
+    @pyqtSlot(str)
+    def set_measure_mode(self, mode: str):
+        """La medición elegida en la pestaña: decide el modo de lectura del fondo de la grilla (DEC-055)."""
+        if mode in lg.MEASURE_MODES:
+            self._measure_mode = mode
+
     def _grid_dark_conditions(self, exposure_s: float):
-        """Las condiciones del fondo de la grilla: Single-Track sobre la fibra configurada, no el modo en que esté
-        la cámara al apretar Iniciar."""
+        """Las condiciones del fondo de la grilla, las de la medición y no las del modo en que esté la cámara al
+        apretar Iniciar: Single-Track sobre la fibra (mini-mapa, espectro único) o Image de cuadro completo
+        (Step & Glue, como el legado)."""
         import dataclasses
-        from pyspectrum.drivers.andor_ccd_driver import READ_MODE_SINGLE_TRACK
+        from pyspectrum.drivers.andor_ccd_driver import (DETECTOR_HEIGHT_PX, DETECTOR_WIDTH_PX, READ_MODE_IMAGE,
+                                                         READ_MODE_SINGLE_TRACK)
         from pyspectrum.services import procedure_background as pb
+        if getattr(self, "_measure_mode", "minimap") == "step_glue":
+            cond = pb.read_conditions(self.camera, (DETECTOR_HEIGHT_PX, DETECTOR_WIDTH_PX), exposure_s=exposure_s,
+                                      read_mode=READ_MODE_IMAGE)
+            # como los guarda pylablib: (hstart, hend, vstart, vend, hbin, vbin), desde 0 y fin exclusivo
+            return dataclasses.replace(cond, read_params=(0, DETECTOR_WIDTH_PX, 0, DETECTOR_HEIGHT_PX, 1, 1))
         cond = pb.read_conditions(self.camera, (1004,), exposure_s=exposure_s, read_mode=READ_MODE_SINGLE_TRACK)
         return dataclasses.replace(cond, read_params=tuple(self.fiber_roi.sdk_track))
 
@@ -982,23 +1077,60 @@ class LuminescenceBackend(QtCore.QObject):
                                  exposure_s=float(g("exp_time", 2.0)),
                                  band_nm=(float(g("band_lo_nm", 540.0)), float(g("band_hi_nm", 580.0))),
                                  cm_threshold=float(g("map_cm_threshold", 0.7)), laser_off=bool(g("laser_off", False)))
+        step_glue = lg.NodeStepGlueSpec(
+            start_nm=float(g("sg_start_nm", 400.0)), end_nm=float(g("sg_end_nm", 800.0)),
+            overlap=float(g("sg_overlap", 0.20)), exposure_s=float(g("sg_exposure_s", 1.0)),
+            background_roi=FiberROI(int(g("bkg_center_row", 200)), int(g("bkg_height", 25))))
+        measure = str(g("measure", "minimap" if minimap.enabled else "single"))
         name, group = self._grid_label
         return lg.LuminescenceGridParams(
             laser=str(config["laser"]), autofocus_every=max(0, int(g("autofocus_every", 2))),
             af_shift_um=(float(g("af_shift_x", 0.0)), float(g("af_shift_y", 0.0))),
             center_enabled=bool(g("center_enabled", True)), center=center, minimap=minimap, roi=roi,
-            refresh_reference=bool(g("refresh_reference", False)), grid_name=name, group_size=group)
+            refresh_reference=bool(g("refresh_reference", False)), grid_name=name, group_size=group,
+            measure=measure, step_glue=step_glue)
+
+    def _step_glue_plan(self, params: lg.LuminescenceGridParams):
+        """El pedido y el plan de ventanas de la corrida (DEC-055), con el motor de la pestaña Step & Glue: ancho
+        medido en el eje y márgenes. Devuelve (motivo, pedido, plan); motivo None si se puede medir."""
+        from pyspectrum.drivers.andor_ccd_driver import READ_MODE_IMAGE
+        from pyspectrum.modules import step_glue_engine as sge
+        sg = params.step_glue
+        try:
+            ret, grating = self.spectrometer.ShamrockGetGrating(DEVICE)
+        except Exception as e:
+            return f"No se pudo leer la red del espectrógrafo ({e}).", None, None
+        if ret != 20202:
+            return f"No se pudo leer la red del espectrógrafo (código {ret}).", None, None
+        gain = self.camera.get_emccd_gain() if hasattr(self.camera, "get_emccd_gain") else 0
+        gain = int(gain[1] if isinstance(gain, tuple) else gain)
+        request = sge.StepGlueRequest(start_nm=sg.start_nm, end_nm=sg.end_nm, overlap_frac=sg.overlap,
+                                      exposure_s=sg.exposure_s, read_mode=READ_MODE_IMAGE, grating=int(grating),
+                                      em_gain=gain)
+        the_plan = sge.plan(request, self.spectrometer)
+        rep = sge.preflight(request, the_plan, self.camera, self.spectrometer, mirror_position="down",
+                            open_shutters=[])               # la rutina baja el espejo y abre el láser ella
+        if rep.blockers:
+            return "Step & Glue: " + "; ".join(rep.blockers), None, None
+        return None, request, the_plan
 
     def _preflight(self, params: lg.LuminescenceGridParams) -> Tuple[Optional[str], Optional[SatelliteOptics]]:
         """Lo que impide arrancar, antes de abrir ningún láser: (motivo, servicio del satélite)."""
         optics = None
+        self._sg_plan = self._sg_request = None          # el plan de ventanas es de cada corrida
         if params.needs_optics:
             optics = self.optics_provider() if self.optics_provider is not None else None
             if optics is None:
                 return SATELLITE_MISSING, None
             if params.autofocus_every > 0 and not optics.has_focus_lock():
                 return FOCUS_LOCK_MISSING, None
-        if not hasattr(self.camera, "set_single_track"):
+        if params.mode == "step_glue":
+            if not hasattr(self.camera, "set_image"):
+                return "La cámara no admite el modo Image: el Step & Glue no se puede leer.", None
+            refusal, self._sg_request, self._sg_plan = self._step_glue_plan(params)
+            if refusal:
+                return refusal, None
+        elif not hasattr(self.camera, "set_single_track"):
             return "La cámara no admite Single-Track: la fila de la fibra no se puede leer.", None
         return None, optics
 
@@ -1014,6 +1146,7 @@ class LuminescenceBackend(QtCore.QObject):
             self.gridPreflightSignal.emit(f"Parámetros inválidos: {e}")
             return
         self.fiber_roi = params.roi
+        self._measure_mode = params.mode
         refusal, optics = self._preflight(params)
         if refusal:
             self.statusSignal.emit(f"⛔ {refusal}")
@@ -1024,7 +1157,7 @@ class LuminescenceBackend(QtCore.QObject):
         if wave is None:
             self.statusSignal.emit("⛔ No se pudo leer el eje λ del Shamrock: la grilla no arranca.")
             return
-        exp_time = params.minimap.exposure_s
+        exp_time = params.exposure_s
         refusal = self.grid_dark.check_start(exp_time)
         if refusal:
             self.statusSignal.emit(f"⛔ {refusal}")
@@ -1042,19 +1175,27 @@ class LuminescenceBackend(QtCore.QObject):
             center=lambda img, x, y: self.gridCenterImageSignal.emit(np.asarray(img, dtype=np.float64), float(x), float(y)),
             map_update=lambda m, xs, ys: self.gridMapSignal.emit(np.array(m, copy=True), np.asarray(xs), np.asarray(ys)),
             spectrum=lambda w, s: self.gridSpectrumUpdateSignal.emit(np.asarray(w), np.asarray(s, dtype=np.float64)),
-            map_done=lambda m, x, y: self.gridMapDoneSignal.emit(np.array(m, copy=True), float(x), float(y)))
+            map_done=lambda m, x, y: self.gridMapDoneSignal.emit(np.array(m, copy=True), float(x), float(y)),
+            sg_window=lambda w, f, i, n: self.gridStepGlueWindowSignal.emit(np.asarray(w), np.asarray(f), int(i),
+                                                                            int(n)))
+        sg_plan, sg_request = getattr(self, "_sg_plan", None), getattr(self, "_sg_request", None)
 
         def body(runner, ctl):
             from pyspectrum.modules.optical_support import read_bs_level
             total = len(self.nodes)
-            runner.use_fiber_roi(params.roi)                      # la medición y el fondo, en la fibra
+            if params.mode == "step_glue":
+                runner.use_full_image()                           # Step & Glue: cuadro completo (DEC-055)
+            else:
+                runner.use_fiber_roi(params.roi)                  # la medición y el fondo, en la fibra
             self.run_dark = self.grid_dark.ensure_with(runner.expose, exp_time)
             from pyspectrum.calibration.repository import spectrum_software_correction
             writer = lg.LuminescenceRunWriter(save_dir, params, wave, axis_source, dark=self.run_dark,
                                               correction=spectrum_software_correction(self.spectrometer))
             writer.set_dark_header(self.grid_dark.header_text(self.run_dark, writer.run_dir))
             self.run_dir = writer.run_dir
-            engine = lg.LuminescenceGridEngine(runner, optics, params, wave, writer, read_bs_level, events)
+            engine = lg.LuminescenceGridEngine(runner, optics, params, wave, writer, read_bs_level, events,
+                                               spectrometer=self.spectrometer, sg_plan=sg_plan,
+                                               sg_request=sg_request)
 
             def progress(text):
                 self.gridNodeProgressSignal.emit(self.idx, total, text)

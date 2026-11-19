@@ -232,6 +232,16 @@ class GridRunner:
         if ret != DRV_SUCCESS:
             raise GridAbort(f"La cámara no aceptó el Single-Track de la fibra ({roi!r}; código {ret}).")
 
+    def use_full_image(self) -> None:
+        """Cámara en Image con el cuadro completo (1002 × 1004), sin binning: Luminiscencia S&G lee la fibra y el
+        fondo por software, como el legado (DEC-055). Si la cámara no lo acepta, la corrida no sigue."""
+        from pyspectrum.drivers.andor_ccd_driver import DETECTOR_HEIGHT_PX, DETECTOR_WIDTH_PX, DRV_SUCCESS
+        self.check()
+        ret = self.camera.set_image(1, 1, 1, DETECTOR_WIDTH_PX, 1, DETECTOR_HEIGHT_PX) \
+            if hasattr(self.camera, "set_image") else None
+        if ret != DRV_SUCCESS:
+            raise GridAbort(f"La cámara no aceptó el modo Image de cuadro completo (código {ret}).")
+
     def spectrum_1d(self, exposure_s: float) -> Tuple[np.ndarray, str]:
         """Un espectro 1D con una exposición real (modo de `prepare_1d`). Devuelve (espectro, modo)."""
         shape, name, _mode = self.prepare_1d()

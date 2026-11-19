@@ -1912,6 +1912,62 @@ Closes the three findings left open by the `DEC-030` audit. Each was resolved as
 * **Bench:** `BANCO-74` (new): a low-power 2×2 luminescence grid end to end, and Single-Track against the software sum of the Image frame on the lamp.
 * **Outcome:** **ACCEPTED**.
 
+### DEC-055: Luminescence Step & Glue per NP — the Legacy `Luminescence_steps_ps` on the 3.0 Step & Glue Engine (2026-11-19)
+* **Context:** This is the second priority of the parity work (`DEC-054`). For each NP the legacy routine:
+  * focuses and centres at low power (`upFlipper`);
+  * measures at high power (`downFlipper`) with the laser open, unless in scattering mode;
+  * runs a Step & Glue over [λ₁, λ₂] with the overlap and exposure of the Step & Glue tab (defaults 400–800 nm, 0.2, 1 s);
+  * builds the windows edge-to-edge, 103 nm wide with 150 l/mm and 12 nm with 1200 l/mm;
+  * reads each window in Image mode and averages the fibre rows (438 ± 12) and the background rows (200 ± 12);
+  * saves the windows **concatenated and unglued**: calibration, stacked picture TIFF, `Line_Spectrum_step_N`, `Background_Line_Spectrum_step_N`;
+  * records no trace.
+
+  The legacy raises line 7 to measure in this routine and in Growth, but lowers it in Luminescence. Line 7 is a toggle-mode MFF101 whose position the legacy tracks in a state file.
+* **Deliberation (Round 1, the researcher's answers, 2026-11-19):**
+  * the mirror goes **down** to measure (R1-2);
+  * readout is **Image** like the legacy, with background rows and the stacked TIFF;
+  * **both formats**;
+  * a **measurement mode of the same grid**.
+
+  Defaults not objected to: the grid has its own range, overlap and exposure fields; the 3.0 window plan is used (measured width, margins); power follows the legacy.
+
+  Rounds 2–3 were presented together and approved.
+* **Decision (engine):**
+  * **`luminescence_grid`:**
+    * `NodeStepGlueSpec(start_nm=400, end_nm=800, overlap=0.2, exposure_s=1.0, background_roi=FiberROI(200, 25))`;
+    * `LuminescenceGridParams.measure` ∈ {minimap, step_glue, single}, with `mode` (a disabled mini-map is `single`) and `exposure_s`.
+  * **The engine in step_glue mode:**
+    1. low power before autofocus or centring;
+    2. high power, mirror down, laser open;
+    3. `run_windows(plan, request, …)` with `on_window` taking, from each Image frame, the fibre and background row means, and with `on_no_signal` continuing and noting it;
+    4. laser closed, mirror up.
+
+    A complete run glues the fibre means with `sigmoidal_step_and_glue`. A Stop or E-STOP keeps the windows and marks the node interrupted. Any other incomplete run is a failed node.
+  * **`GridRunner.use_full_image()`** sets Image 1002 × 1004.
+  * **`legacy_files.rows_mean` and `write_step_glue`** write the four legacy files. The picture is uint16 when the counts are integral, like the legacy.
+  * **The writer:**
+    * names the run `<ts>_Luminescence_Steps_<grid>` and the node `Spectrum_luminescence_Col_xxx_NP_xxx`;
+    * stores `sg_axes_nm`, `sg_fiber_mean`, `sg_background_mean`, `sg_centers_nm`, `glued_nm`/`glued` and the window file list in the `.h5`;
+    * writes a missing Z (loaded grids) as NaN; before, h5py rejected the `None`.
+* **Decision (backend):**
+  * `_step_glue_plan` builds a `StepGlueRequest` (read mode Image, the current grating, the EM gain) and calls `step_glue_engine.plan` and `preflight` once per run.
+  * Blockers, such as a specular window or an exposure out of range, refuse the start before any laser opens.
+  * The grid dark's conditions follow the measurement mode: Single-Track over the fibre, or Image full frame.
+  * The mock camera now enters Image mode on `set_image`, like the real driver.
+* **Decision (GUI):**
+  * The "Medición en cada NP" combo enables the mini-map controls only in mini-map mode and shows a "🧵 Step & Glue en cada NP" group (range, overlap %, exposure, background row and height).
+  * In Step & Glue mode, the mini-map plot is swapped for a plot of the node's windows, and the time estimate counts windows.
+* **Tests:** 7 new tests in `tests/test_luminescence_legacy_sequence.py` (23 in total):
+  * `rows_mean` and the legacy file names and sizes;
+  * parameters and validation;
+  * the node's order of power, mirror and laser, with both formats and the glued spectrum;
+  * a stopped sweep kept as interrupted;
+  * an end-to-end grid with the real `run_windows` in `SAFE_MODE`;
+  * the specular refusal;
+  * the GUI ↔ engine contract.
+* **Bench:** `BANCO-74` gains step 4, a two-node Step & Glue luminescence on the lamp compared with the legacy files.
+* **Outcome:** **ACCEPTED**.
+
 ### DEC-002: Dedicated 500 ms Autonomous Watchdog Heartbeat
 > [!WARNING]
 > **SUPERSEDED by `DEC-010` (2026-09-17).** The *architecture* below (autonomous background

@@ -359,3 +359,181 @@ def test_the_tab_sends_the_engine_contract_and_keeps_its_controls_in_sync(app):
     assert "Estimado" in panel.lbl_estimate.text()
     panel.deleteLater()
     backend.deleteLater()
+
+
+# ── Luminiscencia S&G (DEC-055) ─────────────────────────────────────────────────
+
+def _frame(fiber_value=100.0, bkg_value=10.0):
+    f = np.zeros((1002, 1004))
+    f[426:451, :] = fiber_value                                # filas de la fibra (438 ± 12)
+    f[188:213, :] = bkg_value                                  # filas del fondo (200 ± 12)
+    return f
+
+
+def test_rows_mean_and_the_legacy_step_glue_files(tmp_path):
+    from PIL import Image
+    np.testing.assert_allclose(lf.rows_mean(_frame(), FiberROI()), np.full(1004, 100.0))
+    np.testing.assert_allclose(lf.rows_mean(_frame(), FiberROI(200, 25)), np.full(1004, 10.0))
+    axes = [np.linspace(400, 500, 1004), np.linspace(480, 580, 1004)]
+    paths = lf.write_step_glue(str(tmp_path), axes, [_frame(), _frame()], [np.ones(1004)] * 2, [np.zeros(1004)] * 2,
+                               stamp="20261119_120000")
+    names = sorted(os.path.basename(p) for p in paths)
+    assert names == ["20261119_120000_Calibration_Shamrock_Spectrum_step_0002.txt",
+                     "20261119_120000_Picture_Andor_Spectrum_step_0002.tiff",
+                     "Background_Line_Spectrum_step_0002.txt", "Line_Spectrum_step_0002.txt"]
+    assert np.loadtxt(tmp_path / "Line_Spectrum_step_0002.txt").shape == (2 * 1004,)       # sin coser
+    img = np.array(Image.open(tmp_path / "20261119_120000_Picture_Andor_Spectrum_step_0002.tiff"))
+    assert img.shape == (1002, 2 * 1004) and img.dtype == np.uint16                     # como el legado
+
+
+def test_step_glue_params_and_validation():
+    sg = lg.NodeStepGlueSpec()
+    assert (sg.start_nm, sg.end_nm, sg.overlap, sg.exposure_s) == (400.0, 800.0, 0.2, 1.0)
+    assert sg.background_roi.rows == (188, 212)
+    with pytest.raises(ValueError):
+        lg.NodeStepGlueSpec(start_nm=800, end_nm=400)
+    p = lg.LuminescenceGridParams(laser=LASER, measure="step_glue")
+    assert p.mode == "step_glue" and p.exposure_s == 1.0
+    assert lg.LuminescenceGridParams(laser=LASER, minimap=lg.MiniMapSpec(enabled=False)).mode == "single"
+    with pytest.raises(ValueError):
+        lg.LuminescenceGridParams(laser=LASER, measure="growth")
+
+
+class _FakeRunner:
+    """Registra el orden de potencia, espejo y láser."""
+
+    def __init__(self):
+        self.log, self.camera, self.tick = [], object(), (lambda: None)
+        self._should_abort = lambda: False
+
+    def aborted(self):
+        return False
+
+    def move_to(self, x, y, z=None):
+        self.log.append(("move", round(x, 3), round(y, 3)))
+        return x, y, z
+
+    def set_power(self, level):
+        self.log.append(("power", level))
+
+    def set_mirror(self, pos):
+        self.log.append(("mirror", pos))
+
+    def laser(self, name, open_):
+        self.log.append(("laser", open_))
+
+
+def _fake_run_windows(frames, complete=True, reason=None):
+    from types import SimpleNamespace
+    from pyspectrum.modules.step_glue_engine import StopReason
+
+    def run(the_plan, request, camera, spectrometer, *, run_dir, should_abort, on_tick, is_estopped, on_window,
+            on_no_signal):
+        wins = []
+        for i, f in enumerate(frames):
+            w = SimpleNamespace(index=i, data=f, wavelength_axis=np.linspace(400 + 80 * i, 503 + 80 * i, 1004),
+                                center_nm_requested=451.5 + 80 * i, path=None)
+            on_window(w)
+            wins.append(w)
+        return SimpleNamespace(complete=complete, detail="ventanas" if complete else "barrido detenido",
+                               stop_reason=reason or StopReason.COMPLETED, windows=tuple(wins))
+    return run
+
+
+def test_the_step_glue_node_follows_the_legacy_sequence_and_writes_both_formats(tmp_path):
+    import h5py
+    from types import SimpleNamespace
+    p = lg.LuminescenceGridParams(laser=LASER, measure="step_glue", autofocus_every=1, grid_name="1x1")
+    w = lg.LuminescenceRunWriter(str(tmp_path), p, np.linspace(400, 503, 1004), "EEPROM")
+    assert "_Luminescence_Steps_1x1" in w.run_dir
+    r = _FakeRunner()
+    eng = lg.LuminescenceGridEngine(r, _FakeOptics(), p, np.linspace(400, 503, 1004), w, lambda: 1.0,
+                                    sg_plan=SimpleNamespace(centers=[451.5, 531.5]), sg_request=object(),
+                                    run_windows=_fake_run_windows([_frame(), _frame(120.0, 12.0)]))
+    rec = eng.run_node(0, (40.0, 40.0, None))
+    assert rec.status == "done" and rec.sg_complete
+    kinds = [e for e in r.log if e[0] in ("power", "mirror", "laser")]
+    # potencia baja para enfocar y centrar, alta para medir; espejo abajo antes de abrir el láser
+    assert kinds.index(("power", "low")) < kinds.index(("power", "high")) < kinds.index(("mirror", "down")) \
+        < kinds.index(("laser", True)) < kinds.index(("laser", False))
+    assert kinds[-1] == ("mirror", "up")
+    np.testing.assert_allclose(rec.sg_fiber[1], np.full(1004, 120.0))
+    np.testing.assert_allclose(rec.sg_background[0], np.full(1004, 10.0))
+    node = os.path.join(w.run_dir, "Spectrum_luminescence_Col_001_NP_000")
+    assert np.loadtxt(os.path.join(node, "Line_Spectrum_step_0002.txt")).shape == (2008,)
+    assert np.loadtxt(os.path.join(node, "Background_Line_Spectrum_step_0002.txt")).shape == (2008,)
+    with h5py.File(w.h5_path, "r") as f:
+        g = f["node_000"]
+        assert g["sg_fiber_mean"].shape == (2, 1004) and g.attrs["sg_complete"]
+        assert g["glued"].size > 1004 and g["glued_nm"][0] < g["glued_nm"][-1]          # el cosido de 3.0
+        assert f.attrs["read_mode"] == "Image"
+
+
+def test_a_stopped_step_glue_keeps_the_windows_and_marks_the_node_interrupted(tmp_path):
+    import h5py
+    from types import SimpleNamespace
+    from pyspectrum.modules.routines.grid_runner import GridAbort
+    from pyspectrum.modules.step_glue_engine import StopReason
+    p = lg.LuminescenceGridParams(laser=LASER, measure="step_glue", autofocus_every=0, center_enabled=False)
+    w = lg.LuminescenceRunWriter(str(tmp_path), p, np.linspace(400, 503, 1004), "EEPROM")
+    r = _FakeRunner()
+    eng = lg.LuminescenceGridEngine(r, None, p, np.linspace(400, 503, 1004), w, lambda: 1.0,
+                                    sg_plan=SimpleNamespace(centers=[451.5, 531.5, 611.5]), sg_request=object(),
+                                    run_windows=_fake_run_windows([_frame()], complete=False,
+                                                                  reason=StopReason.USER_STOP))
+    with pytest.raises(GridAbort):
+        eng.run_node(0, (40.0, 40.0, None))
+    assert ("laser", False) in r.log
+    with h5py.File(w.h5_path, "r") as f:
+        g = f["node_000"]
+        assert g.attrs["status"] == "interrupted" and g["sg_fiber_mean"].shape == (1, 1004)
+        assert not g.attrs["sg_complete"] and "glued" not in g
+
+
+def test_the_step_glue_grid_runs_end_to_end_with_the_real_engine(be, tmp_path):
+    from pyspectrum.drivers.andor_ccd_driver import READ_MODE_IMAGE
+    be.optics_provider = lambda: _FakeOptics()
+    be.generate_grid(1, 1, 3.0, 0.0, 40.0, 40.0, 5.0)
+    be.start_grid(_cfg(measure="step_glue", autofocus_every=0, sg_start_nm=500.0, sg_end_nm=560.0,
+                       sg_overlap=0.2, sg_exposure_s=0.01))
+    assert be.grid_thread.wait_finished(60)
+    assert be.states == [lm.NODE_DONE], be.states
+    assert be.camera.get_read_mode() == READ_MODE_IMAGE
+    run = next(p for p in (tmp_path / "lum").iterdir() if p.is_dir())
+    assert "_Luminescence_Steps_" in run.name
+    node = run / "Spectrum_luminescence_Col_001_NP_000"
+    lines = list(node.glob("Line_Spectrum_step_*.txt"))
+    assert len(lines) == 1 and np.loadtxt(lines[0]).size % 1004 == 0
+    assert list((node / "ventanas_3.0").glob("ventana_*.npz"))                         # el formato de 3.0
+    assert not nidaq.get_open_shutter_names() and not hardware_session.is_busy
+
+
+def test_a_specular_step_glue_range_does_not_start(be):
+    be.optics_provider = lambda: _FakeOptics()
+    msgs = []
+    be.gridPreflightSignal.connect(msgs.append)
+    be.start_grid(_cfg(measure="step_glue", autofocus_every=0, sg_start_nm=5.0, sg_end_nm=40.0))
+    assert not be._grid_running and msgs and "especular" in msgs[0]
+
+
+def test_the_tab_sends_the_step_glue_contract(app):
+    panel = lm.LuminescencePanel()
+    sent, modes = [], []
+    panel.startGridSignal.connect(sent.append)
+    panel.measureModeChangedSignal.connect(modes.append)
+    panel.cmb_measure.setCurrentIndex(panel.cmb_measure.findData("step_glue"))
+    assert modes[-1] == "step_glue" and not panel.box_sg.isHidden() and not panel.plot_sg.isHidden()
+    assert not panel.spin_map_nx.isEnabled() and not panel.spin_grid_exp.isEnabled()
+    panel.spin_sg_start.setValue(450.0)
+    panel.spin_sg_overlap.setValue(25.0)
+    panel.spin_bkg_center.setValue(210)
+    panel.cmb_grid_mirror.setCurrentIndex(2)
+    panel._on_start_grid()
+    backend = lm.LuminescenceBackend(get_andor_ccd(force_mock=True), get_shamrock(force_mock=True))
+    params = backend._params_from_config(sent[0])
+    assert params.mode == "step_glue" and params.step_glue.start_nm == 450.0
+    assert params.step_glue.overlap == pytest.approx(0.25) and params.step_glue.background_roi == FiberROI(210, 25)
+    panel.update_sg_window(np.linspace(400, 500, 1004), np.ones(1004), 0, 2)
+    assert len(panel._sg_curves) == 1
+    panel.deleteLater()
+    backend.deleteLater()

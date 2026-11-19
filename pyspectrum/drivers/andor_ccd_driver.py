@@ -429,6 +429,7 @@ class _MockAndorCCD:
     def set_image(self, hbin: int = 1, vbin: int = 1, hstart: int = 1, hend: int = 1004, vstart: int = 1, vend: int = 1002) -> int:
         self._image_vstart = int(vstart)
         self._image_vend = int(vend)
+        self._read_mode = READ_MODE_IMAGE          # como el driver real (andor_pylablib.set_image)
         return DRV_SUCCESS
 
     def start_acquisition(self) -> int:

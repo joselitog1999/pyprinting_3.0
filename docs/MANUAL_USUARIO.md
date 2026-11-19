@@ -1018,6 +1018,18 @@ La otra sub-pestaña centraliza los ajustes metrológicos del espectrógrafo y d
     5. cierra el láser, calcula el centro de masa del mapa (umbral 0.7) y sube el espejo.
 
     Sin mini-mapa, toma **una exposición en el centro**, con el láser abierto sólo durante la exposición. Con "Láser apagado (scattering)" no abre ningún láser durante el mapa.
+  - **Medición en cada NP (`DEC-055`):** el combo elige entre **Mini-mapa**, **Step & Glue** y **Espectro único**.
+    - **Step & Glue** repite `Luminescence_steps_ps` del legado:
+      1. enfoca y centra a potencia baja;
+      2. pasa a potencia alta, baja el espejo (espectrómetro, R1-2) y abre el láser, salvo en scattering;
+      3. recorre las ventanas entre λ inicial y λ final con el motor de la pestaña Step & Glue (por defecto 400–800 nm, 20 % de solape y 1 s), en modo **Image**;
+      4. de cada ventana guarda el **promedio** de las filas de la fibra y de las del fondo (por defecto 200 y 25 filas: 188–212), como el legado.
+    - **Archivos.** Van en `<fecha>_Luminescence_Steps_<grilla>/Spectrum_luminescence_Col_xxx_NP_xxx/`:
+      - en el formato del legado: `<fecha>_Calibration_Shamrock_Spectrum_step_N.txt`, `<fecha>_Picture_Andor_Spectrum_step_N.tiff` (los cuadros uno al lado del otro), `Line_Spectrum_step_N.txt` y `Background_Line_Spectrum_step_N.txt`, con las N ventanas **concatenadas sin coser**;
+      - en el formato de 3.0: los `.npz` de cada ventana (en `ventanas_3.0/`) y, en el `.h5`, la fibra y el fondo de cada ventana más el **espectro cosido**.
+    - **Espacio en disco:** ~50 MB por NP con 5 ventanas.
+    - El gráfico del mini-mapa pasa a mostrar las ventanas del NP actual, y el del espectro, el cosido.
+    - Si el rango cae en condición especular, la grilla no arranca.
   - **Necesita el satélite PyPrinting (Microscopio Derecho) abierto** si centra o enfoca, y el **lock de foco** fijado en el satélite si el autofoco no es 0. Si falta algo, la grilla no abre ningún láser y un banner rojo dice qué hacer.
   - **La fila de la fibra** se lee en **Single-Track**: la cámara suma esas filas antes de leer. Por defecto son la fila 438 y 25 filas (426–450), como el legado. El fondo de la grilla se toma en ese mismo modo.
   - **Archivos, en los dos formatos.** Van en `<fecha>_Luminescence_<grilla>/`:
